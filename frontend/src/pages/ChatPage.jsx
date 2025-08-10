@@ -1,4 +1,4 @@
-import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend } from 'react-icons/fi';
+import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend, FiSave } from 'react-icons/fi';
 import React, { useEffect, useRef, useState } from 'react';
 import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -56,7 +56,7 @@ const ChatMessage = ({ message }) => {
 };
 
 const ChatPage = () => {
-  const { configId, chatId } = useParams();
+  const { configId, chatId, qualtricsId } = useParams();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -70,6 +70,8 @@ const ChatPage = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isSavingToQualtrics, setIsSavingToQualtrics] = useState(false);
+  const [lastSavedMessageCount, setLastSavedMessageCount] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
@@ -193,6 +195,53 @@ const ChatPage = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const handleSaveToQualtrics = async () => {
+    if (!qualtricsId || messages.length === 0) return;
+    
+    setIsSavingToQualtrics(true);
+    
+    try {
+      // Get only new messages since last save
+      const newMessages = messages.slice(lastSavedMessageCount);
+      
+      if (newMessages.length === 0) {
+        alert('No new messages to save!');
+        return;
+      }
+      
+      // Format chat data for Qualtrics
+      const chatData = {
+        qualtricsId: qualtricsId,
+        configId: configId,
+        chatId: chatId,
+        messages: newMessages.map((msg, index) => ({
+          messageIndex: lastSavedMessageCount + index + 1,
+          sender: msg.sender,
+          text: msg.text,
+          timestamp: new Date().toISOString()
+        })),
+        totalMessages: messages.length,
+        savedAt: new Date().toISOString()
+      };
+      
+      // Send to backend API endpoint for Qualtrics integration
+      const response = await apiClient.post('/qualtrics/save-chat', chatData);
+      
+      if (response.data.success) {
+        setLastSavedMessageCount(messages.length);
+        alert(`Successfully saved ${newMessages.length} new messages to Qualtrics!`);
+      } else {
+        throw new Error(response.data.message || 'Failed to save to Qualtrics');
+      }
+      
+    } catch (error) {
+      console.error('Error saving to Qualtrics:', error);
+      alert('Failed to save chat to Qualtrics. Please try again.');
+    } finally {
+      setIsSavingToQualtrics(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || !configId) return;
@@ -356,6 +405,27 @@ const ChatPage = () => {
 
         <footer className="p-4 bg-gray-900 border-t border-gray-800 z-0">
           <div className="container mx-auto max-w-4xl">
+            {/* Save to Qualtrics button - positioned above input for better responsiveness */}
+            {qualtricsId && (
+              <div className="mb-3 flex justify-center">
+                <button
+                  onClick={handleSaveToQualtrics}
+                  disabled={isSavingToQualtrics || messages.length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
+                    isSavingToQualtrics || messages.length === 0
+                      ? 'bg-gray-700 text-gray-500'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  } transition-all`}
+                  title={`Save ${messages.length - lastSavedMessageCount} new messages to Qualtrics`}
+                >
+                  {isSavingToQualtrics ? <FiLoader className="animate-spin" /> : <FiSave />}
+                  <span>
+                    {isSavingToQualtrics ? 'Saving...' : 'Save to Qualtrics'}
+                  </span>
+                </button>
+              </div>
+            )}
+            
             <div className="flex items-center gap-2">
               <input
                 ref={inputRef}
@@ -367,6 +437,7 @@ const ChatPage = () => {
                 placeholder="Type your message..."
                 disabled={isLoading || isInitializing}
               />
+              
               <button
                 onClick={handleSend}
                 disabled={isLoading || !input.trim() || isInitializing}

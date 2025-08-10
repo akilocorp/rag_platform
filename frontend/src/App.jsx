@@ -31,7 +31,9 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route element={<PublicChatRoute />}>
-            <Route path="/chat/:configId/:chatId?" element={<ChatPage />} />
+            <Route path="/chat/:configId/:chatId/:qualtricsId" element={<ChatPage />} />
+            <Route path="/chat/:configId/:chatId" element={<ChatPage />} />
+            <Route path="/chat/:configId" element={<ChatPage />} />
           </Route>
           {/* Protected Routes - Requires authentication */}
           <Route element={<ProtectedRoute />}>
