@@ -103,34 +103,7 @@ def format_chat_for_qualtrics(messages):
     
     return "\n\n".join(formatted_lines)
 
-def get_qualtrics_datacenter(api_token):
-    """
-    Discover the Qualtrics datacenter from the API token
-    """
-    try:
-        # Use the whoami endpoint to get user info and datacenter
-        url = "https://yourdatacenterid.qualtrics.com/API/v3/whoami"
-        headers = {'X-API-TOKEN': api_token}
-        
-        # Try common datacenters
-        datacenters = ['iad1', 'ca1', 'eu', 'au1', 'sg1', 'fra1', 'co1']
-        
-        for dc in datacenters:
-            test_url = f"https://{dc}.qualtrics.com/API/v3/whoami"
-            try:
-                response = requests.get(test_url, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    print(f"Successfully connected to Qualtrics datacenter: {dc}")
-                    return dc
-            except:
-                continue
-        
-        print("Could not determine Qualtrics datacenter")
-        return None
-        
-    except Exception as e:
-        print(f"Error determining datacenter: {str(e)}")
-        return None
+
 
 def extract_survey_id_from_response(response_id, api_token, datacenter):
     """
@@ -147,45 +120,17 @@ def extract_survey_id_from_response(response_id, api_token, datacenter):
             data = response.json()
             survey_id = data.get('result', {}).get('surveyId')
             if survey_id:
-                print(f"Found survey ID: {survey_id} for response: {response_id}")
+                logger.info(f"Found survey ID: {survey_id} for response: {response_id}")
                 return survey_id
         else:
-            print(f"Could not find response {response_id}: {response.status_code}")
+            logger.error(f"Could not find response {response_id}: {response.status_code}")
             
     except Exception as e:
-        print(f"Error extracting survey ID: {str(e)}")
+        logger.error(f"Error extracting survey ID: {str(e)}")
     
     return None
 
-def save_via_webhook(webhook_url, qualtrics_id, formatted_chat, chat_summary):
-    """Save data via Qualtrics webhook (often available on free accounts)"""
-    try:
-        webhook_data = {
-            'response_id': qualtrics_id,
-            'chat_data': formatted_chat,
-            'chat_summary': chat_summary,
-            'timestamp': datetime.now().isoformat(),
-            'total_messages': chat_summary.get('total_messages', 0),
-            'new_messages_count': chat_summary.get('new_messages_count', 0)
-        }
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': 'RAG-Platform-Chat-Saver/1.0'
-        }
-        
-        response = requests.post(webhook_url, headers=headers, json=webhook_data, timeout=30)
-        
-        if response.status_code in [200, 201, 202]:
-            print(f"Successfully saved chat via webhook for response {qualtrics_id}")
-            return True
-        else:
-            print(f"Webhook error: {response.status_code} - {response.text}")
-            return False
-            
-    except Exception as e:
-        print(f"Webhook save error: {str(e)}")
-        return False
+
 
 def save_via_api(api_token, qualtrics_id, formatted_chat, chat_summary):
     """Save data via Qualtrics API (requires paid account) - Production ready"""
@@ -208,19 +153,14 @@ def save_via_api(api_token, qualtrics_id, formatted_chat, chat_summary):
         else:
             logger.info("Basic Qualtrics save (no enterprise credentials)")
         
-        # Use configured datacenter or auto-discover
+        # Use configured datacenter (required for enterprise setup)
         datacenter = os.getenv('QUALTRICS_DATACENTER')
-        if datacenter:
-            logger.info(f"Using configured datacenter: {datacenter}")
-        else:
-            logger.info("No datacenter configured, auto-discovering...")
-            datacenter = get_qualtrics_datacenter(api_token)
-            if datacenter:
-                logger.info(f"Auto-discovered datacenter: {datacenter}")
-        
         if not datacenter:
-            logger.error("Failed to determine Qualtrics datacenter - check API token validity")
+            logger.error("QUALTRICS_DATACENTER not configured in environment variables")
+            logger.error("Enterprise setup requires datacenter to be specified in .env file")
             return False
+        
+        logger.info(f"Using configured datacenter: {datacenter}")
         
         # Extract survey ID from response ID
         survey_id = extract_survey_id_from_response(qualtrics_id, api_token, datacenter)
@@ -282,26 +222,19 @@ def save_via_api(api_token, qualtrics_id, formatted_chat, chat_summary):
 
 def save_to_qualtrics_api(qualtrics_id, formatted_chat, chat_summary):
     """
-    Save data to Qualtrics via API (primary) or Webhook (fallback)
+    Save data to Qualtrics via API (enterprise setup)
     Production-ready with proper error handling and logging
     """
     try:
-        # Primary method: API token (for paid accounts)
+        # Enterprise API method (required)
         api_token = os.getenv('QUALTRICS_API_TOKEN')
-        if api_token:
-            logger.info(f"Using Qualtrics API method for response ID: {qualtrics_id}")
-            return save_via_api(api_token, qualtrics_id, formatted_chat, chat_summary)
+        if not api_token:
+            logger.error("QUALTRICS_API_TOKEN not configured in environment variables")
+            logger.error("Enterprise setup requires API token to be specified in .env file")
+            return False
         
-        # Fallback method: Webhook (for free accounts)
-        webhook_url = os.getenv('QUALTRICS_WEBHOOK_URL')
-        if webhook_url:
-            logger.info(f"Using Qualtrics webhook method for response ID: {qualtrics_id}")
-            return save_via_webhook(webhook_url, qualtrics_id, formatted_chat, chat_summary)
-        
-        # Development mode (no credentials configured)
-        logger.warning("Neither Qualtrics API token nor webhook URL configured - running in development mode")
-        logger.info(f"Would save {len(chat_summary.get('messages', []))} messages to Qualtrics response: {qualtrics_id}")
-        return True
+        logger.info(f"Using Qualtrics API method for response ID: {qualtrics_id}")
+        return save_via_api(api_token, qualtrics_id, formatted_chat, chat_summary)
         
     except Exception as e:
         logger.error(f"Error in save_to_qualtrics_api: {str(e)}")
@@ -309,9 +242,8 @@ def save_to_qualtrics_api(qualtrics_id, formatted_chat, chat_summary):
 
 @qualtrics_bp.route('/qualtrics/test', methods=['GET'])
 def test_qualtrics_connection():
-    """Test endpoint to verify Qualtrics API or webhook configuration - Production ready"""
+    """Test endpoint to verify Qualtrics API configuration - Enterprise setup"""
     api_token = os.getenv('QUALTRICS_API_TOKEN')
-    webhook_url = os.getenv('QUALTRICS_WEBHOOK_URL')
     
     # Get all enterprise credentials
     org_id = os.getenv('QUALTRICS_ORG_ID')
@@ -321,15 +253,14 @@ def test_qualtrics_connection():
     
     config_status = {
         'api_token_configured': bool(api_token),
-        'webhook_url_configured': bool(webhook_url),
-        'ready_for_production': bool(api_token or webhook_url),
-        'preferred_method': 'api' if api_token else ('webhook' if webhook_url else 'development_mode'),
-        'enterprise_setup': bool(org_id and user_id and username),
+        'datacenter_configured': bool(datacenter),
+        'ready_for_production': bool(api_token and datacenter),
+        'enterprise_setup': bool(org_id and user_id and username and datacenter),
         'credentials': {
             'org_id': org_id or 'Not configured',
             'user_id': user_id or 'Not configured', 
             'username': username or 'Not configured',
-            'datacenter': datacenter or 'Auto-discovery enabled'
+            'datacenter': datacenter or 'Not configured'
         },
         'timestamp': datetime.now().isoformat()
     }
@@ -339,13 +270,16 @@ def test_qualtrics_connection():
         try:
             logger.info("Testing Qualtrics API connection")
             
-            # Use provided datacenter or auto-discover
+            # Use configured datacenter (required for enterprise setup)
             datacenter = os.getenv('QUALTRICS_DATACENTER')
             if not datacenter:
-                datacenter = get_qualtrics_datacenter(api_token)
-            
-            config_status['datacenter_discovered'] = datacenter
-            config_status['api_connection_successful'] = bool(datacenter)
+                logger.error("QUALTRICS_DATACENTER not configured - enterprise setup requires datacenter")
+                config_status['datacenter_discovered'] = None
+                config_status['api_connection_successful'] = False
+                config_status['error'] = "Datacenter not configured in environment variables"
+            else:
+                config_status['datacenter_discovered'] = datacenter
+                config_status['api_connection_successful'] = True
             
             # Add credential validation info
             config_status['user_id'] = os.getenv('QUALTRICS_USER_ID', 'Not configured')
@@ -363,18 +297,5 @@ def test_qualtrics_connection():
             config_status['api_connection_successful'] = False
             config_status['api_error'] = str(e)
             logger.error(f"API test error: {str(e)}")
-    
-    # Test webhook if configured (fallback method)
-    if webhook_url:
-        try:
-            logger.info("Testing Qualtrics webhook connection")
-            response = requests.get(webhook_url, timeout=10)
-            config_status['webhook_accessible'] = True
-            config_status['webhook_status'] = response.status_code
-            logger.info(f"Webhook test successful - status: {response.status_code}")
-        except Exception as e:
-            config_status['webhook_accessible'] = False
-            config_status['webhook_status'] = f'Connection failed: {str(e)}'
-            logger.error(f"Webhook test error: {str(e)}")
     
     return jsonify(config_status)
