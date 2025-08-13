@@ -381,14 +381,14 @@ const ConfigPage = () => {
                   <p className="mt-1 text-sm text-red-400">{errors.prompt_template}</p>
                 )}
                 <p className="mt-2 text-xs text-gray-400">
-                  Use placeholders like {{context}} and {{query}} that will be replaced during runtime
+                  Use placeholders like {'{context}'} and {'{query}'} that will be replaced during runtime
                 </p>
               </div>
             )}
 
             <div>
               <label htmlFor="temperature" className="block text-sm font-medium text-gray-300 mb-2">
-                Temprature
+                Temperature
                 <span className="text-xs text-gray-400 ml-2">
                   ({config.temperature < 0.3 ? 'Precise' : config.temperature < 0.7 ? 'Balanced' : 'Creative'})
                 </span>

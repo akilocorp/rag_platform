@@ -205,6 +205,7 @@ Answer:"""
             "prompt_template": final_prompt_template, # Save the dynamically created template
             "temperature": temperature,
             "is_public": is_public,
+            "config_type": "normal",  # Add config type for normal configs
             "documents": uploaded_filenames  # Store the filenames of uploaded documents
         }
         

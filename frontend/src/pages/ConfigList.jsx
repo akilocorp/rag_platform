@@ -1,18 +1,24 @@
-import { FaCog, FaPlus, FaRobot, FaSpinner } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaChartBar } from 'react-icons/fa';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
+import ConfigTypeModal from '../components/ConfigTypeModal';
 import apiClient from '../api/apiClient';
 
 // Your perfect ConfigItem component remains exactly the same
 const ConfigItem = ({ config, onSelect, onEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const isQualtrics = config.config_type === 'qualtrics';
 
   return (
     <div
       className={`relative bg-gray-800/50 backdrop-blur-sm p-6 rounded-xl border border-gray-700/50 shadow-lg transition-all duration-300 ${
-        isHovered ? 'border-indigo-500/50 transform -translate-y-1' : 'hover:border-gray-600'
+        isHovered 
+          ? isQualtrics 
+            ? 'border-green-500/50 transform -translate-y-1' 
+            : 'border-indigo-500/50 transform -translate-y-1'
+          : 'hover:border-gray-600'
       }`}
       onClick={() => {
         if (!config.config_id) {
@@ -26,16 +32,29 @@ const ConfigItem = ({ config, onSelect, onEdit }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="flex items-start space-x-4">
-        <div className="flex-shrink-0 p-3 bg-indigo-500/10 rounded-lg text-indigo-400">
-          <FaRobot className="text-xl" />
+        <div className={`flex-shrink-0 p-3 rounded-lg ${
+          isQualtrics 
+            ? 'bg-green-500/10 text-green-400' 
+            : 'bg-indigo-500/10 text-indigo-400'
+        }`}>
+          {isQualtrics ? <FaChartBar className="text-xl" /> : <FaRobot className="text-xl" />}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-bold text-white truncate">{config.bot_name}</h3>
+          <div className="flex items-center space-x-2">
+            <h3 className="text-lg font-bold text-white truncate">{config.bot_name}</h3>
+            {isQualtrics && (
+              <span className="px-2 py-1 text-xs rounded-full bg-green-500/20 text-green-400 font-medium">
+                Qualtrics
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-400 mt-1">Model: {config.model_name}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {isHovered && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl pointer-events-none">
-                <div className="px-3 py-1 text-xs font-medium bg-indigo-500/90 text-white rounded-full">
+                <div className={`px-3 py-1 text-xs font-medium text-white rounded-full ${
+                  isQualtrics ? 'bg-green-500/90' : 'bg-indigo-500/90'
+                }`}>
                   Click to chat
                 </div>
               </div>
@@ -66,6 +85,7 @@ const ConfigListPage = () => {
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showTypeModal, setShowTypeModal] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -73,6 +93,7 @@ const ConfigListPage = () => {
     const loadPageData = async () => {
       setLoading(true);
       try {
+        // Fetch all configurations from single endpoint (now includes config_type field)
         const response = await apiClient.get('/config_list');
         setConfigs(response.data.configs);
       } catch (err) {
@@ -95,7 +116,21 @@ const ConfigListPage = () => {
       setError('Failed to select configuration');
       return;
     }
-    navigate(`/chat/${configId}`);
+    
+    // Find the config to check its type
+    const config = configs.find(c => c._id === configId);
+    
+    if (config?.config_type === 'qualtrics') {
+      // For Qualtrics configs, prompt for response ID
+      const qualtricsId = prompt('Enter your Qualtrics Response ID to link this chat to your survey response:');
+      if (qualtricsId && qualtricsId.trim()) {
+        navigate(`/chat/${configId}/${crypto.randomUUID()}/${qualtricsId.trim()}`);
+      }
+      // If no response ID provided, don't navigate
+    } else {
+      // For normal configs, navigate normally
+      navigate(`/chat/${configId}`);
+    }
   };
 
   const onEdit = (config) => {
@@ -108,7 +143,15 @@ const ConfigListPage = () => {
   };
 
   const handleCreateNew = () => {
-    navigate('/config');
+    setShowTypeModal(true);
+  };
+
+  const handleTypeSelect = (type) => {
+    if (type === 'normal') {
+      navigate('/config');
+    } else if (type === 'qualtrics') {
+      navigate('/qualtrics-config');
+    }
   };
 
   return (
@@ -194,6 +237,13 @@ const ConfigListPage = () => {
             </>
           )}
         </div>
+
+        {/* Config Type Modal */}
+        <ConfigTypeModal
+          isOpen={showTypeModal}
+          onClose={() => setShowTypeModal(false)}
+          onSelectType={handleTypeSelect}
+        />
       </div>
     </div>
   );

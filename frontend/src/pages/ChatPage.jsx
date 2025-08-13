@@ -1,4 +1,4 @@
-import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend } from 'react-icons/fi';
+import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend, FiSave } from 'react-icons/fi';
 import React, { useEffect, useRef, useState } from 'react';
 import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -56,7 +56,7 @@ const ChatMessage = ({ message }) => {
 };
 
 const ChatPage = () => {
-  const { configId, chatId } = useParams();
+  const { configId, chatId, qualtricsId } = useParams();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -70,6 +70,8 @@ const ChatPage = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [lastSavedMessageCount, setLastSavedMessageCount] = useState(0);
+  const [isSavingToQualtrics, setIsSavingToQualtrics] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
@@ -79,7 +81,46 @@ const ChatPage = () => {
     setMessages([]);
     setInput('');
     setError(null);
+    setLastSavedMessageCount(0);
     setTimeout(() => setIsInitializing(false), 300);
+  };
+
+  const handleSaveToQualtrics = async () => {
+    if (!chatId || !configId) {
+      console.error('Missing required parameters for Qualtrics save');
+      return;
+    }
+
+    console.log('Qualtrics save attempt:', { configId, chatId, qualtricsId }); // Debug log
+
+    // Check if qualtricsId is in URL
+    let responseId = qualtricsId;
+    if (!responseId) {
+      // Show warning and ask user to provide Response ID
+      alert('⚠️ Warning: No Qualtrics Response ID found in URL.\n\nTo save to Qualtrics, you need to access this chat with a Response ID in the URL format:\n/chat/{configId}/{chatId}/{responseId}');
+      return;
+    }
+
+    setIsSavingToQualtrics(true);
+    try {
+      const response = await apiClient.post('/qualtrics/save-chat', {
+        config_id: configId,
+        chat_id: chatId,
+        qualtrics_id: responseId,
+        last_saved_count: lastSavedMessageCount
+      });
+
+      if (response.data.saved_count) {
+        setLastSavedMessageCount(response.data.saved_count);
+      }
+      
+      console.log('Chat saved to Qualtrics successfully');
+    } catch (error) {
+      console.error('Error saving to Qualtrics:', error);
+      setError('Failed to save chat to Qualtrics');
+    } finally {
+      setIsSavingToQualtrics(false);
+    }
   };
 
   useEffect(() => {
@@ -356,6 +397,40 @@ const ChatPage = () => {
 
         <footer className="p-4 bg-gray-900 border-t border-gray-800 z-0">
           <div className="container mx-auto max-w-4xl">
+            {/* Qualtrics Save Button - Only visible if config is Qualtrics type */}
+            {config?.config_type === 'qualtrics' && (
+              <div className="mb-4 flex justify-center">
+                <button
+                  onClick={handleSaveToQualtrics}
+                  disabled={isSavingToQualtrics}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${
+                    isSavingToQualtrics
+                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+                  title={
+                    messages.length > lastSavedMessageCount 
+                      ? `Save ${messages.length - lastSavedMessageCount} new messages to Qualtrics`
+                      : 'Save chat to Qualtrics'
+                  }
+                >
+                  {isSavingToQualtrics ? (
+                    <FiLoader className="animate-spin" />
+                  ) : (
+                    <FiSave />
+                  )}
+                  <span>
+                    {isSavingToQualtrics 
+                      ? 'Saving to Qualtrics...' 
+                      : messages.length > lastSavedMessageCount
+                        ? `Save to Qualtrics (${messages.length - lastSavedMessageCount} new)`
+                        : 'Save to Qualtrics'
+                    }
+                  </span>
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 ref={inputRef}

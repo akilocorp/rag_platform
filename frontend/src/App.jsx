@@ -8,6 +8,7 @@ import './App.css'; // Assuming you still have some base CSS or will use Tailwin
 import RegisterPage from './pages/RegistrationPage';
 import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
+import QualtricsConfigPage from './pages/QualtricsConfigPage';
 import ChatPage from './pages/ChatPage';
 import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
@@ -32,6 +33,7 @@ function App() {
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route element={<PublicChatRoute />}>
             <Route path="/chat/:configId/:chatId?" element={<ChatPage />} />
+            <Route path="/chat/:configId/:chatId/:qualtricsId" element={<ChatPage />} />
           </Route>
           {/* Protected Routes - Requires authentication */}
           <Route element={<ProtectedRoute />}>
@@ -47,6 +49,7 @@ function App() {
             } />
             {}
             <Route path="/config" element={<ConfigPage />} />
+            <Route path="/qualtrics-config" element={<QualtricsConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/config_list" element={<ConfigList />} />
 
