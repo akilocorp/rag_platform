@@ -355,13 +355,7 @@ const ChatPage = () => {
   }, []);
 
   useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'hidden' && config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount) {
-        await autoSaveToQualtrics();
-      }
-    };
-
-    // Use pagehide event instead of beforeunload to avoid browser dialog
+    // Only save on actual page leave, not tab switch
     const handlePageHide = async (event) => {
       if (config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount) {
         // Perform auto-save without preventing default (no browser dialog)
@@ -369,11 +363,9 @@ const ChatPage = () => {
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
     };
   }, [config, messages.length, lastSavedMessageCount, chatId, configId, qualtricsId]);
