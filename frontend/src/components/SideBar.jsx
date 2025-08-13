@@ -27,6 +27,7 @@ export const ChatSidebar = ({
   onClose, 
   onToggle,
   onNewChat,
+  onNavigateWithAutoSave,
   isPublic
 }) => {
   const { chatId: activeChatId } = useParams();
@@ -97,6 +98,15 @@ export const ChatSidebar = ({
     }
   };
 
+  const handleConfigsClick = (e) => {
+    if (onNavigateWithAutoSave) {
+      e.preventDefault();
+      onNavigateWithAutoSave(() => {
+        navigate('/config_list');
+      });
+    }
+  };
+
   const menuItems = [
     {
       icon: <FiPlus className="w-5 h-5" />,
@@ -109,7 +119,8 @@ export const ChatSidebar = ({
       icon: <FiChevronLeft className="w-5 h-5" />,
       text: 'Configs',
       link: `/config_list`,
-      active: false
+      active: false,
+      onClick: handleConfigsClick
     },
   ];
 

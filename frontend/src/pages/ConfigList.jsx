@@ -134,12 +134,28 @@ const ConfigListPage = () => {
   };
 
   const onEdit = (config) => {
+    console.log('ConfigList - Original config object:', config);
+    console.log('ConfigList - Config.config_id:', config.config_id);
+    console.log('ConfigList - Config._id:', config._id);
+    console.log('ConfigList - Config.config_type:', config.config_type);
+    
     const configForEdit = {
       ...config,
-      _id: config._id,
+      config_id: config.config_id, // Use the config_id from backend
+      _id: config.config_id, // Set _id to config_id for compatibility
       documents: config.documents || [] // Ensure documents are included
     };
-    navigate(`/edit-config`, { state: { config: configForEdit } });
+    
+    console.log('ConfigList - ConfigForEdit object:', configForEdit);
+    
+    // Navigate to appropriate edit page based on config type
+    if (config.config_type === 'qualtrics') {
+      console.log('ConfigList - Navigating to edit-qualtrics-config');
+      navigate(`/edit-qualtrics-config`, { state: { config: configForEdit } });
+    } else {
+      console.log('ConfigList - Navigating to edit-config');
+      navigate(`/edit-config`, { state: { config: configForEdit } });
+    }
   };
 
   const handleCreateNew = () => {

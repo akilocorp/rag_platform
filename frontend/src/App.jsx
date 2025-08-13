@@ -14,6 +14,7 @@ import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
 import SideBar from './components/SideBar'; // Import the SideBar component
 import EditConfigPage from './pages/EditConfigPage';
+import EditQualtricsConfigPage from './pages/EditQualtricsConfigPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/qualtrics-config" element={<QualtricsConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
+            <Route path="/edit-qualtrics-config" element={<EditQualtricsConfigPage />} />
             <Route path="/config_list" element={<ConfigList />} />
 
           </Route>

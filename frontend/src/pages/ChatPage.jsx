@@ -72,17 +72,102 @@ const ChatPage = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [lastSavedMessageCount, setLastSavedMessageCount] = useState(0);
   const [isSavingToQualtrics, setIsSavingToQualtrics] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
 
-  const handleNewChat = () => {
-    setIsInitializing(true);
-    setMessages([]);
-    setInput('');
-    setError(null);
-    setLastSavedMessageCount(0);
-    setTimeout(() => setIsInitializing(false), 300);
+  // Navigation with auto-save function
+  const handleNavigationWithAutoSave = async (navigationFn) => {
+    // Prevent navigation if auto-save is already in progress
+    if (isAutoSaving) {
+      return;
+    }
+
+    // Auto-save current chat before navigation if needed
+    if (config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount && qualtricsId) {
+      try {
+        await autoSaveToQualtrics();
+        // Wait for auto-save to complete before proceeding
+        while (isAutoSaving) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        console.error('Auto-save failed before navigation:', error);
+        // Still proceed with navigation even if auto-save fails
+      }
+    }
+    
+    // Execute the navigation function
+    if (navigationFn) {
+      navigationFn();
+    }
+  };
+
+  // Auto-save function with visible loading
+  const autoSaveToQualtrics = async () => {
+    if (!chatId || !configId || !qualtricsId || messages.length <= lastSavedMessageCount) {
+      return;
+    }
+
+    // Prevent overlapping auto-saves
+    if (isAutoSaving) {
+      return;
+    }
+
+    setIsAutoSaving(true);
+    setSaveAlert(null);
+    
+    try {
+      const response = await apiClient.post('/qualtrics/save-chat', {
+        config_id: configId,
+        chat_id: chatId,
+        qualtrics_id: qualtricsId,
+        last_saved_count: lastSavedMessageCount
+      });
+
+      if (response.data.saved_count) {
+        setLastSavedMessageCount(response.data.saved_count);
+      }
+      
+      console.log('Chat auto-saved to Qualtrics successfully');
+      
+      // Show success alert
+      setSaveAlert({
+        type: 'success',
+        message: `✅ Auto-saved ${response.data.saved_count || messages.length} messages to Qualtrics successfully!`
+      });
+      
+      // Auto-hide success alert after 3 seconds
+      setTimeout(() => setSaveAlert(null), 3000);
+      
+    } catch (error) {
+      console.error('Error auto-saving to Qualtrics:', error);
+      
+      // Show error alert
+      setSaveAlert({
+        type: 'error',
+        message: `❌ Failed to auto-save to Qualtrics: ${error.response?.data?.message || error.message || 'Unknown error'}`
+      });
+      
+      // Auto-hide error alert after 5 seconds
+      setTimeout(() => setSaveAlert(null), 5000);
+      
+    } finally {
+      setIsAutoSaving(false);
+    }
+  };
+
+  const handleNewChat = async () => {
+    await handleNavigationWithAutoSave(() => {
+      setIsInitializing(true);
+      setMessages([]);
+      setInput('');
+      setError(null);
+      setLastSavedMessageCount(0);
+      setTimeout(() => setIsInitializing(false), 300);
+    });
   };
 
   const handleSaveToQualtrics = async () => {
@@ -115,9 +200,43 @@ const ChatPage = () => {
       }
       
       console.log('Chat saved to Qualtrics successfully');
+      
+      // Show success alert
+      setSaveAlert({
+        type: 'success',
+        message: `✅ Successfully saved ${response.data.saved_count || messages.length} messages to Qualtrics!`
+      });
+      
+      // Auto-hide success alert after 3 seconds
+      setTimeout(() => setSaveAlert(null), 3000);
+      
     } catch (error) {
       console.error('Error saving to Qualtrics:', error);
-      setError('Failed to save chat to Qualtrics');
+      
+      // Show detailed error message
+      let errorMessage = '❌ Failed to save to Qualtrics: ';
+      if (error.response?.status === 404) {
+        errorMessage += 'Survey or Response not found. Please check your Survey ID and Response ID.';
+      } else if (error.response?.status === 401) {
+        errorMessage += 'Authentication failed. Please check your API token.';
+      } else if (error.response?.status === 403) {
+        errorMessage += 'Access denied. You may not have permission to modify this survey response.';
+      } else if (error.response?.data?.message) {
+        errorMessage += error.response.data.message;
+      } else if (error.message) {
+        errorMessage += error.message;
+      } else {
+        errorMessage += 'Unknown error occurred.';
+      }
+      
+      setSaveAlert({
+        type: 'error',
+        message: errorMessage
+      });
+      
+      // Auto-hide error alert after 7 seconds (longer for errors)
+      setTimeout(() => setSaveAlert(null), 7000);
+      
     } finally {
       setIsSavingToQualtrics(false);
     }
@@ -235,8 +354,43 @@ const ChatPage = () => {
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'hidden' && config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount) {
+        await autoSaveToQualtrics();
+      }
+    };
+
+    // Use pagehide event instead of beforeunload to avoid browser dialog
+    const handlePageHide = async (event) => {
+      if (config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount) {
+        // Perform auto-save without preventing default (no browser dialog)
+        await autoSaveToQualtrics();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [config, messages.length, lastSavedMessageCount, chatId, configId, qualtricsId]);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || !configId) return;
+
+    // If starting a new chat and there are unsaved messages in current chat, auto-save first
+    if (!chatId && config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount && qualtricsId) {
+      // Wait for auto-save to complete before starting new chat
+      await autoSaveToQualtrics();
+    }
+
+    // Prevent starting new message if auto-save is still in progress
+    if (isAutoSaving) {
+      return; // Don't proceed if auto-save is still running
+    }
 
     const userMessage = { sender: 'user', text: input };
 
@@ -314,6 +468,7 @@ const ChatPage = () => {
           onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           onClose={() => setShowSidebar(false)}
           onNewChat={handleNewChat}
+          onNavigateWithAutoSave={handleNavigationWithAutoSave}
           isPublic={config?.is_public}
         />
 	
@@ -333,6 +488,7 @@ const ChatPage = () => {
               isCollapsed={false}
               onClose={() => setShowSidebar(false)}
               onNewChat={handleNewChat}
+              onNavigateWithAutoSave={handleNavigationWithAutoSave}
             />
           </div>
         </div>
@@ -348,6 +504,38 @@ const ChatPage = () => {
             <div className="flex flex-col items-center">
               <FaSpinner className="animate-spin text-3xl text-indigo-400 mb-4" />
               <p className="text-gray-400">Loading chat...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Auto-save loading overlay */}
+        {isAutoSaving && (
+          <div className="absolute inset-0 z-20 bg-gray-900/90 backdrop-blur-sm flex items-center justify-center">
+            <div className="flex flex-col items-center bg-gray-800 p-6 rounded-xl border border-green-500/50">
+              <FaSpinner className="animate-spin text-3xl text-green-400 mb-4" />
+              <p className="text-green-400 font-medium">Auto-saving to Qualtrics...</p>
+              <p className="text-gray-400 text-sm mt-2">Please wait, do not close this page</p>
+            </div>
+          </div>
+        )}
+
+        {/* Save Alert Notification */}
+        {saveAlert && (
+          <div className={`fixed top-4 right-4 z-30 p-4 rounded-lg shadow-lg border max-w-md ${
+            saveAlert.type === 'success' 
+              ? 'bg-green-900/90 border-green-500/50 text-green-100' 
+              : 'bg-red-900/90 border-red-500/50 text-red-100'
+          }`}>
+            <div className="flex items-start space-x-3">
+              <div className="flex-1">
+                <p className="text-sm font-medium">{saveAlert.message}</p>
+              </div>
+              <button
+                onClick={() => setSaveAlert(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
           </div>
         )}
