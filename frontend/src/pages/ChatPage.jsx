@@ -133,26 +133,26 @@ const ChatPage = () => {
       
       console.log('Chat auto-saved to Qualtrics successfully');
       
-      // Show success alert
-      setSaveAlert({
-        type: 'success',
-        message: `✅ Auto-saved ${response.data.saved_count || messages.length} messages to Qualtrics successfully!`
-      });
+      // Show success alert - TEMPORARILY HIDDEN
+      // setSaveAlert({
+      //   type: 'success',
+      //   message: `✅ Auto-saved ${response.data.saved_count || messages.length} messages to Qualtrics successfully!`
+      // });
       
       // Auto-hide success alert after 3 seconds
-      setTimeout(() => setSaveAlert(null), 3000);
+      // setTimeout(() => setSaveAlert(null), 3000);
       
     } catch (error) {
       console.error('Error auto-saving to Qualtrics:', error);
       
-      // Show error alert
-      setSaveAlert({
-        type: 'error',
-        message: `❌ Failed to auto-save to Qualtrics: ${error.response?.data?.message || error.message || 'Unknown error'}`
-      });
+      // Show error alert - TEMPORARILY HIDDEN
+      // setSaveAlert({
+      //   type: 'error',
+      //   message: `❌ Failed to auto-save to Qualtrics: ${error.response?.data?.message || error.message || 'Unknown error'}`
+      // });
       
       // Auto-hide error alert after 5 seconds
-      setTimeout(() => setSaveAlert(null), 5000);
+      // setTimeout(() => setSaveAlert(null), 5000);
       
     } finally {
       setIsAutoSaving(false);
@@ -201,14 +201,14 @@ const ChatPage = () => {
       
       console.log('Chat saved to Qualtrics successfully');
       
-      // Show success alert
-      setSaveAlert({
-        type: 'success',
-        message: `✅ Successfully saved ${response.data.saved_count || messages.length} messages to Qualtrics!`
-      });
+      // Show success alert - TEMPORARILY HIDDEN
+      // setSaveAlert({
+      //   type: 'success',
+      //   message: `✅ Successfully saved ${response.data.saved_count || messages.length} messages to Qualtrics!`
+      // });
       
       // Auto-hide success alert after 3 seconds
-      setTimeout(() => setSaveAlert(null), 3000);
+      // setTimeout(() => setSaveAlert(null), 3000);
       
     } catch (error) {
       console.error('Error saving to Qualtrics:', error);
@@ -229,13 +229,14 @@ const ChatPage = () => {
         errorMessage += 'Unknown error occurred.';
       }
       
-      setSaveAlert({
-        type: 'error',
-        message: errorMessage
-      });
+      // Error alert - TEMPORARILY HIDDEN
+      // setSaveAlert({
+      //   type: 'error',
+      //   message: errorMessage
+      // });
       
       // Auto-hide error alert after 7 seconds (longer for errors)
-      setTimeout(() => setSaveAlert(null), 7000);
+      // setTimeout(() => setSaveAlert(null), 7000);
       
     } finally {
       setIsSavingToQualtrics(false);
@@ -577,8 +578,8 @@ const ChatPage = () => {
 
         <footer className="p-4 bg-gray-900 border-t border-gray-800 z-0">
           <div className="container mx-auto max-w-4xl">
-            {/* Qualtrics Save Button - Only visible if config is Qualtrics type */}
-            {config?.config_type === 'qualtrics' && (
+            {/* Qualtrics Save Button - TEMPORARILY HIDDEN */}
+            {/* {config?.config_type === 'qualtrics' && (
               <div className="mb-4 flex justify-center">
                 <button
                   onClick={handleSaveToQualtrics}
@@ -609,7 +610,7 @@ const ChatPage = () => {
                   </span>
                 </button>
               </div>
-            )}
+            )} */}
 
             <div className="flex items-center gap-2">
               <input

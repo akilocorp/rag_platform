@@ -212,40 +212,56 @@ def create_qualtrics_config():
 def save_chat_to_qualtrics():
     """Save chat messages to Qualtrics"""
     try:
+        logger.info("=== QUALTRICS SAVE CHAT REQUEST STARTED ===")
         data = request.get_json()
         config_id = data.get('config_id')
         chat_id = data.get('chat_id')
         qualtrics_id = data.get('qualtrics_id')  # This is the response ID
         last_saved_count = data.get('last_saved_count', 0)
         
+        logger.info(f"Request parameters:")
+        logger.info(f"  - config_id: {config_id}")
+        logger.info(f"  - chat_id: {chat_id}")
+        logger.info(f"  - qualtrics_id: {qualtrics_id[:10] if qualtrics_id else 'None'}...")
+        logger.info(f"  - last_saved_count: {last_saved_count}")
+        
         if not all([config_id, chat_id, qualtrics_id]):
+            logger.error("Missing required parameters for Qualtrics save")
             return jsonify({'error': 'Missing required parameters'}), 400
         
         # Validate Response ID format for security
         import re
+        logger.info(f"Validating Response ID format...")
         if not re.match(r'^R_[a-zA-Z0-9]{10,50}$', qualtrics_id):
             logger.warning(f"Invalid Response ID format attempted: {qualtrics_id[:10]}...")
             return jsonify({'error': 'Invalid Response ID format'}), 400
+        logger.info(f"Response ID format validation passed")
         
         # Get Qualtrics configuration
+        logger.info(f"Fetching Qualtrics configuration for config_id: {config_id}")
         config = Config.get_collection().find_one({'_id': ObjectId(config_id), 'config_type': 'qualtrics'})
         
         if not config:
+            logger.error(f"Qualtrics configuration not found for config_id: {config_id}")
             return jsonify({'error': 'Qualtrics configuration not found'}), 404
         
         logger.info(f"Found Qualtrics config: {config.get('bot_name', 'Unknown')} for user {config.get('user_id', 'Unknown')}")
         logger.info(f"Qualtrics config keys: {list(config.get('qualtrics_config', {}).keys())}")
         
         # Get chat messages from message_store collection
+        logger.info(f"Fetching chat messages for chat_id: {chat_id}")
         message_collection = current_app.config['MONGO_DB']['message_store']
         message_docs = list(message_collection.find({'SessionId': chat_id}).sort('_id', 1))
         
+        logger.info(f"Found {len(message_docs)} message documents in database")
         if not message_docs:
+            logger.error(f"No chat messages found for chat_id: {chat_id}")
             return jsonify({'error': 'No chat messages found'}), 404
         
         # Convert message documents to the expected format
+        logger.info(f"Processing message documents...")
         messages = []
-        for doc in message_docs:
+        for i, doc in enumerate(message_docs):
             try:
                 history_data = json.loads(doc['History'])
                 message = {
@@ -254,33 +270,54 @@ def save_chat_to_qualtrics():
                     'timestamp': doc['_id'].generation_time.isoformat()
                 }
                 messages.append(message)
+                logger.debug(f"Processed message {i+1}: {message['sender']} - {len(message['message'])} chars")
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse message: {e}")
+                logger.warning(f"Failed to parse message {i+1}: {e}")
                 continue
         
+        logger.info(f"Successfully processed {len(messages)} total messages")
+        
         # Only save new messages (incremental save)
+        logger.info(f"Applying incremental save logic:")
+        logger.info(f"  - Total messages: {len(messages)}")
+        logger.info(f"  - Last saved count: {last_saved_count}")
+        logger.info(f"  - New messages to save: {len(messages) - last_saved_count}")
+        
         new_messages = messages[last_saved_count:]
         
         if not new_messages:
-            return jsonify({'message': 'No new messages to save'}), 200
+            logger.info("No new messages to save - returning early")
+            return jsonify({'message': 'No new messages to save', 'saved_count': len(messages)}), 200
         
         # Prepare Qualtrics config
+        logger.info(f"Preparing Qualtrics configuration...")
         qualtrics_config = {
             'api_token': config['qualtrics_config']['api_token'],
             'datacenter': config['qualtrics_config']['datacenter'],
             'survey_id': config['qualtrics_config'].get('survey_id'),
             'response_id': qualtrics_id
         }
+        logger.info(f"Qualtrics config prepared:")
+        logger.info(f"  - datacenter: {qualtrics_config['datacenter']}")
+        logger.info(f"  - survey_id: {qualtrics_config['survey_id']}")
+        logger.info(f"  - response_id: {qualtrics_id[:10]}...")
+        logger.info(f"  - api_token: [REDACTED]")
         
         # Save to Qualtrics
+        logger.info(f"Calling Qualtrics API to save {len(messages)} total messages...")
         success, message = save_to_qualtrics_api(messages, config_id, chat_id, qualtrics_config)
         
         if success:
+            logger.info(f"=== QUALTRICS SAVE SUCCESSFUL ===")
+            logger.info(f"Successfully saved {len(messages)} messages to Qualtrics")
+            logger.info(f"Response message: {message}")
             return jsonify({
                 'message': message,
                 'saved_count': len(messages)
             }), 200
         else:
+            logger.error(f"=== QUALTRICS SAVE FAILED ===")
+            logger.error(f"Failed to save to Qualtrics: {message}")
             return jsonify({'error': message}), 500
             
     except Exception as e:
