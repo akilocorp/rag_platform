@@ -1,4 +1,4 @@
-import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend, FiSave } from 'react-icons/fi';
+import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend } from 'react-icons/fi';
 import React, { useEffect, useRef, useState } from 'react';
 import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -8,6 +8,8 @@ import { FaSpinner } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { marked } from 'marked';
+// Import Qualtrics integration utility
+import '../utils/qualtricsIntegration.js';
 
 const ChatMessage = ({ message }) => {
 
@@ -55,9 +57,95 @@ const ChatMessage = ({ message }) => {
   );
 };
 
+// Enhanced Qualtrics integration using utility
+const addMessageToQualtrics = (sender, content) => {
+  // Use the enhanced utility function if available
+  if (window.addMessageToQualtrics) {
+    return window.addMessageToQualtrics(sender, content);
+  }
+  
+  // Fallback for direct integration (if not in iframe)
+  if (window.ragChatHistory) {
+    const message = {
+      sender: sender,
+      content: content,
+      timestamp: new Date().toISOString(),
+      messageIndex: window.ragChatHistory.length + 1
+    };
+    
+    window.ragChatHistory.push(message);
+    console.log('📨 Message added to Qualtrics history:', message);
+    
+    // Send to parent window if in iframe
+    if (window.parent !== window) {
+      try {
+        window.parent.postMessage({
+          type: 'CHAT_MESSAGE',
+          sender: sender,
+          content: content,
+          timestamp: message.timestamp,
+          messageIndex: message.messageIndex
+        }, '*');
+      } catch (error) {
+        console.warn('Could not send message to parent window:', error);
+      }
+    }
+  }
+};
+
 const ChatPage = () => {
   const { configId, chatId, qualtricsId } = useParams();
   const navigate = useNavigate();
+  
+  // Initialize Qualtrics integration when component mounts
+  useEffect(() => {
+    if (qualtricsId && configId) {
+      // Initialize RAG Qualtrics integration
+      if (window.RAGQualtrics && window.RAGQualtrics.initialize) {
+        const initSuccess = window.RAGQualtrics.initialize({
+          configId: configId,
+          responseId: qualtricsId,
+          chatId: chatId || `chat_${Date.now()}`,
+          hiddenQuestionId: 'QID1_ChatHistory' // Update with actual QID
+        });
+        
+        if (initSuccess) {
+          console.log('🚀 Qualtrics integration initialized for chat');
+        }
+      } else {
+        // Fallback initialization
+        window.ragChatHistory = window.ragChatHistory || [];
+        window.ragChatConfig = {
+          configId: configId,
+          responseId: qualtricsId,
+          chatId: chatId || `chat_${Date.now()}`,
+          initialized: true
+        };
+        console.log('📝 Basic Qualtrics integration initialized');
+      }
+    }
+  }, [configId, chatId, qualtricsId]);
+  
+  // Debug: Log Qualtrics integration status
+  useEffect(() => {
+    if (qualtricsId) {
+      const logStatus = () => {
+        const stats = window.RAGQualtrics?.getStats?.() || {
+          messageCount: window.ragChatHistory?.length || 0,
+          isInitialized: !!(window.ragChatConfig?.initialized),
+          configId: window.ragChatConfig?.configId || null
+        };
+        console.log('📊 Qualtrics Integration Status:', stats);
+      };
+      
+      // Log initial status
+      logStatus();
+      
+      // Log status every 30 seconds for debugging
+      const interval = setInterval(logStatus, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [qualtricsId]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -70,94 +158,16 @@ const ChatPage = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [lastSavedMessageCount, setLastSavedMessageCount] = useState(0);
-  const [isSavingToQualtrics, setIsSavingToQualtrics] = useState(false);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
 
-  // Navigation with auto-save function
-  const handleNavigationWithAutoSave = async (navigationFn) => {
-    // Prevent navigation if auto-save is already in progress
-    if (isAutoSaving) {
-      return;
-    }
-
-    // Auto-save current chat before navigation if needed
-    if (config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount && qualtricsId) {
-      try {
-        await autoSaveToQualtrics();
-        // Wait for auto-save to complete before proceeding
-        while (isAutoSaving) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      } catch (error) {
-        console.error('Auto-save failed before navigation:', error);
-        // Still proceed with navigation even if auto-save fails
-      }
-    }
-    
-    // Execute the navigation function
-    if (navigationFn) {
-      navigationFn();
-    }
+  // Simple navigation handler (Qualtrics client-side JS handles saving)
+  const handleNavigationWithAutoSave = (navigationFn) => {
+    if (navigationFn) navigationFn();
   };
 
-  // Auto-save function with visible loading
-  const autoSaveToQualtrics = async () => {
-    if (!chatId || !configId || !qualtricsId || messages.length <= lastSavedMessageCount) {
-      return;
-    }
-
-    // Prevent overlapping auto-saves
-    if (isAutoSaving) {
-      return;
-    }
-
-    setIsAutoSaving(true);
-    setSaveAlert(null);
-    
-    try {
-      const response = await apiClient.post('/qualtrics/save-chat', {
-        config_id: configId,
-        chat_id: chatId,
-        qualtrics_id: qualtricsId,
-        last_saved_count: lastSavedMessageCount
-      });
-
-      if (response.data.saved_count) {
-        setLastSavedMessageCount(response.data.saved_count);
-      }
-      
-      console.log('Chat auto-saved to Qualtrics successfully');
-      
-      // Show success alert - TEMPORARILY HIDDEN
-      // setSaveAlert({
-      //   type: 'success',
-      //   message: `✅ Auto-saved ${response.data.saved_count || messages.length} messages to Qualtrics successfully!`
-      // });
-      
-      // Auto-hide success alert after 3 seconds
-      // setTimeout(() => setSaveAlert(null), 3000);
-      
-    } catch (error) {
-      console.error('Error auto-saving to Qualtrics:', error);
-      
-      // Show error alert - TEMPORARILY HIDDEN
-      // setSaveAlert({
-      //   type: 'error',
-      //   message: `❌ Failed to auto-save to Qualtrics: ${error.response?.data?.message || error.message || 'Unknown error'}`
-      // });
-      
-      // Auto-hide error alert after 5 seconds
-      // setTimeout(() => setSaveAlert(null), 5000);
-      
-    } finally {
-      setIsAutoSaving(false);
-    }
-  };
 
   const handleNewChat = async () => {
     await handleNavigationWithAutoSave(() => {
@@ -165,83 +175,10 @@ const ChatPage = () => {
       setMessages([]);
       setInput('');
       setError(null);
-      setLastSavedMessageCount(0);
       setTimeout(() => setIsInitializing(false), 300);
     });
   };
 
-  const handleSaveToQualtrics = async () => {
-    if (!chatId || !configId) {
-      console.error('Missing required parameters for Qualtrics save');
-      return;
-    }
-
-    console.log('Qualtrics save attempt:', { configId, chatId, qualtricsId }); // Debug log
-
-    // Check if qualtricsId is in URL
-    let responseId = qualtricsId;
-    if (!responseId) {
-      // Show warning and ask user to provide Response ID
-      alert('⚠️ Warning: No Qualtrics Response ID found in URL.\n\nTo save to Qualtrics, you need to access this chat with a Response ID in the URL format:\n/chat/{configId}/{chatId}/{responseId}');
-      return;
-    }
-
-    setIsSavingToQualtrics(true);
-    try {
-      const response = await apiClient.post('/qualtrics/save-chat', {
-        config_id: configId,
-        chat_id: chatId,
-        qualtrics_id: responseId,
-        last_saved_count: lastSavedMessageCount
-      });
-
-      if (response.data.saved_count) {
-        setLastSavedMessageCount(response.data.saved_count);
-      }
-      
-      console.log('Chat saved to Qualtrics successfully');
-      
-      // Show success alert - TEMPORARILY HIDDEN
-      // setSaveAlert({
-      //   type: 'success',
-      //   message: `✅ Successfully saved ${response.data.saved_count || messages.length} messages to Qualtrics!`
-      // });
-      
-      // Auto-hide success alert after 3 seconds
-      // setTimeout(() => setSaveAlert(null), 3000);
-      
-    } catch (error) {
-      console.error('Error saving to Qualtrics:', error);
-      
-      // Show detailed error message
-      let errorMessage = '❌ Failed to save to Qualtrics: ';
-      if (error.response?.status === 404) {
-        errorMessage += 'Survey or Response not found. Please check your Survey ID and Response ID.';
-      } else if (error.response?.status === 401) {
-        errorMessage += 'Authentication failed. Please check your API token.';
-      } else if (error.response?.status === 403) {
-        errorMessage += 'Access denied. You may not have permission to modify this survey response.';
-      } else if (error.response?.data?.message) {
-        errorMessage += error.response.data.message;
-      } else if (error.message) {
-        errorMessage += error.message;
-      } else {
-        errorMessage += 'Unknown error occurred.';
-      }
-      
-      // Error alert - TEMPORARILY HIDDEN
-      // setSaveAlert({
-      //   type: 'error',
-      //   message: errorMessage
-      // });
-      
-      // Auto-hide error alert after 7 seconds (longer for errors)
-      // setTimeout(() => setSaveAlert(null), 7000);
-      
-    } finally {
-      setIsSavingToQualtrics(false);
-    }
-  };
 
   useEffect(() => {
     const fetchConfigDetails = async () => {
@@ -355,37 +292,19 @@ const ChatPage = () => {
     inputRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    // Only save on actual page leave, not tab switch
-    const handlePageHide = async (event) => {
-      if (config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount) {
-        // Perform auto-save without preventing default (no browser dialog)
-        await autoSaveToQualtrics();
-      }
-    };
-
-    window.addEventListener('pagehide', handlePageHide);
-
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-    };
-  }, [config, messages.length, lastSavedMessageCount, chatId, configId, qualtricsId]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || !configId) return;
 
-    // If starting a new chat and there are unsaved messages in current chat, auto-save first
-    if (!chatId && config?.config_type === 'qualtrics' && messages.length > lastSavedMessageCount && qualtricsId) {
-      // Wait for auto-save to complete before starting new chat
-      await autoSaveToQualtrics();
-    }
-
-    // Prevent starting new message if auto-save is still in progress
-    if (isAutoSaving) {
-      return; // Don't proceed if auto-save is still running
-    }
 
     const userMessage = { sender: 'user', text: input };
+
+    // Add user message to Qualtrics history
+    try {
+      addMessageToQualtrics('user', input);
+    } catch (error) {
+      console.warn('Failed to add user message to Qualtrics:', error);
+    }
 
     setMessages(prev => [...prev, userMessage, { sender: 'ai', isTyping: true }]);
     setInput('');
@@ -408,6 +327,13 @@ const ChatPage = () => {
             text: response.data.response,
             sources: response.data.sources || []
         };
+
+      // Add AI response to Qualtrics history
+      try {
+        addMessageToQualtrics('ai', response.data.response);
+      } catch (error) {
+        console.warn('Failed to add AI response to Qualtrics:', error);
+      }
 
      setMessages(prev => {
             // Remove the last item (the typing indicator)
@@ -501,16 +427,7 @@ const ChatPage = () => {
           </div>
         )}
 
-        {/* Auto-save loading overlay */}
-        {isAutoSaving && (
-          <div className="absolute inset-0 z-20 bg-gray-900/90 backdrop-blur-sm flex items-center justify-center">
-            <div className="flex flex-col items-center bg-gray-800 p-6 rounded-xl border border-green-500/50">
-              <FaSpinner className="animate-spin text-3xl text-green-400 mb-4" />
-              <p className="text-green-400 font-medium">Auto-saving to Qualtrics...</p>
-              <p className="text-gray-400 text-sm mt-2">Please wait, do not close this page</p>
-            </div>
-          </div>
-        )}
+        {/* Legacy auto-save overlay - no longer needed with client-side approach */}
 
         {/* Save Alert Notification */}
         {saveAlert && (
@@ -578,39 +495,6 @@ const ChatPage = () => {
 
         <footer className="p-4 bg-gray-900 border-t border-gray-800 z-0">
           <div className="container mx-auto max-w-4xl">
-            {/* Qualtrics Save Button - TEMPORARILY HIDDEN */}
-            {/* {config?.config_type === 'qualtrics' && (
-              <div className="mb-4 flex justify-center">
-                <button
-                  onClick={handleSaveToQualtrics}
-                  disabled={isSavingToQualtrics}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${
-                    isSavingToQualtrics
-                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}
-                  title={
-                    messages.length > lastSavedMessageCount 
-                      ? `Save ${messages.length - lastSavedMessageCount} new messages to Qualtrics`
-                      : 'Save chat to Qualtrics'
-                  }
-                >
-                  {isSavingToQualtrics ? (
-                    <FiLoader className="animate-spin" />
-                  ) : (
-                    <FiSave />
-                  )}
-                  <span>
-                    {isSavingToQualtrics 
-                      ? 'Saving to Qualtrics...' 
-                      : messages.length > lastSavedMessageCount
-                        ? `Save to Qualtrics (${messages.length - lastSavedMessageCount} new)`
-                        : 'Save to Qualtrics'
-                    }
-                  </span>
-                </button>
-              </div>
-            )} */}
 
             <div className="flex items-center gap-2">
               <input
