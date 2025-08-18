@@ -3,13 +3,12 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
-import ConfigTypeModal from '../components/ConfigTypeModal';
 import apiClient from '../api/apiClient';
 
 // Your perfect ConfigItem component remains exactly the same
 const ConfigItem = ({ config, onSelect, onEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const isQualtrics = config.config_type === 'qualtrics';
+  const isQualtrics = false; // Removed Qualtrics config type
 
   return (
     <div
@@ -32,21 +31,12 @@ const ConfigItem = ({ config, onSelect, onEdit }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="flex items-start space-x-4">
-        <div className={`flex-shrink-0 p-3 rounded-lg ${
-          isQualtrics 
-            ? 'bg-green-500/10 text-green-400' 
-            : 'bg-indigo-500/10 text-indigo-400'
-        }`}>
-          {isQualtrics ? <FaChartBar className="text-xl" /> : <FaRobot className="text-xl" />}
+        <div className="flex-shrink-0 p-3 rounded-lg bg-indigo-500/10 text-indigo-400">
+          <FaRobot className="text-xl" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2">
             <h3 className="text-lg font-bold text-white truncate">{config.bot_name}</h3>
-            {isQualtrics && (
-              <span className="px-2 py-1 text-xs rounded-full bg-green-500/20 text-green-400 font-medium">
-                Qualtrics
-              </span>
-            )}
           </div>
           <p className="text-sm text-gray-400 mt-1">Model: {config.model_name}</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -85,7 +75,6 @@ const ConfigListPage = () => {
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showTypeModal, setShowTypeModal] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -93,7 +82,7 @@ const ConfigListPage = () => {
     const loadPageData = async () => {
       setLoading(true);
       try {
-        // Fetch all configurations from single endpoint (now includes config_type field)
+        // Fetch all configurations from single endpoint
         const response = await apiClient.get('/config_list');
         setConfigs(response.data.configs);
       } catch (err) {
@@ -117,20 +106,8 @@ const ConfigListPage = () => {
       return;
     }
     
-    // Find the config to check its type
-    const config = configs.find(c => c._id === configId);
-    
-    if (config?.config_type === 'qualtrics') {
-      // For Qualtrics configs, prompt for response ID
-      const qualtricsId = prompt('Enter your Qualtrics Response ID to link this chat to your survey response:');
-      if (qualtricsId && qualtricsId.trim()) {
-        navigate(`/chat/${configId}/${crypto.randomUUID()}/${qualtricsId.trim()}`);
-      }
-      // If no response ID provided, don't navigate
-    } else {
-      // For normal configs, navigate normally
-      navigate(`/chat/${configId}`);
-    }
+    // All configs are normal now - navigate directly to chat
+    navigate(`/chat/${configId}`);
   };
 
   const onEdit = (config) => {
@@ -148,26 +125,13 @@ const ConfigListPage = () => {
     
     console.log('ConfigList - ConfigForEdit object:', configForEdit);
     
-    // Navigate to appropriate edit page based on config type
-    if (config.config_type === 'qualtrics') {
-      console.log('ConfigList - Navigating to edit-qualtrics-config');
-      navigate(`/edit-qualtrics-config`, { state: { config: configForEdit } });
-    } else {
-      console.log('ConfigList - Navigating to edit-config');
-      navigate(`/edit-config`, { state: { config: configForEdit } });
-    }
+    // Navigate to edit page (all configs use normal edit now)
+    console.log('ConfigList - Navigating to edit-config');
+    navigate(`/edit-config`, { state: { config: configForEdit } });
   };
 
   const handleCreateNew = () => {
-    setShowTypeModal(true);
-  };
-
-  const handleTypeSelect = (type) => {
-    if (type === 'normal') {
-      navigate('/config');
-    } else if (type === 'qualtrics') {
-      navigate('/qualtrics-config');
-    }
+    navigate('/config');
   };
 
   return (
@@ -254,12 +218,6 @@ const ConfigListPage = () => {
           )}
         </div>
 
-        {/* Config Type Modal */}
-        <ConfigTypeModal
-          isOpen={showTypeModal}
-          onClose={() => setShowTypeModal(false)}
-          onSelectType={handleTypeSelect}
-        />
       </div>
     </div>
   );

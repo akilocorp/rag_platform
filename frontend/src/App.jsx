@@ -8,13 +8,11 @@ import './App.css'; // Assuming you still have some base CSS or will use Tailwin
 import RegisterPage from './pages/RegistrationPage';
 import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
-import QualtricsConfigPage from './pages/QualtricsConfigPage';
 import ChatPage from './pages/ChatPage';
 import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
 import SideBar from './components/SideBar'; // Import the SideBar component
 import EditConfigPage from './pages/EditConfigPage';
-import EditQualtricsConfigPage from './pages/EditQualtricsConfigPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -50,9 +48,7 @@ function App() {
             } />
             {}
             <Route path="/config" element={<ConfigPage />} />
-            <Route path="/qualtrics-config" element={<QualtricsConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
-            <Route path="/edit-qualtrics-config" element={<EditQualtricsConfigPage />} />
             <Route path="/config_list" element={<ConfigList />} />
 
           </Route>

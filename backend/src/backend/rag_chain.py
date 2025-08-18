@@ -8,10 +8,10 @@ from langchain_core.utils.utils import convert_to_secret_str
 
 logger = logging.getLogger(__name__)
 
-def create_llm(api_key: str, temperature: float = 0.7):
-    """Initializes and returns the ChatTongyi LLM."""
+def create_llm(api_key: str, model_name: str = "gpt-3.5-turbo", temperature: float = 0.7):
+    """Initializes and returns the ChatOpenAI LLM with specified model."""
     chat_gpt_api_key = convert_to_secret_str(api_key)
-    return ChatOpenAI(model="qwen-plus", api_key=chat_gpt_api_key, temperature=temperature )
+    return ChatOpenAI(model=model_name, api_key=chat_gpt_api_key, temperature=temperature)
 
 def create_rag_prompt():
     """Creates and returns the RAG prompt template."""
