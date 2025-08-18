@@ -290,6 +290,7 @@ const ConfigPage = () => {
                   <option value="gpt-4-turbo">GPT-4 Turbo</option>
                   <option value="gpt-4o">GPT-4o</option>
                   <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="gpt-5">GPT-5</option>
                   <option value="qwen-turbo">Qwen Turbo</option>
                 </select>
               </div>
