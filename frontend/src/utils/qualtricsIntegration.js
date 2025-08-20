@@ -200,9 +200,25 @@ function saveRAGChatToQualtrics(options = {}) {
         return true;
     }
     
+    // Check if we're in a Qualtrics environment
     if (typeof Qualtrics === 'undefined' || !Qualtrics.SurveyEngine) {
-        console.warn('Qualtrics SurveyEngine not available - cannot save data');
-        return false;
+        console.warn('⚠️ Qualtrics SurveyEngine not available - saving to local storage as fallback');
+        
+        // Fallback: Save to localStorage for debugging
+        try {
+            const fallbackData = {
+                transcript: formatChatHistoryForQualtrics(),
+                messageCount: window.ragChatHistory.length,
+                savedAt: new Date().toISOString(),
+                config: config
+            };
+            localStorage.setItem('rag_chat_fallback', JSON.stringify(fallbackData));
+            console.log('💾 Chat data saved to localStorage as fallback');
+            return true;
+        } catch (error) {
+            console.error('Failed to save to localStorage:', error);
+            return false;
+        }
     }
     
     let saveSuccess = false;
@@ -213,37 +229,49 @@ function saveRAGChatToQualtrics(options = {}) {
         
         // Method 1: Save formatted transcript to hidden question
         if (opts.useHiddenQuestion && config.hiddenQuestionId) {
-            const transcript = formatChatHistoryForQualtrics();
-            Qualtrics.SurveyEngine.setQuestionValue(config.hiddenQuestionId, transcript);
-            console.log('✅ Transcript saved to hidden question:', config.hiddenQuestionId);
-            saveSuccess = true;
+            try {
+                const transcript = formatChatHistoryForQualtrics();
+                Qualtrics.SurveyEngine.setQuestionValue(config.hiddenQuestionId, transcript);
+                console.log('✅ Transcript saved to hidden question:', config.hiddenQuestionId);
+                saveSuccess = true;
+            } catch (error) {
+                console.error('❌ Failed to save to hidden question:', error);
+            }
         }
         
         // Method 2: Save to embedded data fields (backup)
         if (opts.useEmbeddedData) {
-            const transcript = formatChatHistoryForQualtrics();
-            
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', config.configId || 'unknown');
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_response_id', config.responseId || 'unknown');
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_id', config.chatId || 'unknown');
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
-            
-            console.log('✅ Data saved to embedded data fields');
-            saveSuccess = true;
+            try {
+                const transcript = formatChatHistoryForQualtrics();
+                
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', config.configId || 'unknown');
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_response_id', config.responseId || 'unknown');
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_id', config.chatId || 'unknown');
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
+                
+                console.log('✅ Data saved to embedded data fields');
+                saveSuccess = true;
+            } catch (error) {
+                console.error('❌ Failed to save to embedded data:', error);
+            }
         }
         
         // Method 3: Save raw JSON data (emergency backup)
         if (opts.includeRawData) {
-            const rawData = {
-                config: config,
-                messages: window.ragChatHistory,
-                savedAt: new Date().toISOString()
-            };
-            
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_raw', JSON.stringify(rawData));
-            console.log('✅ Raw data backup saved');
+            try {
+                const rawData = {
+                    config: config,
+                    messages: window.ragChatHistory,
+                    savedAt: new Date().toISOString()
+                };
+                
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_raw', JSON.stringify(rawData));
+                console.log('✅ Raw data backup saved');
+            } catch (error) {
+                console.error('❌ Failed to save raw data backup:', error);
+            }
         }
         
         if (saveSuccess) {

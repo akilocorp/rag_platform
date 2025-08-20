@@ -57,39 +57,55 @@ const ChatMessage = ({ message }) => {
   );
 };
 
-// Enhanced Qualtrics integration using utility
+// Enhanced Qualtrics integration with error handling
 const addMessageToQualtrics = (sender, content) => {
-  // Use the enhanced utility function if available
-  if (window.addMessageToQualtrics) {
-    return window.addMessageToQualtrics(sender, content);
-  }
-  
-  // Fallback for direct integration (if not in iframe)
-  if (window.ragChatHistory) {
-    const message = {
-      sender: sender,
-      content: content,
-      timestamp: new Date().toISOString(),
-      messageIndex: window.ragChatHistory.length + 1
-    };
-    
-    window.ragChatHistory.push(message);
-    console.log('📨 Message added to Qualtrics history:', message);
-    
-    // Send to parent window if in iframe
-    if (window.parent !== window) {
-      try {
-        window.parent.postMessage({
-          type: 'CHAT_MESSAGE',
+  try {
+    // Check if we're in a Qualtrics context
+    if (typeof window !== 'undefined') {
+      // Method 1: Use the enhanced utility function if available
+      if (window.addMessageToQualtrics && typeof window.addMessageToQualtrics === 'function') {
+        return window.addMessageToQualtrics(sender, content);
+      }
+      
+      // Method 2: Direct Qualtrics integration
+      if (typeof Qualtrics !== 'undefined' && Qualtrics.SurveyEngine) {
+        // Initialize chat history if not exists
+        if (!window.ragChatHistory) {
+          window.ragChatHistory = [];
+        }
+        
+        const message = {
           sender: sender,
           content: content,
-          timestamp: message.timestamp,
-          messageIndex: message.messageIndex
-        }, '*');
-      } catch (error) {
-        console.warn('Could not send message to parent window:', error);
+          timestamp: new Date().toISOString(),
+          messageIndex: window.ragChatHistory.length + 1
+        };
+        
+        window.ragChatHistory.push(message);
+        console.log('📨 Message added to Qualtrics history:', sender, ':', content.substring(0, 50) + '...');
+        return true;
+      }
+      
+      // Method 3: Send to parent window (if in iframe)
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'CHAT_MESSAGE',
+            sender: sender,
+            content: content,
+            timestamp: new Date().toISOString()
+          }, '*');
+          return true;
+        } catch (error) {
+          console.warn('Could not send message to parent window:', error);
+        }
       }
     }
+    
+    return false;
+  } catch (error) {
+    console.warn('Qualtrics integration error:', error);
+    return false;
   }
 };
 
@@ -106,7 +122,7 @@ const ChatPage = () => {
           configId: configId,
           responseId: qualtricsId,
           chatId: chatId || `chat_${Date.now()}`,
-          hiddenQuestionId: 'QID1_ChatHistory' // Update with actual QID
+          hiddenQuestionId: 'QID1_ChatHistory'
         });
         
         if (initSuccess) {
