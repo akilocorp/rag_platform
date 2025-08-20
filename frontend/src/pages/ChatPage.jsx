@@ -59,49 +59,48 @@ const ChatMessage = ({ message }) => {
 
 // Enhanced Qualtrics integration with error handling
 const addMessageToQualtrics = (sender, content) => {
+  console.log('🔍 DEBUG: addMessageToQualtrics called with:', { sender, content: content?.substring(0, 100) + '...' });
+  
   try {
-    // Check if we're in a Qualtrics context
     if (typeof window !== 'undefined') {
-      // Method 1: Use the enhanced utility function if available
+      console.log('🔍 DEBUG: Window is defined');
+      
       if (window.addMessageToQualtrics && typeof window.addMessageToQualtrics === 'function') {
+        console.log('🔍 DEBUG: Using window.addMessageToQualtrics function');
         return window.addMessageToQualtrics(sender, content);
       }
       
-      // Method 2: Direct Qualtrics integration
       if (typeof Qualtrics !== 'undefined' && Qualtrics.SurveyEngine) {
-        // Initialize chat history if not exists
+        console.log('🔍 DEBUG: Qualtrics SurveyEngine available, adding to ragChatHistory');
         if (!window.ragChatHistory) {
           window.ragChatHistory = [];
+          console.log('🔍 DEBUG: Initialized new ragChatHistory array');
         }
-        
         const message = {
           sender: sender,
           content: content,
           timestamp: new Date().toISOString(),
           messageIndex: window.ragChatHistory.length + 1
         };
-        
         window.ragChatHistory.push(message);
-        console.log('📨 Message added to Qualtrics history:', sender, ':', content.substring(0, 50) + '...');
+        console.log('🔍 DEBUG: Message added to ragChatHistory. Total messages:', window.ragChatHistory.length);
+        console.log('🔍 DEBUG: Current ragChatHistory:', window.ragChatHistory);
         return true;
       }
       
-      // Method 3: Send to parent window (if in iframe)
       if (window.parent && window.parent !== window) {
-        try {
-          window.parent.postMessage({
-            type: 'CHAT_MESSAGE',
-            sender: sender,
-            content: content,
-            timestamp: new Date().toISOString()
-          }, '*');
-          return true;
-        } catch (error) {
-          console.warn('Could not send message to parent window:', error);
-        }
+        console.log('🔍 DEBUG: Posting message to parent window');
+        window.parent.postMessage({
+          type: 'CHAT_MESSAGE',
+          sender: sender,
+          content: content,
+          timestamp: new Date().toISOString()
+        }, '*');
+        return true;
       }
+      
+      console.log('🔍 DEBUG: No Qualtrics integration method available');
     }
-    
     return false;
   } catch (error) {
     console.warn('Qualtrics integration error:', error);
@@ -317,7 +316,9 @@ const ChatPage = () => {
 
     // Add user message to Qualtrics history
     try {
-      addMessageToQualtrics('user', input);
+      console.log('🔄 Adding user message to Qualtrics history');
+      const userResult = addMessageToQualtrics('user', input);
+      console.log('🔄 User message tracking result:', userResult);
     } catch (error) {
       console.warn('Failed to add user message to Qualtrics:', error);
     }
@@ -347,6 +348,23 @@ const ChatPage = () => {
       // Add AI response to Qualtrics history
       try {
         addMessageToQualtrics('ai', response.data.response);
+        
+        // Trigger explicit save after both messages are added
+        setTimeout(() => {
+          try {
+            console.log('🔄 Triggering explicit Qualtrics save after message exchange');
+            if (window.saveRAGChatToQualtrics) {
+              window.saveRAGChatToQualtrics();
+            } else if (window.parent && window.parent.saveRAGChatToQualtrics) {
+              window.parent.saveRAGChatToQualtrics();
+            } else {
+              console.warn('⚠️ No saveRAGChatToQualtrics function found');
+            }
+          } catch (saveError) {
+            console.error('Failed to trigger explicit save:', saveError);
+          }
+        }, 100); // Small delay to ensure messages are processed
+        
       } catch (error) {
         console.warn('Failed to add AI response to Qualtrics:', error);
       }

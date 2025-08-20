@@ -195,12 +195,20 @@ function saveRAGChatToQualtrics(options = {}) {
         ...options
     };
     
+    console.log('🔍 DEBUG: saveRAGChatToQualtrics called with options:', opts);
+    console.log('🔍 DEBUG: window.ragChatHistory:', window.ragChatHistory);
+    console.log('🔍 DEBUG: window.ragChatConfig:', window.ragChatConfig);
+    
     if (!window.ragChatHistory || window.ragChatHistory.length === 0) {
-        console.log('ℹ️ No chat history to save');
+        console.log('ℹ️ No chat history to save - history length:', window.ragChatHistory?.length || 0);
         return true;
     }
     
     // Check if we're in a Qualtrics environment
+    console.log('🔍 DEBUG: Checking Qualtrics environment...');
+    console.log('🔍 DEBUG: typeof Qualtrics:', typeof Qualtrics);
+    console.log('🔍 DEBUG: Qualtrics.SurveyEngine:', typeof Qualtrics !== 'undefined' ? Qualtrics.SurveyEngine : 'undefined');
+    
     if (typeof Qualtrics === 'undefined' || !Qualtrics.SurveyEngine) {
         console.warn('⚠️ Qualtrics SurveyEngine not available - saving to local storage as fallback');
         
@@ -210,7 +218,7 @@ function saveRAGChatToQualtrics(options = {}) {
                 transcript: formatChatHistoryForQualtrics(),
                 messageCount: window.ragChatHistory.length,
                 savedAt: new Date().toISOString(),
-                config: config
+                config: window.ragChatConfig || {}
             };
             localStorage.setItem('rag_chat_fallback', JSON.stringify(fallbackData));
             console.log('💾 Chat data saved to localStorage as fallback');
@@ -377,7 +385,15 @@ function getChatStatistics() {
 // Auto-setup if running in Qualtrics context
 if (typeof window !== 'undefined' && typeof Qualtrics !== 'undefined') {
     setupQualtricsPageSubmitHandler();
-    console.log('🔧 Auto-setup completed for Qualtrics context');
+    console.log(' Auto-setup completed for Qualtrics context');
+}
+
+
+// Export functions to global scope for Qualtrics survey use
+if (typeof window !== 'undefined') {
+    window.saveRAGChatToQualtrics = saveRAGChatToQualtrics;
+    window.formatChatHistoryForQualtrics = formatChatHistoryForQualtrics;
+    window.addMessageToQualtrics = addMessageToQualtrics;
 }
 
 // Export functions for use in chat interface and Qualtrics surveys
@@ -391,7 +407,7 @@ if (typeof window !== 'undefined') {
         saveToQualtrics: saveRAGChatToQualtrics,
         setupHandler: setupQualtricsPageSubmitHandler,
         getStats: getChatStatistics,
-        
+
         // Utility functions
         reset: function() {
             window.ragChatHistory = [];
@@ -403,7 +419,6 @@ if (typeof window !== 'undefined') {
         debug: {
             showHistory: () => console.table(window.ragChatHistory),
             showConfig: () => console.log(window.ragChatConfig),
-            testSave: () => saveRAGChatToQualtrics(),
             getTranscript: () => formatChatHistoryForQualtrics()
         }
     };
