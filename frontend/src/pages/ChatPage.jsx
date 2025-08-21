@@ -354,16 +354,17 @@ const ChatPage = () => {
           try {
             console.log('🔄 Triggering explicit Qualtrics save after message exchange');
             
-            // Try local function first
-            if (window.saveRAGChatToQualtrics) {
-              window.saveRAGChatToQualtrics();
-            } else if (window.parent && window.parent !== window) {
+            // Check if we're in iframe context first
+            if (window.parent && window.parent !== window) {
               // Use postMessage for cross-origin communication
               console.log('Sending save request to parent window via postMessage');
               window.parent.postMessage({
                 type: 'SAVE_RAG_CHAT',
                 timestamp: new Date().toISOString()
               }, '*');
+            } else if (window.saveRAGChatToQualtrics) {
+              // Use local function if not in iframe
+              window.saveRAGChatToQualtrics();
             } else {
               console.warn('⚠️ No saveRAGChatToQualtrics function found');
             }

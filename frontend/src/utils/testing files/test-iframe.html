@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qualtrics PostMessage Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        iframe { width: 100%; height: 600px; border: 2px solid #ccc; }
+        .console { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .log { margin: 5px 0; padding: 5px; background: white; border-radius: 3px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Qualtrics PostMessage Test Environment</h1>
+        <p>This simulates your Qualtrics survey environment to test postMessage communication.</p>
+        
+        <div class="console">
+            <h3>📋 Console Logs</h3>
+            <div id="logs"></div>
+            <button onclick="clearLogs()">Clear Logs</button>
+        </div>
+        
+        <h3>💬 Chat App (Iframe)</h3>
+        <iframe id="chatFrame" src="http://localhost:5173/chat/68a36fc52603648eff7b9c1f/test-session"></iframe>
+    </div>
+
+    <script>
+        // Simulate Qualtrics environment
+        console.log('🚀 RAG Qualtrics integration starting...');
+        
+        // Global chat history storage (simulating Qualtrics)
+        window.ragChatHistory = [];
+        window.ragChatConfig = {
+            configId: '68a36fc52603648eff7b9c1f',
+            responseId: 'TEST_RESPONSE_ID',
+            hiddenQuestionId: 'QID2',
+            messageCount: 0,
+            initialized: true
+        };
+
+        // Mock Qualtrics SurveyEngine
+        window.Qualtrics = {
+            SurveyEngine: {
+                setQuestionValue: function(qid, value) {
+                    logMessage(`✅ setQuestionValue(${qid}, [${value.length} chars])`, 'success');
+                    console.log('Question Value Set:', qid, value);
+                },
+                setEmbeddedData: function(key, value) {
+                    logMessage(`✅ setEmbeddedData(${key}, ${value})`, 'success');
+                    console.log('Embedded Data Set:', key, value);
+                }
+            }
+        };
+
+        // Listen for messages from iframe
+        window.addEventListener('message', function(event) {
+            logMessage(`📨 Received message: ${JSON.stringify(event.data)}`, 'info');
+            
+            // Verify origin (adjust for your local dev)
+            if (event.origin !== 'http://localhost:5173') {
+                logMessage(`❌ Blocked message from origin: ${event.origin}`, 'error');
+                return;
+            }
+            
+            if (event.data.type === 'CHAT_MESSAGE') {
+                const message = {
+                    sender: event.data.sender,
+                    content: event.data.content,
+                    timestamp: new Date().toISOString(),
+                    messageIndex: window.ragChatHistory.length + 1
+                };
+                
+                window.ragChatHistory.push(message);
+                window.ragChatConfig.messageCount = window.ragChatHistory.length;
+                
+                logMessage(`📝 Message captured: ${message.sender}: ${message.content.substring(0, 50)}...`, 'info');
+            }
+            
+            // Listen for save requests from iframe
+            if (event.data.type === 'SAVE_RAG_CHAT') {
+                logMessage('💾 Save request received from iframe', 'success');
+                saveRagChatHistory();
+            }
+        });
+
+        // Save function (simulating your qualtrics-me.js)
+        function saveRagChatHistory() {
+            logMessage('📤 Saving chat history...', 'info');
+            
+            if (window.ragChatHistory && window.ragChatHistory.length > 0) {
+                // Format chat history
+                const formattedMessages = window.ragChatHistory.map((msg, index) => {
+                    const timestamp = new Date(msg.timestamp).toLocaleString();
+                    const sender = msg.sender === 'user' ? 'User' : 'AI Assistant';
+                    return `[${timestamp}] ${sender}: ${msg.content}`;
+                });
+                
+                const transcript = [
+                    '=== RAG CHAT CONVERSATION TRANSCRIPT ===',
+                    `Survey Response ID: ${window.ragChatConfig.responseId}`,
+                    `Chat Configuration ID: ${window.ragChatConfig.configId}`,
+                    `Total Messages: ${window.ragChatHistory.length}`,
+                    '',
+                    '=== CONVERSATION MESSAGES ===',
+                    ...formattedMessages,
+                    '',
+                    '=== END OF TRANSCRIPT ==='
+                ].join('\\n');
+                
+                try {
+                    // Simulate saving to Qualtrics
+                    Qualtrics.SurveyEngine.setQuestionValue(window.ragChatConfig.hiddenQuestionId, transcript);
+                    Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
+                    Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
+                    Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', window.ragChatConfig.configId);
+                    
+                    logMessage(`✅ Chat history saved successfully! (${window.ragChatHistory.length} messages)`, 'success');
+                    
+                } catch (error) {
+                    logMessage(`❌ Error saving chat history: ${error.message}`, 'error');
+                }
+            } else {
+                logMessage('ℹ️ No chat history to save', 'info');
+            }
+        }
+
+        // Logging function
+        function logMessage(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const logDiv = document.createElement('div');
+            logDiv.className = `log ${type}`;
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(logDiv);
+            logs.scrollTop = logs.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        logMessage('✅ Test environment initialized', 'success');
+    </script>
+</body>
+</html>
