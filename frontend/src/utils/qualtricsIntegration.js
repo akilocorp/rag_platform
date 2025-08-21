@@ -209,35 +209,22 @@ function saveRAGChatToQualtrics(options = {}) {
     console.log('🔍 DEBUG: typeof Qualtrics:', typeof Qualtrics);
     console.log('🔍 DEBUG: Qualtrics.SurveyEngine:', typeof Qualtrics !== 'undefined' ? Qualtrics.SurveyEngine : 'undefined');
     
-    // Check for Qualtrics in current window first, then parent window (iframe context)
+    // Try to detect Qualtrics in current window only (avoid CORS)
     let qualtricsEngine = null;
     
     if (typeof Qualtrics !== 'undefined' && Qualtrics.SurveyEngine) {
         qualtricsEngine = Qualtrics.SurveyEngine;
         console.log('🔍 DEBUG: Using current window Qualtrics');
-    } else if (window.parent && typeof window.parent.Qualtrics !== 'undefined' && window.parent.Qualtrics.SurveyEngine) {
-        qualtricsEngine = window.parent.Qualtrics.SurveyEngine;
-        console.log('🔍 DEBUG: Using parent window Qualtrics');
+    } else {
+        console.log('🔍 DEBUG: No Qualtrics found in current window - will use postMessage');
     }
     
     if (!qualtricsEngine) {
-        console.warn('⚠️ Qualtrics SurveyEngine not available in current or parent window - saving to local storage as fallback');
+        console.log('ℹ️ No Qualtrics in current window - iframe context detected');
         
-        // Fallback: Save to localStorage for debugging
-        try {
-            const fallbackData = {
-                transcript: formatChatHistoryForQualtrics(),
-                messageCount: window.ragChatHistory.length,
-                savedAt: new Date().toISOString(),
-                config: window.ragChatConfig || {}
-            };
-            localStorage.setItem('rag_chat_fallback', JSON.stringify(fallbackData));
-            console.log('💾 Chat data saved to localStorage as fallback');
-            return true;
-        } catch (error) {
-            console.error('Failed to save to localStorage:', error);
-            return false;
-        }
+        // In iframe context, rely on ChatPage.jsx postMessage to parent
+        console.log('📤 Relying on ChatPage.jsx postMessage for save');
+        return true; // Let ChatPage.jsx handle the save via postMessage
     }
     
     let saveSuccess = false;
