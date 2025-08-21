@@ -353,18 +353,19 @@ const ChatPage = () => {
         setTimeout(() => {
           try {
             console.log('🔄 Triggering explicit Qualtrics save after message exchange');
-            // Check parent window first (for iframe context)
-            if (window.parent && window.parent.saveRAGChatToQualtrics) {
-              window.parent.saveRAGChatToQualtrics();
-            } else if (window.saveRAGChatToQualtrics) {
+            
+            // Try local function first
+            if (window.saveRAGChatToQualtrics) {
               window.saveRAGChatToQualtrics();
+            } else if (window.parent && window.parent !== window) {
+              // Use postMessage for cross-origin communication
+              console.log('Sending save request to parent window via postMessage');
+              window.parent.postMessage({
+                type: 'SAVE_RAG_CHAT',
+                timestamp: new Date().toISOString()
+              }, '*');
             } else {
-              // Try to access parent Qualtrics directly
-              if (window.parent && typeof window.parent.Qualtrics !== 'undefined') {
-                console.log('Saving via parent Qualtrics');
-              } else {
-                console.warn('⚠️ No saveRAGChatToQualtrics function found');
-              }
+              console.warn('⚠️ No saveRAGChatToQualtrics function found');
             }
           } catch (saveError) {
             console.error('Failed to trigger explicit save:', saveError);
