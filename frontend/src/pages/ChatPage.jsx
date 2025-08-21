@@ -353,12 +353,18 @@ const ChatPage = () => {
         setTimeout(() => {
           try {
             console.log('🔄 Triggering explicit Qualtrics save after message exchange');
-            if (window.saveRAGChatToQualtrics) {
-              window.saveRAGChatToQualtrics();
-            } else if (window.parent && window.parent.saveRAGChatToQualtrics) {
+            // Check parent window first (for iframe context)
+            if (window.parent && window.parent.saveRAGChatToQualtrics) {
               window.parent.saveRAGChatToQualtrics();
+            } else if (window.saveRAGChatToQualtrics) {
+              window.saveRAGChatToQualtrics();
             } else {
-              console.warn('⚠️ No saveRAGChatToQualtrics function found');
+              // Try to access parent Qualtrics directly
+              if (window.parent && typeof window.parent.Qualtrics !== 'undefined') {
+                console.log('Saving via parent Qualtrics');
+              } else {
+                console.warn('⚠️ No saveRAGChatToQualtrics function found');
+              }
             }
           } catch (saveError) {
             console.error('Failed to trigger explicit save:', saveError);
