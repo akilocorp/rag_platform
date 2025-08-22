@@ -56,55 +56,50 @@ function initializeRAGQualtrics(config) {
 }
 
 /**
- * Add message to chat history
- * @param {string} sender - Message sender ('user' or 'ai')
+ * Add a message to the RAG chat history
+ * @param {string} sender - 'user' or 'ai'
  * @param {string} content - Message content
- * @param {Object} [metadata] - Optional metadata
+ * @returns {boolean} Success status
  */
-function addRAGMessage(sender, content, metadata = {}) {
-    if (!sender || !content) {
-        console.warn('RAG Qualtrics: Invalid message parameters');
+function addRAGMessage(sender, content) {
+    console.log('🔍 DEBUG: addMessageToQualtrics called with:', { sender, content: content.substring(0, 50) + '...' });
+    
+    if (typeof window === 'undefined') {
+        console.log('🔍 DEBUG: Window is undefined');
         return false;
     }
     
-    // Ensure chat history exists
+    console.log('🔍 DEBUG: Window is defined');
+    
+    // Initialize if needed
     if (!window.ragChatHistory) {
         window.ragChatHistory = [];
     }
     
+    // Create message object
     const message = {
         sender: sender,
         content: content,
         timestamp: new Date().toISOString(),
-        messageIndex: window.ragChatHistory.length + 1,
-        ...metadata
+        messageIndex: window.ragChatHistory.length + 1
     };
     
+    // Add to local history
     window.ragChatHistory.push(message);
     
-    // Update config if available
-    if (window.ragChatConfig) {
-        window.ragChatConfig.messageCount = window.ragChatHistory.length;
-    }
-    
-    console.log('📨 Message added to RAG history:', {
-        sender: message.sender,
-        content: message.content.substring(0, 50) + (message.content.length > 50 ? '...' : ''),
-        messageIndex: message.messageIndex
-    });
-    
-    // Send to parent window (Qualtrics) if in iframe
-    if (window.parent !== window) {
+    // Send message to parent window (for Qualtrics iframe context)
+    if (window.parent && window.parent !== window) {
         try {
+            console.log('📤 Sending message to parent window via postMessage');
             window.parent.postMessage({
                 type: 'CHAT_MESSAGE',
                 sender: sender,
                 content: content,
                 timestamp: message.timestamp,
                 messageIndex: message.messageIndex
-            }, '*'); // In production, specify exact origin
+            }, '*');
         } catch (error) {
-            console.warn('Could not send message to parent window:', error);
+            console.warn('Failed to send message to parent window:', error);
         }
     }
     
