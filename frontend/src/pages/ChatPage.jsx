@@ -120,8 +120,7 @@ const ChatPage = () => {
         const initSuccess = window.RAGQualtrics.initialize({
           configId: configId,
           responseId: qualtricsId,
-          chatId: chatId || `chat_${Date.now()}`,
-          hiddenQuestionId: 'QID1_ChatHistory'
+          chatId: chatId || `chat_${Date.now()}`
         });
         
         if (initSuccess) {
@@ -137,6 +136,28 @@ const ChatPage = () => {
           initialized: true
         };
         console.log('📝 Basic Qualtrics integration initialized');
+      }
+
+      // Notify parent (Qualtrics page) of config to align IDs and avoid mismatches
+      try {
+        if (window.parent && window.parent !== window) {
+          const initPayload = {
+            type: 'INIT_RAG_CONFIG',
+            payload: {
+              configId,
+              responseId: qualtricsId,
+              chatId: chatId || window.ragChatConfig?.chatId || `chat_${Date.now()}`,
+              childOrigin: window.location.origin
+            },
+            sentAt: new Date().toISOString()
+          };
+          console.log('📤 Posting INIT_RAG_CONFIG to parent:', initPayload);
+          window.parent.postMessage(initPayload, '*');
+        } else {
+          console.log('ℹ️ Not in iframe context; skipping INIT_RAG_CONFIG postMessage');
+        }
+      } catch (e) {
+        console.warn('INIT_RAG_CONFIG postMessage failed:', e);
       }
     }
   }, [configId, chatId, qualtricsId]);

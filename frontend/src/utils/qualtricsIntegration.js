@@ -17,39 +17,50 @@
 if (typeof window !== 'undefined') {
     window.ragChatHistory = window.ragChatHistory || [];
     window.ragChatConfig = window.ragChatConfig || null;
+    // Debug toggle (can be switched on/off at runtime)
+    window.RAG_DEBUG_ENABLED = window.RAG_DEBUG_ENABLED ?? true;
 }
+
+// Lightweight debug logger respecting the toggle
+function dlog(...args) { try { if (typeof window !== 'undefined' && window.RAG_DEBUG_ENABLED) console.log(...args); } catch (_) {} }
+function dwarn(...args) { try { if (typeof window !== 'undefined' && window.RAG_DEBUG_ENABLED) console.warn(...args); } catch (_) {} }
+function derror(...args) { try { if (typeof window !== 'undefined' && window.RAG_DEBUG_ENABLED) console.error(...args); } catch (_) {} }
 
 /**
  * Initialize RAG chat integration with Qualtrics
  * @param {Object} config - Configuration object
  * @param {string} config.configId - Chat configuration ID
  * @param {string} config.responseId - Qualtrics response ID
- * @param {string} config.hiddenQuestionId - QID of hidden question to store data
  * @param {string} [config.chatId] - Optional chat session ID
  */
 function initializeRAGQualtrics(config) {
     if (!config || !config.configId || !config.responseId) {
-        console.error('RAG Qualtrics: Missing required configuration parameters');
+        derror('RAG Qualtrics: Missing required configuration parameters');
         return false;
     }
     
+    const prev = window.ragChatConfig || {};
+    const nextChatId = config.chatId || prev.chatId || `chat_${Date.now()}`;
+    const isSameSession = prev.initialized && prev.chatId === nextChatId && prev.responseId === config.responseId;
+
     window.ragChatConfig = {
         configId: config.configId,
         responseId: config.responseId,
-        chatId: config.chatId || `chat_${Date.now()}`,
-        hiddenQuestionId: config.hiddenQuestionId || 'QID1_ChatHistory',
-        messageCount: 0,
+        chatId: nextChatId,
+        messageCount: window.ragChatHistory ? window.ragChatHistory.length : 0,
         initialized: true,
-        startTime: new Date().toISOString()
+        startTime: prev.startTime || new Date().toISOString()
     };
     
-    // Reset chat history for new session
-    window.ragChatHistory = [];
+    // Only reset history if clearly a new session
+    if (!isSameSession || !Array.isArray(window.ragChatHistory)) {
+        window.ragChatHistory = [];
+    }
     
-    console.log('🚀 RAG Qualtrics integration initialized:', {
+    dlog('🚀 RAG Qualtrics integration initialized:', {
         configId: window.ragChatConfig.configId,
         responseId: window.ragChatConfig.responseId,
-        hiddenQuestionId: window.ragChatConfig.hiddenQuestionId
+        // Hidden QuestionID is now detected by the Qualtrics parent script
     });
     
     return true;
@@ -62,14 +73,14 @@ function initializeRAGQualtrics(config) {
  * @returns {boolean} Success status
  */
 function addRAGMessage(sender, content) {
-    console.log('🔍 DEBUG: addMessageToQualtrics called with:', { sender, content: content.substring(0, 50) + '...' });
+    dlog('🔍 DEBUG: addMessageToQualtrics called with:', { sender, content: (content ?? '').substring(0, 50) + '...' });
     
     if (typeof window === 'undefined') {
-        console.log('🔍 DEBUG: Window is undefined');
+        dlog('🔍 DEBUG: Window is undefined');
         return false;
     }
     
-    console.log('🔍 DEBUG: Window is defined');
+    dlog('🔍 DEBUG: Window is defined');
     
     // Initialize if needed
     if (!window.ragChatHistory) {
@@ -90,7 +101,7 @@ function addRAGMessage(sender, content) {
     // Send message to parent window (for Qualtrics iframe context)
     if (window.parent && window.parent !== window) {
         try {
-            console.log('📤 Sending message to parent window via postMessage');
+            dlog('📤 Sending message to parent window via postMessage');
             window.parent.postMessage({
                 type: 'CHAT_MESSAGE',
                 sender: sender,
@@ -99,7 +110,7 @@ function addRAGMessage(sender, content) {
                 messageIndex: message.messageIndex
             }, '*');
         } catch (error) {
-            console.warn('Failed to send message to parent window:', error);
+            dwarn('Failed to send message to parent window:', error);
         }
     }
     
@@ -183,106 +194,65 @@ function formatChatHistoryForQualtrics(options = {}) {
  * @returns {boolean} Success status
  */
 function saveRAGChatToQualtrics(options = {}) {
-    const opts = {
-        useHiddenQuestion: true,
-        useEmbeddedData: true,
-        includeRawData: true,
-        ...options
-    };
-    
-    console.log('🔍 DEBUG: saveRAGChatToQualtrics called with options:', opts);
-    console.log('🔍 DEBUG: window.ragChatHistory:', window.ragChatHistory);
-    console.log('🔍 DEBUG: window.ragChatConfig:', window.ragChatConfig);
-    
+    const opts = { includeRawData: true, ...options };
+
+    dlog('🔍 DEBUG: saveRAGChatToQualtrics called with options:', opts);
+    dlog('🔍 DEBUG: window.ragChatHistory length:', window.ragChatHistory?.length || 0);
+    dlog('🔍 DEBUG: window.ragChatConfig:', window.ragChatConfig);
+
     if (!window.ragChatHistory || window.ragChatHistory.length === 0) {
-        console.log('ℹ️ No chat history to save - history length:', window.ragChatHistory?.length || 0);
+        dlog('ℹ️ No chat history to save - skipping');
         return true;
     }
-    
-    // Check if we're in a Qualtrics environment
-    console.log('🔍 DEBUG: Checking Qualtrics environment...');
-    console.log('🔍 DEBUG: typeof Qualtrics:', typeof Qualtrics);
-    console.log('🔍 DEBUG: Qualtrics.SurveyEngine:', typeof Qualtrics !== 'undefined' ? Qualtrics.SurveyEngine : 'undefined');
-    
-    // Try to detect Qualtrics in current window only (avoid CORS)
-    let qualtricsEngine = null;
-    
-    if (typeof Qualtrics !== 'undefined' && Qualtrics.SurveyEngine) {
-        qualtricsEngine = Qualtrics.SurveyEngine;
-        console.log('🔍 DEBUG: Using current window Qualtrics');
-    } else {
-        console.log('🔍 DEBUG: No Qualtrics found in current window - will use postMessage');
-    }
-    
-    if (!qualtricsEngine) {
-        console.log('ℹ️ No Qualtrics in current window - iframe context detected');
-        
-        // In iframe context, rely on ChatPage.jsx postMessage to parent
-        console.log('📤 Relying on ChatPage.jsx postMessage for save');
-        return true; // Let ChatPage.jsx handle the save via postMessage
-    }
-    
-    let saveSuccess = false;
+
     const config = window.ragChatConfig || {};
-    
+    const transcript = formatChatHistoryForQualtrics();
+    const payload = {
+        type: 'SAVE_RAG_CHAT',
+        data: {
+            transcript,
+            metadata: {
+                messageCount: window.ragChatHistory.length,
+                configId: config.configId || 'unknown',
+                responseId: config.responseId || 'unknown',
+                chatId: config.chatId || 'unknown',
+                savedAt: new Date().toISOString()
+            },
+            raw: opts.includeRawData ? {
+                config,
+                messages: window.ragChatHistory,
+                savedAt: new Date().toISOString()
+            } : undefined
+        }
+    };
+
+    // Prefer delegating to parent (Qualtrics) which detects the hosting QuestionID
+    const isInIframe = !!(window.parent && window.parent !== window);
+    dlog('🔍 DEBUG: Environment check:', { isInIframe });
+
+    if (isInIframe) {
+        try {
+            dlog('💾 Posting SAVE_RAG_CHAT to parent with payload:', {
+                meta: payload.data.metadata,
+                transcriptPreview: transcript.substring(0, 120) + '...'
+            });
+            window.parent.postMessage(payload, '*');
+            return true;
+        } catch (error) {
+            derror('❌ Failed to post SAVE_RAG_CHAT to parent:', error);
+            return false;
+        }
+    }
+
+    // Not in iframe: cannot save to Qualtrics directly per new architecture
+    dwarn('⚠️ Not in iframe; cannot save to Qualtrics directly. Storing backup locally for debugging.');
     try {
-        console.log('📤 Saving chat history to Qualtrics...');
-        
-        // Method 1: Save formatted transcript to hidden question
-        if (opts.useHiddenQuestion && config.hiddenQuestionId) {
-            try {
-                const transcript = formatChatHistoryForQualtrics();
-                qualtricsEngine.setQuestionValue(config.hiddenQuestionId, transcript);
-                console.log('✅ Transcript saved to hidden question:', config.hiddenQuestionId);
-                saveSuccess = true;
-            } catch (error) {
-                console.error('❌ Failed to save to hidden question:', error);
-            }
-        }
-        
-        // Method 2: Save to embedded data fields (backup)
-        if (opts.useEmbeddedData) {
-            try {
-                const transcript = formatChatHistoryForQualtrics();
-                
-                qualtricsEngine.setEmbeddedData('rag_chat_transcript', transcript);
-                qualtricsEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
-                qualtricsEngine.setEmbeddedData('rag_config_id', config.configId || 'unknown');
-                qualtricsEngine.setEmbeddedData('rag_response_id', config.responseId || 'unknown');
-                qualtricsEngine.setEmbeddedData('rag_chat_id', config.chatId || 'unknown');
-                qualtricsEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
-                
-                console.log('✅ Data saved to embedded data fields');
-                saveSuccess = true;
-            } catch (error) {
-                console.error('❌ Failed to save to embedded data:', error);
-            }
-        }
-        
-        // Method 3: Save raw JSON data (emergency backup)
-        if (opts.includeRawData) {
-            try {
-                const rawData = {
-                    config: config,
-                    messages: window.ragChatHistory,
-                    savedAt: new Date().toISOString()
-                };
-                
-                qualtricsEngine.setEmbeddedData('rag_chat_raw', JSON.stringify(rawData));
-                console.log('✅ Raw data backup saved');
-            } catch (error) {
-                console.error('❌ Failed to save raw data backup:', error);
-            }
-        }
-        
-        if (saveSuccess) {
-            console.log(`📊 Successfully saved ${window.ragChatHistory.length} messages to Qualtrics`);
-        }
-        
-        return saveSuccess;
-        
-    } catch (error) {
-        console.error('❌ Error saving chat history to Qualtrics:', error);
+        const backupKey = `rag_chat_backup_${config.chatId || 'unknown'}`;
+        localStorage.setItem(backupKey, JSON.stringify(payload.data));
+        dlog('🗄️ Local backup saved under key:', backupKey);
+        return true;
+    } catch (e) {
+        derror('❌ Failed to save local backup:', e);
         return false;
     }
 }
@@ -302,51 +272,39 @@ function setupQualtricsPageSubmitHandler(options = {}) {
     };
     
     if (typeof Qualtrics === 'undefined' || !Qualtrics.SurveyEngine) {
-        console.warn('Qualtrics SurveyEngine not available - handlers not registered');
+        dwarn('Qualtrics SurveyEngine not available - handlers not registered');
         return false;
     }
     
     try {
         // Primary handler: Save on page submit (Next/Submit button)
         Qualtrics.SurveyEngine.addOnPageSubmit(function() {
-            console.log('📤 Qualtrics page submit triggered - saving chat history');
-            saveRAGChatToQualtrics();
+            dlog('📤 Qualtrics page submit triggered - requesting parent-controlled save');
+            // Parent script (paste.js) is source of truth; trigger via postMessage as well
+            try { window.postMessage({ type: 'SAVE_RAG_CHAT' }, '*'); } catch (_) {}
         });
         
         // Safety handler: Save on page unload (browser navigation, close, etc.)
         if (opts.enableUnloadHandler) {
             Qualtrics.SurveyEngine.addOnUnload(function() {
-                console.log('🔄 Page unloading - emergency save attempt');
-                if (window.ragChatHistory && window.ragChatHistory.length > 0) {
-                    // Quick save with minimal processing
-                    saveRAGChatToQualtrics({ useHiddenQuestion: false, includeRawData: true });
-                }
+                dlog('🔄 Page unloading - requesting parent-controlled save');
+                try { window.postMessage({ type: 'SAVE_RAG_CHAT' }, '*'); } catch (_) {}
             });
         }
         
         // Ready handler: Initialize when survey page loads
         if (opts.enableReadyHandler) {
             Qualtrics.SurveyEngine.addOnReady(function() {
-                console.log('🚀 Qualtrics survey page ready - RAG integration active');
-                
-                // Listen for messages from iframe (if chat is embedded)
-                window.addEventListener('message', function(event) {
-                    // Security: In production, verify event.origin
-                    if (event.data && event.data.type === 'CHAT_MESSAGE') {
-                        addRAGMessage(event.data.sender, event.data.content, {
-                            fromIframe: true,
-                            originalTimestamp: event.data.timestamp
-                        });
-                    }
-                });
+                dlog('🚀 Qualtrics survey page ready - using parent paste.js as source of truth');
+                // No-op listener here to avoid double-handling; parent paste.js owns saving
             });
         }
         
-        console.log('✅ Qualtrics event handlers registered successfully');
+        dlog('✅ Qualtrics event handlers registered successfully (delegated mode)');
         return true;
         
     } catch (error) {
-        console.error('❌ Error setting up Qualtrics handlers:', error);
+        derror('❌ Error setting up Qualtrics handlers:', error);
         return false;
     }
 }
@@ -377,8 +335,8 @@ function getChatStatistics() {
 
 // Auto-setup if running in Qualtrics context
 if (typeof window !== 'undefined' && typeof Qualtrics !== 'undefined') {
-    setupQualtricsPageSubmitHandler();
-    console.log(' Auto-setup completed for Qualtrics context');
+    // Prevent auto-setup to avoid conflicts with the new parent-controlled architecture.
+    dlog('ℹ️ Qualtrics detected; skipping auto-setup because parent paste.js controls saving.');
 }
 
 
@@ -405,7 +363,7 @@ if (typeof window !== 'undefined') {
         reset: function() {
             window.ragChatHistory = [];
             window.ragChatConfig = null;
-            console.log('🔄 RAG Qualtrics integration reset');
+            dlog('🔄 RAG Qualtrics integration reset');
         },
         
         // Debug functions

@@ -1,0 +1,245 @@
+Qualtrics.SurveyEngine.addOnReady(function() {
+         // Initialize once, do not wipe existing history
+         window.ragChatHistory = window.ragChatHistory || [];
+         window.ragChatConfig = window.ragChatConfig || {
+             configId: '68a36fc52603648eff7b9c1f', // Replace with real config ID in production
+             responseId: '${e://Field/ResponseID}',
+             hiddenQuestionId: undefined,
+             messageCount: 0,
+             initialized: true,
+             parentInitTime: new Date().toISOString()
+         };
+
+         // Debug toggle and helpers (enable verbose logs during testing; disable for prod)
+         window.RAG_DEBUG_ENABLED = (typeof window.RAG_DEBUG_ENABLED === 'boolean') ? window.RAG_DEBUG_ENABLED : true;
+         function dlog() { try { if (window.RAG_DEBUG_ENABLED) console.log.apply(console, arguments); } catch (e) {} }
+         function dwarn() { try { if (window.RAG_DEBUG_ENABLED) console.warn.apply(console, arguments); } catch (e) {} }
+         function derror() { try { if (window.RAG_DEBUG_ENABLED) console.error.apply(console, arguments); } catch (e) {} }
+
+         // Detect the current question's ID dynamically and use it as hiddenQuestionId
+         try {
+           var currentQID = (this && this.questionId) || (this && this.getQuestionInfo && this.getQuestionInfo().QuestionID);
+           if (currentQID) {
+             window.ragChatConfig.hiddenQuestionId = currentQID;
+             console.log('🧭 Detected hosting QuestionID:', currentQID);
+           } else {
+             console.warn('⚠️ Could not detect hosting QuestionID; will rely on config or fallback during save');
+           }
+         } catch (e) {
+           console.warn('⚠️ Error detecting hosting QuestionID:', e);
+         }
+
+         // Allowlist for origins (prod + localhost for dev)
+         const allowedOrigins = new Set([
+             'https://app.bitterlylab.com'
+         ]);
+
+         // Basic telemetry
+         window.ragDebugStats = window.ragDebugStats || { messages: 0, saves: 0, rejected: 0 };
+         console.log('🚀 Qualtrics parent ready. Config:', JSON.parse(JSON.stringify(window.ragChatConfig)));
+         // Periodic stats (every 30s) while debugging
+         if (!window.__ragStatsInterval) {
+           window.__ragStatsInterval = setInterval(function() {
+             if (window.RAG_DEBUG_ENABLED) {
+               console.log('📈 RAG debug stats', {
+                 time: new Date().toISOString(),
+                 stats: window.ragDebugStats,
+                 messageCount: window.ragChatHistory.length,
+                 hiddenQuestionId: window.ragChatConfig?.hiddenQuestionId
+               });
+             }
+           }, 30000);
+         }
+
+         // Listen for messages from iframe
+         window.addEventListener('message', function(event) {
+             const isAllowed = allowedOrigins.has(event.origin);
+             const info = { time: new Date().toISOString(), origin: event.origin, allowed: isAllowed, type: event?.data?.type };
+             if (!isAllowed) {
+                 window.ragDebugStats.rejected++;
+                 console.warn('⛔ Rejected postMessage (origin not allowed):', info, 'payload sample:', JSON.stringify(event?.data)?.slice(0,200));
+                 return;
+             }
+
+             console.log('📥 postMessage received:', info);
+
+             if (event.data && event.data.type === 'CHAT_MESSAGE') {
+                 const message = {
+                     sender: event.data.sender,
+                     content: event.data.content,
+                     timestamp: event.data.timestamp || new Date().toISOString(),
+                     messageIndex: window.ragChatHistory.length + 1
+                 };
+
+                 window.ragChatHistory.push(message);
+                 window.ragChatConfig.messageCount = window.ragChatHistory.length;
+                 window.ragDebugStats.messages++;
+
+                 console.log('📨 Captured message', {
+                   index: message.messageIndex,
+                   sender: message.sender,
+                   preview: (message.content || '').substring(0, 120)
+                 });
+             }
+
+             if (event.data && event.data.type === 'INIT_RAG_CONFIG') {
+                 // Allow iframe to set/override config safely
+                 window.ragChatConfig = {
+                   ...window.ragChatConfig,
+                   ...event.data.payload,
+                   initialized: true
+                 };
+                 console.log('🧩 Config updated from iframe:', window.ragChatConfig);
+             }
+
+             // Listen for save requests from iframe
+             if (event.data && event.data.type === 'SAVE_RAG_CHAT') {
+                 console.log('💾 Save request received from iframe');
+                 // Prefer central save if provided by qualtricsIntegration.js
+                 if (typeof window.saveRAGChatToQualtrics === 'function') {
+                   const ok = window.saveRAGChatToQualtrics();
+                   window.ragDebugStats.saves += ok ? 1 : 0;
+                   console.log('💾 Central save result:', ok);
+                 } else {
+                   saveRagChatHistory();
+                 }
+             }
+         });
+
+         console.log('✅ RAG Qualtrics parent listener initialized. Allowed origins:', Array.from(allowedOrigins));
+     });
+
+     
+     Qualtrics.SurveyEngine.addOnPageSubmit(function() {
+         console.log('📤 Page submit triggered - saving chat history...');
+
+         if (window.ragChatHistory && window.ragChatHistory.length > 0) {
+
+             // Format chat history for readable display
+             const formattedMessages = window.ragChatHistory.map((msg, index) => {
+                 const timestamp = new Date(msg.timestamp).toLocaleString('en-US', {
+                     year: 'numeric',
+                     month: '2-digit',
+                     day: '2-digit',
+                     hour: '2-digit',
+                     minute: '2-digit',
+                     second: '2-digit',
+                     hour12: false
+                 });
+                 
+                 const sender = msg.sender === 'user' ? 'User' : 'AI Assistant';
+                 return `[${timestamp}] ${sender}: ${msg.content}`;
+             });
+             
+             // Create comprehensive transcript
+             const transcript = [
+                 '=== RAG CHAT CONVERSATION TRANSCRIPT ===',
+                 `Survey Response ID: ${window.ragChatConfig.responseId}`,
+                 `Chat Configuration ID: ${window.ragChatConfig.configId}`,
+                 `Total Messages: ${window.ragChatHistory.length}`,
+                 `Conversation Started: ${new Date(window.ragChatHistory[0]?.timestamp).toLocaleString()}`,
+                 `Transcript Generated: ${new Date().toLocaleString()}`,
+                 '',
+                 '=== CONVERSATION MESSAGES ===',
+                 ...formattedMessages,
+                 '',
+                 '=== END OF TRANSCRIPT ==='
+             ].join('\n');
+             
+             // Save to multiple locations for reliability
+            try {
+                const qid = (window.ragChatConfig && window.ragChatConfig.hiddenQuestionId)
+                  ? window.ragChatConfig.hiddenQuestionId
+                  : ((this && this.questionId) || (this && this.getQuestionInfo && this.getQuestionInfo().QuestionID));
+                if (!qid) {
+                  console.warn('⚠️ Cannot save transcript: hosting QuestionID not detected.');
+                  return;
+                }
+                // Method 1: Save to hidden question
+                Qualtrics.SurveyEngine.setQuestionValue(qid, transcript);
+
+                // Method 2: Save to embedded data (backup)
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', window.ragChatConfig?.configId);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_response_id', window.ragChatConfig?.responseId);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
+
+                console.log('✅ Chat history saved successfully!');
+                console.log(`📊 Saved ${window.ragChatHistory.length} messages to ${qid}`);
+
+            } catch (error) {
+                console.error('❌ Error saving chat history:', error);
+            }
+         } else {
+             console.log('ℹ️ No chat history to save');
+         }
+     });
+     
+     // Create reusable save function
+    function saveRagChatHistory() {
+         console.log('📤 Saving chat history...');
+         
+         if (window.ragChatHistory && window.ragChatHistory.length > 0) {
+
+             // Format chat history for readable display
+             const formattedMessages = window.ragChatHistory.map((msg, index) => {
+                 const timestamp = new Date(msg.timestamp).toLocaleString('en-US', {
+                     year: 'numeric',
+                     month: '2-digit',
+                     day: '2-digit',
+                     hour: '2-digit',
+                     minute: '2-digit',
+                     second: '2-digit',
+                     hour12: false
+                 });
+                 
+                 const sender = msg.sender === 'user' ? 'User' : 'AI Assistant';
+                 return `[${timestamp}] ${sender}: ${msg.content}`;
+             });
+             
+             // Create comprehensive transcript
+             const transcript = [
+                 '=== RAG CHAT CONVERSATION TRANSCRIPT ===',
+                 `Survey Response ID: ${window.ragChatConfig.responseId}`,
+                 `Chat Configuration ID: ${window.ragChatConfig.configId}`,
+                 `Total Messages: ${window.ragChatHistory.length}`,
+                 `Conversation Started: ${new Date(window.ragChatHistory[0]?.timestamp).toLocaleString()}`,
+                 `Transcript Generated: ${new Date().toLocaleString()}`,
+                 '',
+                 '=== CONVERSATION MESSAGES ===',
+                 ...formattedMessages,
+                 '',
+                 '=== END OF TRANSCRIPT ==='
+             ].join('\n');
+             
+             // Save to multiple locations for reliability
+            try {
+                const qid = (window.ragChatConfig && window.ragChatConfig.hiddenQuestionId)
+                  ? window.ragChatConfig.hiddenQuestionId
+                  : ((this && this.questionId) || (this && this.getQuestionInfo && this.getQuestionInfo().QuestionID));
+                if (!qid) {
+                  console.warn('⚠️ Cannot save transcript: hosting QuestionID not detected.');
+                  return;
+                }
+                // Method 1: Save to hidden question
+                Qualtrics.SurveyEngine.setQuestionValue(qid, transcript);
+
+                // Method 2: Save to embedded data (backup)
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', window.ragChatConfig?.configId);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_response_id', window.ragChatConfig?.responseId);
+                Qualtrics.SurveyEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
+
+                console.log('✅ Chat history saved successfully!');
+                console.log(`📊 Saved ${window.ragChatHistory.length} messages to ${qid}`);
+
+            } catch (error) {
+                console.error('❌ Error saving chat history:', error);
+            }
+         } else {
+             console.log('ℹ️ No chat history to save');
+         }
+     }
+     

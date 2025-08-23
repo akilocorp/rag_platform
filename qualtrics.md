@@ -1,170 +1,80 @@
+# Qualtrics Testing Guide
 
- Create Qualtrics Survey Structure
+This guide verifies the JavaScript-only Qualtrics integration that saves chat transcripts via parent-controlled `postMessage` from the iframe.
 
-#### 2.1 Add Hidden Storage Question
-1. **Create Text Entry Question**:
-   - Question Type: "Text Entry" → "Long Answer Text"
-   - Question Text: "Chat History Storage" (will be hidden)
-   - **Important**: Note the Question ID (e.g., `QID1_ChatHistory`)
+## Prerequisites
+- **Iframe host**: `https://app.bitterlylab.com` (or your dev host)
+- **Files**:
+  - Iframe HTML: `frontend/src/utils/testing files/iframe.html`
+  - Parent script: `frontend/src/utils/testing files/paste.js`
+- Enable debug logs during testing: in browser console run `window.RAG_DEBUG_ENABLED = true`.
 
-2. **Hide the Question**:
-   ```html
-   <!-- Option 1: CSS Hidden -->
-   <div style="display: none;">This question stores chat data</div>
-   
-   <!-- Option 2: Use Display Logic -->
-   <!-- Set display logic to "Never show this question" -->
+## Setup (Two-Question Required)
+
+Use one question to host the iframe and a separate hidden Text Entry question to store the transcript. Place the script only in the hidden question.
+
+1) **Question A – Chat Host (Text/Graphic)**
+   - Paste the iframe HTML from `frontend/src/utils/testing files/iframe.html` into the Question Text (HTML view).
+   - Do NOT add JavaScript here.
+
+2) **Question B – Hidden Storage (Text Entry)**
+   - Advanced Question Options → Add JavaScript → paste the full contents of `frontend/src/utils/testing files/paste.js`.
+   - Hide the question UI so respondents don’t see it:
+   ```js
+   Qualtrics.SurveyEngine.addOnReady(function () {
+     this.hide();
+   });
    ```
+3) Keep both questions on the same page (no page break).
+4) Result: Transcript saved into the hidden question response (and embedded data).
 
-#### 2.2 Add Chat Interface Question
-1. **Create HTML/Text Question**:
-   - Question Type: "Text/Graphic"
-   - This will contain your chat iframe
+## Allowed Origins (Security)
+In `paste.js`, update the `allowedOrigins` Set to include your iframe origin(s):
+```js
+const allowedOrigins = new Set([
+  'https://app.bitterlylab.com',
 
-
-
-**Add iframe HTML**:
-   ```html
-   <div style="width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-     <iframe 
-       src="https://your-deployed-app.com/chat/YOUR_CONFIG_ID?qualtricsId=${e://Field/ResponseID}"
-       width="100%" 
-       height="100%" 
-       frameborder="0"
-       style="border: none;"
-       allow="clipboard-read; clipboard-write">
-     </iframe>
-   </div>
-   ```
-
-
-
-   3.1 Add JavaScript to Chat Question
-1. **Select the question containing your iframe**
-2. **Click "Advanced Question Options" → "Add JavaScript"**
-3. **Paste the complete integration code**:
-
-```javascript
-Qualtrics.SurveyEngine.addOnReady(function() {
-    // Initialize RAG chat integration
-    console.log('🚀 RAG Qualtrics integration starting...');
-    
-    // Global chat history storage
-    window.ragChatHistory = [];
-    window.ragChatConfig = {
-        configId: 'YOUR_CONFIG_ID', // Replace with actual config ID
-        responseId: '${e://Field/ResponseID}',
-        hiddenQuestionId: 'QID1_ChatHistory', // Replace with your hidden question QID
-        messageCount: 0,
-        initialized: true
-    };
-    
-    // Listen for messages from iframe
-    window.addEventListener('message', function(event) {
-        // Verify origin for security (replace with your domain)
-        if (event.origin !== 'https://your-deployed-app.com') {
-            return;
-        }
-        
-        if (event.data.type === 'CHAT_MESSAGE') {
-            const message = {
-                sender: event.data.sender,
-                content: event.data.content,
-                timestamp: new Date().toISOString(),
-                messageIndex: window.ragChatHistory.length + 1
-            };
-            
-            window.ragChatHistory.push(message);
-            window.ragChatConfig.messageCount = window.ragChatHistory.length;
-            
-            console.log('📨 Message captured:', message.sender, ':', message.content.substring(0, 50) + '...');
-        }
-    });
-    
-    console.log('✅ RAG Qualtrics integration initialized');
-});
-
-Qualtrics.SurveyEngine.addOnPageSubmit(function() {
-    console.log('📤 Page submit triggered - saving chat history...');
-    
-    if (window.ragChatHistory && window.ragChatHistory.length > 0) {
-        // Format chat history for readable display
-        const formattedMessages = window.ragChatHistory.map((msg, index) => {
-            const timestamp = new Date(msg.timestamp).toLocaleString('en-US', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-            });
-            
-            const sender = msg.sender === 'user' ? 'User' : 'AI Assistant';
-            return `[${timestamp}] ${sender}: ${msg.content}`;
-        });
-        
-        // Create comprehensive transcript
-        const transcript = [
-            '=== RAG CHAT CONVERSATION TRANSCRIPT ===',
-            `Survey Response ID: ${window.ragChatConfig.responseId}`,
-            `Chat Configuration ID: ${window.ragChatConfig.configId}`,
-            `Total Messages: ${window.ragChatHistory.length}`,
-            `Conversation Started: ${new Date(window.ragChatHistory[0]?.timestamp).toLocaleString()}`,
-            `Transcript Generated: ${new Date().toLocaleString()}`,
-            '',
-            '=== CONVERSATION MESSAGES ===',
-            ...formattedMessages,
-            '',
-            '=== END OF TRANSCRIPT ==='
-        ].join('\n');
-        
-        // Save to multiple locations for reliability
-        try {
-            // Method 1: Save to hidden question
-            Qualtrics.SurveyEngine.setQuestionValue(window.ragChatConfig.hiddenQuestionId, transcript);
-            
-            // Method 2: Save to embedded data (backup)
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_transcript', transcript);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_message_count', window.ragChatHistory.length);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_config_id', window.ragChatConfig.configId);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_response_id', window.ragChatConfig.responseId);
-            Qualtrics.SurveyEngine.setEmbeddedData('rag_saved_at', new Date().toISOString());
-            
-            console.log('✅ Chat history saved successfully!');
-            console.log(`📊 Saved ${window.ragChatHistory.length} messages`);
-            
-        } catch (error) {
-            console.error('❌ Error saving chat history:', error);
-        }
-    } else {
-        console.log('ℹ️ No chat history to save');
-    }
-});
-
-// Optional: Add unload handler for additional safety
-Qualtrics.SurveyEngine.addOnUnload(function() {
-    console.log('🔄 Page unloading - final save attempt...');
-    // Trigger save one more time
-    if (window.ragChatHistory && window.ragChatHistory.length > 0) {
-        // Quick save without formatting
-        const quickTranscript = JSON.stringify(window.ragChatHistory);
-        Qualtrics.SurveyEngine.setEmbeddedData('rag_chat_backup', quickTranscript);
-    }
-});
+]);
 ```
+Notes:
+- Protocol and port must match exactly (http vs https, 5173, etc.).
+- No trailing slash.
+
+## Test Steps (End-to-End)
+1) Open the survey preview on the page with the chat.
+2) Open two consoles:
+   - Parent (Qualtrics page): right-click → Inspect → Console
+   - Iframe: right-click inside iframe → Inspect frame → Console
+3) Send a user message in the chat and wait for the AI response.
+4) An explicit save is triggered automatically after each exchange. You can also run in the iframe console:
+   ```js
+   window.saveRAGChatToQualtrics({ includeRawData: true })
+   ```
+5) Proceed to the next page (optional) to ensure page lifecycle saves run.
+
+## Expected Logs
+From parent (Qualtrics) console:
+- "📥 postMessage received …" (with origin info)
+- "📨 Captured message …" (for `CHAT_MESSAGE`)
+- "💾 Save request received from iframe" (for `SAVE_RAG_CHAT`)
+- Success logs for writing to question and embedded data
+
+From iframe console:
+- Environment checks (isInIframe = true)
+- "Posting SAVE_RAG_CHAT to parent …" with payload preview
+- Any local backup logs when not in iframe
+
+## Data Saved
+- Hidden Text Entry question (Question B): formatted transcript
+- Embedded Data fields (via `paste.js`):
+  - `rag_chat_history`
+  - `rag_message_count`
+  - `rag_saved_at`
+  - `rag_config_id`
+  - `rag_chat_id`
+
+## Clean Up for Production
+- Keep `allowedOrigins` strict (only production origins).
+- Disable verbose debug logs (set `window.RAG_DEBUG_ENABLED = false`).
 
 
-
-
-
-
-
-
-
-
-Make sure to replace these placeholders:
-
-'YOUR_CONFIG_ID' → Your actual config ID
-'https://your-deployed-app.com' → Your actual domain
-'QID1_ChatHistory' → Your actual hidden question ID
