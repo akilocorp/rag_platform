@@ -3,8 +3,9 @@ name: Deploy to EC2
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  # Consider removing the pull_request trigger if you don't want to deploy on every PR.
+  # pull_request:
+  #   branches: [ main ]
 
 env:
   AWS_REGION: us-east-2
@@ -37,8 +38,8 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
       run: |
         cd backend
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest .
+        # ✅ FIX: Build once, tag twice for efficiency
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
 
@@ -48,8 +49,9 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
       run: |
         cd frontend
-        # docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG 
-        # docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest .
+        # ✅ FIX: Removed --build-arg. The frontend should use relative paths like /api/.
+        # ✅ FIX: Build once, tag twice for efficiency
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
 
@@ -60,38 +62,24 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          # Navigate to application directory
-           # Add GitHub's key to known_hosts to prevent host key verification failure
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-          # Navigate to application directory
-          cd /home/${{ secrets.EC2_USER }}/rag_platform || {
-            echo "Application directory not found. Creating and cloning repository..."
-            # ✅ FIX: Use the SSH URL for cloning
-            git clone git@github.com:${{ github.repository }}.git /home/${{ secrets.EC2_USER }}/rag_platform
-            cd /home/${{ secrets.EC2_USER }}/rag_platform
-          }
-          
-          # Pull latest changes
+          cd /home/${{ secrets.EC2_USER }}/rag_platform || git clone git@github.com:${{ github.repository }}.git /home/${{ secrets.EC2_USER }}/rag_platform
+          cd /home/${{ secrets.EC2_USER }}/rag_platform
           git pull origin main
           
-          # Configure AWS CLI (if not already configured)
+          # Recommendation: Attach an IAM role to the EC2 instance instead of configuring credentials here.
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set default.region ${{ env.AWS_REGION }}
           
-          # ✅ FIX: Login to ECR using sudo
+          # Login to ECR
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
           
-          # ✅ FIX: Pull latest images using sudo
-          sudo docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
-          sudo docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+          # Pull latest images
+          sudo docker-compose -f docker-compose.prod.yml pull
           
-          # ✅ FIX: Stop existing containers using sudo
-          sudo docker-compose -f docker-compose.prod.yml down || true
-          
-          # ✅ FIX: Start new containers using sudo
+          # Stop and restart services
+          sudo docker-compose -f docker-compose.prod.yml down
           sudo docker-compose -f docker-compose.prod.yml up -d
           
-          # ✅ FIX: Clean up old images using sudo
+          # Clean up old images
           sudo docker image prune -f
