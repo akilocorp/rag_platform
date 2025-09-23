@@ -1,75 +1,45 @@
-import { FaFile, FaInfoCircle, FaRobot, FaSave, FaTimes, FaTrash, FaUpload } from 'react-icons/fa';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
-import apiClient from '../api/apiClient';
+import apiClient from '../api/apiClient'; // Adjust the import path if needed
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [config, setConfig] = useState(() => {
-    const configFromState = location.state?.config;
-    if (!configFromState) {
-      console.error('No config received in state');
-      return {
-        bot_name: '',
-        model_name: '',
-        temperature: 0.7,
-        is_public: false,
-        instructions: '',
-        prompt_template: '',
-        collection_name: '',
-        documents: [],
-        config_id: null
-      };
-    }
-    
-    // Ensure we have a valid ID
-    if (!configFromState.config_id) {
-      console.error('Config state has no valid ID');
-      return {
-        ...configFromState,
-        files: configFromState.documents?.map(doc => ({
-          name: doc,
-          size: 0
-        })) || [],
-        config_id: null
-      };
-    }
-    
-    return {
-      ...configFromState,
-      files: configFromState.documents?.map(doc => ({
-        name: doc,
-        size: 0
-      })) || []
-    };
-  });
 
+  const [config, setConfig] = useState({});
+  const [initialDocuments, setInitialDocuments] = useState([]);
+  const [newFiles, setNewFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [errors, setErrors] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [promptMode, setPromptMode] = useState('instructions');
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
 
   // Effect to handle cases where the user navigates directly to the page without a config.
   useEffect(() => {
-    if (!location.state?.config) {
+    const configFromState = location.state?.config;
+    if (!configFromState) {
+      console.error('No config received in state');
       navigate('/config_list', { state: { error: 'No configuration selected to edit.' } });
       return;
     }
 
-    // Initialize config with documents from state
-    const configFromState = location.state.config;
-    setConfig(prev => ({
-      ...prev,
-      ...configFromState,
-      files: configFromState.documents?.map(doc => ({
-        name: doc,
-        size: 0 // We don't have the actual size here
-      })) || []
-    }));
+    // Set initial state from the passed-in config
+    setConfig(configFromState);
+    setInitialDocuments(configFromState.documents || []);
+    setPromptMode(configFromState.prompt_template ? 'template' : 'instructions');
   }, [location.state, navigate]);
+
+  const showNotificationMessage = (message) => {
+    setNotificationMessage(message);
+    setShowNotification(true);
+    setTimeout(() => {
+      setShowNotification(false);
+      setNotificationMessage('');
+    }, 3000);
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -77,26 +47,25 @@ const EditConfigPage = () => {
     setConfig(prev => ({ ...prev, [name]: val }));
   };
 
-  const handleFileChange = (newFiles) => {
-    const updatedFiles = [...config.files, ...newFiles];
-    const updatedDocuments = updatedFiles.map(f => f.name);
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    setNewFiles(prev => [...prev, ...files]);
+  };
 
+  const handleRemoveDocument = (fileName) => {
     setConfig(prev => ({
       ...prev,
-      files: updatedFiles,
-      documents: updatedDocuments
+      documents: prev.documents.filter(doc => doc !== fileName)
     }));
   };
 
-  const handleRemoveFile = (fileName) => {
-    const updatedFiles = config.files.filter(file => file.name !== fileName);
-    const updatedDocuments = updatedFiles.map(f => f.name);
+  const handleViewDocument = (fileName) => {
+    const fileUrl = `/file/${fileName}`;
+    window.open(fileUrl, '_blank', 'noopener,noreferrer');
+  };
 
-    setConfig(prev => ({
-      ...prev,
-      files: updatedFiles,
-      documents: updatedDocuments
-    }));
+  const handleRemoveNewFile = (fileName) => {
+    setNewFiles(prev => prev.filter(file => file.name !== fileName));
   };
 
   const handlePromptModeChange = (mode) => {
@@ -104,77 +73,51 @@ const EditConfigPage = () => {
   };
 
   const handleSubmit = async (e) => {
-    console.log('Current config state:', config); // Debug log
-    console.log('ID in config:', config.config_id);
     e.preventDefault();
-    setIsLoading(true);
-    setErrors({});
     
+    // Perform validation first
+    const newErrors = {};
+    if (!config.bot_name?.trim()) newErrors.bot_name = 'Chatbot name is required';
+    if (!config.model_name?.trim()) newErrors.model_name = 'Model name is required';
+    if (promptMode === 'instructions' && !config.instructions?.trim()) {
+      newErrors.instructions = 'Instructions are required';
+    }
+    if (promptMode === 'template' && !config.prompt_template?.trim()) {
+      newErrors.prompt_template = 'Prompt template is required';
+    }
+
+    // If there are any errors, update the state and stop the submission
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setIsLoading(true);
+    setErrors({}); // Clear any old errors
+
     try {
-      // Basic validation
-      const newErrors = {};
-      if (!config.bot_name?.trim()) newErrors.bot_name = 'Chatbot name is required';
-      if (!config.model_name?.trim()) newErrors.model_name = 'Model name is required';
-      if (promptMode === 'instructions' && !config.instructions?.trim()) {
-        newErrors.instructions = 'Instructions are required';
-      }
-      if (promptMode === 'template' && !config.prompt_template?.trim()) {
-        newErrors.prompt_template = 'Prompt template is required';
-      }
-
-      if (Object.keys(newErrors).length > 0) {
-        setErrors(newErrors);
-        setIsLoading(false);
-        return;
-      }
-
-      // Prepare request data
-      const requestData = {
-        bot_name: config.bot_name || '',
-        model_name: config.model_name || '',
-        temperature: config.temperature || 0.7,
-        is_public: config.is_public || false,
-        instructions: config.instructions || '',
-        prompt_template: config.prompt_template || '',
-        collection_name: config.collection_name || ''
-      };
-
-      // Determine if we need to use FormData based on whether files exist
-      let configData;
-      let configHeaders = {};
-      
-      if (config.files && config.files.length > 0) {
-        const formData = new FormData();
-        Object.entries(requestData).forEach(([key, value]) => {
+      const formData = new FormData();
+      Object.entries(config).forEach(([key, value]) => {
+        if (key !== 'documents' && key !== 'files') {
           formData.append(key, value);
-        });
-        config.files.forEach(file => {
-          formData.append('files', file);
-        });
-        configData = formData;
-        configHeaders = {
-          'Content-Type': 'multipart/form-data'
-        };
-      } else {
-        configData = requestData;
-        configHeaders = {
-          'Content-Type': 'application/json'
-        };
-      }
-
-      // Debug log the ID before making the request
-      console.log('Sending PUT request with ID:', config.config_id);
-      await apiClient.put(`/config/${config.config_id}`, configData, {
-        headers: configHeaders
+        }
       });
 
-      // Navigate back to config list with refresh flag
-      navigate('/config_list', { state: { refresh: true } });
+      newFiles.forEach(file => {
+        formData.append('files', file);
+      });
+
+      const filesToDelete = initialDocuments.filter(doc => !config.documents.includes(doc));
+      formData.append('files_to_delete', JSON.stringify(filesToDelete));
+
+      // **USE REAL API CLIENT TO SEND THE PUT REQUEST**
+      await apiClient.put(`/config/${config.config_id}`, formData);
+
+      navigate('/config_list', { state: { refresh: true, message: 'Assistant updated successfully.' } });
     } catch (error) {
       console.error('Error updating configuration:', error);
-      setErrors({
-        form: error.message || 'Failed to update configuration. Please try again.'
-      });
+      const errorMessage = error.response?.data?.error || 'Failed to update configuration. Please try again.';
+      setErrors({ form: errorMessage });
     } finally {
       setIsLoading(false);
     }
@@ -188,31 +131,25 @@ const EditConfigPage = () => {
     setShowConfirmModal(false);
     setIsDeleting(true);
     try {
-      // Log the ID to debug
-      console.log('Deleting config with ID:', config.config_id);
-      
-      // Ensure we have a valid ID
       if (!config.config_id) {
         throw new Error('No valid ID found');
       }
 
-      // Use the correct API endpoint
-      const response = await apiClient.delete(`/config/${config.config_id}`);
-      if (response.status === 200) {
-        navigate('/config_list', { state: { refresh: true, message: 'Assistant deleted successfully.' } });
-      } else {
-        throw new Error('Failed to delete configuration');
-      }
+      // **USE REAL API CLIENT TO SEND THE DELETE REQUEST**
+      await apiClient.delete(`/config/${config.config_id}`);
+      
+      navigate('/config_list', { state: { refresh: true, message: 'Assistant deleted successfully.' } });
     } catch (error) {
       console.error('Error deleting configuration:', error);
-      setErrors({ form: 'Failed to delete configuration.' });
+      const errorMessage = error.response?.data?.error || 'Failed to delete configuration.';
+      setErrors({ form: errorMessage });
     } finally {
       setIsDeleting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white py-12 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-8">
           <h1 className="text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-500">
@@ -230,11 +167,12 @@ const EditConfigPage = () => {
           <form onSubmit={handleSubmit} className="space-y-8">
             {/* Chatbot Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Chatbot Name</label>
+              <label htmlFor="bot_name" className="block text-sm font-medium text-gray-300 mb-2">Chatbot Name</label>
               <input
                 type="text"
+                id="bot_name"
                 name="bot_name"
-                value={config.bot_name}
+                value={config.bot_name || ''}
                 onChange={handleChange}
                 className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="My Awesome Assistant"
@@ -244,23 +182,23 @@ const EditConfigPage = () => {
 
             {/* Model Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Model Name</label>
+              <label htmlFor="model_name" className="block text-sm font-medium text-gray-300 mb-2">Model Name</label>
               <select
-                  id="model_name"
-                  name="model_name"
-                  value={config.model_name}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="deepseek-chat">Deepseek Chat</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                  <option value="gpt-4">GPT-4</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="gpt-5">GPT-5</option>
-                  <option value="qwen-turbo">Qwen Turbo</option>
-                </select>
+                id="model_name"
+                name="model_name"
+                value={config.model_name || ''}
+                onChange={handleChange}
+                className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="deepseek-chat">Deepseek Chat</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                <option value="gpt-4">GPT-4</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="gpt-5">GPT-5</option>
+                <option value="qwen-turbo">Qwen Turbo</option>
+              </select>
               {errors.model_name && <p className="mt-1 text-sm text-red-400">{errors.model_name}</p>}
             </div>
 
@@ -280,7 +218,7 @@ const EditConfigPage = () => {
                   id="is_public"
                   name="is_public"
                   className="sr-only peer"
-                  checked={config.is_public}
+                  checked={!!config.is_public}
                   onChange={handleChange}
                 />
                 <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -302,7 +240,7 @@ const EditConfigPage = () => {
                 min="0"
                 max="1"
                 step="0.1"
-                value={config.temperature}
+                value={config.temperature || 0.7}
                 onChange={handleChange}
                 className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
@@ -344,7 +282,7 @@ const EditConfigPage = () => {
               {promptMode === 'instructions' && (
                 <textarea
                   name="instructions"
-                  value={config.instructions}
+                  value={config.instructions || ''}
                   onChange={handleChange}
                   rows="4"
                   className="w-full px-4 py-2 mt-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -355,7 +293,7 @@ const EditConfigPage = () => {
               {promptMode === 'template' && (
                 <textarea
                   name="prompt_template"
-                  value={config.prompt_template}
+                  value={config.prompt_template || ''}
                   onChange={handleChange}
                   rows="4"
                   className="w-full px-4 py-2 mt-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -373,35 +311,82 @@ const EditConfigPage = () => {
 
             {/* Collection Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Collection Name</label>
+              <label htmlFor="collection_name" className="block text-sm font-medium text-gray-300 mb-2">Collection Name</label>
               <input
                 type="text"
+                id="collection_name"
                 name="collection_name"
-                value={config.collection_name}
+                value={config.collection_name || ''}
                 onChange={handleChange}
                 className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="Enter collection name"
               />
             </div>
 
-            {/* File Upload */}
+            {/* File Management */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Knowledge Base Files</label>
-              
-              {/* Display existing files */}
+
+              {/* Display existing files from the server */}
               {config.documents && config.documents.length > 0 && (
                 <div className="mt-4 space-y-2">
-                  
                   <ul className="space-y-2">
                     {config.documents.map((fileName) => (
                       <li key={fileName} className="flex items-center justify-between bg-gray-700/50 p-2 rounded-md">
-                        <span className="text-sm text-gray-300">{fileName}</span>
+                        <span className="text-sm text-gray-300 flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          {fileName}
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleViewDocument(fileName)}
+                            className="text-indigo-400 hover:text-indigo-500"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDocument(fileName)}
+                            className="text-red-400 hover:text-red-500"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Display newly added files */}
+              {newFiles.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h4 className="text-sm font-medium text-gray-400">Files to Upload:</h4>
+                  <ul className="space-y-2">
+                    {newFiles.map((file) => (
+                      <li key={file.name} className="flex items-center justify-between bg-gray-700/50 p-2 rounded-md">
+                        <span className="text-sm text-gray-300 flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          {file.name}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => handleRemoveFile(fileName)}
+                          onClick={() => handleRemoveNewFile(file.name)}
                           className="text-red-400 hover:text-red-500"
                         >
-                          <FaTrash className="text-sm" />
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
                       </li>
                     ))}
@@ -410,22 +395,25 @@ const EditConfigPage = () => {
               )}
 
               {/* File upload area */}
-              <div className="mt-4 flex flex-col items-center justify-center px-6 pt-8 pb-8 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer hover:border-indigo-500 bg-gray-800/50">
+              <label htmlFor="file-upload" className="mt-4 flex flex-col items-center justify-center px-6 pt-8 pb-8 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer hover:border-indigo-500 bg-gray-800/50">
                 <div className="text-center">
-                  <FaUpload className="mx-auto text-2xl mb-3 text-gray-500" />
+                  <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
                   <p className="text-xs text-gray-400">
                     Drag & drop files or click to browse
                   </p>
                   <p className="text-xs text-gray-500 mt-1">Supports: TXT, PDF, DOCX, MD (Max 10MB each)</p>
                 </div>
                 <input
+                  id="file-upload"
                   type="file"
                   multiple
-                  onChange={(e) => handleFileChange(Array.from(e.target.files))}
+                  onChange={handleFileChange}
                   className="hidden"
                   accept=".txt,.pdf,.md,.docx"
                 />
-              </div>
+              </label>
             </div>
 
             {/* Action Buttons */}
@@ -437,7 +425,9 @@ const EditConfigPage = () => {
                 disabled={isDeleting || isLoading}
                 className="w-full sm:w-auto flex justify-center items-center py-3 px-6 rounded-lg font-medium text-white bg-red-600 hover:bg-red-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <FaTrash className="mr-2" />
+                <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
 
@@ -448,7 +438,9 @@ const EditConfigPage = () => {
                   onClick={() => navigate(-1)}
                   className="w-full sm:w-auto flex items-center justify-center py-3 px-6 rounded-lg font-medium bg-gray-600 hover:bg-gray-700 transition-all active:scale-[0.98]"
                 >
-                  <FaTimes className="mr-2" />
+                  <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                   Cancel
                 </button>
                 <button
@@ -466,7 +458,9 @@ const EditConfigPage = () => {
                     </>
                   ) : (
                     <>
-                      <FaSave className="mr-2" />
+                      <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                      </svg>
                       Save Changes
                     </>
                   )}
@@ -484,12 +478,14 @@ const EditConfigPage = () => {
             <p className="text-gray-300 mb-6">Are you sure you want to permanently delete this assistant? This action cannot be undone.</p>
             <div className="flex justify-end gap-4">
               <button
+                type="button"
                 onClick={() => setShowConfirmModal(false)}
                 className="py-2 px-4 rounded-lg font-medium bg-gray-600 hover:bg-gray-700 transition-colors"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={confirmDelete}
                 className="py-2 px-4 rounded-lg font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
               >
@@ -497,6 +493,11 @@ const EditConfigPage = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {showNotification && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-lg transition-all duration-300 z-50">
+          {notificationMessage}
         </div>
       )}
     </div>

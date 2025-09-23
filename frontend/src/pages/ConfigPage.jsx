@@ -56,7 +56,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-300 mb-2">Knowledge Base Files</label>
+      <label className="block text-sm font-medium text-gray-300 mb-2">Knowledge Base Files (Optional)</label>
       <div
         className={`mt-1 flex flex-col items-center justify-center px-6 pt-8 pb-8 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer ${
           isDragging 
@@ -74,7 +74,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
           <p className={`text-sm ${isDragging ? 'text-indigo-400' : 'text-gray-400'}`}>
             {isDragging ? 'Drop files here' : 'Drag & drop files or click to browse'}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Supports: TXT, PDF, DOCX, MD (Max 50MB each)</p>
+          <p className="text-xs text-gray-500 mt-1">Supports: TXT, DOCX, MD (Max 50MB each)</p>
         </div>
       </div>
       <input
@@ -169,17 +169,17 @@ const ConfigPage = () => {
 
     const formData = new FormData();
     config.rag_files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      if (file.size > 500 * 1024 * 1024) { // 500MB limit
         setErrors({ form: `File ${file.name} is too large. Maximum size is 10MB.` });
         return;
       }
       formData.append('files', file);
     });
 
-    if (config.rag_files.length === 0) {
-      setErrors({ form: 'Please select at least one file to upload.' });
-      return;
-    }
+    // if (config.rag_files.length === 0) {
+    //   setErrors({ form: 'Please select at least one file to upload.' });
+    //   return;
+    // }
 
     const configToSend = { ...config };
     delete configToSend.rag_files;

@@ -1,8 +1,9 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
 from bson import ObjectId
 import os
+import json
 
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
@@ -24,11 +25,6 @@ def update_existing_config(config_id):
         data = request.form
         files = request.files.getlist('files')
 
-        # Validate required fields
-        required_fields = ['bot_name', 'model_name', 'temperature', 'is_public']
-        if not all(field in data for field in required_fields):
-            return jsonify({"error": "Missing one or more required fields"}), 400
-
         # Find the config ensuring it belongs to the authenticated user
         config_to_update = Config.get_collection().find_one({
             "_id": ObjectId(config_id),
@@ -38,20 +34,36 @@ def update_existing_config(config_id):
         if not config_to_update:
             return jsonify({"message": "Configuration not found or access denied"}), 404
 
-        # Prepare update data
-        update_data = {
-            "bot_name": data.get('bot_name'),
-            "model_name": data.get('model_name'),
-            "temperature": float(data.get('temperature', 0.7)),
-            "is_public": data.get('is_public').lower() in ['true', '1'],
-            "instructions": data.get('instructions'),
-            "prompt_template": data.get('prompt_template'),
-            "collection_name": data.get('collection_name'),
-        }
+        # --- LOGGING FOR NEW FILES ---
+        # Check if the list of files is not empty and the first item is a real file
+        if files and files[0].filename:
+            filenames = [f.filename for f in files]
+            current_app.logger.info(f"Request received to ADD new files for config_id '{config_id}': {filenames}")
+
+        # Handle file deletions
+        files_to_delete_json = data.get('files_to_delete', '[]')
+        files_to_delete = json.loads(files_to_delete_json)
+        
+        # --- LOGGING FOR FILES TO BE DELETED ---
+        if files_to_delete:
+            current_app.logger.info(f"Request received to DELETE files for config_id '{config_id}': {files_to_delete}")
+        
+        existing_documents = config_to_update.get('documents', [])
+        current_documents = [doc for doc in existing_documents if doc not in files_to_delete]
+
+        for filename in files_to_delete:
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    # --- LOGGING FOR EACH FILE DELETED ---
+                    current_app.logger.info(f"SUCCESS: Physically deleted file '{file_path}' for config_id '{config_id}'.")
+            except OSError as e:
+                current_app.logger.error(f"Error deleting file {file_path}: {e}", exc_info=True)
 
         # Handle file uploads
         newly_uploaded_filenames = []
-        if files:
+        if files and files[0].filename:
             temp_file_paths = []
             os.makedirs(UPLOAD_FOLDER, exist_ok=True)
             for file in files:
@@ -70,10 +82,20 @@ def update_existing_config(config_id):
                     config_id
                 )
         
-        # Update documents list
-        existing_documents = config_to_update.get('documents', [])
-        updated_documents = list(set(existing_documents + newly_uploaded_filenames))
-        update_data['documents'] = updated_documents
+        # Update documents list with newly uploaded files
+        updated_documents = list(set(current_documents + newly_uploaded_filenames))
+        
+        # Prepare update data
+        update_data = {
+            "bot_name": data.get('bot_name'),
+            "model_name": data.get('model_name'),
+            "temperature": float(data.get('temperature', 0.7)),
+            "is_public": data.get('is_public').lower() in ['true', '1'],
+            "instructions": data.get('instructions'),
+            "prompt_template": data.get('prompt_template'),
+            "collection_name": data.get('collection_name'),
+            "documents": updated_documents
+        }
 
         # Update the document in the database
         Config.get_collection().update_one(
@@ -144,4 +166,20 @@ def delete_config(config_id):
 
     except Exception as e:
         current_app.logger.error(f"An error occurred in delete_config: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@edit_config_bp.route('/file/<string:filename>', methods=['GET'])
+@jwt_required()
+def get_file(filename):
+    """
+    Serves a file from the UPLOAD_FOLDER for authenticated users.
+    """
+    try:
+        user_id = get_jwt_identity()
+        return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=False)
+    except FileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error serving file: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500

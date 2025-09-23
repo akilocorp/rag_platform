@@ -1,0 +1,43 @@
+# docker-compose.dev.yml
+
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: rag_platform_backend_dev
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5000:5000"
+    volumes:
+      # Sync your local backend code for live updates
+      - ./backend:/app
+    networks:
+      - rag_network
+
+  frontend:
+    build:
+      context: ./frontend
+      # Use the 'builder' stage from your Dockerfile to install dependencies
+      target: builder 
+    container_name: rag_platform_frontend_dev
+    ports:
+      - "5173:5173"
+    volumes:
+      # This is the magic for live updates!
+      # It syncs your local frontend code into the container.
+      - ./frontend:/app
+      # This prevents the container's node_modules from being overwritten
+      - /app/node_modules
+    networks:
+      - rag_network
+    depends_on:
+      - backend
+    # Override the production command to start the dev server
+    command: npm run dev
+
+networks:
+  rag_network:
+    driver: bridge
+    name: rag_network
