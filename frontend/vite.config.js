@@ -13,7 +13,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         // 'backend' is the service name from your docker-compose file
-        target: 'http://localhost:5000', 
+        target: 'http://backend:5000', 
         changeOrigin: true,
       },
     },
