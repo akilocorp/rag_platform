@@ -170,7 +170,7 @@ const ConfigPage = () => {
     const formData = new FormData();
     config.rag_files.forEach(file => {
       if (file.size > 500 * 1024 * 1024) { // 500MB limit
-        setErrors({ form: `File ${file.name} is too large. Maximum size is 10MB.` });
+        setErrors({ form: `File ${file.name} is too large. Maximum size is 100MB.` });
         return;
       }
       formData.append('files', file);

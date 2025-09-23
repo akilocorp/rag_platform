@@ -48,8 +48,8 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
       run: |
         cd frontend
-        docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG .
-        docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest .
+        # docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG 
+        # docker build --build-arg API_URL=http://localhost:5000 -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
 
