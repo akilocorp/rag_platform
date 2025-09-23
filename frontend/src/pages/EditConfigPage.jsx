@@ -403,7 +403,7 @@ const EditConfigPage = () => {
                   <p className="text-xs text-gray-400">
                     Drag & drop files or click to browse
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Supports: TXT, PDF, DOCX, MD (Max 500MB each)</p>
+                  <p className="text-xs text-gray-500 mt-1">Supports: TXT, PDF, DOCX, MD (Max 499MB each)</p>
                 </div>
                 <input
                   id="file-upload"
