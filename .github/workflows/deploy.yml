@@ -2,7 +2,8 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ main ]
+    # Trigger on both 'main' and 'dev'
+    branches: [ main, dev ]
 
 env:
   AWS_REGION: us-east-2
@@ -49,16 +50,30 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
 
+    # This step uses conditional logic to select the correct secrets and deploy.
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
+        # Use ternary operator to select the host based on the branch
+        host: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_HOST || secrets.EC2_HOST }}
+        # Use ternary operator to select the user based on the branch
+        username: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_USER || secrets.EC2_USER }}
+        # Use ternary operator to select the key based on the branch
+        key: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}
         script: |
+          # --- COMMON DEPLOYMENT SCRIPT ---
+          
+          # Determine the branch name for git pull
+          DEPLOY_BRANCH="${{ github.ref_name }}"
+          
+          # Determine the user for the application directory (using the selected user)
+          # Note: We must re-evaluate the user here since the appleboy action handles the actual SSH connection user
+          # We'll use the selected username secret for the directory path.
+          APP_USER=$([ "${{ github.ref_name }}" == "dev" ] && echo "${{ secrets.DEV_EC2_USER }}" || echo "${{ secrets.EC2_USER }}")
+
           # Navigate to the application directory and update the compose file
-          cd /home/${{ secrets.EC2_USER }}/rag_platform
-          git pull origin main
+          cd /home/$APP_USER/rag_platform
+          git pull origin $DEPLOY_BRANCH
           
           # ✅ FIX: Forcefully kill whatever is using the web ports
           # This ensures nothing can conflict with the new containers.
