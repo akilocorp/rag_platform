@@ -2,12 +2,11 @@ name: Deploy to EC2
 
 on:
   push:
-    # Trigger on both 'main' and 'dev'
     branches: [ main, dev ]
 
 env:
   AWS_REGION: us-east-2
-  ECR_REGISTRY: 235639741719.dkr.ecr.us-east-2.amazonaws.com
+  PROD_ECR_REGISTRY: 235639741719.dkr.ecr.us-east-2.amazonaws.com
   ECR_REPOSITORY_BACKEND: my-chat-app/backend
   ECR_REPOSITORY_FRONTEND: my-chat-app/frontend
 
@@ -32,7 +31,7 @@ jobs:
 
     - name: Build and push backend image
       env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REGISTRY: ${{ github.ref == 'refs/heads/dev' && env.PROD_ECR_REGISTRY || env.PROD_ECR_REGISTRY }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
         cd backend
@@ -42,7 +41,7 @@ jobs:
 
     - name: Build and push frontend image
       env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REGISTRY: ${{ github.ref == 'refs/heads/dev' && env.PROD_ECR_REGISTRY || env.PROD_ECR_REGISTRY }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
         cd frontend
@@ -50,47 +49,24 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
 
-    # This step uses conditional logic to select the correct secrets and deploy.
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
-        # Use ternary operator to select the host based on the branch
-        host: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_HOST || secrets.EC2_HOST }}
-        # Use ternary operator to select the user based on the branch
+        host: ${{ github.ref == 'refs/heads/dev' && 'ec2-18-224-2-163.us-east-2.compute.amazonaws.com' || secrets.EC2_HOST }}
         username: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_USER || secrets.EC2_USER }}
-        # Use ternary operator to select the key based on the branch
         key: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}
         script: |
-          # --- COMMON DEPLOYMENT SCRIPT ---
-          
-          # Determine the branch name for git pull
           DEPLOY_BRANCH="${{ github.ref_name }}"
-          
-          # Determine the user for the application directory (using the selected user)
-          # Note: We must re-evaluate the user here since the appleboy action handles the actual SSH connection user
-          # We'll use the selected username secret for the directory path.
-          APP_USER=$([ "${{ github.ref_name }}" == "dev" ] && echo "${{ secrets.DEV_EC2_USER }}" || echo "${{ secrets.EC2_USER }}")
+          APP_USER=$([ "$DEPLOY_BRANCH" == "dev" ] && echo "${{ secrets.DEV_EC2_USER }}" || echo "${{ secrets.EC2_USER }}")
 
-          # Navigate to the application directory and update the compose file
           cd /home/$APP_USER/rag_platform
           git pull origin $DEPLOY_BRANCH
-          
-          # ✅ FIX: Forcefully kill whatever is using the web ports
-          # This ensures nothing can conflict with the new containers.
+
           sudo fuser -k 80/tcp || true
           sudo fuser -k 443/tcp || true
-          
-          # Stop and remove any containers from the previous deployment
+
           sudo docker-compose -f docker-compose.prod.yml down
-          
-          # Login to AWS ECR to pull new images
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-          
-          # Pull the latest images
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ env.PROD_ECR_REGISTRY }}
           sudo docker-compose -f docker-compose.prod.yml pull
-          
-          # Start the new containers fresh
           sudo docker-compose -f docker-compose.prod.yml up -d
-          
-          # Clean up old, unused images
           sudo docker image prune -af
