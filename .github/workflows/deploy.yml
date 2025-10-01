@@ -31,12 +31,29 @@ jobs:
         script: |
           set -e
 
-          # Install Docker and compose plugin if missing
+          # Install Docker and Compose if missing
           if ! command -v docker &> /dev/null; then
-            sudo apt update
-            sudo apt install -y docker.io docker-compose-plugin
-            sudo usermod -aG docker $USER
+            sudo apt update || true
+            sudo apt install -y docker.io docker-compose-plugin || true
+            sudo usermod -aG docker $USER || true
           fi
+
+          # Ensure docker-compose (v1) exists if Compose V2 is unavailable
+          if ! docker compose version >/dev/null 2>&1; then
+            if ! command -v docker-compose >/dev/null 2>&1; then
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
+          fi
+
+          # Compose wrapper that works with V2 or legacy binary
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              sudo docker compose "$@"
+            else
+              sudo docker-compose "$@"
+            fi
+          }
 
           cd ~/rag_platform
 
@@ -51,8 +68,8 @@ jobs:
             echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
           fi
 
-          # Choose compose file and API URL per branch
-          if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+          # Choose compose file and API URL per branch (use GitHub expression directly)
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
             COMPOSE_FILE="docker-compose.remote.dev.yml"
           else
@@ -64,9 +81,9 @@ jobs:
           echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
           # Bring up stack (build on server)
-          sudo docker compose -f $COMPOSE_FILE down --remove-orphans || true
-          sudo docker compose -f $COMPOSE_FILE build
-          sudo docker compose -f $COMPOSE_FILE up -d
+          compose -f $COMPOSE_FILE down --remove-orphans || true
+          compose -f $COMPOSE_FILE build
+          compose -f $COMPOSE_FILE up -d
 
           # Show status
-          sudo docker compose -f $COMPOSE_FILE ps
+          compose -f $COMPOSE_FILE ps
