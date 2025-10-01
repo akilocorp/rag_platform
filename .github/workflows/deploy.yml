@@ -1,91 +1,72 @@
-name: Deploy to EC2
+name: Deploy to EC2 (remote build)
 
 on:
   push:
     branches: [ main, dev ]
 
-env:
-  AWS_REGION: us-east-2
-  PROD_ECR_REGISTRY: 235639741719.dkr.ecr.us-east-2.amazonaws.com
-  ECR_REPOSITORY_BACKEND: my-chat-app/backend
-  ECR_REPOSITORY_FRONTEND: my-chat-app/frontend
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+    - name: Upload repository to EC2
+      uses: appleboy/scp-action@v0.1.7
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+        host: ${{ github.ref == 'refs/heads/dev' && 'ec2-18-224-2-163.us-east-2.compute.amazonaws.com' || secrets.EC2_HOST }}
+        username: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_USER || secrets.EC2_USER }}
+        key: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}
+        source: "."
+        target: "~/rag_platform"
+        overwrite: true
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-
-    - name: Build and push backend image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        cd backend
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
-
-    - name: Build and push frontend image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        cd frontend
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
-
-    - name: Deploy to EC2
+    - name: Deploy on EC2 (docker compose build & up)
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ github.ref == 'refs/heads/dev' && 'ec2-18-224-2-163.us-east-2.compute.amazonaws.com' || secrets.EC2_HOST }}
         username: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_USER || secrets.EC2_USER }}
         key: ${{ github.ref == 'refs/heads/dev' && secrets.DEV_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}
         script: |
-          IMAGE_TAG=${{ github.sha }}
-          ECR_REGISTRY=${{ env.PROD_ECR_REGISTRY }}
-          BACKEND_IMAGE=$ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}
-          FRONTEND_IMAGE=$ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}
+          set -e
 
-          # Install docker if not exists
+          # Install Docker and compose plugin if missing
           if ! command -v docker &> /dev/null; then
             sudo apt update
-            sudo apt install -y docker.io awscli
+            sudo apt install -y docker.io docker-compose-plugin
             sudo usermod -aG docker $USER
           fi
 
-          # Kill anything using ports
-          sudo fuser -k 80/tcp || true
-          sudo fuser -k 443/tcp || true
+          cd ~/rag_platform
 
-          # Login to ECR
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin $ECR_REGISTRY
+          # Backend env file
+          if [ ! -f ./backend/.env ]; then
+            mkdir -p ./backend
+            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > ./backend/.env
+            echo "MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}" >> ./backend/.env
+            echo "USER=${{ secrets.MONGO_USER_COLLECTION }}" >> ./backend/.env
+            echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> ./backend/.env
+            echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> ./backend/.env
+            echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
+          fi
 
-          # Stop and remove old containers
-          sudo docker ps -q --filter "name=myapp-backend" | grep -q . && sudo docker stop myapp-backend && sudo docker rm myapp-backend || true
-          sudo docker ps -q --filter "name=myapp-frontend" | grep -q . && sudo docker stop myapp-frontend && sudo docker rm myapp-frontend || true
+          # Choose compose file and API URL per branch
+          if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+            export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
+            COMPOSE_FILE="docker-compose.remote.dev.yml"
+          else
+            export FRONTEND_API_URL="${{ secrets.FRONTEND_API_URL }}"
+            COMPOSE_FILE="docker-compose.remote.prod.yml"
+          fi
 
-          # Pull and run backend
-          sudo docker pull $BACKEND_IMAGE:latest
-          sudo docker run -d --name myapp-backend -p 4000:4000 $BACKEND_IMAGE:latest
+          echo "Using compose file: $COMPOSE_FILE"
+          echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-          # Pull and run frontend
-          sudo docker pull $FRONTEND_IMAGE:latest
-          sudo docker run -d --name myapp-frontend -p 80:80 $FRONTEND_IMAGE:latest
+          # Bring up stack (build on server)
+          sudo docker compose -f $COMPOSE_FILE down --remove-orphans || true
+          sudo docker compose -f $COMPOSE_FILE build
+          sudo docker compose -f $COMPOSE_FILE up -d
 
-          # Clean old images
-          sudo docker image prune -af
+          # Show status
+          sudo docker compose -f $COMPOSE_FILE ps

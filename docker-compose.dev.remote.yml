@@ -1,0 +1,25 @@
+services:
+  backend:
+    image: 235639741719.dkr.ecr.us-east-2.amazonaws.com/my-chat-app/backend:latest
+    container_name: rag_platform_backend_dev
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5000:5000"
+    networks:
+      - rag_network
+
+  frontend:
+    image: 235639741719.dkr.ecr.us-east-2.amazonaws.com/my-chat-app/frontend:latest
+    container_name: rag_platform_frontend_dev
+    ports:
+      - "5173:5173"
+    networks:
+      - rag_network
+    depends_on:
+      - backend
+
+networks:
+  rag_network:
+    driver: bridge
+    name: rag_network 

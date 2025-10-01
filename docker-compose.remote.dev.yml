@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: myapp-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "5000:5000"
+    networks:
+      - rag_network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_URL: ${FRONTEND_API_URL}
+    container_name: myapp-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - rag_network
+
+networks:
+  rag_network:
+    driver: bridge
+    name: rag_network 

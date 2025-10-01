@@ -24,14 +24,13 @@ services:
     container_name: rag_platform_frontend_prod
     ports:
       - "5173:5173"
-      - "443:443"
     networks:
       - rag_network
     depends_on:
       - backend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
       interval: 30s
       timeout: 10s
       retries: 3
