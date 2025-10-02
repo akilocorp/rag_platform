@@ -12,6 +12,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Print GitHub Actions environment (Dev)
+      run: printenv
+
     - name: Upload repository to Dev EC2
       uses: appleboy/scp-action@v0.1.7
       with:
@@ -31,19 +34,14 @@ jobs:
         script: |
           set -e
 
+          echo "Printing all environment variables on EC2:"
+          printenv
+
           # Install Docker and Compose if missing
           if ! command -v docker &> /dev/null; then
             sudo apt update || true
             sudo apt install -y docker.io docker-compose-plugin || true
             sudo usermod -aG docker $USER || true
-          fi
-
-          # Ensure docker-compose (v1) exists if Compose V2 is unavailable
-          if ! docker compose version >/dev/null 2>&1; then
-            if ! command -v docker-compose >/dev/null 2>&1; then
-              sudo curl -L "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-              sudo chmod +x /usr/local/bin/docker-compose
-            fi
           fi
 
           # Compose wrapper
@@ -91,6 +89,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Print GitHub Actions environment (Main)
+      run: printenv
+
     - name: Configure AWS credentials (main)
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -133,19 +134,14 @@ jobs:
         script: |
           set -e
 
+          echo "Printing all environment variables on Prod EC2:"
+          printenv
+
           # Install Docker and AWS CLI
           if ! command -v docker &> /dev/null; then
             sudo apt update || true
             sudo apt install -y docker.io awscli docker-compose-plugin || true
             sudo usermod -aG docker $USER || true
-          fi
-
-          # Ensure docker-compose (v1) exists if Compose V2 is unavailable
-          if ! docker compose version >/dev/null 2>&1; then
-            if ! command -v docker-compose >/dev/null 2>&1; then
-              sudo curl -L "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-              sudo chmod +x /usr/local/bin/docker-compose
-            fi
           fi
 
           # Compose wrapper
