@@ -12,7 +12,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Debug: Print EC2 SSH key fingerprint (dev)
+    - name: "Debug: Print EC2 SSH key fingerprint (dev)"
       run: |
         set -e
         echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
@@ -108,7 +108,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Debug: Print EC2 SSH key fingerprint (prod)
+    - name: "Debug: Print EC2 SSH key fingerprint (prod)"
       run: |
         set -e
         echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
