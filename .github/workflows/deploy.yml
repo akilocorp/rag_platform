@@ -12,30 +12,22 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: "Debug: Show EC2 key fingerprint (safe)"
+    - name: "Debug: Print EC2 SSH key fingerprint (dev)"
       run: |
         set -e
-        KEY="${{ secrets.EC2_SSH_KEY }}"
-        printf 'Key length (chars): %s\n' "${#KEY}"
-        printf '%s\n' "$KEY" > key.pem
+        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
         chmod 600 key.pem
-        echo "Private key fingerprint:"
-        ssh-keygen -lf key.pem || true
-        echo "Public key fingerprint (derived):"
-        ssh-keygen -y -f key.pem > key.pub
-        ssh-keygen -lf key.pub || true
+        if command -v ssh-keygen >/dev/null 2>&1; then
+          echo "Private key fingerprint:"
+          ssh-keygen -lf key.pem || true
+          echo "Public key fingerprint:"
+          ssh-keygen -y -f key.pem > key.pub
+          ssh-keygen -lf key.pub || true
+        else
+          echo "ssh-keygen not found; printing SHA256 of private key file"
+          openssl dgst -sha256 key.pem || shasum -a 256 key.pem || true
+        fi
         rm -f key.pem key.pub
-
-    - name: Verify SSH works (dev)
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          echo "Using SSH user: $USER"
-          whoami
-          hostname
 
     - name: Upload repository to Dev EC2
       uses: appleboy/scp-action@v0.1.7
@@ -116,30 +108,22 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: "Debug: Show EC2 key fingerprint (safe)"
+    - name: "Debug: Print EC2 SSH key fingerprint (prod)"
       run: |
         set -e
-        KEY="${{ secrets.EC2_SSH_KEY }}"
-        printf 'Key length (chars): %s\n' "${#KEY}"
-        printf '%s\n' "$KEY" > key.pem
+        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
         chmod 600 key.pem
-        echo "Private key fingerprint:"
-        ssh-keygen -lf key.pem || true
-        echo "Public key fingerprint (derived):"
-        ssh-keygen -y -f key.pem > key.pub
-        ssh-keygen -lf key.pub || true
+        if command -v ssh-keygen >/dev/null 2>&1; then
+          echo "Private key fingerprint:"
+          ssh-keygen -lf key.pem || true
+          echo "Public key fingerprint:"
+          ssh-keygen -y -f key.pem > key.pub
+          ssh-keygen -lf key.pub || true
+        else
+          echo "ssh-keygen not found; printing SHA256 of private key file"
+          openssl dgst -sha256 key.pem || shasum -a 256 key.pem || true
+        fi
         rm -f key.pem key.pub
-
-    - name: Verify SSH works (prod)
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          echo "Using SSH user: $USER"
-          whoami
-          hostname
 
     - name: Configure AWS credentials (main)
       uses: aws-actions/configure-aws-credentials@v4
