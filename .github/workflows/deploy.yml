@@ -107,24 +107,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: "Debug: Print EC2 SSH key fingerprint (prod)"
-      run: |
-        set -e
-        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-        chmod 600 key.pem
-        if command -v ssh-keygen >/dev/null 2>&1; then
-          echo "Private key fingerprint:"
-          ssh-keygen -lf key.pem || true
-          echo "Public key fingerprint:"
-          ssh-keygen -y -f key.pem > key.pub
-          ssh-keygen -lf key.pub || true
-        else
-          echo "ssh-keygen not found; printing SHA256 of private key file"
-          openssl dgst -sha256 key.pem || shasum -a 256 key.pem || true
-        fi
-        rm -f key.pem key.pub
-
     - name: Configure AWS credentials (main)
       uses: aws-actions/configure-aws-credentials@v4
       with:
