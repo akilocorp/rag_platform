@@ -15,8 +15,8 @@ jobs:
       uses: appleboy/scp-action@v0.1.7
       with:
         host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
+        username: ${{ secrets.DEV_EC2_USER }}
+        key: ${{ secrets.DEV_EC2_SSH_KEY }}
         source: "."
         target: "~/rag_platform"
         overwrite: true
@@ -25,8 +25,8 @@ jobs:
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
+        username: ${{ secrets.DEV_EC2_USER }}
+        key: ${{ secrets.DEV_EC2_SSH_KEY }}
         script: |
           set -e
 
