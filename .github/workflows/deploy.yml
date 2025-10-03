@@ -12,55 +12,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: "Debug: Print EC2 SSH key fingerprint (dev)"
+    - name: Verify SSH works (dev)
       run: |
         set -e
-        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-        chmod 600 key.pem
-        if command -v ssh-keygen >/dev/null 2>&1; then
-          echo "Private key fingerprint:"
-          ssh-keygen -lf key.pem || true
-          echo "Public key fingerprint:"
-          ssh-keygen -y -f key.pem > key.pub
-          ssh-keygen -lf key.pub || true
-        else
-          echo "ssh-keygen not found; printing SHA256 of private key file"
-          openssl dgst -sha256 key.pem || shasum -a 256 key.pem || true
-        fi
-        rm -f key.pem key.pub
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+          -i <(printf '%s\n' "${{ secrets.EC2_SSH_KEY }}") \
+          ${{ secrets.EC2_USER }}@ec2-18-224-2-163.us-east-2.compute.amazonaws.com \
+          'echo OK && hostname'
 
     - name: Upload repository to Dev EC2
       uses: appleboy/scp-action@v0.1.7
       with:
         host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
         username: ${{ secrets.EC2_USER }}
-        key: -----BEGIN RSA PRIVATE KEY-----
-                MIIEogIBAAKCAQEAprX5cnUvguYDTObDoZhur9LvaSfHIdseAkKJ0RWTrlrO1QoY
-                82PkYYsLsaGv4NvgdhLZgyA0hQcec9g/tjUYbyur6qu73yiQttaUiDI51b4Hnwry
-                vzPIq/yHOVy2sFeBbvi9MBc227D7VRvGXbtsq9WcdEsmQtPMe9ETwnf4uvO9DRXf
-                ioOWMompcQOUD5K0K6xAJEE4/Xb1ltceL6zMB8T6k+RO0V0vlAwUySXRugblnicQ
-                uL3znvXkuwhGqPizlttqUKToDLn9CZdNRQ3S8VC2G+Wr6MdM5FOjUz25BF9yQYAv
-                c1vlBTq+6nfg+d11V7HY0EmI9OTVsZhG1M6BtQIDAQABAoIBABgH7UBBgirFSz5/
-                mT2nAnWX22j2Ee9gbY/31XPtP0+HyX7OKNCU2qvw5iuh2f940n9SskYDk26Fmy8p
-                we1a8/26dtqqDLfbWhjxD5IeY1XbQa/8XQeQyGF6UmfDZJZA1uiPNH5FKmQ6u9AF
-                4+9JAB44+YeN+aLycux6M/X5Y0JXeoZxYI0xZjDw1kYK1EEqDmpMsNh3PrQtQlzn
-                xa4nVB1UF1MwdCKi+rnFZjy7P3OCLGANE/IbPlS9UF3X9DSxnrnRhKJCqCdBiOoz
-                2QdktYAT3BsxBkMzfHi7jsXy3zQOBPsEuinSaqNtXl5zvkTH0sHaqb3GRTtN1I+P
-                dQqyGEECgYEA2p+lsUS9ZfA6l7vXFt1w3mFJKzY9kgXbgXshUCA+L6PLmbVi3LDy
-                iIfD/CvJ4Oc9vXEMHj0I+LYpSnEcjMwfgbaJTHIFOLwDOV7/LXAVtFlDg8+1Lpob
-                2QSHlIhbbXNGDItWTINUDPnZC9iOOXKmv6EmX/yad6peWTPSvleNEoUCgYEAwzZL
-                mQ1wCCTaGyQqqleZ3bGWyCfCQkHwh0MwaPUlcAMsK6PX4aJ8jgrzTffa62kHwftC
-                PXytaGNSRub5rjFYrqBHwLX300AVeBh8O9F0GScmNBWw0N+Ervhf672ItAif976g
-                VE2WEl1htHvkYLSZ7h0n13FziCgppnvEDbOckXECgYAY1sami17RdCfUEX1wlZw7
-                R+ZeSH1aV9wGrAyu49rs4rlBL4CZ/miv5mz3+6mmKd+z5GIyFVEtoNS0JoHN5Ws2
-                +5xB2TqKpaHgJNDtQqzUnsey9ChrsQq073TQBWYN22j8B+C4NLuZ9dEZLXOLR2F2
-                qEKJ6VNLgUnS7LZm9d+LWQKBgDRMmZhZp0gnR1+6IswcSBbC+1iIflzt+ZjjgVa9
-                RthpoS3X6YCD3cbYXDLpUnd7Xh60SBzdCEBNS7+/JelrQw0V1+NjXQ/1vUq9lJsa
-                FHagrHWL0iFDoPKXjGtGDhfdr63aHm43kxs8dW67OoZGHG9U1FW+CWvTBsWZpv7c
-                vfehAoGAEOHurYqzfHobnvGjeH1l6BdTWCXLtKiMCFQ5hC2QMwOYpmPWwcrSthXw
-                6eqX1xq69vD+Efw6c+u6BGMw0Qv7W+UlaITdo/n3w7VR8QkDYHj42pzfywVxotId
-                oz3Ue/2+gzaG4NH+PYfRjiqqrWREoaMo11sKIjt4vfn+TUpeq+g=
-                -----END RSA PRIVATE KEY-----
+        key: ${{ secrets.EC2_SSH_KEY }}
         source: "."
         target: "~/rag_platform"
         overwrite: true
@@ -70,33 +35,7 @@ jobs:
       with:
         host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
         username: ${{ secrets.EC2_USER }}
-        key: -----BEGIN RSA PRIVATE KEY-----
-                  MIIEogIBAAKCAQEAprX5cnUvguYDTObDoZhur9LvaSfHIdseAkKJ0RWTrlrO1QoY
-                  82PkYYsLsaGv4NvgdhLZgyA0hQcec9g/tjUYbyur6qu73yiQttaUiDI51b4Hnwry
-                  vzPIq/yHOVy2sFeBbvi9MBc227D7VRvGXbtsq9WcdEsmQtPMe9ETwnf4uvO9DRXf
-                  ioOWMompcQOUD5K0K6xAJEE4/Xb1ltceL6zMB8T6k+RO0V0vlAwUySXRugblnicQ
-                  uL3znvXkuwhGqPizlttqUKToDLn9CZdNRQ3S8VC2G+Wr6MdM5FOjUz25BF9yQYAv
-                  c1vlBTq+6nfg+d11V7HY0EmI9OTVsZhG1M6BtQIDAQABAoIBABgH7UBBgirFSz5/
-                  mT2nAnWX22j2Ee9gbY/31XPtP0+HyX7OKNCU2qvw5iuh2f940n9SskYDk26Fmy8p
-                  we1a8/26dtqqDLfbWhjxD5IeY1XbQa/8XQeQyGF6UmfDZJZA1uiPNH5FKmQ6u9AF
-                  4+9JAB44+YeN+aLycux6M/X5Y0JXeoZxYI0xZjDw1kYK1EEqDmpMsNh3PrQtQlzn
-                  xa4nVB1UF1MwdCKi+rnFZjy7P3OCLGANE/IbPlS9UF3X9DSxnrnRhKJCqCdBiOoz
-                  2QdktYAT3BsxBkMzfHi7jsXy3zQOBPsEuinSaqNtXl5zvkTH0sHaqb3GRTtN1I+P
-                  dQqyGEECgYEA2p+lsUS9ZfA6l7vXFt1w3mFJKzY9kgXbgXshUCA+L6PLmbVi3LDy
-                  iIfD/CvJ4Oc9vXEMHj0I+LYpSnEcjMwfgbaJTHIFOLwDOV7/LXAVtFlDg8+1Lpob
-                  2QSHlIhbbXNGDItWTINUDPnZC9iOOXKmv6EmX/yad6peWTPSvleNEoUCgYEAwzZL
-                  mQ1wCCTaGyQqqleZ3bGWyCfCQkHwh0MwaPUlcAMsK6PX4aJ8jgrzTffa62kHwftC
-                  PXytaGNSRub5rjFYrqBHwLX300AVeBh8O9F0GScmNBWw0N+Ervhf672ItAif976g
-                  VE2WEl1htHvkYLSZ7h0n13FziCgppnvEDbOckXECgYAY1sami17RdCfUEX1wlZw7
-                  R+ZeSH1aV9wGrAyu49rs4rlBL4CZ/miv5mz3+6mmKd+z5GIyFVEtoNS0JoHN5Ws2
-                  +5xB2TqKpaHgJNDtQqzUnsey9ChrsQq073TQBWYN22j8B+C4NLuZ9dEZLXOLR2F2
-                  qEKJ6VNLgUnS7LZm9d+LWQKBgDRMmZhZp0gnR1+6IswcSBbC+1iIflzt+ZjjgVa9
-                  RthpoS3X6YCD3cbYXDLpUnd7Xh60SBzdCEBNS7+/JelrQw0V1+NjXQ/1vUq9lJsa
-                  FHagrHWL0iFDoPKXjGtGDhfdr63aHm43kxs8dW67OoZGHG9U1FW+CWvTBsWZpv7c
-                  vfehAoGAEOHurYqzfHobnvGjeH1l6BdTWCXLtKiMCFQ5hC2QMwOYpmPWwcrSthXw
-                  6eqX1xq69vD+Efw6c+u6BGMw0Qv7W+UlaITdo/n3w7VR8QkDYHj42pzfywVxotId
-                  oz3Ue/2+gzaG4NH+PYfRjiqqrWREoaMo11sKIjt4vfn+TUpeq+g=
-                  -----END RSA PRIVATE KEY-----
+        key: ${{ secrets.EC2_SSH_KEY }}
         script: |
           set -e
 
@@ -160,22 +99,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: "Debug: Print EC2 SSH key fingerprint (prod)"
+    - name: Verify SSH works (prod)
       run: |
         set -e
-        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-        chmod 600 key.pem
-        if command -v ssh-keygen >/dev/null 2>&1; then
-          echo "Private key fingerprint:"
-          ssh-keygen -lf key.pem || true
-          echo "Public key fingerprint:"
-          ssh-keygen -y -f key.pem > key.pub
-          ssh-keygen -lf key.pub || true
-        else
-          echo "ssh-keygen not found; printing SHA256 of private key file"
-          openssl dgst -sha256 key.pem || shasum -a 256 key.pem || true
-        fi
-        rm -f key.pem key.pub
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+          -i <(printf '%s\n' "${{ secrets.EC2_SSH_KEY }}") \
+          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+          'echo OK && hostname'
 
     - name: Configure AWS credentials (main)
       uses: aws-actions/configure-aws-credentials@v4
