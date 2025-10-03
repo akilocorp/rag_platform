@@ -12,13 +12,30 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Verify SSH works (dev)
+    - name: "Debug: Show EC2 key fingerprint (safe)"
       run: |
         set -e
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
-          -i <(printf '%s\n' "${{ secrets.EC2_SSH_KEY }}") \
-          ${{ secrets.EC2_USER }}@ec2-18-224-2-163.us-east-2.compute.amazonaws.com \
-          'echo OK && hostname'
+        KEY="${{ secrets.EC2_SSH_KEY }}"
+        printf 'Key length (chars): %s\n' "${#KEY}"
+        printf '%s\n' "$KEY" > key.pem
+        chmod 600 key.pem
+        echo "Private key fingerprint:"
+        ssh-keygen -lf key.pem || true
+        echo "Public key fingerprint (derived):"
+        ssh-keygen -y -f key.pem > key.pub
+        ssh-keygen -lf key.pub || true
+        rm -f key.pem key.pub
+
+    - name: Verify SSH works (dev)
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ec2-18-224-2-163.us-east-2.compute.amazonaws.com
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Using SSH user: $USER"
+          whoami
+          hostname
 
     - name: Upload repository to Dev EC2
       uses: appleboy/scp-action@v0.1.7
@@ -99,13 +116,30 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Verify SSH works (prod)
+    - name: "Debug: Show EC2 key fingerprint (safe)"
       run: |
         set -e
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
-          -i <(printf '%s\n' "${{ secrets.EC2_SSH_KEY }}") \
-          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-          'echo OK && hostname'
+        KEY="${{ secrets.EC2_SSH_KEY }}"
+        printf 'Key length (chars): %s\n' "${#KEY}"
+        printf '%s\n' "$KEY" > key.pem
+        chmod 600 key.pem
+        echo "Private key fingerprint:"
+        ssh-keygen -lf key.pem || true
+        echo "Public key fingerprint (derived):"
+        ssh-keygen -y -f key.pem > key.pub
+        ssh-keygen -lf key.pub || true
+        rm -f key.pem key.pub
+
+    - name: Verify SSH works (prod)
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Using SSH user: $USER"
+          whoami
+          hostname
 
     - name: Configure AWS credentials (main)
       uses: aws-actions/configure-aws-credentials@v4
