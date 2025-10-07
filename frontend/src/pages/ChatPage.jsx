@@ -349,7 +349,20 @@ const ChatPage = () => {
     setIsLoading(true);
 
     try {
-      const targetChatId = chatId || crypto.randomUUID();
+      // Fallback UUID generator for non-secure contexts or older browsers
+      const generateUUID = () => {
+        if (crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        // Fallback for HTTP or older browsers
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+      
+      const targetChatId = chatId || generateUUID();
 
 
       const response = await apiClient.post(`/chat/${configId}/${targetChatId}`, {

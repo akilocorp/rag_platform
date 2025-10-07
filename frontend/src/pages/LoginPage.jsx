@@ -38,7 +38,7 @@ const LoginPage = () => {
 
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
-        if (rememberMe) localStorage.setItem('refreshToken', refresh_token);
+        localStorage.setItem('refreshToken', refresh_token);
         // Clear any previous errors
         setErrors({});
         // Redirect to config_list
