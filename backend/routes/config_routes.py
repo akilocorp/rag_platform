@@ -135,6 +135,7 @@ def configure_model():
 
         bot_name = config_data.get('bot_name', 'Assistant') # Default bot name
         temperature_str = config_data.get('temperature')
+        response_timeout = config_data.get('response_timeout', 3)  # Default 3 seconds
         collection_name = config_data.get('collection_name')
 
         # --- 2. Get both 'instructions' and 'prompt_template' ---
@@ -204,6 +205,7 @@ Answer:"""
             "model_name": llm_type,
             "prompt_template": final_prompt_template, # Save the dynamically created template
             "temperature": temperature,
+            "response_timeout": int(response_timeout),  # Save response timeout in seconds
             "is_public": is_public,
             "config_type": "normal",  # Add config type for normal configs
             "documents": uploaded_filenames  # Store the filenames of uploaded documents

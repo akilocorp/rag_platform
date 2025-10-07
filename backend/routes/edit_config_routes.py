@@ -90,6 +90,7 @@ def update_existing_config(config_id):
             "bot_name": data.get('bot_name'),
             "model_name": data.get('model_name'),
             "temperature": float(data.get('temperature', 0.7)),
+            "response_timeout": int(data.get('response_timeout', 3)),
             "is_public": data.get('is_public').lower() in ['true', '1'],
             "instructions": data.get('instructions'),
             "prompt_template": data.get('prompt_template'),

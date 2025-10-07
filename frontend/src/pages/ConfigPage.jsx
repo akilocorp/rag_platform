@@ -122,6 +122,7 @@ const ConfigPage = () => {
     instructions: '',
     prompt_template: '',
     temperature: 0.7,
+    response_timeout: 3,
     rag_files: [],
     collection_name: '',
     is_public: false,
@@ -413,6 +414,31 @@ const ConfigPage = () => {
                 <span>Precise</span>
                 <span>Balanced</span>
                 <span>Creative</span>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="response_timeout" className="block text-sm font-medium text-gray-300 mb-2">
+                Response Timeout
+                <span className="text-xs text-gray-400 ml-2">
+                  ({config.response_timeout} second{config.response_timeout !== 1 ? 's' : ''})
+                </span>
+              </label>
+              <input
+                id="response_timeout"
+                type="range"
+                name="response_timeout"
+                min="1"
+                max="10"
+                step="1"
+                value={config.response_timeout}
+                onChange={handleChange}
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>1s</span>
+                <span>5s</span>
+                <span>10s</span>
               </div>
             </div>
 
