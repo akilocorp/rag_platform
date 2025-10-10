@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile } from 'react-icons/fa';
+import AvatarSelector from '../components/AvatarSelector';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -126,6 +127,7 @@ const ConfigPage = () => {
     rag_files: [],
     collection_name: '',
     is_public: false,
+    bot_avatar: 'robot',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -296,6 +298,11 @@ const ConfigPage = () => {
                 </select>
               </div>
             </div>
+
+            <AvatarSelector 
+              selectedAvatar={config.bot_avatar} 
+              onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+            />
 
             <div className="p-4 bg-gray-700/50 rounded-lg">
               <div className="flex items-center justify-between">

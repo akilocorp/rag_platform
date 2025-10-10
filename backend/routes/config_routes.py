@@ -134,6 +134,7 @@ def configure_model():
         is_public = config_data.get('is_public')
 
         bot_name = config_data.get('bot_name', 'Assistant') # Default bot name
+        bot_avatar = config_data.get('bot_avatar', 'robot') # Default bot avatar
         temperature_str = config_data.get('temperature')
         response_timeout = config_data.get('response_timeout', 3)  # Default 3 seconds
         collection_name = config_data.get('collection_name')
@@ -201,6 +202,7 @@ Answer:"""
         config_document = {
             "user_id": user_id,
             "bot_name": bot_name,
+            "bot_avatar": bot_avatar,
             "collection_name": collection_name,
             "model_name": llm_type,
             "prompt_template": final_prompt_template, # Save the dynamically created template

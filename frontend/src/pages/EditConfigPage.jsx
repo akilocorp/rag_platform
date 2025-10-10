@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient'; // Adjust the import path if needed
+import AvatarSelector from '../components/AvatarSelector';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -201,6 +202,12 @@ const EditConfigPage = () => {
               </select>
               {errors.model_name && <p className="mt-1 text-sm text-red-400">{errors.model_name}</p>}
             </div>
+
+            {/* Bot Avatar Selection */}
+            <AvatarSelector 
+              selectedAvatar={config.bot_avatar || 'robot'} 
+              onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+            />
 
             {/* Public Access Toggle */}
             <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
