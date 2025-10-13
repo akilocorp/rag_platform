@@ -11,11 +11,13 @@ import {
   RiRocketLine,
   RiStarSmileLine,
   RiChatHeartLine,
-  RiShieldCheckLine
+  RiShieldCheckLine,
+  RiCloseLine
 } from 'react-icons/ri';
 
 // Define available avatar options with their icons and colors
 export const AVATAR_OPTIONS = [
+  { id: 'none', icon: RiCloseLine, name: 'None', color: 'gray' },
   { id: 'robot', icon: RiRobot2Line, name: 'Robot', color: 'indigo' },
   { id: 'smile', icon: RiChatSmile3Line, name: 'Friendly', color: 'purple' },
   { id: 'user', icon: RiUserSmileLine, name: 'Personal', color: 'blue' },
@@ -31,6 +33,7 @@ export const AVATAR_OPTIONS = [
 ];
 
 const colorClasses = {
+  gray: 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 ring-gray-500',
   indigo: 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 ring-indigo-500',
   purple: 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 ring-purple-500',
   blue: 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 ring-blue-500',

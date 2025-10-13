@@ -24,9 +24,11 @@ const ChatMessage = ({ message, botAvatar = 'robot' }) => {
   };
 
   // Get the bot avatar icon and color
-  const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatar) || AVATAR_OPTIONS[0];
+  const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatar) || AVATAR_OPTIONS[1];
   const BotIcon = avatarOption.icon;
+  const showBotAvatar = botAvatar !== 'none';
   const avatarColorClass = {
+    gray: 'bg-gray-500/20 text-gray-400',
     indigo: 'bg-indigo-500/20 text-indigo-400',
     purple: 'bg-purple-500/20 text-purple-400',
     blue: 'bg-blue-500/20 text-blue-400',
@@ -43,7 +45,7 @@ const ChatMessage = ({ message, botAvatar = 'robot' }) => {
 
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {!isUser && (
+      {!isUser && showBotAvatar && (
         <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${avatarColorClass}`}>
           <BotIcon className="text-xl" />
         </div>
@@ -561,9 +563,12 @@ const ChatPage = () => {
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 z-0">
           <div className="container mx-auto max-w-4xl space-y-6">
             {messages.length === 0 && !isLoading && !isInitializing && (() => {
-              const avatarOption = AVATAR_OPTIONS.find(a => a.id === (config?.bot_avatar || 'robot')) || AVATAR_OPTIONS[0];
+              const botAvatarId = config?.bot_avatar || 'robot';
+              const showAvatar = botAvatarId !== 'none';
+              const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatarId) || AVATAR_OPTIONS[1];
               const AvatarIcon = avatarOption.icon;
               const avatarColorClass = {
+                gray: 'bg-gray-500/20 text-gray-400',
                 indigo: 'bg-indigo-500/20 text-indigo-400',
                 purple: 'bg-purple-500/20 text-purple-400',
                 blue: 'bg-blue-500/20 text-blue-400',
@@ -581,9 +586,11 @@ const ChatPage = () => {
               return (
                 <div className="flex flex-col items-center justify-center h-full text-center px-4 py-16 sm:py-20">
                   <div className="mb-6 flex flex-col items-center">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${avatarColorClass}`}>
-                      <AvatarIcon className="text-4xl" />
-                    </div>
+                    {showAvatar && (
+                      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${avatarColorClass}`}>
+                        <AvatarIcon className="text-4xl" />
+                      </div>
+                    )}
 		  {isAuthenticated && (
                     <p className="text-xs text-gray-400 mt-1 bg-gray-800 px-2 py-1 rounded-full">
                       {config?.model_name || 'AI Model'}
