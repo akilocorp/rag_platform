@@ -310,17 +310,23 @@ const ConfigPage = () => {
                 Welcome Message
                 <span className="text-xs text-gray-400 ml-2">(Optional)</span>
               </label>
-              <input
+              <select
                 id="welcome_message"
-                type="text"
                 name="welcome_message"
                 value={config.welcome_message}
                 onChange={handleChange}
                 className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="e.g., You have been paired and can now begin chatting with your partner"
-              />
+              >
+                <option value="">No welcome message</option>
+                <option value="You have been paired and can now begin chatting with your partner">You have been paired and can now begin chatting with your partner</option>
+                <option value="How can I help you today?">How can I help you today?</option>
+                <option value="Welcome! Feel free to ask me anything.">Welcome! Feel free to ask me anything.</option>
+                <option value="Hello! I'm here to assist you.">Hello! I'm here to assist you.</option>
+                <option value="Ready to chat? Let's get started!">Ready to chat? Let's get started!</option>
+                <option value="Hi there! What would you like to know?">Hi there! What would you like to know?</option>
+              </select>
               <p className="mt-1 text-xs text-gray-400">
-                Custom message shown when starting a new chat. Leave blank for default message.
+                Select a welcome message to display when starting a new chat.
               </p>
             </div>
 
