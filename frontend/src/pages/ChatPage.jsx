@@ -597,9 +597,16 @@ const ChatPage = () => {
                     </p>
 		  )}
                   </div>
-                  <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent">
-                    How can I help you today?
-                  </h2>
+                  {config?.welcome_message && (
+                    <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent">
+                      {config.welcome_message}
+                    </h2>
+                  )}
+                  {!config?.welcome_message && (
+                    <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent">
+                      How can I help you today?
+                    </h2>
+                  )}
                 </div>
               );
             })()}
