@@ -45,58 +45,13 @@ def load_secrets():
 
     ]
 
-        # Define default values for optional secrets
-        default_values = {
-            "MONGO_COLLECTION_NAME": "users",
-            "USERNAME": "",
-            "PASSWORD": "",
-            "CONFIG": "configs",
-            "USER": "users", 
-            "CHAT": "chats",
-            "HOST": "localhost",
-            "PORT": "27017",
-            "AWS_ACCESS_KEY_ID": "",
-            "AWS_SECRET_ACCESS_KEY": "",
-            "AWS_REGION": "us-east-1",
-            "AWS_S3_BUCKET_NAME": "",
-            "JWT_TOKEN_LOCATION": "headers",
-            "JWT_HEADER_NAME": "Authorization",
-            "JWT_HEADER_TYPE": "Bearer",
-            "MAIL_SERVER": "",
-            "MAIL_PORT": "587",
-            "MAIL_USE_TLS": "true",
-            "MAIL_USERNAME": "",
-            "MAIL_PASSWORD": "",
-            "MAIL_DEFAULT_SENDER": "",
-            "FRONTEND_URL": "http://localhost:3000",
-            "NAME": "RAG Platform",
-            "QWEN_API_KEY": "",
-            "DEEPSEEK_API_KEY": ""
-        }
-        
-        secrets = {}
-        missing_secrets = []
-        
-        for key in required_secret_keys:
-            value = os.environ.get(key)
-            if value:
-                secrets[key] = value
-            elif key in default_values:
-                secrets[key] = default_values[key]
-                logger.warning(f"Using default value for {key}: {default_values[key]}")
-            else:
-                missing_secrets.append(key)
-        
-        # Only fail for truly critical secrets
-        critical_secrets = ["OPENAI_API_KEY", "MONGO_URI", "MONGO_DB_NAME", "JWT_SECRET_KEY", "SECRET_KEY"]
-        critical_missing = [key for key in missing_secrets if key in critical_secrets]
-        
-        if critical_missing:
-            error_msg = f"Missing critical secrets: {', '.join(critical_missing)}. Please check your secrets configuration."
+        secrets = {key: os.environ.get(key) for key in required_secret_keys}
+        missing_secrets = [key for key, val in secrets.items() if not val]
+
+        if missing_secrets:
+            error_msg = f"Missing or invalid critical secrets: {', '.join(missing_secrets)}. Please check your secrets configuration."
             logger.critical(error_msg)
             raise SystemExit(error_msg)
-        elif missing_secrets:
-            logger.warning(f"Missing optional secrets (using defaults): {', '.join(missing_secrets)}")
 
 
         logger.info("All required secrets loaded successfully.")

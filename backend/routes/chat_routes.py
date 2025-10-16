@@ -161,69 +161,21 @@ def get_session_history(session_id: str, user_id: str, config_id: str) -> Custom
         config_id=config_id
     )
 
-@chat_bp.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for debugging"""
-    try:
-        # Check if critical configs are available
-        config_status = {
-            "mongo_uri": bool(current_app.config.get("MONGO_URI")),
-            "openai_key": bool(current_app.config.get("OPENAI_API_KEY")),
-            "qwen_key": bool(current_app.config.get("QWEN_API_KEY")),
-            "deepseek_key": bool(current_app.config.get("DEEPSEEK_API_KEY")),
-            "embeddings": bool(current_app.config.get("EMBEDDINGS")),
-            "jwt_secret": bool(current_app.config.get("JWT_SECRET_KEY"))
-        }
-        return jsonify({"status": "ok", "config": config_status}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@chat_bp.route('/test-config/<string:config_id>', methods=['GET'])
-def test_config(config_id):
-    """Test endpoint to check if a config exists and is accessible"""
-    try:
-        logger.info(f"Testing config access for config_id: {config_id}")
-        config_document = Config.get_collection().find_one({"_id": ObjectId(config_id)})
-        if not config_document:
-            return jsonify({"status": "error", "message": "Configuration not found"}), 404
-        
-        return jsonify({
-            "status": "ok", 
-            "config": {
-                "id": str(config_document["_id"]),
-                "name": config_document.get("name", "unnamed"),
-                "model_name": config_document.get("model_name"),
-                "is_public": config_document.get("is_public", False),
-                "owner_id": str(config_document.get("user_id"))
-            }
-        }), 200
-    except Exception as e:
-        logger.error(f"Error testing config {config_id}: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['POST'])
 def chat(config_id, chat_id):
     """Main endpoint for handling chat interactions."""
-    logger.info(f"Chat request received - config_id: {config_id}, chat_id: {chat_id}")
-    
     data = request.get_json()
     if not data or 'input' not in data:
-        logger.error("Missing 'input' field in request")
         return jsonify({"message": "Missing 'input' field"}), 400
     user_input = data['input']
-    logger.info(f"User input: {user_input[:100]}...")
 
     try:
-        logger.info(f"Looking up config document for config_id: {config_id}")
         config_document = Config.get_collection().find_one({"_id": ObjectId(config_id)})
         if not config_document:
-            logger.error(f"Configuration not found for config_id: {config_id}")
             return jsonify({"message": "Configuration not found"}), 404
 
-        logger.info(f"Found config document: {config_document.get('name', 'unnamed')}")
         is_public = config_document.get("is_public", False)
         owner_id = str(config_document.get("user_id"))
-        logger.info(f"Config is_public: {is_public}, owner_id: {owner_id}")
         
         user_id_for_history = "anonymous"
         if not is_public:
@@ -236,21 +188,12 @@ def chat(config_id, chat_id):
             except Exception as e:
                 return jsonify(message="Authorization error: " + str(e)), 401
         
-        try:
-            db = current_app.config['MONGO_DB']
-            embeddings = current_app.config['EMBEDDINGS']
-            if not embeddings:
-                logger.error("EMBEDDINGS not configured")
-                return jsonify({"message": "Embeddings not configured"}), 500
-                
-            vector_store = MongoDBAtlasVectorSearch(
-                collection=db['vector_collection'],
-                embedding=embeddings,
-                index_name="vector"
-            )
-        except Exception as e:
-            logger.error(f"Error initializing vector store: {e}", exc_info=True)
-            return jsonify({"message": f"Error initializing vector store: {str(e)}"}), 500
+        db = current_app.config['MONGO_DB']
+        vector_store = MongoDBAtlasVectorSearch(
+            collection=db['vector_collection'],
+            embedding=current_app.config['EMBEDDINGS'],
+            index_name="vector"
+        )
         
         # Create a custom retriever function that includes filtering
         def filtered_retriever(query):
@@ -283,39 +226,17 @@ def chat(config_id, chat_id):
         
         model_name = config_document.get("model_name")
         temperature = config_document.get("temperature")
-        logger.info(f"Using model: {model_name}, temperature: {temperature}")
         llm = None
         
-        try:
-            if model_name.startswith('gpt'):
-                api_key = current_app.config.get("OPENAI_API_KEY")
-                if not api_key or api_key.strip() == "":
-                    logger.error("OPENAI_API_KEY is missing or empty")
-                    return jsonify({"message": "OpenAI API key not configured"}), 500
-                llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key)
-            elif model_name.startswith('qwen'):
-                api_key = current_app.config.get("QWEN_API_KEY")
-                if not api_key or api_key.strip() == "":
-                    logger.error("QWEN_API_KEY is missing or empty")
-                    return jsonify({"message": "Qwen API key not configured"}), 500
-                llm = ChatTongyi(model=model_name, api_key=api_key)
-            elif model_name.startswith('deepseek'):
-                api_key = current_app.config.get("DEEPSEEK_API_KEY")
-                if not api_key or api_key.strip() == "":
-                    logger.error("DEEPSEEK_API_KEY is missing or empty")
-                    return jsonify({"message": "DeepSeek API key not configured"}), 500
-                llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=api_key)
-            else:
-                logger.error(f"Unsupported model: {model_name}")
-                return jsonify({"message": f"Unsupported model: {model_name}"}), 400
-                
-            if not llm:
-                logger.error(f"Failed to initialize LLM for model: {model_name}")
-                return jsonify({"message": f"Failed to initialize model: {model_name}"}), 500
-                
-        except Exception as e:
-            logger.error(f"Error initializing LLM {model_name}: {e}", exc_info=True)
-            return jsonify({"message": f"Error initializing model: {str(e)}"}), 500
+        if model_name.startswith('gpt'):
+            llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=current_app.config.get("OPENAI_API_KEY"))
+        elif model_name.startswith('qwen'):
+            llm = ChatTongyi(model=model_name, api_key=current_app.config.get("QWEN_API_KEY"))
+        elif model_name.startswith('deepseek'):
+            llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=current_app.config.get("DEEPSEEK_API_KEY"))
+        
+        if not llm:
+            return jsonify({"message": f"Unsupported model: {model_name}"}), 400
 
         def format_docs(docs):
             context = "\n\n".join(doc.page_content for doc in docs)
@@ -348,14 +269,10 @@ def chat(config_id, chat_id):
         context = format_docs(docs)
         
         # Run the RAG chain
-        try:
-            response_content = chain_with_history.invoke(
-                {"question": user_input, "context": context},
-                config={"configurable": {"session_id": chat_id}}
-            )
-        except Exception as e:
-            logger.error(f"Error running RAG chain: {e}", exc_info=True)
-            return jsonify({"message": f"Error processing chat request: {str(e)}"}), 500
+        response_content = chain_with_history.invoke(
+            {"question": user_input, "context": context},
+            config={"configurable": {"session_id": chat_id}}
+        )
         
         # Apply response timeout delay before responding
         response_timeout = config_document.get("response_timeout", 3)

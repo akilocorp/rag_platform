@@ -209,23 +209,6 @@ const EditConfigPage = () => {
               onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
             />
 
-            {/* Introduction (Optional) */}
-            <div>
-              <label htmlFor="welcome_message" className="block text-sm font-medium text-gray-300 mb-2">
-                Introduction (Optional)
-              </label>
-              <textarea
-                id="welcome_message"
-                name="welcome_message"
-                value={config.welcome_message || ''}
-                onChange={handleChange}
-                rows="2"
-                className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="e.g., You have been paired and can now begin chatting with your partner"
-              />
-              <p className="mt-1 text-xs text-gray-400">Shown at the top of a new chat. Leave blank for no intro.</p>
-            </div>
-
             {/* Public Access Toggle */}
             <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
               <div>
