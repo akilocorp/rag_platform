@@ -12,22 +12,6 @@ import { marked } from 'marked';
 import '../utils/qualtricsIntegration.js';
 import { AVATAR_OPTIONS } from '../components/AvatarSelector';
 
-// Predefined welcome messages
-const WELCOME_MESSAGES = [
-  "You have been paired and can now begin chatting with your partner",
-  "How can I help you today?",
-  "Welcome! Feel free to ask me anything.",
-  "Hello! I'm here to assist you.",
-  "Ready to chat? Let's get started!",
-  "Hi there! What would you like to know?"
-];
-
-// Function to get a random welcome message
-const getRandomWelcomeMessage = () => {
-  const randomIndex = Math.floor(Math.random() * WELCOME_MESSAGES.length);
-  return WELCOME_MESSAGES[randomIndex];
-};
-
 const ChatMessage = ({ message, botAvatar = 'robot' }) => {
 
   const { sender, text, isTyping } = message;
@@ -232,6 +216,7 @@ const ChatPage = () => {
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
+  const [hasAutoMessage, setHasAutoMessage] = useState(false); // Track if auto message was sent
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
@@ -248,6 +233,7 @@ const ChatPage = () => {
       setMessages([]);
       setInput('');
       setError(null);
+      setHasAutoMessage(false);
       setTimeout(() => setIsInitializing(false), 300);
     });
   };
@@ -364,6 +350,45 @@ const ChatPage = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Auto-send first message if config has welcome_message and no messages yet
+  useEffect(() => {
+    if (config?.welcome_message && messages.length === 0 && !hasAutoMessage && !isInitializing) {
+      const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
+      
+      const timer = setTimeout(async () => {
+        try {
+          setIsLoading(true);
+          
+          // Generate a simple greeting message
+          const autoMessages = [
+            "Hello! I'm ready to help you.",
+            "Hi there! How can I assist you today?",
+            "Welcome! What would you like to know?",
+            "Hello! I'm here to answer your questions.",
+            "Hi! Feel free to ask me anything."
+          ];
+          
+          const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
+          
+          // Add the auto message to the chat
+          setMessages(prev => [...prev, { 
+            sender: 'ai', 
+            text: randomMessage,
+            isAutoMessage: true 
+          }]);
+          
+          setHasAutoMessage(true);
+        } catch (error) {
+          console.error('Error sending auto message:', error);
+        } finally {
+          setIsLoading(false);
+        }
+      }, delay);
+
+      return () => clearTimeout(timer);
+    }
+  }, [config?.welcome_message, messages.length, hasAutoMessage, isInitializing]);
 
 
   const handleSend = async () => {
@@ -613,9 +638,16 @@ const ChatPage = () => {
                     </p>
 		  )}
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
-                    {getRandomWelcomeMessage()}
-                  </h2>
+                  {config?.welcome_message && (
+                    <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
+                      {config.welcome_message}
+                    </h2>
+                  )}
+                  {config?.welcome_message && !hasAutoMessage && (
+                    <p className="text-sm text-gray-400 mt-4">
+                      The bot will start the conversation in a moment...
+                    </p>
+                  )}
                 </div>
               );
             })()}
