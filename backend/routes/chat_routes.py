@@ -188,12 +188,21 @@ def chat(config_id, chat_id):
             except Exception as e:
                 return jsonify(message="Authorization error: " + str(e)), 401
         
-        db = current_app.config['MONGO_DB']
-        vector_store = MongoDBAtlasVectorSearch(
-            collection=db['vector_collection'],
-            embedding=current_app.config['EMBEDDINGS'],
-            index_name="vector"
-        )
+        try:
+            db = current_app.config['MONGO_DB']
+            embeddings = current_app.config['EMBEDDINGS']
+            if not embeddings:
+                logger.error("EMBEDDINGS not configured")
+                return jsonify({"message": "Embeddings not configured"}), 500
+                
+            vector_store = MongoDBAtlasVectorSearch(
+                collection=db['vector_collection'],
+                embedding=embeddings,
+                index_name="vector"
+            )
+        except Exception as e:
+            logger.error(f"Error initializing vector store: {e}", exc_info=True)
+            return jsonify({"message": f"Error initializing vector store: {str(e)}"}), 500
         
         # Create a custom retriever function that includes filtering
         def filtered_retriever(query):
@@ -228,15 +237,36 @@ def chat(config_id, chat_id):
         temperature = config_document.get("temperature")
         llm = None
         
-        if model_name.startswith('gpt'):
-            llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=current_app.config.get("OPENAI_API_KEY"))
-        elif model_name.startswith('qwen'):
-            llm = ChatTongyi(model=model_name, api_key=current_app.config.get("QWEN_API_KEY"))
-        elif model_name.startswith('deepseek'):
-            llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=current_app.config.get("DEEPSEEK_API_KEY"))
-        
-        if not llm:
-            return jsonify({"message": f"Unsupported model: {model_name}"}), 400
+        try:
+            if model_name.startswith('gpt'):
+                api_key = current_app.config.get("OPENAI_API_KEY")
+                if not api_key:
+                    logger.error("OPENAI_API_KEY is missing from configuration")
+                    return jsonify({"message": "OpenAI API key not configured"}), 500
+                llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key)
+            elif model_name.startswith('qwen'):
+                api_key = current_app.config.get("QWEN_API_KEY")
+                if not api_key:
+                    logger.error("QWEN_API_KEY is missing from configuration")
+                    return jsonify({"message": "Qwen API key not configured"}), 500
+                llm = ChatTongyi(model=model_name, api_key=api_key)
+            elif model_name.startswith('deepseek'):
+                api_key = current_app.config.get("DEEPSEEK_API_KEY")
+                if not api_key:
+                    logger.error("DEEPSEEK_API_KEY is missing from configuration")
+                    return jsonify({"message": "DeepSeek API key not configured"}), 500
+                llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=api_key)
+            else:
+                logger.error(f"Unsupported model: {model_name}")
+                return jsonify({"message": f"Unsupported model: {model_name}"}), 400
+                
+            if not llm:
+                logger.error(f"Failed to initialize LLM for model: {model_name}")
+                return jsonify({"message": f"Failed to initialize model: {model_name}"}), 500
+                
+        except Exception as e:
+            logger.error(f"Error initializing LLM {model_name}: {e}", exc_info=True)
+            return jsonify({"message": f"Error initializing model: {str(e)}"}), 500
 
         def format_docs(docs):
             context = "\n\n".join(doc.page_content for doc in docs)
@@ -269,10 +299,14 @@ def chat(config_id, chat_id):
         context = format_docs(docs)
         
         # Run the RAG chain
-        response_content = chain_with_history.invoke(
-            {"question": user_input, "context": context},
-            config={"configurable": {"session_id": chat_id}}
-        )
+        try:
+            response_content = chain_with_history.invoke(
+                {"question": user_input, "context": context},
+                config={"configurable": {"session_id": chat_id}}
+            )
+        except Exception as e:
+            logger.error(f"Error running RAG chain: {e}", exc_info=True)
+            return jsonify({"message": f"Error processing chat request: {str(e)}"}), 500
         
         # Apply response timeout delay before responding
         response_timeout = config_document.get("response_timeout", 3)

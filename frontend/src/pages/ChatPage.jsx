@@ -356,34 +356,26 @@ const ChatPage = () => {
     if (config?.welcome_message && messages.length === 0 && !hasAutoMessage && !isInitializing) {
       const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
       
-      const timer = setTimeout(async () => {
-        try {
-          setIsLoading(true);
-          
-          // Generate a simple greeting message
-          const autoMessages = [
-            "Hello! I'm ready to help you.",
-            "Hi there! How can I assist you today?",
-            "Welcome! What would you like to know?",
-            "Hello! I'm here to answer your questions.",
-            "Hi! Feel free to ask me anything."
-          ];
-          
-          const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
-          
-          // Add the auto message to the chat
-          setMessages(prev => [...prev, { 
-            sender: 'ai', 
-            text: randomMessage,
-            isAutoMessage: true 
-          }]);
-          
-          setHasAutoMessage(true);
-        } catch (error) {
-          console.error('Error sending auto message:', error);
-        } finally {
-          setIsLoading(false);
-        }
+      const timer = setTimeout(() => {
+        // Generate a simple greeting message
+        const autoMessages = [
+          "Hello! I'm ready to help you.",
+          "Hi there! How can I assist you today?",
+          "Welcome! What would you like to know?",
+          "Hello! I'm here to answer your questions.",
+          "Hi! Feel free to ask me anything."
+        ];
+        
+        const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
+        
+        // Add the auto message to the chat (no API call needed)
+        setMessages(prev => [...prev, { 
+          sender: 'ai', 
+          text: randomMessage,
+          isAutoMessage: true 
+        }]);
+        
+        setHasAutoMessage(true);
       }, delay);
 
       return () => clearTimeout(timer);
