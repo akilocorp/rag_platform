@@ -161,21 +161,69 @@ def get_session_history(session_id: str, user_id: str, config_id: str) -> Custom
         config_id=config_id
     )
 
+@chat_bp.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for debugging"""
+    try:
+        # Check if critical configs are available
+        config_status = {
+            "mongo_uri": bool(current_app.config.get("MONGO_URI")),
+            "openai_key": bool(current_app.config.get("OPENAI_API_KEY")),
+            "qwen_key": bool(current_app.config.get("QWEN_API_KEY")),
+            "deepseek_key": bool(current_app.config.get("DEEPSEEK_API_KEY")),
+            "embeddings": bool(current_app.config.get("EMBEDDINGS")),
+            "jwt_secret": bool(current_app.config.get("JWT_SECRET_KEY"))
+        }
+        return jsonify({"status": "ok", "config": config_status}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@chat_bp.route('/test-config/<string:config_id>', methods=['GET'])
+def test_config(config_id):
+    """Test endpoint to check if a config exists and is accessible"""
+    try:
+        logger.info(f"Testing config access for config_id: {config_id}")
+        config_document = Config.get_collection().find_one({"_id": ObjectId(config_id)})
+        if not config_document:
+            return jsonify({"status": "error", "message": "Configuration not found"}), 404
+        
+        return jsonify({
+            "status": "ok", 
+            "config": {
+                "id": str(config_document["_id"]),
+                "name": config_document.get("name", "unnamed"),
+                "model_name": config_document.get("model_name"),
+                "is_public": config_document.get("is_public", False),
+                "owner_id": str(config_document.get("user_id"))
+            }
+        }), 200
+    except Exception as e:
+        logger.error(f"Error testing config {config_id}: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['POST'])
 def chat(config_id, chat_id):
     """Main endpoint for handling chat interactions."""
+    logger.info(f"Chat request received - config_id: {config_id}, chat_id: {chat_id}")
+    
     data = request.get_json()
     if not data or 'input' not in data:
+        logger.error("Missing 'input' field in request")
         return jsonify({"message": "Missing 'input' field"}), 400
     user_input = data['input']
+    logger.info(f"User input: {user_input[:100]}...")
 
     try:
+        logger.info(f"Looking up config document for config_id: {config_id}")
         config_document = Config.get_collection().find_one({"_id": ObjectId(config_id)})
         if not config_document:
+            logger.error(f"Configuration not found for config_id: {config_id}")
             return jsonify({"message": "Configuration not found"}), 404
 
+        logger.info(f"Found config document: {config_document.get('name', 'unnamed')}")
         is_public = config_document.get("is_public", False)
         owner_id = str(config_document.get("user_id"))
+        logger.info(f"Config is_public: {is_public}, owner_id: {owner_id}")
         
         user_id_for_history = "anonymous"
         if not is_public:
@@ -235,25 +283,26 @@ def chat(config_id, chat_id):
         
         model_name = config_document.get("model_name")
         temperature = config_document.get("temperature")
+        logger.info(f"Using model: {model_name}, temperature: {temperature}")
         llm = None
         
         try:
             if model_name.startswith('gpt'):
                 api_key = current_app.config.get("OPENAI_API_KEY")
-                if not api_key:
-                    logger.error("OPENAI_API_KEY is missing from configuration")
+                if not api_key or api_key.strip() == "":
+                    logger.error("OPENAI_API_KEY is missing or empty")
                     return jsonify({"message": "OpenAI API key not configured"}), 500
                 llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key)
             elif model_name.startswith('qwen'):
                 api_key = current_app.config.get("QWEN_API_KEY")
-                if not api_key:
-                    logger.error("QWEN_API_KEY is missing from configuration")
+                if not api_key or api_key.strip() == "":
+                    logger.error("QWEN_API_KEY is missing or empty")
                     return jsonify({"message": "Qwen API key not configured"}), 500
                 llm = ChatTongyi(model=model_name, api_key=api_key)
             elif model_name.startswith('deepseek'):
                 api_key = current_app.config.get("DEEPSEEK_API_KEY")
-                if not api_key:
-                    logger.error("DEEPSEEK_API_KEY is missing from configuration")
+                if not api_key or api_key.strip() == "":
+                    logger.error("DEEPSEEK_API_KEY is missing or empty")
                     return jsonify({"message": "DeepSeek API key not configured"}), 500
                 llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=api_key)
             else:
