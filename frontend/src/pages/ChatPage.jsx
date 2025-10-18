@@ -12,21 +12,6 @@ import { marked } from 'marked';
 import '../utils/qualtricsIntegration.js';
 import { AVATAR_OPTIONS } from '../components/AvatarSelector';
 
-// Predefined welcome messages
-const WELCOME_MESSAGES = [
-  "You have been paired and can now begin chatting with your partner",
-  "How can I help you today?",
-  "Welcome! Feel free to ask me anything.",
-  "Hello! I'm here to assist you.",
-  "Ready to chat? Let's get started!",
-  "Hi there! What would you like to know?"
-];
-
-// Function to get a random welcome message
-const getRandomWelcomeMessage = () => {
-  const randomIndex = Math.floor(Math.random() * WELCOME_MESSAGES.length);
-  return WELCOME_MESSAGES[randomIndex];
-};
 
 const ChatMessage = ({ message, botAvatar = 'robot' }) => {
 
@@ -613,9 +598,11 @@ const ChatPage = () => {
                     </p>
 		  )}
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
-                    {getRandomWelcomeMessage()}
-                  </h2>
+                  {config?.introduction && (
+                    <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
+                      {config.introduction}
+                    </h2>
+                  )}
                 </div>
               );
             })()}

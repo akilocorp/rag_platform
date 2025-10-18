@@ -128,6 +128,7 @@ const ConfigPage = () => {
     collection_name: '',
     is_public: false,
     bot_avatar: 'robot',
+    introduction: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -303,6 +304,25 @@ const ConfigPage = () => {
               selectedAvatar={config.bot_avatar} 
               onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
             />
+
+            <div>
+              <label htmlFor="introduction" className="block text-sm font-medium text-gray-300 mb-2">
+                Introduction
+                <span className="text-xs text-gray-400 ml-2">(Optional)</span>
+              </label>
+              <textarea
+                id="introduction"
+                name="introduction"
+                value={config.introduction}
+                onChange={handleChange}
+                rows="2"
+                className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., You have been paired and can now begin chatting with your partner"
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                Custom introduction message shown when starting a new chat. Leave blank to show no message.
+              </p>
+            </div>
 
             <div className="p-4 bg-gray-700/50 rounded-lg">
               <div className="flex items-center justify-between">
