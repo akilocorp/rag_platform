@@ -217,6 +217,7 @@ const ChatPage = () => {
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
+  const [hasAutoMessage, setHasAutoMessage] = useState(false); // Track if auto message was sent
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
@@ -233,6 +234,7 @@ const ChatPage = () => {
       setMessages([]);
       setInput('');
       setError(null);
+      setHasAutoMessage(false);
       setTimeout(() => setIsInitializing(false), 300);
     });
   };
@@ -349,6 +351,37 @@ const ChatPage = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Auto-send first message if config has introduction and no messages yet
+  useEffect(() => {
+    if (config?.introduction && messages.length === 0 && !hasAutoMessage && !isInitializing) {
+      const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
+      
+      const timer = setTimeout(() => {
+        // Generate a simple greeting message
+        const autoMessages = [
+          "Hello! I'm ready to help you.",
+          "Hi there! How can I assist you today?",
+          "Welcome! What would you like to know?",
+          "Hello! I'm here to answer your questions.",
+          "Hi! Feel free to ask me anything."
+        ];
+        
+        const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
+        
+        // Add the auto message to the chat (no API call needed)
+        setMessages(prev => [...prev, { 
+          sender: 'ai', 
+          text: randomMessage,
+          isAutoMessage: true 
+        }]);
+        
+        setHasAutoMessage(true);
+      }, delay);
+
+      return () => clearTimeout(timer);
+    }
+  }, [config?.introduction, messages.length, hasAutoMessage, isInitializing]);
 
 
   const handleSend = async () => {
