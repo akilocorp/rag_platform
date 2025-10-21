@@ -5,7 +5,7 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - "8000:5000"  # backend listens on 5000 internally, exposed as 8000
+      - "5000:5000"  # backend listens on 5000 internally, exposed as 8000
     networks:
       - rag_network
     restart: unless-stopped

@@ -16,7 +16,7 @@ services:
         API_URL: ${FRONTEND_API_URL}
     container_name: myapp-frontend
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - backend
     networks:
