@@ -83,9 +83,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: us-east-2
-      PROD_ECR_REGISTRY: 235639741719.dkr.ecr.us-east-2.amazonaws.com
-      ECR_REPOSITORY_BACKEND: my-chat-app/backend
-      ECR_REPOSITORY_FRONTEND: my-chat-app/frontend
+      PROD_ECR_REGISTRY: ec2-3-147-82-68.us-east-2.compute.amazonaws.com
+      ECR_REPOSITORY_BACKEND: rag_platform/backend
+      ECR_REPOSITORY_FRONTEND: rag_platform/frontend
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
