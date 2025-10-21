@@ -10,8 +10,10 @@ import axios from 'axios';
 import { marked } from 'marked';
 // Import Qualtrics integration utility
 import '../utils/qualtricsIntegration.js';
+import { AVATAR_OPTIONS } from '../components/AvatarSelector';
 
-const ChatMessage = ({ message }) => {
+
+const ChatMessage = ({ message, botAvatar = 'robot' }) => {
 
   const { sender, text, isTyping } = message;
   const isUser = sender === 'user';
@@ -22,11 +24,31 @@ const ChatMessage = ({ message }) => {
     return { __html: rawMarkup };
   };
 
+  // Get the bot avatar icon and color
+  const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatar) || AVATAR_OPTIONS[1];
+  const BotIcon = avatarOption.icon;
+  const showBotAvatar = botAvatar !== 'none';
+  const avatarColorClass = {
+    gray: 'bg-gray-500/20 text-gray-400',
+    indigo: 'bg-indigo-500/20 text-indigo-400',
+    purple: 'bg-purple-500/20 text-purple-400',
+    blue: 'bg-blue-500/20 text-blue-400',
+    green: 'bg-green-500/20 text-green-400',
+    yellow: 'bg-yellow-500/20 text-yellow-400',
+    pink: 'bg-pink-500/20 text-pink-400',
+    cyan: 'bg-cyan-500/20 text-cyan-400',
+    orange: 'bg-orange-500/20 text-orange-400',
+    red: 'bg-red-500/20 text-red-400',
+    violet: 'bg-violet-500/20 text-violet-400',
+    rose: 'bg-rose-500/20 text-rose-400',
+    emerald: 'bg-emerald-500/20 text-emerald-400',
+  }[avatarOption.color] || 'bg-indigo-500/20 text-indigo-400';
+
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {!isUser && (
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
-          <RiRobot2Line className="text-indigo-400 text-xl" />
+      {!isUser && showBotAvatar && (
+        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${avatarColorClass}`}>
+          <BotIcon className="text-xl" />
         </div>
       )}
       <div className={`max-w-[80%] rounded-2xl p-4 ${
@@ -195,6 +217,7 @@ const ChatPage = () => {
   const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
+  const [hasAutoMessage, setHasAutoMessage] = useState(false); // Track if auto message was sent
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const isAuthenticated = !!localStorage.getItem('jwtToken');
@@ -211,6 +234,7 @@ const ChatPage = () => {
       setMessages([]);
       setInput('');
       setError(null);
+      setHasAutoMessage(false);
       setTimeout(() => setIsInitializing(false), 300);
     });
   };
@@ -328,6 +352,37 @@ const ChatPage = () => {
     inputRef.current?.focus();
   }, []);
 
+  // Auto-send first message if config has introduction and no messages yet
+  useEffect(() => {
+    if (config?.introduction && messages.length === 0 && !hasAutoMessage && !isInitializing) {
+      const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
+      
+      const timer = setTimeout(() => {
+        // Generate a simple greeting message
+        const autoMessages = [
+          "Hello! I'm ready to help you.",
+          "Hi there! How can I assist you today?",
+          "Welcome! What would you like to know?",
+          "Hello! I'm here to answer your questions.",
+          "Hi! Feel free to ask me anything."
+        ];
+        
+        const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
+        
+        // Add the auto message to the chat (no API call needed)
+        setMessages(prev => [...prev, { 
+          sender: 'ai', 
+          text: randomMessage,
+          isAutoMessage: true 
+        }]);
+        
+        setHasAutoMessage(true);
+      }, delay);
+
+      return () => clearTimeout(timer);
+    }
+  }, [config?.introduction, messages.length, hasAutoMessage, isInitializing]);
+
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || !configId) return;
@@ -349,7 +404,20 @@ const ChatPage = () => {
     setIsLoading(true);
 
     try {
-      const targetChatId = chatId || crypto.randomUUID();
+      // Fallback UUID generator for non-secure contexts or older browsers
+      const generateUUID = () => {
+        if (crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        // Fallback for HTTP or older browsers
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+      
+      const targetChatId = chatId || generateUUID();
 
 
       const response = await apiClient.post(`/chat/${configId}/${targetChatId}`, {
@@ -515,41 +583,69 @@ const ChatPage = () => {
 
         <header className="p-4 bg-gray-900 ">
           <div className="container mx-auto flex items-center justify-between">
-            <button 
-              className="md:hidden p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400"
-              onClick={() => setShowSidebar(true)}
-            >
-              <FiChevronRight className="text-xl" />
-            </button>
+            {isAuthenticated && (
+              <button 
+                className="md:hidden p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400"
+                onClick={() => setShowSidebar(true)}
+              >
+                <FiChevronRight className="text-xl" />
+              </button>
+            )}
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 z-0">
           <div className="container mx-auto max-w-4xl space-y-6">
-            {messages.length === 0 && !isLoading && !isInitializing && (
-              <div className="flex flex-col items-center justify-center h-full text-center px-4 py-16 sm:py-20">
-                <div className="mb-6 flex flex-col items-center">
-                  <h2 className='text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent'>
-                    Hey! I'm {config?.bot_name || ''}
-                  </h2>
-		{isAuthenticated && (
-                  <p className="text-xs text-gray-400 mt-1 bg-gray-800 px-2 py-1 rounded-full">
-                    {config?.model_name || 'AI Model'}
-                  </p>
-		)}
+            {messages.length === 0 && !isLoading && !isInitializing && (() => {
+              const botAvatarId = config?.bot_avatar || 'robot';
+              const showAvatar = botAvatarId !== 'none';
+              const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatarId) || AVATAR_OPTIONS[1];
+              const AvatarIcon = avatarOption.icon;
+              const avatarColorClass = {
+                gray: 'bg-gray-500/20 text-gray-400',
+                indigo: 'bg-indigo-500/20 text-indigo-400',
+                purple: 'bg-purple-500/20 text-purple-400',
+                blue: 'bg-blue-500/20 text-blue-400',
+                green: 'bg-green-500/20 text-green-400',
+                yellow: 'bg-yellow-500/20 text-yellow-400',
+                pink: 'bg-pink-500/20 text-pink-400',
+                cyan: 'bg-cyan-500/20 text-cyan-400',
+                orange: 'bg-orange-500/20 text-orange-400',
+                red: 'bg-red-500/20 text-red-400',
+                violet: 'bg-violet-500/20 text-violet-400',
+                rose: 'bg-rose-500/20 text-rose-400',
+                emerald: 'bg-emerald-500/20 text-emerald-400',
+              }[avatarOption.color] || 'bg-indigo-500/20 text-indigo-400';
+
+              return (
+                <div className="flex flex-col items-center justify-center h-full text-center px-4 py-16 sm:py-20">
+                  <div className="mb-6 flex flex-col items-center">
+                    {showAvatar && (
+                      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${avatarColorClass}`}>
+                        <AvatarIcon className="text-4xl" />
+                      </div>
+                    )}
+		  {isAuthenticated && (
+                    <p className="text-xs text-gray-400 mt-1 bg-gray-800 px-2 py-1 rounded-full">
+                      {config?.model_name || 'AI Model'}
+                    </p>
+		  )}
+                  </div>
+                  {config?.introduction && (
+                    <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
+                      {config.introduction}
+                    </h2>
+                  )}
                 </div>
-                <h2 className="text-2xl font-bold bg-gray-500 bg-clip-text text-transparent">
-                  How can I help you today ?
-                </h2>
-              </div>
-            )}
+              );
+            })()}
 
             {messages.map((msg, index) => (
-              <ChatMessage key={index} message={msg} />
+              <ChatMessage key={index} message={msg} botAvatar={config?.bot_avatar || 'robot'} />
             ))}
 
             {isLoading && messages[messages.length - 1]?.sender !== 'ai' && (
-              <ChatMessage message={{ sender: 'ai', isTyping: true }} />
+              <ChatMessage message={{ sender: 'ai', isTyping: true }} botAvatar={config?.bot_avatar || 'robot'} />
             )}
 
             <div ref={messagesEndRef} />

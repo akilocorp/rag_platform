@@ -5,7 +5,7 @@ import axios from 'axios';
 // Create a new axios instance with a base URL
 const apiClient = axios.create({
 
-  baseURL: '/api', // Use relative URL since we're using Nginx proxy
+  baseURL: (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) ? import.meta.env.VITE_API_URL : '/api',
   xsrfCookieName: 'csrftoken',
   xsrfHeaderName: 'X-CSRFToken',
 });
@@ -50,9 +50,9 @@ apiClient.interceptors.response.use(
             return Promise.reject(error);
         }
 
-        // Make a request to your /refresh endpoint
-
-        const response = await axios.post('http://localhost:5000/api/auth/refresh', {}, {
+        // Make a request to your /refresh endpoint, using configured API URL
+        const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) ? import.meta.env.VITE_API_URL : '/api';
+        const response = await axios.post(`${base}/auth/refresh`, {}, {
           headers: { 'Authorization': `Bearer ${refreshToken}` }
         });
 

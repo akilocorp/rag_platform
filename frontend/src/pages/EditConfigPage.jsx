@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient'; // Adjust the import path if needed
+import AvatarSelector from '../components/AvatarSelector';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -202,6 +203,32 @@ const EditConfigPage = () => {
               {errors.model_name && <p className="mt-1 text-sm text-red-400">{errors.model_name}</p>}
             </div>
 
+            {/* Bot Avatar Selection */}
+            <AvatarSelector 
+              selectedAvatar={config.bot_avatar || 'robot'} 
+              onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+            />
+
+            {/* Introduction */}
+            <div>
+              <label htmlFor="introduction" className="block text-sm font-medium text-gray-300 mb-2">
+                Introduction
+                <span className="text-xs text-gray-400 ml-2">(Optional)</span>
+              </label>
+              <textarea
+                id="introduction"
+                name="introduction"
+                value={config.introduction || ''}
+                onChange={handleChange}
+                rows="2"
+                className="w-full px-4 py-3 text-white bg-gray-700/70 border border-gray-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., You have been paired and can now begin chatting with your partner"
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                Custom introduction message shown when starting a new chat. Leave blank to show no message.
+              </p>
+            </div>
+
             {/* Public Access Toggle */}
             <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg">
               <div>
@@ -248,6 +275,32 @@ const EditConfigPage = () => {
                 <span>Precise</span>
                 <span>Balanced</span>
                 <span>Creative</span>
+              </div>
+            </div>
+
+            {/* Response Timeout */}
+            <div>
+              <label htmlFor="response_timeout" className="block text-sm font-medium text-gray-300 mb-2">
+                Response Timeout
+                <span className="text-xs text-gray-400 ml-2">
+                  ({config.response_timeout || 3} second{(config.response_timeout || 3) !== 1 ? 's' : ''})
+                </span>
+              </label>
+              <input
+                id="response_timeout"
+                type="range"
+                name="response_timeout"
+                min="1"
+                max="10"
+                step="1"
+                value={config.response_timeout || 3}
+                onChange={handleChange}
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>1s</span>
+                <span>5s</span>
+                <span>10s</span>
               </div>
             </div>
 

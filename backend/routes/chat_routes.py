@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_req
 import logging
 import re
 import json
+import time
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
@@ -272,6 +273,11 @@ def chat(config_id, chat_id):
             {"question": user_input, "context": context},
             config={"configurable": {"session_id": chat_id}}
         )
+        
+        # Apply response timeout delay before responding
+        response_timeout = config_document.get("response_timeout", 3)
+        logger.info(f"Applying response timeout of {response_timeout} seconds")
+        time.sleep(response_timeout)
         
         # Return response with sources
         return jsonify({
