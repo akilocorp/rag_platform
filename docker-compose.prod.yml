@@ -19,7 +19,7 @@ services:
     image: 235639741719.dkr.ecr.us-east-2.amazonaws.com/my-chat-app/frontend:latest
     container_name: rag_platform_frontend_prod
     ports:
-      - "5000:80"  # serve frontend internally on port 80, exposed as 5000
+      - "5173:80"  # serve frontend internally on port 80, exposed as 5000
     environment:
       - FRONTEND_API_URL=https://app.bitterlylab.com
     networks:
