@@ -20,7 +20,7 @@ services:
     image: 235639741719.dkr.ecr.us-east-2.amazonaws.com/my-chat-app/frontend:latest
     container_name: rag_platform_frontend_dev
     ports:
-      - "80:80" 
+      - "5173:80" 
     networks:
       - rag_network
     depends_on:
