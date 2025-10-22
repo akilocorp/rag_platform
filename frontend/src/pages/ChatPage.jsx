@@ -353,6 +353,8 @@ const ChatPage = () => {
   }, []);
 
   // Auto-send first message if config has introduction and no messages yet
+  // TEMPORARILY DISABLED - Bot will not start conversations automatically
+  /*
   useEffect(() => {
     if (config?.introduction && messages.length === 0 && !hasAutoMessage && !isInitializing) {
       const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
@@ -382,6 +384,7 @@ const ChatPage = () => {
       return () => clearTimeout(timer);
     }
   }, [config?.introduction, messages.length, hasAutoMessage, isInitializing]);
+  */
 
 
   const handleSend = async () => {
