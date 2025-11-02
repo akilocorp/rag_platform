@@ -146,7 +146,7 @@ const ConfigListPage = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8">
               <div className="space-y-2">
                 <h1 className="text-4xl sm:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-300 to-purple-400 tracking-tight">
-                  AI Assistants
+                  AI Assistant
                 </h1>
                 <p className="text-gray-400/90 text-sm">
                   Manage your personalized AI Assistance configurations
