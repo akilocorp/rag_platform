@@ -1,6 +1,6 @@
 # Qualtrics Testing Guide
 
-This guide verifies the JavaScript-only Qualtrics integration that saves chat transcripts via parent-controlled `postMessage` from the iframes.
+This guide verifies the JavaScript-only Qualtrics integration that saves chat transcripts via parent-controlled `postMessage` from the iframe.
 
 ## Prerequisites
 - **Iframe host**: `https://app.bitterlylab.com` (or your dev host)
