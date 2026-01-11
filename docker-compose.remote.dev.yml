@@ -14,7 +14,9 @@ services:
       context: ./frontend
       args:
         API_URL: ${FRONTEND_API_URL}
-    container_name: myapp-frontend
+    container_name: myapp-
+    env_file:
+      - ./frontend/.env
     ports:
       - "5173:80"
     depends_on:

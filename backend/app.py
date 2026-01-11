@@ -32,6 +32,7 @@ load_dotenv()
 def create_app():
     """Factory function to create and configure the Flask application."""
     app = Flask(__name__)
+    app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
     CORS(app, resources={r"/api/*": {"origins": ["*"], "supports_credentials": True, "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
 
 

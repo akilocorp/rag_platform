@@ -223,7 +223,7 @@ const ConfigPage = () => {
       if (error.response) {
         errorMessage = error.response.data.error || errorMessage;
         if (error.response.status === 413) {
-          errorMessage = 'File size too large. Maximum size is 10MB.';
+          errorMessage = 'File size too large. Maximum size is 500MB.';
         }
       } else if (error.request) {
         errorMessage = 'No response from server. Please check your connection';

@@ -229,7 +229,10 @@ def chat(config_id, chat_id):
         llm = None
         
         if model_name.startswith('gpt'):
-            llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=current_app.config.get("OPENAI_API_KEY"))
+            if model_name=="gpt-5":
+                llm = ChatOpenAI(model=model_name, api_key=current_app.config.get("OPENAI_API_KEY"))
+            else:
+                llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=current_app.config.get("OPENAI_API_KEY"))
         elif model_name.startswith('qwen'):
             llm = ChatTongyi(model=model_name, api_key=current_app.config.get("QWEN_API_KEY"))
         elif model_name.startswith('deepseek'):

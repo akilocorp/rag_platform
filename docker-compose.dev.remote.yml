@@ -12,6 +12,8 @@ services:
   frontend:
     image: 235639741719.dkr.ecr.us-east-2.amazonaws.com/my-chat-app/frontend:latest
     container_name: rag_platform_frontend_dev
+    env_file:
+      - ./frontend/.env
     ports:
       - "5173:5173"
     networks:
