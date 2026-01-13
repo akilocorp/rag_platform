@@ -24,6 +24,7 @@ def load_secrets():
         "CHAT",
         "HOST",
         "PORT",
+        "HEY_GEN_API_KEY",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_REGION",

@@ -1,9 +1,9 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context 
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
-import re
 import json
 import time
+import requests
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
@@ -11,8 +11,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.messages import BaseMessage, messages_from_dict, message_to_dict
-from models.config import Config
+from langchain_core.messages import BaseMessage, message_to_dict
 from bson import ObjectId
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
@@ -22,7 +21,120 @@ chat_bp = Blueprint('chat_routes', __name__)
 
 # --- DB Collections ---
 # 1. chat_session_metadata: Stores one document per chat session with user_id and config_id.
-# 2. message_store: Stores all messages from all sessions, using LangChain's standard format.
+# 2. chat_histories: Stores all messages from all sessions.
+
+HEYGEN_BASE_URL = "https://api.heygen.com/v1"
+
+def get_heygen_headers():
+    return {
+        "x-api-key": current_app.config.get("HEY_GEN_API_KEY"),
+        "Content-Type": "application/json"
+    }
+
+# --- HEYGEN PROXY ROUTES ---
+
+@chat_bp.route('/heygen/create-session', methods=['POST'])
+@jwt_required()
+def create_heygen_session():
+    try:
+        data = request.get_json()
+        avatar_id = data.get('avatar_id')
+
+        # 1. Create the temporary streaming token
+        token_res = requests.post(
+            f"{HEYGEN_BASE_URL}/streaming.create_token", 
+            headers=get_heygen_headers()
+        )
+        token_data = token_res.json()
+        
+        if token_res.status_code != 200:
+            return jsonify({"error": "Failed to create HeyGen token", "details": token_data}), token_res.status_code
+        
+        token = token_data.get("data", {}).get("token")
+
+        # 2. Create the Session (v2)
+        session_res = requests.post(
+            f"{HEYGEN_BASE_URL}/streaming.new",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "version": "v2", 
+                "avatar_id": avatar_id,
+                "background": {"type": "color", "value": "#111827"},
+                "voice": {"voice_id": ""}
+            }
+        )
+        
+        session_data = session_res.json()
+        if session_res.status_code != 200:
+            logger.error(f"HeyGen v2 Session Error: {session_data}")
+            return jsonify({"error": "HeyGen Session Error", "details": session_data}), session_res.status_code
+
+        session_data['data']['heygen_token'] = token
+        return jsonify(session_data), 200
+    except Exception as e:
+        logger.error(f"Internal Error in create_session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@chat_bp.route('/heygen/start-session', methods=['POST'])
+@jwt_required()
+def start_heygen_session():
+    try:
+        data = request.get_json()
+        response = requests.post(
+            f"{HEYGEN_BASE_URL}/streaming.start",
+            headers={
+                "Authorization": f"Bearer {data.get('heygen_token')}",
+                "Content-Type": "application/json"
+            },
+            json={"session_id": data.get('session_id')}
+        )
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@chat_bp.route('/heygen/task', methods=['POST'])
+@jwt_required()
+def send_heygen_task():
+    try:
+        data = request.get_json()
+        response = requests.post(
+            f"{HEYGEN_BASE_URL}/streaming.task",
+            headers={
+                "Authorization": f"Bearer {data.get('heygen_token')}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "session_id": data.get('session_id'),
+                "text": data.get('text'),
+                "task_type": "repeat"
+            }
+        )
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@chat_bp.route('/heygen/stop-session', methods=['POST'])
+@jwt_required()
+def stop_heygen_session():
+    try:
+        data = request.get_json()
+        response = requests.post(
+            f"{HEYGEN_BASE_URL}/streaming.stop",
+            headers={
+                "Authorization": f"Bearer {data.get('heygen_token')}",
+                "Content-Type": "application/json"
+            },
+            json={"session_id": data.get('session_id')}
+        )
+        return jsonify({"message": "Session closed"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- CHAT HISTORY & LIST ROUTES ---
 
 @chat_bp.route('/history/<string:chat_id>', methods=['GET'])
 def get_chat_history(chat_id):
@@ -32,13 +144,15 @@ def get_chat_history(chat_id):
             connection_string=current_app.config['MONGO_URI'],
             session_id=chat_id,
             database_name=current_app.config['MONGO_DB'].name,
-            collection_name="message_store"
+            collection_name="chat_histories"
         )
         history_dicts = [message_to_dict(m) for m in history.messages]
+        
         return jsonify({"history": history_dicts}), 200
     except Exception as e:
         logger.error(f"Error fetching history for chat {chat_id}: {e}", exc_info=True)
         return jsonify({"message": "An internal server error occurred."}), 500
+    
 
 @chat_bp.route('/chat/list/<string:config_id>', methods=['GET'])
 @jwt_required()
@@ -48,7 +162,6 @@ def get_chat_list(config_id):
         db = current_app.config['MONGO_DB']
         metadata_collection = db["chat_session_metadata"]
 
-        # This pipeline does all the heavy lifting in the database.
         pipeline = [
             {
                 '$match': {
@@ -60,10 +173,9 @@ def get_chat_list(config_id):
                 }
             },
             {'$sort': {'_id': -1}},
-           
             {
                 '$lookup': {
-                    'from': 'message_store',
+                    'from': 'chat_histories',
                     'let': {'session_id_str': '$session_id'},
                     'pipeline': [
                         {'$match': {'$expr': {'$eq': ['$SessionId', '$$session_id_str']}}},
@@ -76,7 +188,7 @@ def get_chat_list(config_id):
             },
             {
                 '$project': {
-                    '_id': 1, # Keep _id for timestamp and updates
+                    '_id': 1,
                     'session_id': '$session_id',
                     'user_id': '$user_id',
                     'timestamp': {'$dateToString': {'format': '%Y-%m-%dT%H:%M:%S.%LZ', 'date': '$_id'}},
@@ -85,31 +197,29 @@ def get_chat_list(config_id):
             }
         ]
 
-        # 1. Execute the single, efficient pipeline
         sessions_from_db = list(metadata_collection.aggregate(pipeline))
         
         sessions_list = []
-        # 2. Loop through the results just to create the title and claim anonymous chats
         for session in sessions_from_db:
             
             # If the chat is anonymous, claim it for the current user
             if session.get('user_id') == 'anonymous':
                  metadata_collection.update_one(
-                    {"_id": session["_id"]}, # Use the _id we kept in the pipeline
+                    {"_id": session["_id"]},
                     {"$set": {"user_id": user_id}}
                 )
-                 print(f"✅ Claimed anonymous chat {session['session_id']} for user {user_id}")
-
 
             title = "New Chat"
             try:
-                # Use the correct field name from the pipeline: 'first_message_history'
                 if session.get('first_message_history'):
                     history_data = json.loads(session['first_message_history'])
+                    # Check common locations for content
                     if history_data.get("data", {}).get("content"):
                         title = history_data["data"]["content"]
+                    elif history_data.get("content"):
+                        title = history_data["content"]
             except (json.JSONDecodeError, TypeError):
-                pass  # Ignore malformed history
+                pass
 
             sessions_list.append({
                 'session_id': session['session_id'],
@@ -117,182 +227,177 @@ def get_chat_list(config_id):
                 'timestamp': session['timestamp']
             })
 
-        # 3. The return statement is OUTSIDE and AFTER the loop
         return jsonify({"sessions": sessions_list}), 200
     except Exception as e:
         logger.error(f"Error fetching chat list for config {config_id}: {e}", exc_info=True)
         return jsonify({"message": "An internal server error occurred."}), 500
 
-class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
-    """Custom history class to save user_id and config_id with each message."""
-    def __init__(self, connection_string: str, session_id: str, database_name: str, collection_name: str, user_id: str, config_id: str):
-        super().__init__(connection_string, session_id, database_name, collection_name)
-        self.user_id = user_id
-        self.config_id = config_id
+# --- FACTORY & HELPERS ---
 
-    def add_message(self, message: BaseMessage) -> None:
-        """Append the message to the record in MongoDB."""
-        self.collection.insert_one(
-            {
-                "SessionId": self.session_id,
-                "user_id": self.user_id,
-                "config_id": self.config_id,
-                "History": json.dumps(message_to_dict(message)),
-            }
-        )
-
-def get_session_history(session_id: str, user_id: str, config_id: str) -> CustomMongoDBChatMessageHistory:
-    """Factory function to create a message history object and ensure session metadata exists."""
+def get_session_history(session_id: str, user_id: str, config_id: str) -> MongoDBChatMessageHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
-    
-    metadata_collection.update_one(
-        {"session_id": session_id},
-        {"$setOnInsert": {"user_id": user_id, "config_id": config_id, "session_id": session_id}},
-        upsert=True
+
+    # Only write to metadata if this is truly the FIRST message
+    if metadata_collection.count_documents({"session_id": session_id}, limit=1) == 0:
+        metadata_collection.insert_one({
+            "session_id": session_id,
+            "user_id": user_id,
+            "config_id": config_id,
+            "timestamp": time.time()
+        })
+
+    return MongoDBChatMessageHistory(
+        session_id=session_id,
+        connection_string=current_app.config["MONGO_URI"],
+        database_name=db.name,           # Uses "survey"
+        collection_name="chat_histories" # Your Message Collection
     )
 
-    return CustomMongoDBChatMessageHistory(
-        connection_string=current_app.config['MONGO_URI'],
-        session_id=session_id,
-        database_name=db.name,
-        collection_name="message_store",
-        user_id=user_id,
-        config_id=config_id
+def get_vector_store():
+    return MongoDBAtlasVectorSearch(
+        collection=current_app.config['MONGO_DB']['vector_collection'],
+        embedding=current_app.config['EMBEDDINGS'],
+        index_name="vector"
     )
+
+# --- MAIN CHAT ROUTE ---
 
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['POST'])
 def chat(config_id, chat_id):
-    """Main endpoint for handling chat interactions."""
-    data = request.get_json()
-    if not data or 'input' not in data:
+    # 1. Capture user input
+    data = request.get_json(silent=True) or {}
+    user_input = data.get('input')
+    if not user_input:
         return jsonify({"message": "Missing 'input' field"}), 400
-    user_input = data['input']
 
-    try:
-        config_document = Config.get_collection().find_one({"_id": ObjectId(config_id)})
-        if not config_document:
-            return jsonify({"message": "Configuration not found"}), 404
+    # 2. Config Fetch
+    config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
+        {"_id": ObjectId(config_id.strip())},
+        {"model_name": 1, "temperature": 1, "prompt_template": 1, "is_public": 1, "user_id": 1}
+    )
+    
+    if not config_doc:
+        return jsonify({"message": "Configuration not found"}), 404
 
-        is_public = config_document.get("is_public", False)
-        owner_id = str(config_document.get("user_id"))
-        
-        user_id_for_history = "anonymous"
-        if not is_public:
+    # 3. Auth Check
+    user_id_for_history = "anonymous"
+    if not config_doc.get("is_public"):
+        try:
+            verify_jwt_in_request()
+            user_id_for_history = get_jwt_identity()
+        except Exception:
             try:
-                verify_jwt_in_request()
-                jwt_user_id = get_jwt_identity()
-                if owner_id != jwt_user_id:
-                    return jsonify({"message": "Access denied to this chatbot"}), 403
-                user_id_for_history = jwt_user_id
+                verify_jwt_in_request(refresh=True)
+                user_id_for_history = get_jwt_identity()
             except Exception as e:
-                return jsonify(message="Authorization error: " + str(e)), 401
-        
-        db = current_app.config['MONGO_DB']
-        vector_store = MongoDBAtlasVectorSearch(
-            collection=db['vector_collection'],
-            embedding=current_app.config['EMBEDDINGS'],
-            index_name="vector"
-        )
-        
-        # Create a custom retriever function that includes filtering
-        def filtered_retriever(query):
-            try:
-                # Use similarity search with filter
-                docs = vector_store.similarity_search(
-                    query=query,
-                    k=3,
-                    pre_filter={"config_id": {"$eq": config_id}}
-                )
-                logger.info(f"🔍 Vector search found {len(docs)} documents for config_id: {config_id}")
-                if docs:
-                    logger.info(f"📄 First document preview: {docs[0].page_content[:200]}...")
-                    logger.info(f"📋 Document metadata: {docs[0].metadata}")
-                else:
-                    logger.warning(f"⚠️ No documents found in vector store for config_id: {config_id}")
-                return docs
-            except Exception as e:
-                logger.error(f"❌ Vector retrieval failed: {e}")
-                return []
-        
+                return jsonify({"message": "Authentication failed."}), 401
 
-        
-        system_prompt_template = re.sub(r'Question:.*', '', config_document.get("prompt_template", "")).strip()
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt_template + "\n\nContext:\n{context}"),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{question}")
-        ])
-        
-        model_name = config_document.get("model_name")
-        temperature = config_document.get("temperature")
-        llm = None
-        
-        if model_name.startswith('gpt'):
-            if model_name=="gpt-5":
-                llm = ChatOpenAI(model=model_name, api_key=current_app.config.get("OPENAI_API_KEY"))
-            else:
-                llm = ChatOpenAI(model=model_name, temperature=temperature, api_key=current_app.config.get("OPENAI_API_KEY"))
-        elif model_name.startswith('qwen'):
-            llm = ChatTongyi(model=model_name, api_key=current_app.config.get("QWEN_API_KEY"))
-        elif model_name.startswith('deepseek'):
-            llm = ChatDeepSeek(model=model_name, temperature=temperature, api_key=current_app.config.get("DEEPSEEK_API_KEY"))
-        
-        if not llm:
-            return jsonify({"message": f"Unsupported model: {model_name}"}), 400
-
-        def format_docs(docs):
-            context = "\n\n".join(doc.page_content for doc in docs)
-            logger.info(f"📝 Context being sent to LLM ({len(docs)} docs, {len(context)} chars): {context[:300]}...")
-            return context
-
-        # Convert functions to runnables
-        question_to_retriever = RunnableLambda(lambda x: x["question"])
-        retriever_runnable = RunnableLambda(filtered_retriever)
-        format_docs_runnable = RunnableLambda(format_docs)
-        
-        rag_chain = (
-            RunnablePassthrough.assign(
-                context=question_to_retriever | retriever_runnable | format_docs_runnable
+    # 4. Streaming Generator
+    @stream_with_context
+    def generate():
+        try:
+            # -- STEP A: VECTOR RETRIEVAL --
+            vector_store = get_vector_store()
+            docs = vector_store.similarity_search(
+                query=user_input,
+                k=3,
+                pre_filter={"config_id": {"$eq": config_id}}
             )
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
 
-        chain_with_history = RunnableWithMessageHistory(
-            rag_chain,
-            lambda session_id: get_session_history(session_id, user_id_for_history, config_id),
-            input_messages_key="question",
-            history_messages_key="history",
-        )
-
-        # Get docs once for both context and sources
-        docs = filtered_retriever(user_input)
-        context = format_docs(docs)
-        
-        # Run the RAG chain
-        response_content = chain_with_history.invoke(
-            {"question": user_input, "context": context},
-            config={"configurable": {"session_id": chat_id}}
-        )
-        
-        # Apply response timeout delay before responding
-        response_timeout = config_document.get("response_timeout", 3)
-        logger.info(f"Applying response timeout of {response_timeout} seconds")
-        time.sleep(response_timeout)
-        
-        # Return response with sources
-        return jsonify({
-            "response": response_content,
-            "sources": [
-                {
-                    "source": doc.metadata.get("source", ""),
-                    "page_content": doc.page_content[:200] + "..."
-                } for doc in docs
+            # Send Sources immediately
+            sources = [
+                {"source": d.metadata.get("source", "Unknown"), "page_content": d.page_content[:200]}
+                for d in docs
             ]
-        })
+            yield json.dumps({"type": "sources", "data": sources}) + "\n"
 
-    except Exception as e:
-        logger.error(f"An unexpected error occurred in the chat endpoint: {e}", exc_info=True)
-        return jsonify({"message": "An internal server error occurred."}), 500
+            # -- STEP B: PREPARE LLM --
+            context_text = "\n\n".join(d.page_content for d in docs)
+            base_instruction = config_doc.get("prompt_template", "Answer based on context.")
+            
+            # IMPROVED SYSTEM PROMPT: Forces AI to look at history
+            system_message = f"""{base_instruction}
+
+            Use the provided Context (retrieved documents) and the Conversation History to answer.
+            If the user asks about previous messages, look at the History.
+            
+            Context:
+            {{context}}
+            """
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_message),
+                MessagesPlaceholder(variable_name="history"), 
+                ("human", "{question}")
+            ])
+
+            # -- DYNAMIC MODEL SELECTION --
+            model_name = config_doc.get("model_name", "gpt-4o")
+            temperature = config_doc.get("temperature", 0.7)
+
+            if model_name == "gpt-5-nano":
+                # CASE 1: GPT-5-Nano (gpt-4o w/o temperature)
+                llm = ChatOpenAI(
+                    model="gpt-4o", 
+                    api_key=current_app.config.get("OPENAI_API_KEY"),
+                    max_tokens=500,
+                    streaming=True
+                )
+
+            elif model_name.lower().startswith("qwen"):
+                # CASE 2: Qwen models (Use ChatTongyi)
+                llm = ChatTongyi(
+                    model=model_name,
+                    temperature=temperature,
+                    api_key=current_app.config.get("DASHSCOPE_API_KEY"),
+                    streaming=True
+                )
+
+            elif model_name.lower().startswith("deepseek"):
+                # CASE 3: DeepSeek models (Use ChatDeepSeek)
+                llm = ChatDeepSeek(
+                    model=model_name,
+                    temperature=temperature,
+                    api_key=current_app.config.get("DEEPSEEK_API_KEY"),
+                    streaming=True
+                )
+
+            else:
+                # CASE 4: Standard OpenAI
+                llm = ChatOpenAI(
+                    model=model_name,
+                    temperature=temperature,
+                    api_key=current_app.config.get("OPENAI_API_KEY"),
+                    max_tokens=500,
+                    streaming=True
+                )
+
+            # -- STEP C: STREAMING INFERENCE --
+            chain = prompt | llm | StrOutputParser()
+            
+            def get_history_factory(session_id):
+                return get_session_history(
+                    session_id=session_id,
+                    user_id=user_id_for_history, 
+                    config_id=config_id
+                )
+
+            chain_with_history = RunnableWithMessageHistory(
+                chain,
+                get_session_history=get_history_factory,
+                input_messages_key="question",
+                history_messages_key="history",
+            )
+
+            for chunk in chain_with_history.stream(
+                {"question": user_input, "context": context_text},
+                config={"configurable": {"session_id": chat_id}}
+            ):
+                yield json.dumps({"type": "token", "data": chunk}) + "\n"
+
+        except Exception as e:
+            logger.error(f"Stream Error: {e}")
+            yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+
+    return Response(generate(), mimetype='application/x-ndjson')

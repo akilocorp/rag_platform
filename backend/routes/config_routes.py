@@ -1,6 +1,7 @@
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
+import requests
 import logging
 import os
 from werkzeug.utils import secure_filename
@@ -10,6 +11,7 @@ from models.user import User
 
 import json
 from bson import ObjectId
+
 # --- Setup and Configuration ---
 logger = logging.getLogger(__name__)
 UPLOAD_FOLDER = "uploads/"
@@ -21,23 +23,18 @@ def allowed_file(filename):
     """Checks if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-
 @config_bp.route('/config_list', methods=['GET'])
 @jwt_required()
 def getconfigs():
     user_id=''
     try:
         # 1. Get the user ID from the JWT token
-        user_id= get_jwt_identity()
-        current_app.logger.info(f"user {user_id}: ", exc_info=True)
+        user_id = get_jwt_identity()
         
-        if user_id=='':
+        if user_id == '':
             return jsonify({"error": "User not authenticated"}), 401
 
         # 2. Query the database for all configs matching the user_id.
-        # This example assumes your Config model has a method like `find_by_user`.
-        # If not, you can use `current_app.config['MONGO_COLLECTION'].find({"userid": user_id})`
         user_configs_cursor = Config.find_by_user_id(user_id)
 
         # 3. Serialize the documents for the JSON response
@@ -58,7 +55,6 @@ def getconfigs():
 
 @config_bp.route('/config/<string:config_id>', methods=['GET'])
 def get_single_config(config_id):
-    logger.info(f'{config_id}',exc_info=True)
     user_id=''
     """
     Fetches a single configuration.
@@ -66,15 +62,13 @@ def get_single_config(config_id):
     If public, it can be accessed without a JWT.
     """
     try:
-       
         # 2. Validate the provided config_id to ensure it's a valid MongoDB ObjectId
         if not ObjectId.is_valid(config_id):
             return jsonify({"message": "Invalid configuration ID format"}), 400
 
         # 3. Query the database for a document that matches BOTH the config_id and the user_id
-        # This is a critical security check to prevent users from accessing others' configs.
         config_document = Config.get_collection().find_one({"_id":ObjectId(config_id)})
-        logger.info(f"config {config_document}",exc_info=True)
+        
         if config_document is None:
             return jsonify({"message": "Configuration not found"}), 404
 
@@ -89,6 +83,7 @@ def get_single_config(config_id):
             verify_jwt_in_request()
             user_id = get_jwt_identity()
         except Exception as e:
+            # Keep this warning, it helps debug auth failures without spamming full objects
             logger.warning(f"JWT verification failed for config {config_id}: {e}")
             return jsonify({"message": "Authentication required for this private chat"}), 401
 
@@ -96,17 +91,49 @@ def get_single_config(config_id):
         if config_document.get("user_id") != user_id:
             return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
 
-        # 4. Check if a configuration was found
-        
-
         # 5. Serialize the document for the JSON response
-        # Convert the ObjectId to a string so it's JSON serializable
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
         return jsonify({"config": config_document}), 200
+        
     except Exception as e:
         current_app.logger.error(f"Error fetching config {config_id} for user {user_id}: {e}", exc_info=True)
         return jsonify({"message": "An internal server error occurred"}), 500
+
+@config_bp.route('/heygen/avatars', methods=['GET'])
+@jwt_required()
+def get_heygen_avatars():
+    headers = {
+        "X-Api-Key": current_app.config.get("HEY_GEN_API_KEY"),
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.get("https://api.heygen.com/v1/streaming/avatar.list", headers=headers)
+        avatar_list = response.json().get('data', [])
+        if isinstance(avatar_list, dict):
+            avatar_list = avatar_list.get('avatars', [])
+        
+        # STRICT FILTER: 
+        # 1. Must have interactive_supported as True
+        # 2. AND the ID must contain 'lite' or 'public' or 'ez'
+        interactive_avatars = [
+            a for a in avatar_list
+            if isinstance(a, dict) and # Ensure item is a dict
+            (
+                # Logic 1: Check for keywords in ID
+                any(k in a.get('avatar_id', '').lower() for k in ['lite', 'public', 'ez']) 
+                or 
+                # Logic 2: Or if it just looks like a streaming avatar
+                a.get('is_public') is True
+            )
+        ]
+        
+        # If the strict list is empty, let's return the basic Lite ones so the UI isn't empty
+       
+            
+        return jsonify({"avatars": interactive_avatars})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @config_bp.route('/config', methods=['POST'])
 @jwt_required()
@@ -115,7 +142,7 @@ def configure_model():
     API endpoint that now robustly handles 'instructions' or a full 'prompt_template'.
     """
     try:
-        # --- 1. Get User ID & Form Data (No change) ---
+        # --- 1. Get User ID & Form Data ---
         user_id = get_jwt_identity()
         if not user_id:
             return jsonify({"error": "User not authenticated"}), 401
@@ -133,11 +160,13 @@ def configure_model():
         llm_type = config_data.get('model_name')
         is_public = config_data.get('is_public')
 
-        bot_name = config_data.get('bot_name', 'Assistant') # Default bot name
-        bot_avatar = config_data.get('bot_avatar', 'robot') # Default bot avatar
-        introduction = config_data.get('introduction', '') # Optional introduction message
+        bot_name = config_data.get('bot_name', 'Assistant') 
+        bot_type = config_data.get('bot_type', 'chat') 
+        heygen_avatar_id = config_data.get('heygen_avatar_id', '')
+        bot_avatar = config_data.get('bot_avatar', 'robot') 
+        introduction = config_data.get('introduction', '') 
         temperature_str = config_data.get('temperature')
-        response_timeout = config_data.get('response_timeout', 3)  # Default 3 seconds
+        response_timeout = config_data.get('response_timeout', 3) 
         collection_name = config_data.get('collection_name')
 
         # --- 2. Get both 'instructions' and 'prompt_template' ---
@@ -170,7 +199,7 @@ Answer:"""
             # If neither is provided, it's an error
             return jsonify({"error": "Missing required field: please provide either 'instructions' or a 'prompt_template'"}), 400
 
-        # --- 4. Validate Other Inputs (No change) ---
+        # --- 4. Validate Other Inputs ---
         if not all([llm_type, temperature_str]):
             return jsonify({"error": "Missing required fields: llm_type or temperature"}), 400
         
@@ -181,7 +210,7 @@ Answer:"""
         except (ValueError, TypeError):
             return jsonify({"error": "Temperature must be a number between 0.0 and 2.0"}), 400
 
-        # --- 5. Handle File Uploads (Updated) ---
+        # --- 5. Handle File Uploads ---
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         temp_file_paths = []
         for file in uploaded_files:
@@ -203,23 +232,25 @@ Answer:"""
         config_document = {
             "user_id": user_id,
             "bot_name": bot_name,
+            "bot_type": bot_type,
             "bot_avatar": bot_avatar,
+            "heygen_avatar_id": heygen_avatar_id,
             "introduction": introduction,
             "collection_name": collection_name,
             "model_name": llm_type,
-            "prompt_template": final_prompt_template, # Save the dynamically created template
+            "prompt_template": final_prompt_template, 
             "temperature": temperature,
-            "response_timeout": int(response_timeout),  # Save response timeout in seconds
+            "response_timeout": int(response_timeout),
             "is_public": is_public,
-            "config_type": "normal",  # Add config type for normal configs
-            "documents": uploaded_filenames  # Store the filenames of uploaded documents
+            "config_type": "normal",
+            "documents": uploaded_filenames
         }
         
         result = mongo_collection.get_collection().insert_one(config_document)
         config_id = result.inserted_id
         config_document['_id'] = str(config_id)
 
-        # --- 7. Process Files (No change) ---
+        # --- 7. Process Files ---
         if temp_file_paths:
             # Use the provided collection name, or generate one if it's empty
             final_collection_name = collection_name if collection_name else f"config_{config_id}"
