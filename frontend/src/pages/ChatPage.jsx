@@ -1,693 +1,341 @@
-import { FiAlertTriangle, FiChevronRight, FiLoader, FiSend } from 'react-icons/fi';
-import React, { useEffect, useRef, useState } from 'react';
-import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-
-import ChatSidebar  from '../components/SideBar.jsx';
-import { FaSpinner } from 'react-icons/fa';
-import apiClient from '../api/apiClient';
+import { FaSpinner, FaPaperPlane } from 'react-icons/fa';
+import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
+import ChatSidebar from '../components/SideBar.jsx'; 
+import AvatarView from '../components/AvatarView'; 
+import apiClient from '../api/apiClient'; 
 import axios from 'axios';
 import { marked } from 'marked';
-// Import Qualtrics integration utility
-import '../utils/qualtricsIntegration.js';
-import { AVATAR_OPTIONS } from '../components/AvatarSelector';
 
+// --- HELPER: Get Token Safely ---
+const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
-const ChatMessage = ({ message, botAvatar = 'robot' }) => {
-
-  const { sender, text, isTyping } = message;
+// --- MODERN CHAT MESSAGE COMPONENT ---
+const ChatMessage = ({ message }) => {
+  const { sender, text } = message;
   const isUser = sender === 'user';
-
-  const createMarkup = (markdownText) => {
-    //check_n
-    const rawMarkup = marked.parse(markdownText || '');
-    return { __html: rawMarkup };
-  };
-
-  // Get the bot avatar icon and color
-  const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatar) || AVATAR_OPTIONS[1];
-  const BotIcon = avatarOption.icon;
-  const showBotAvatar = botAvatar !== 'none';
-  const avatarColorClass = {
-    gray: 'bg-gray-500/20 text-gray-400',
-    indigo: 'bg-indigo-500/20 text-indigo-400',
-    purple: 'bg-purple-500/20 text-purple-400',
-    blue: 'bg-blue-500/20 text-blue-400',
-    green: 'bg-green-500/20 text-green-400',
-    yellow: 'bg-yellow-500/20 text-yellow-400',
-    pink: 'bg-pink-500/20 text-pink-400',
-    cyan: 'bg-cyan-500/20 text-cyan-400',
-    orange: 'bg-orange-500/20 text-orange-400',
-    red: 'bg-red-500/20 text-red-400',
-    violet: 'bg-violet-500/20 text-violet-400',
-    rose: 'bg-rose-500/20 text-rose-400',
-    emerald: 'bg-emerald-500/20 text-emerald-400',
-  }[avatarOption.color] || 'bg-indigo-500/20 text-indigo-400';
+  
+  // Render Markdown safely
+  const createMarkup = (txt) => ({ __html: marked.parse(txt || '') });
 
   return (
-    <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {!isUser && showBotAvatar && (
-        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${avatarColorClass}`}>
-          <BotIcon className="text-xl" />
+    <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+      
+      {/* AI Icon */}
+      {!isUser && (
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mt-1">
+          <RiRobot2Line className="text-indigo-400 text-sm" />
         </div>
       )}
-      <div className={`max-w-[80%] rounded-2xl p-4 ${
-        isUser
-          ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-          : 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
-      }`}>
-        {isTyping ? (
-          <div className="flex space-x-2">
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-            <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
-        ) : (
-          <div
-            className="prose prose-invert max-w-none text-gray-100"
-            dangerouslySetInnerHTML={createMarkup(text)}
-          />
-        )}
 
+      {/* Message Bubble */}
+      <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed ${
+        isUser 
+          ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none' 
+          : 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 text-gray-100 rounded-bl-none'
+      }`}>
+         <div className="prose prose-invert max-w-none prose-p:my-0 prose-ul:my-2" dangerouslySetInnerHTML={createMarkup(text)} />
       </div>
+
+      {/* User Icon */}
       {isUser && (
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
-          <RiUser3Line className="text-indigo-400 text-xl" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center mt-1">
+          <RiUser3Line className="text-purple-400 text-sm" />
         </div>
       )}
     </div>
   );
 };
 
-// Enhanced Qualtrics integration with error handling
-const addMessageToQualtrics = (sender, content) => {
-  console.log('🔍 DEBUG: addMessageToQualtrics called with:', { sender, content: content?.substring(0, 100) + '...' });
-  
-  try {
-    if (typeof window !== 'undefined') {
-      console.log('🔍 DEBUG: Window is defined');
-      
-      if (window.addMessageToQualtrics && typeof window.addMessageToQualtrics === 'function') {
-        console.log('🔍 DEBUG: Using window.addMessageToQualtrics function');
-        return window.addMessageToQualtrics(sender, content);
-      }
-      
-      if (typeof Qualtrics !== 'undefined' && Qualtrics.SurveyEngine) {
-        console.log('🔍 DEBUG: Qualtrics SurveyEngine available, adding to ragChatHistory');
-        if (!window.ragChatHistory) {
-          window.ragChatHistory = [];
-          console.log('🔍 DEBUG: Initialized new ragChatHistory array');
-        }
-        const message = {
-          sender: sender,
-          content: content,
-          timestamp: new Date().toISOString(),
-          messageIndex: window.ragChatHistory.length + 1
-        };
-        window.ragChatHistory.push(message);
-        console.log('🔍 DEBUG: Message added to ragChatHistory. Total messages:', window.ragChatHistory.length);
-        console.log('🔍 DEBUG: Current ragChatHistory:', window.ragChatHistory);
-        return true;
-      }
-      
-      if (window.parent && window.parent !== window) {
-        console.log('🔍 DEBUG: Posting message to parent window');
-        window.parent.postMessage({
-          type: 'CHAT_MESSAGE',
-          sender: sender,
-          content: content,
-          timestamp: new Date().toISOString()
-        }, '*');
-        return true;
-      }
-      
-      console.log('🔍 DEBUG: No Qualtrics integration method available');
-    }
-    return false;
-  } catch (error) {
-    console.warn('Qualtrics integration error:', error);
-    return false;
-  }
-};
-
 const ChatPage = () => {
-  const { configId, chatId, qualtricsId } = useParams();
+  const { configId, chatId } = useParams();
   const navigate = useNavigate();
   
-  // Initialize Qualtrics integration when component mounts
-  useEffect(() => {
-    if (qualtricsId && configId) {
-      // Initialize RAG Qualtrics integration
-      if (window.RAGQualtrics && window.RAGQualtrics.initialize) {
-        const initSuccess = window.RAGQualtrics.initialize({
-          configId: configId,
-          responseId: qualtricsId,
-          chatId: chatId || `chat_${Date.now()}`
-        });
-        
-        if (initSuccess) {
-          console.log('🚀 Qualtrics integration initialized for chat');
-        }
-      } else {
-        // Fallback initialization
-        window.ragChatHistory = window.ragChatHistory || [];
-        window.ragChatConfig = {
-          configId: configId,
-          responseId: qualtricsId,
-          chatId: chatId || `chat_${Date.now()}`,
-          initialized: true
-        };
-        console.log('📝 Basic Qualtrics integration initialized');
-      }
-
-      // Notify parent (Qualtrics page) of config to align IDs and avoid mismatches
-      try {
-        if (window.parent && window.parent !== window) {
-          const initPayload = {
-            type: 'INIT_RAG_CONFIG',
-            payload: {
-              configId,
-              responseId: qualtricsId,
-              chatId: chatId || window.ragChatConfig?.chatId || `chat_${Date.now()}`,
-              childOrigin: window.location.origin
-            },
-            sentAt: new Date().toISOString()
-          };
-          console.log('📤 Posting INIT_RAG_CONFIG to parent:', initPayload);
-          window.parent.postMessage(initPayload, '*');
-        } else {
-          console.log('ℹ️ Not in iframe context; skipping INIT_RAG_CONFIG postMessage');
-        }
-      } catch (e) {
-        console.warn('INIT_RAG_CONFIG postMessage failed:', e);
-      }
-    }
-  }, [configId, chatId, qualtricsId]);
-  
-  // Debug: Log Qualtrics integration status
-  useEffect(() => {
-    if (qualtricsId) {
-      const logStatus = () => {
-        const stats = window.RAGQualtrics?.getStats?.() || {
-          messageCount: window.ragChatHistory?.length || 0,
-          isInitialized: !!(window.ragChatConfig?.initialized),
-          configId: window.ragChatConfig?.configId || null
-        };
-        console.log('📊 Qualtrics Integration Status:', stats);
-      };
-      
-      // Log initial status
-      logStatus();
-      
-      // Log status every 30 seconds for debugging
-      const interval = setInterval(logStatus, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [qualtricsId]);
+  // State
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [config, setConfig] = useState(null);
-  const [error, setError] = useState(null);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [sessions, setSessions] = useState([]);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
-  const [userInfo, setUserInfo] = useState(null);
-  const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [saveAlert, setSaveAlert] = useState(null); // { type: 'success' | 'error', message: string }
-  const [hasAutoMessage, setHasAutoMessage] = useState(false); // Track if auto message was sent
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false); 
+  
+  // Sidebar State
+  const [sessions, setSessions] = useState([]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
+
+  // Avatar Session State
+  const [avatarSession, setAvatarSession] = useState(null);
+
+  // Refs
+  const userFetchRef = useRef(false);
+  const sessionFetchRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const isAuthenticated = !!localStorage.getItem('jwtToken');
 
-  // Simple navigation handler (Qualtrics client-side JS handles saving)
-  const handleNavigationWithAutoSave = (navigationFn) => {
-    if (navigationFn) navigationFn();
-  };
+  const isAuthenticated = !!getToken();
 
-
-  const handleNewChat = async () => {
-    await handleNavigationWithAutoSave(() => {
-      setIsInitializing(true);
-      setMessages([]);
-      setInput('');
-      setError(null);
-      setHasAutoMessage(false);
-      setTimeout(() => setIsInitializing(false), 300);
-    });
-  };
-
-
+  // --- 1. FETCH USER ---
   useEffect(() => {
-    const fetchConfigDetails = async () => {
-      if (!configId) {
-        setError("Invalid configuration selected");
-        setIsInitializing(false);
-        return;
-      }
-
-      try {
-        let response;
-        
-        // If user is authenticated, try with authentication first (for private chats)
-        if (isAuthenticated) {
-          try {
-            response = await apiClient.get(`/config/${configId}`);
-          } catch (authError) {
-            // If authenticated request fails, try without auth (might be a public chat)
-            if (authError.response?.status === 401 || authError.response?.status === 403) {
-              response = await axios.get(`/api/config/${configId}`);
-            } else {
-              throw authError;
-            }
-          }
-        } else {
-          // If user is not authenticated, use direct axios call
-          response = await axios.get(`/api/config/${configId}`);
-        }
-        
-        setConfig(response.data.config);
-      } catch (error) {
-        console.error("Failed to fetch config:", error);
-        setError("Failed to load chatbot configuration");
-      } finally {
-        setIsInitializing(false);
-      }
-    };
-    fetchConfigDetails();
-  }, [configId]);
-
-  useEffect(() => {
-    const fetchChatHistory = async () => {
-      if (!chatId) return;
-      
-      setIsInitializing(true);
-      try {
-        const response = await apiClient.get(`/history/${chatId}`);
-        const formattedMessages = response.data.history.map(item => ({
-          sender: item.type === 'human' ? 'user' : 'ai',
-          text: item.data?.content || '',
-          sources: item.data?.sources || []
-        }));
-        setMessages(formattedMessages);
-      } catch (error) {
-        console.error("Failed to fetch history:", error);
-        setError("Failed to load chat history");
-      } finally {
-        setIsInitializing(false);
-      }
-    };
-    fetchChatHistory();
-  }, [chatId]);
-
-  useEffect(() => {
-    // Only fetch sessions if user is authenticated
-    if (!isAuthenticated) {
-      setSessionsLoading(false);
-      return;
+    const token = getToken();
+    if (token && !userFetchRef.current) {
+        userFetchRef.current = true; 
+        apiClient.get('/auth/me').then(res => setUserInfo(res.data)).catch(() => {});
     }
-
-    const fetchSessions = async () => {
-      if (!configId) return;
-      setSessionsLoading(true);
-      try {
-        const response = await apiClient.get(`/chat/list/${configId}`);
-        setSessions(response.data.sessions);
-      } catch (error) {
-        console.error("Failed to fetch sessions:", error);
-      } finally {
-        setSessionsLoading(false);
-      }
-    };
-    fetchSessions();
-  }, [configId, messages, isAuthenticated]);
-
-  useEffect(() => {
-    // Only fetch user info if user is authenticated
-    if (!isAuthenticated) {
-      setUserInfoLoaded(true);
-      return;
-    }
-
-    const fetchUserInfo = async () => {
-      try {
-        const response = await apiClient.get('/auth/me');
-        setUserInfo(response.data);
-      } catch (error) {
-        console.error('Failed to fetch user info:', error);
-      } finally {
-        setUserInfoLoaded(true);
-      }
-    };
-    fetchUserInfo();
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    inputRef.current?.focus();
   }, []);
 
-  // Auto-send first message if config has introduction and no messages yet
-  // TEMPORARILY DISABLED - Bot will not start conversations automatically
-  /*
+  // --- 2. FETCH CONFIG ---
   useEffect(() => {
-    if (config?.introduction && messages.length === 0 && !hasAutoMessage && !isInitializing) {
-      const delay = Math.random() * 5000 + 5000; // 5-10 seconds delay
-      
-      const timer = setTimeout(() => {
-        // Generate a simple greeting message
-        const autoMessages = [
-          "Hello! I'm ready to help you.",
-          "Hi there! How can I assist you today?",
-          "Welcome! What would you like to know?",
-          "Hello! I'm here to answer your questions.",
-          "Hi! Feel free to ask me anything."
-        ];
-        
-        const randomMessage = autoMessages[Math.floor(Math.random() * autoMessages.length)];
-        
-        // Add the auto message to the chat (no API call needed)
-        setMessages(prev => [...prev, { 
-          sender: 'ai', 
-          text: randomMessage,
-          isAutoMessage: true 
-        }]);
-        
-        setHasAutoMessage(true);
-      }, delay);
+    if (config?.config_id === configId) { setIsInitializing(false); return; }
 
-      return () => clearTimeout(timer);
-    }
-  }, [config?.introduction, messages.length, hasAutoMessage, isInitializing]);
-  */
+    let isMounted = true;
+    const fetchConfig = async () => {
+      try {
+        const token = getToken();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const response = await axios.get(`/api/config/${configId}`, { headers });
+        if (isMounted) {
+          setConfig(response.data.config);
+          setIsInitializing(false);
+        }
+      } catch (e) { 
+        if (isMounted) {
+            console.error("Config load failed", e);
+            setError("Could not load bot.");
+            setIsInitializing(false);
+        }
+      } 
+    };
+    fetchConfig();
+    return () => { isMounted = false; };
+  }, [configId, config]);
 
+  // --- 3. FETCH SESSIONS ---
+  const fetchSessions = useCallback(async (force = false) => {
+    if (!isAuthenticated) return;
+    if (!force && sessionFetchRef.current === configId) return;
+    sessionFetchRef.current = configId;
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading || !configId) return;
-
-
-    const userMessage = { sender: 'user', text: input };
-
-    // Add user message to Qualtrics history
     try {
-      console.log('🔄 Adding user message to Qualtrics history');
-      const userResult = addMessageToQualtrics('user', input);
-      console.log('🔄 User message tracking result:', userResult);
-    } catch (error) {
-      console.warn('Failed to add user message to Qualtrics:', error);
-    }
+      const res = await apiClient.get(`/chat/list/${configId}`);
+      setSessions(res.data.sessions || []);
+    } catch (e) { console.error(e); }
+  }, [configId, isAuthenticated]);
 
-    setMessages(prev => [...prev, userMessage, { sender: 'ai', isTyping: true }]);
-    setInput('');
+  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  // --- 4. FETCH HISTORY ---
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!chatId) { setMessages([]); return; }
+      try {
+        const res = await apiClient.get(`/history/${chatId}`);
+        const historyData = res.data.history || [];
+        setMessages(historyData.map(msg => ({
+          sender: msg.type === 'human' ? 'user' : 'ai',
+          text: msg.data.content
+        })));
+      } catch (e) { console.error(e); }
+    };
+    loadHistory();
+  }, [chatId]);
+
+  // --- 5. UNIFIED MESSAGE HANDLER ---
+  const handleMessageProcess = useCallback(async (textInput) => {
+    if (!textInput || !textInput.trim() || isLoading) return;
+
+    const currentChatId = chatId || `chat_${Date.now()}`;
+    const isNewChat = !chatId;
+
+    setMessages(prev => [...prev, { sender: 'user', text: textInput }, { sender: 'ai', text: '', isTyping: true }]);
     setIsLoading(true);
 
+    if (isNewChat) navigate(`/chat/${configId}/${currentChatId}`, { replace: true });
+
     try {
-      // Fallback UUID generator for non-secure contexts or older browsers
-      const generateUUID = () => {
-        if (crypto.randomUUID) {
-          return crypto.randomUUID();
-        }
-        // Fallback for HTTP or older browsers
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          const v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-      };
-      
-      const targetChatId = chatId || generateUUID();
-
-
-      const response = await apiClient.post(`/chat/${configId}/${targetChatId}`, {
-        input: userMessage.text,
+      const token = getToken();
+      const response = await fetch(`/api/chat/${configId}/${currentChatId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ input: textInput })
       });
 
-      if (!chatId) {
-        navigate(`/chat/${configId}/${targetChatId}`, { replace: true });
-      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let currentSentence = '';
 
-      const aiResponse = {
-            sender: 'ai',
-            text: response.data.response,
-            sources: response.data.sources || []
-        };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n').filter(Boolean);
 
-      // Add AI response to Qualtrics history
-      try {
-        addMessageToQualtrics('ai', response.data.response);
-        
-        // Trigger explicit save after both messages are added
-        setTimeout(() => {
+        for (const line of lines) {
           try {
-            console.log('🔄 Triggering explicit Qualtrics save after message exchange');
-            
-            // Check if we're in iframe context first
-            if (window.parent && window.parent !== window) {
-              // Use postMessage for cross-origin communication
-              console.log('Sending save request to parent window via postMessage');
-              window.parent.postMessage({
-                type: 'SAVE_RAG_CHAT',
-                timestamp: new Date().toISOString()
-              }, '*');
-            } else if (window.saveRAGChatToQualtrics) {
-              // Use local function if not in iframe
-              window.saveRAGChatToQualtrics();
-            } else {
-              console.warn('⚠️ No saveRAGChatToQualtrics function found');
+            const data = JSON.parse(line);
+            const content = data.data || data.chunk; 
+            if (content && (data.type === 'token' || !data.type)) {
+              accumulatedText += content;
+              currentSentence += content;
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], text: accumulatedText, isTyping: false };
+                return newMsgs;
+              });
+
+              // Avatar Speaking Logic
+              if (avatarSession && /[.!?]/.test(content) && currentSentence.trim().length > 10) {
+                apiClient.post('/heygen/task', { 
+                  session_id: avatarSession.session_id, 
+                  heygen_token: avatarSession.heygen_token, 
+                  text: currentSentence 
+                }).catch(() => {});
+                currentSentence = ''; 
+              }
             }
-          } catch (saveError) {
-            console.error('Failed to trigger explicit save:', saveError);
-          }
-        }, 100); // Small delay to ensure messages are processed
-        
-      } catch (error) {
-        console.warn('Failed to add AI response to Qualtrics:', error);
+          } catch (e) { }
+        }
+      }
+      
+      if (avatarSession && currentSentence.trim().length > 0) {
+           apiClient.post('/heygen/task', { 
+              session_id: avatarSession.session_id, 
+              heygen_token: avatarSession.heygen_token, 
+              text: currentSentence 
+           }).catch(() => {});
       }
 
-     setMessages(prev => {
-            // Remove the last item (the typing indicator)
-            const updatedMessages = prev.slice(0, -1); 
-            // Add the final AI response
-            return [...updatedMessages, aiResponse];
-        });
+      if (isNewChat) fetchSessions(true);
 
-    } catch (error) {
-        console.error("Chat error:", error);
-        // On error, revert the optimistic updates (remove user message and typing indicator)
-        setMessages(prev => prev.slice(0, -2)); 
-        setInput(userMessage.text); // Put the user's text back in the input
-        setError("Failed to send message. Please try again.");
-    } finally {
-        setIsLoading(false);
-    }
-  };
+    } catch (e) { console.error(e); } 
+    finally { setIsLoading(false); }
+  }, [chatId, configId, navigate, avatarSession]);
 
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 p-6 text-center">
-        <div className="p-4 bg-red-900/50 rounded-xl border border-red-700/50 max-w-md">
-          <FiAlertTriangle className="mx-auto text-red-400 text-3xl mb-3" />
-          <h2 className="text-xl font-medium text-white mb-2">Error</h2>
-          <p className="text-gray-300 mb-4">{error}</p>
-          <button
-            onClick={() => navigate('/config_list')}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white"
-          >
-            Back to Configurations
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  if (isInitializing) return (
+    <div className="h-screen flex items-center justify-center bg-gray-900 text-white flex-col gap-4">
+        <FaSpinner className="animate-spin text-4xl text-indigo-500" />
+    </div>
+  );
+
+  const isAvatarMode = config?.bot_type === 'avatar';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-900">
-      {/* Sidebar */}
-     {isAuthenticated && (
-      <div className="hidden md:block">
-        
-        <ChatSidebar 
-          sessions={sessions} 
-          sessionsLoading={sessionsLoading}
-          userInfo={userInfo}
-          userInfoLoaded={userInfoLoaded}
-          configId={configId} 
-          isCollapsed={isSidebarCollapsed}
-          onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          onClose={() => setShowSidebar(false)}
-          onNewChat={handleNewChat}
-          onNavigateWithAutoSave={handleNavigationWithAutoSave}
-          isPublic={config?.is_public}
-        />
-	
-      </div>
-     )}
-
-      {/* Mobile sidebar overlay */}
-      {showSidebar && isAuthenticated && (
-        <div className="fixed inset-0 z-40 bg-black/40 md:hidden">
-          <div className="absolute left-0 top-0 h-full">
-            <ChatSidebar 
-              sessions={sessions} 
-              sessionsLoading={sessionsLoading}
+    <div className="flex h-screen overflow-hidden bg-gray-900 font-sans text-gray-100">
+      
+      {isAuthenticated && (
+          <ChatSidebar 
+              sessions={sessions}
               userInfo={userInfo}
-              userInfoLoaded={userInfoLoaded}
-              configId={configId} 
-              isCollapsed={false}
-              onClose={() => setShowSidebar(false)}
-              onNewChat={handleNewChat}
-              onNavigateWithAutoSave={handleNavigationWithAutoSave}
-            />
-          </div>
-        </div>
+              userInfoLoaded={!!userInfo}
+              configId={configId}
+              isCollapsed={isSidebarCollapsed} 
+              onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              onClose={() => setIsSidebarCollapsed(true)}
+              onNewChat={() => { setMessages([]); navigate(`/chat/${configId}`); }}
+              onNavigateWithAutoSave={(cb) => cb()}
+          />
       )}
 
-      {/* Main content with loading overlay */}
-      <div className={`relative flex-1 flex flex-col w-full transition-all duration-300 ${
-        isAuthenticated && !isSidebarCollapsed ? 'md:ml-72' : 'md:ml-0'
-      }`}>
-        {/* Loading overlay - positioned within chat area */}
-        {isInitializing && (
-          <div className="absolute inset-0 z-10 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
-            <div className="flex flex-col items-center">
-              <FaSpinner className="animate-spin text-3xl text-indigo-400 mb-4" />
-              <p className="text-gray-400">Loading chat...</p>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-72' : 'md:ml-20'}`}>
+        
+        {/* --- SLEEK HEADER --- */}
+        <header className="flex items-center justify-between px-6 py-3 border-b border-gray-800 bg-gray-900/95 backdrop-blur z-10 h-16">
+            <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${isAvatarMode ? 'bg-purple-500/10 text-purple-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+                    <RiRobot2Line className="text-xl" />
+                </div>
+                <div>
+                    <h1 className="font-semibold text-white text-base">{config?.bot_name || "AI Assistant"}</h1>
+                    {config?.model_name && (
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{config.model_name}</p>
+                    )}
+                </div>
             </div>
-          </div>
-        )}
-
-        {/* Legacy auto-save overlay - no longer needed with client-side approach */}
-
-        {/* Save Alert Notification */}
-        {saveAlert && (
-          <div className={`fixed top-4 right-4 z-30 p-4 rounded-lg shadow-lg border max-w-md ${
-            saveAlert.type === 'success' 
-              ? 'bg-green-900/90 border-green-500/50 text-green-100' 
-              : 'bg-red-900/90 border-red-500/50 text-red-100'
-          }`}>
-            <div className="flex items-start space-x-3">
-              <div className="flex-1">
-                <p className="text-sm font-medium">{saveAlert.message}</p>
-              </div>
-              <button
-                onClick={() => setSaveAlert(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        <header className="p-4 bg-gray-900 ">
-          <div className="container mx-auto flex items-center justify-between">
-            {isAuthenticated && (
-              <button 
-                className="md:hidden p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400"
-                onClick={() => setShowSidebar(true)}
-              >
-                <FiChevronRight className="text-xl" />
-              </button>
-            )}
-          </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 z-0">
-          <div className="container mx-auto max-w-4xl space-y-6">
-            {messages.length === 0 && !isLoading && !isInitializing && (() => {
-              const botAvatarId = config?.bot_avatar || 'robot';
-              const showAvatar = botAvatarId !== 'none';
-              const avatarOption = AVATAR_OPTIONS.find(a => a.id === botAvatarId) || AVATAR_OPTIONS[1];
-              const AvatarIcon = avatarOption.icon;
-              const avatarColorClass = {
-                gray: 'bg-gray-500/20 text-gray-400',
-                indigo: 'bg-indigo-500/20 text-indigo-400',
-                purple: 'bg-purple-500/20 text-purple-400',
-                blue: 'bg-blue-500/20 text-blue-400',
-                green: 'bg-green-500/20 text-green-400',
-                yellow: 'bg-yellow-500/20 text-yellow-400',
-                pink: 'bg-pink-500/20 text-pink-400',
-                cyan: 'bg-cyan-500/20 text-cyan-400',
-                orange: 'bg-orange-500/20 text-orange-400',
-                red: 'bg-red-500/20 text-red-400',
-                violet: 'bg-violet-500/20 text-violet-400',
-                rose: 'bg-rose-500/20 text-rose-400',
-                emerald: 'bg-emerald-500/20 text-emerald-400',
-              }[avatarOption.color] || 'bg-indigo-500/20 text-indigo-400';
-
-              return (
-                <div className="flex flex-col items-center justify-center h-full text-center px-4 py-16 sm:py-20">
-                  <div className="mb-6 flex flex-col items-center">
-                    {showAvatar && (
-                      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${avatarColorClass}`}>
-                        <AvatarIcon className="text-4xl" />
-                      </div>
-                    )}
-		  {isAuthenticated && (
-                    <p className="text-xs text-gray-400 mt-1 bg-gray-800 px-2 py-1 rounded-full">
-                      {config?.model_name || 'AI Model'}
-                    </p>
-		  )}
-                  </div>
-                  {config?.introduction && (
-                    <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent max-w-2xl">
-                      {config.introduction}
-                    </h2>
-                  )}
-                </div>
-              );
-            })()}
-
-            {messages.map((msg, index) => (
-              <ChatMessage key={index} message={msg} botAvatar={config?.bot_avatar || 'robot'} />
-            ))}
-
-            {isLoading && messages[messages.length - 1]?.sender !== 'ai' && (
-              <ChatMessage message={{ sender: 'ai', isTyping: true }} botAvatar={config?.bot_avatar || 'robot'} />
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-        </main>
-
-        <footer className="p-4 bg-gray-900 border-t border-gray-800 z-0">
-          <div className="container mx-auto max-w-4xl">
-
-            <div className="flex items-center gap-2">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                className="flex-1 px-5 py-3 bg-gray-800 border border-gray-700 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-gray-500"
-                placeholder="Type your message..."
-                disabled={isLoading || isInitializing}
-              />
-              <button
-                onClick={handleSend}
-                disabled={isLoading || !input.trim() || isInitializing}
-                className={`p-3 rounded-full ${
-                  isLoading || !input.trim() || isInitializing
-                    ? 'bg-gray-700 text-gray-500'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                } transition-all`}
-              >
-                {isLoading ? <FiLoader className="animate-spin" /> : <FiSend />}
-              </button>
+        {isAvatarMode ? (
+            // --- AVATAR MODE ---
+            <div className="flex-1 relative flex flex-col overflow-hidden">
+                <AvatarView 
+                    config={config}
+                    onAvatarReady={(data) => setAvatarSession(data)}
+                    onUserVoiceInput={handleMessageProcess} 
+                    isProcessing={isLoading}
+                    // ADD THIS PROP:
+                    onEndSession={() => {
+                        console.log("Avatar session ended by user");
+                        setAvatarSession(null); 
+                        // Optionally: navigate('/config_list') or similar
+                    }}
+            />
+                
+                {/* Transcript Overlay */}
+                {messages.length > 0 && (
+                    <div className="absolute bottom-6 right-6 w-80 max-h-60 overflow-y-auto bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-3 z-10 scrollbar-hide mask-gradient-bottom">
+                        {messages.slice(-3).map((m, i) => (
+                             <div key={i} className={`text-xs leading-relaxed ${m.sender === 'user' ? 'text-gray-300' : 'text-white'}`}>
+                                <span className={`font-bold mr-1 ${m.sender === 'user' ? 'text-purple-400' : 'text-indigo-400'}`}>
+                                    {m.sender === 'user' ? 'You:' : 'AI:'}
+                                </span>
+                                {m.text}
+                             </div>
+                        ))}
+                    </div>
+                )}
             </div>
-	{isAuthenticated && (
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              {config?.is_public ? 'Public chat' : 'Private chat'} • Powered by {config?.model_name || 'AI'}
-            </p>
-)}
-          </div>
-        </footer>
+
+        ) : (
+            // --- TEXT CHAT MODE ---
+            <>
+                <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-gray-800 hover:scrollbar-thumb-gray-700">
+                     <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
+                        {messages.length === 0 && (
+                            <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-40 animate-in fade-in zoom-in duration-500">
+                                <div className="w-20 h-20 bg-gray-800 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
+                                    <RiRobot2Line className="text-5xl text-indigo-500" />
+                                </div>
+                                <h2 className="text-2xl font-bold text-gray-200 mb-2">
+                                    {config?.bot_name || "AI Assistant"}
+                                </h2>
+                                <p className="text-gray-400 max-w-md">
+                                    {config?.introduction || "I'm ready to help. Ask me anything about the documents provided."}
+                                </p>
+                            </div>
+                        )}
+                        {messages.map((msg, i) => <ChatMessage key={i} message={msg} />)}
+                        <div ref={messagesEndRef} />
+                     </div>
+                </main>
+
+                {/* INPUT FOOTER */}
+                <footer className="p-4 sm:p-6 bg-gray-900 border-t border-gray-800">
+                    <div className="max-w-4xl mx-auto relative flex items-center gap-3">
+                        <input 
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                            placeholder="Type a message..."
+                            className="flex-1 bg-gray-800/50 text-white placeholder-gray-500 border border-gray-700 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-inner"
+                            disabled={isLoading}
+                        />
+                        <button 
+                            onClick={handleTextSend}
+                            disabled={isLoading || !input.trim()}
+                            className="p-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-indigo-500/20"
+                        >
+                            {isLoading ? <FaSpinner className="animate-spin text-lg" /> : <FaPaperPlane className="text-lg" />}
+                        </button>
+                    </div>
+                </footer>
+            </>
+        )}
       </div>
     </div>
   );

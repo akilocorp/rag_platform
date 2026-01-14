@@ -50,9 +50,7 @@ export const ChatSidebar = ({
     if (onNewChat) {
       e.preventDefault();
       onNewChat();
-      setTimeout(() => {
-        window.location.href = `/chat/${configId}`;
-      }, 0);
+      
     }
   };
 
