@@ -14,13 +14,18 @@ export default defineConfig(({ mode }) => {
   // Toggle based on your .env variable
   const target = env.VITE_BACKEND_TARGET === 'docker' 
     ? 'http://backend:5000' 
-    : 'http://127.0.0.1:5000';
+    : 'http://localhost:5000';
 
   return {
     plugins: [react()],
     server: {
       host: '0.0.0.0',
       port: 5173,
+      allowedHosts:[
+        "testfront.bitterlylab.com",
+        "localhost",
+        "127.0.0.1"
+      ],
       proxy: {
         '/api': {
           target: target,
