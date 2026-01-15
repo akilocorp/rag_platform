@@ -308,7 +308,7 @@ const ChatPage = () => {
             </div>
 
         ) : (
-            // --- TEXT CHAT MODE ---
+            // --- TEXT CHAT MODE u---
             <>
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-gray-800 hover:scrollbar-thumb-gray-700">
                      <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
