@@ -3,7 +3,7 @@ import * as LiveKitClient from 'livekit-client';
 import { FaSpinner, FaPlay, FaMicrophone, FaSignal, FaTimes } from 'react-icons/fa'; // Added FaTimes
 import apiClient from '../api/apiClient';
 
-const AvatarView = memo(({ config, onAvatarReady, onUserVoiceInput, isProcessing, onEndSession }) => {
+const AvatarView = memo(({ config, onAvatarReady, onUserVoiceInput, isProcessing, onEndSession, onError }) => {
   const [isReady, setIsReady] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -68,13 +68,18 @@ const AvatarView = memo(({ config, onAvatarReady, onUserVoiceInput, isProcessing
   // --- 2. SESSION CONTROL LOGIC ---
   
   const startSession = async () => {
-    if (!config?.heygen_avatar_id) return;
+    if (!config?.heygen_avatar_id) {
+      if(onError) onError("Missing Avatar ID");
+      return;
+    }
     setIsConnecting(true);
     
     try {
       const createRes = await apiClient.post('/heygen/create-session', { avatar_id: config.heygen_avatar_id });
       const { session_id, url, access_token, heygen_token } = createRes.data.data;
-      
+      if (!createRes.data || !createRes.data.data) {
+          throw new Error("Invalid API response from HeyGen");
+      }
       // Store locally for cleanup
       activeSessionRef.current = { session_id, heygen_token };
 
@@ -82,6 +87,14 @@ const AvatarView = memo(({ config, onAvatarReady, onUserVoiceInput, isProcessing
 
       const room = new LiveKitClient.Room();
       roomRef.current = room;
+
+      room.on(LiveKitClient.RoomEvent.Disconnected, (reason) => {
+          // If the disconnect wasn't intentional (user clicked X), treat as error
+          if (isReady && !isIntentionalStop.current) {
+              console.warn("Avatar disconnected unexpectedly:", reason);
+              if (onError) onError("Avatar stream disconnected");
+          }
+      });
       
       room.on(LiveKitClient.RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === "video" && videoRef.current) {

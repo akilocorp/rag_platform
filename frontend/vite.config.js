@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
   // Toggle based on your .env variable
   const target = env.VITE_BACKEND_TARGET === 'docker' 
     ? 'http://backend:5000' 
-    : 'http://localhost:5000';
+    : 'http://127.0.0.1:5000';
 
   return {
     plugins: [react()],

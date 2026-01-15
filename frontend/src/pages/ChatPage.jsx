@@ -67,6 +67,7 @@ const ChatPage = () => {
 
   // Avatar Session State
   const [avatarSession, setAvatarSession] = useState(null);
+  const [avatarError, setAvatarError] = useState(false);
 
   // Refs
   const userFetchRef = useRef(false);
@@ -140,6 +141,13 @@ const ChatPage = () => {
     loadHistory();
   }, [chatId]);
 
+  const handleAvatarError = useCallback((err) => {
+      console.error("⚠️ Avatar Critical Error:", err);
+      // Clean up any partial session data
+      setAvatarSession(null);
+      // Trigger the UI switch
+      setAvatarError(true);
+  }, []);
   // --- 5. UNIFIED MESSAGE HANDLER ---
   const handleMessageProcess = useCallback(async (textInput) => {
     if (!textInput || !textInput.trim() || isLoading) return;
@@ -224,6 +232,7 @@ const ChatPage = () => {
   );
 
   const isAvatarMode = config?.bot_type === 'avatar';
+  const showAvatar = isAvatarMode && !avatarError;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-900 font-sans text-gray-100">
@@ -258,8 +267,16 @@ const ChatPage = () => {
                 </div>
             </div>
         </header>
+        {/* --- ERROR BANNER (Optional UX improvement) --- */}
+        {avatarError && isAvatarMode && (
+           <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 flex items-center justify-center gap-2 text-red-400 text-sm animate-in fade-in slide-in-from-top-5">
+               <FaExclamationTriangle />
+               <span>Avatar connection failed. Switched to text mode.</span>
+               <button onClick={() => setAvatarError(false)} className="underline hover:text-red-300 ml-2">Retry Avatar</button>
+           </div>
+        )}
 
-        {isAvatarMode ? (
+        {showAvatar ? (
             // --- AVATAR MODE ---
             <div className="flex-1 relative flex flex-col overflow-hidden">
                 <AvatarView 
