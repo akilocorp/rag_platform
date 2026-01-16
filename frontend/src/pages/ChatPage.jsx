@@ -17,6 +17,7 @@ const ChatMessage = ({ message }) => {
   const isUser = sender === 'user';
   
   // Render Markdown safely
+  
   const createMarkup = (txt) => ({ __html: marked.parse(txt || '') });
 
   return (
@@ -70,6 +71,7 @@ const ChatPage = () => {
   const [avatarError, setAvatarError] = useState(false);
 
   // Refs
+  const isTransitioningRef = useRef(false);
   const userFetchRef = useRef(false);
   const sessionFetchRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -128,7 +130,7 @@ const ChatPage = () => {
   // --- 4. FETCH HISTORY ---
   useEffect(() => {
     const loadHistory = async () => {
-      if (!chatId) { setMessages([]); return; }
+      if (!chatId || isTransitioningRef.current)  return;
       try {
         const res = await apiClient.get(`/history/${chatId}`);
         const historyData = res.data.history || [];
@@ -154,6 +156,10 @@ const ChatPage = () => {
 
     const currentChatId = chatId || `chat_${Date.now()}`;
     const isNewChat = !chatId;
+    if (isNewChat) {
+        isTransitioningRef.current = true; // Mark as transitioning
+        navigate(`/chat/${configId}/${currentChatId}`, { replace: true });
+    }
 
     setMessages(prev => [...prev, { sender: 'user', text: textInput }, { sender: 'ai', text: '', isTyping: true }]);
     setIsLoading(true);
