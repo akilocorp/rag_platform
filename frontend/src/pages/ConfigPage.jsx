@@ -34,12 +34,12 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
 
   const handleFileChange = (e) => {
     const newFiles = Array.from(e.target.files);
-    const maxFileSize = 50 * 1024 * 1024; // 50MB
+    const maxFileSize = 500 * 1024 * 1024; // 500MB
     const updatedFiles = [...files];
 
     newFiles.forEach(file => {
       if (file.size > maxFileSize) {
-        alert(`File ${file.name} is too large. Maximum size is 50MB.`);
+        alert(`File ${file.name} is too large. Maximum size is 500MB.`);
         return;
       }
       updatedFiles.push(file);
