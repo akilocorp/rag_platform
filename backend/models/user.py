@@ -1,64 +1,65 @@
 from flask import current_app
-import pymongo
-from werkzeug.security import generate_password_hash, check_password_hash
 from bson import ObjectId
 
 class User:
     """
     User model for interacting with the users collection in MongoDB.
-    This class encapsulates all database logic for users.
     """
 
     @staticmethod
     def get_collection():
         """
-        A helper method to get the user collection object from the database.
-        It assumes you have a 'MONGO_CLIENT' in your app config.
+        Retrieves the pre-initialized collection from app config.
+        PREVENTS creating a new connection on every request.
         """
-        mongo_client = pymongo.MongoClient(current_app.config["MONGO_URI"], serverSelectionTimeoutMS=5000)
-        # Get the database from the client
-        db = mongo_client[current_app.config["MONGO_DB_NAME"]]
-        # Get the collection using the name stored in the config
-        return db[current_app.config["USER"]]
+        # In app.py, we stored this as app.config['MONGO_COLLECTION']
+        return current_app.config["MONGO_COLLECTION"]
 
     @staticmethod
-    def create(obj):
+    def create(user_data):
         """
-        Creates a new user, hashes their password, and inserts them into the database.
-        Returns the result of the insert operation.
+        Inserts a new user into the database.
+        Expects user_data to already contain the hashed password.
         """
-        users_collection = User.get_collection()
+        collection = User.get_collection()
         
-        # Hash the password before storing
-        current_app.logger.info(f"{obj}")
-        
-        
-        return users_collection.insert_one(obj)
+        # Ensure email is lowercase for consistency
+        if 'email' in user_data:
+            user_data['email'] = user_data['email'].lower()
+
+        result = collection.insert_one(user_data)
+        return result.inserted_id
 
     @staticmethod
     def find_by_email(email):
-        """Finds a user by their email address."""
-        return User.get_collection().find_one({"email": email.lower()})
+        """Finds a user by email (case-insensitive)."""
+        collection = User.get_collection()
+        return collection.find_one({"email": email.lower()})
 
     @staticmethod
     def find_by_username(username):
-        """Finds a user by their username."""
-        return User.get_collection().find_one({"username": username})
+        """Finds a user by username."""
+        collection = User.get_collection()
+        return collection.find_one({"username": username})
 
     @staticmethod
     def find_by_id(user_id):
         """Finds a user by their unique _id."""
         try:
-            # PyMongo requires that the string ID be converted to an ObjectId
-            return User.get_collection().find_one({"_id": ObjectId(user_id)})
+            collection = User.get_collection()
+            return collection.find_one({"_id": ObjectId(user_id)})
         except Exception:
-            # This can happen if the user_id is not a valid format
             return None
 
     @staticmethod
-    def check_password(password_hash, password):
-        """Checks a plaintext password against a stored hash."""
-        return check_password_hash(password_hash, password)
-
-
-
+    def mark_verified(email):
+        """
+        Updates the user's 'is_verified' status to True.
+        Used by the /verify-email endpoint.
+        """
+        collection = User.get_collection()
+        result = collection.update_one(
+            {"email": email.lower()},
+            {"$set": {"is_verified": True}}
+        )
+        return result.modified_count > 0

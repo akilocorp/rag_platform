@@ -75,7 +75,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
           <p className={`text-sm ${isDragging ? 'text-indigo-400' : 'text-gray-400'}`}>
             {isDragging ? 'Drop files here' : 'Drag & drop files or click to browse'}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Supports: TXT, DOCX, MD (Max 50MB each)</p>
+          <p className="text-xs text-gray-500 mt-1">Supports: TXT, DOCX, MD (Max 500MB each)</p>
         </div>
       </div>
       <input

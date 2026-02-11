@@ -6,7 +6,7 @@ import UserInfo from '../components/UserInfo';
 import apiClient from '../api/apiClient';
 
 // Your perfect ConfigItem component remains exactly the same
-const ConfigItem = ({ config, onSelect, onEdit }) => {
+const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
   const [isHovered, setIsHovered] = useState(false);
   const isQualtrics = false; // Removed Qualtrics config type
 
@@ -210,6 +210,7 @@ const ConfigListPage = () => {
                       config={config}
                       onSelect={handleSelectConfig}
                       onEdit={onEdit}
+                      setError={setError}
                     />
                   ))}
                 </div>
