@@ -4,6 +4,7 @@ import os
 
 logger = logging.getLogger(__name__)
 # @st.cache_resource(ttl="1h", show_spinner="Loading secrets") # Add caching with a Time-To-Live
+#oo
 
 def load_secrets():
     """
@@ -45,6 +46,7 @@ def load_secrets():
         "FRONTEND_URL"
 
     ]
+        
 
         secrets = {key: os.environ.get(key) for key in required_secret_keys}
         missing_secrets = [key for key, val in secrets.items() if not val]

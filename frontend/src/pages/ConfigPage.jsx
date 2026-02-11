@@ -70,6 +70,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        
         <div className="text-center">
           <FaUpload className={`mx-auto text-2xl mb-3 ${isDragging ? 'text-indigo-400' : 'text-gray-500'}`} />
           <p className={`text-sm ${isDragging ? 'text-indigo-400' : 'text-gray-400'}`}>
