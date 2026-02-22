@@ -1,7 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaUser, FaLock, FaEye, FaEyeSlash, FaArrowRight, FaCheckCircle } from 'react-icons/fa';
+import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import logo from '../assets/logo.png';
+import Navbar from './NavBar';
+
+ const slides = [
+  {
+    line1: "Bring custom AI",
+    line2: "to your classroom,",
+    prefix: "with ",
+    highlight: "ActrLabs"
+  },
+  {
+    line1: "Use GPT or Gemini",
+    line2: "with your own files",
+    prefix: "and ",
+    highlight: "instructions"
+  },
+  {
+    line1: "Distribute in class",
+    line2: "for test prep and",
+    prefix: "student ",
+    highlight: "assessments"
+  }
+];
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -9,18 +32,21 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [isFocused, setIsFocused] = useState({
-    username: false,
-    password: false
-  });
+  
+  const [currentSlide, setCurrentSlide] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % slides.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   const validate = () => {
     const newErrors = {};
-    if (!username.trim()) newErrors.username = 'Username is required.';
+    if (!username.trim()) newErrors.username = 'Email is required.';
     if (!password) newErrors.password = 'Password is required.';
-    else if (password.length < 8) newErrors.password = 'Password must be at least 8 characters.';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -39,9 +65,7 @@ const LoginPage = () => {
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
-        // Clear any previous errors
         setErrors({});
-        // Redirect to config_list
         navigate('/config_list', { replace: true });
       } else {
         setErrors({ form: 'Login failed: No authentication token received.' });
@@ -49,7 +73,7 @@ const LoginPage = () => {
     } catch (error) {
       console.error('Login error:', error);
       if (error.response) {
-        setErrors({ form: error.response.data.error || 'Invalid username or password' });
+        setErrors({ form: error.response.data.error || 'Invalid credentials' });
       } else if (error.request) {
         setErrors({ form: 'No response from server. Please check your connection.' });
       } else {
@@ -60,184 +84,187 @@ const LoginPage = () => {
     }
   };
 
-  const getPasswordStrength = (password) => {
-    if (password.length >= 12 && /[A-Z].*[0-9]/.test(password)) return 'strong';
-    if (password.length >= 8) return 'medium';
-    return 'weak';
-  };
-
   const LoadingSpinner = () => (
-    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-current border-r-transparent align-[-0.125em]"></div>
+    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-gray-900 border-r-transparent align-[-0.125em] mr-2"></div>
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white flex items-center justify-center px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md">
-        <div className="bg-gray-800/50 backdrop-blur-lg rounded-2xl shadow-xl border border-gray-700/50 p-8 sm:p-10 transition-all duration-300">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-500">
-              Welcome Back
-            </h1>
-            <p className="mt-2 text-gray-400">Sign in to access your account</p>
-          </div>
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 relative overflow-x-hidden flex flex-col">
+      
+      {/* Navbar */}
+      <Navbar/>
 
+      {/* Main Content */}
+      {/* Increased the gap from gap-32 to gap-40 and xl:gap-52 to push text further right */}
+      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center max-w-[1440px] mx-auto w-full px-6 lg:px-8 gap-12 lg:gap-40 xl:gap-52 z-10 pt-6 pb-16 lg:pb-20">
+        
+        {/* Left Form Card (Order 2 on mobile, Order 1 on desktop) */}
+        <div className="order-2 lg:order-1 w-full max-w-[420px] bg-white rounded-[2rem] shadow-sm p-8 lg:p-10 flex flex-col z-20">
+          
           {errors.form && (
-            <div className="mb-6 p-3 bg-red-900/50 border border-red-700 rounded-lg text-sm transition-opacity duration-200">
+            <div className="mb-6 p-3 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm text-center">
               {errors.form}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">
-                Username
+              <label htmlFor="username" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                ITSC Email
               </label>
-              <div className={`relative transition-all duration-200 ${isFocused.username ? 'ring-2 ring-indigo-500/50' : ''} rounded-lg`}>
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FaUser className="text-gray-500" />
-                </div>
-                <input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  onFocus={() => setIsFocused({...isFocused, username: true})}
-                  onBlur={() => setIsFocused({...isFocused, username: false})}
-                  className={`w-full pl-10 pr-4 py-3 text-white bg-gray-700/70 border ${
-                    errors.username ? 'border-red-500' : 'border-gray-600/50'
-                  } rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500`}
-                  placeholder="Enter your username"
-                />
-              </div>
-              {errors.username && (
-                <p className="mt-1 text-sm text-red-400 transition-all duration-200">
-                  {errors.username}
-                </p>
-              )}
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={`w-full px-4 py-3 bg-white border ${
+                  errors.username ? 'border-red-500' : 'border-gray-200'
+                } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all`}
+                placeholder="account@ust.hk"
+              />
+              {errors.username && <p className="mt-1 text-xs text-red-500">{errors.username}</p>}
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="password" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                 Password
               </label>
-              <div className={`relative transition-all duration-200 ${isFocused.password ? 'ring-2 ring-indigo-500/50' : ''} rounded-lg`}>
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FaLock className="text-gray-500" />
-                </div>
+              <div className="relative">
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => setIsFocused({...isFocused, password: true})}
-                  onBlur={() => setIsFocused({...isFocused, password: false})}
-                  className={`w-full pl-10 pr-12 py-3 text-white bg-gray-700/70 border ${
-                    errors.password ? 'border-red-500' : 'border-gray-600/50'
-                  } rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500`}
-                  placeholder="Enter your password"
+                  className={`w-full px-4 py-3 bg-white border ${
+                    errors.password ? 'border-red-500' : 'border-gray-200'
+                  } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all`}
+                  placeholder="•••••••••••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-indigo-400 transition-colors"
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? <FaEyeSlash /> : <FaEye />}
+                  {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
                 </button>
               </div>
-              {password && (
-                <div className="mt-2">
-                  <div className="flex gap-1 h-1.5 mb-1">
-                    {[...Array(3)].map((_, i) => (
-                      <div 
-                        key={i}
-                        className={`flex-1 rounded-full ${
-                          getPasswordStrength(password) === 'strong' && i <= 2 ? 'bg-green-500' :
-                          getPasswordStrength(password) === 'medium' && i <= 1 ? 'bg-yellow-500' :
-                          getPasswordStrength(password) === 'weak' && i === 0 ? 'bg-red-500' : 'bg-gray-600'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    Password strength: <span className={
-                      getPasswordStrength(password) === 'strong' ? 'text-green-400' :
-                      getPasswordStrength(password) === 'medium' ? 'text-yellow-400' : 'text-red-400'
-                    }>
-                      {getPasswordStrength(password)}
-                    </span>
-                  </p>
-                </div>
-              )}
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-400 transition-all duration-200">
-                  {errors.password}
-                </p>
-              )}
+              {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
             </div>
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <div className={`relative w-5 h-5 rounded border ${rememberMe ? 'bg-indigo-500 border-indigo-500' : 'border-gray-500'} transition-colors duration-200`}>
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="absolute opacity-0 cursor-pointer w-full h-full"
-                  />
-                  {rememberMe && (
-                    <FaCheckCircle className="absolute inset-0 text-white text-xs transition-opacity duration-200" />
-                  )}
-                </div>
-                <span className="text-sm text-gray-300">Remember me</span>
-              </label>
-              <Link 
-                to="/forgot-password" 
-                className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors duration-200"
-              >
-                Forgot password?
+            <div className="pt-1">
+              <Link to="/forgot-password" className="text-[13px] text-[#222] hover:text-blue-600 font-semibold transition-colors">
+                Forgot Password?
               </Link>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full py-3 px-6 rounded-lg font-medium flex items-center justify-center space-x-2 transition-all duration-200 ${
-                isLoading ? 'bg-indigo-700' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'
-              } active:scale-[0.98]`}
+              className="w-full py-3 px-4 rounded-xl font-bold text-gray-900 flex items-center justify-center transition-all bg-[#F9D0C4] hover:bg-[#F4BFB0] active:scale-[0.98] mt-2"
             >
               {isLoading ? (
-                <>
-                  <LoadingSpinner />
-                  <span>Signing in...</span>
-                </>
+                <><LoadingSpinner /> Logging in...</>
               ) : (
-                <>
-                  <span>Sign In</span>
-                  <FaArrowRight className="text-sm" />
-                </>
+                'Login'
               )}
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-400">
-            Don't have an account?{' '}
-            <Link 
-              to="/register" 
-              className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors duration-200"
-            >
-              Create one
+          <div className="mt-6 text-[13px] text-gray-600">
+            <span className="font-medium text-gray-800">New User?</span>{' '}
+            <Link to="/register" className="text-blue-500 hover:text-blue-600 font-semibold transition-colors">
+              Link your ITSC Account
             </Link>
+          </div>
+
+          <div className="mt-10 text-center text-[11px] text-gray-400 leading-relaxed">
+            <p>Our website uses cookies to distinguish you from other</p>
+            <p>users of our website.</p>
+            <p className="mt-2">
+              Our <Link to="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
+            </p>
           </div>
         </div>
 
-        <div className="mt-8 text-center text-xs text-gray-500">
-          <p>© {new Date().getFullYear()} All rights reserved.</p>
+        {/* Right Hero Section */}
+        {/* Increased height to h-[600px] to make room for text at the top and shapes at the bottom */}
+        <div className="order-1 lg:order-2 flex-1 relative w-full lg:h-[600px] flex flex-col items-center lg:items-start text-center lg:text-left">
+          
+          {/* Slider Container - Added z-30 to ensure it stays strictly above shapes */}
+          <div className="relative z-30 w-full h-[140px] sm:h-[160px] lg:h-[250px] mt-4 lg:mt-12 lg:pl-4">
+            {slides.map((slide, index) => (
+              <div 
+                key={index}
+                className={`absolute top-0 left-0 w-full transition-all duration-700 ease-in-out ${
+                  index === currentSlide ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'
+                }`}
+              >
+                <h1 className="text-4xl sm:text-5xl lg:text-[3.5rem] xl:text-[4.2rem] font-medium tracking-tight leading-[1.15] text-[#222]">
+                  {slide.line1} <br />
+                  {slide.line2} <br className="hidden lg:block" />
+                  <span className="text-gray-900 lg:mt-2 inline-block">
+                    {slide.prefix}
+                    <span className="relative inline-block">
+                      {slide.highlight}
+                      
+                      {/* Dynamic, non-scaling SVG underline */}
+                      <svg 
+                        className="absolute w-full h-3 lg:h-4 -bottom-1 lg:-bottom-1 left-0 text-[#FA6C43]" 
+                        viewBox="0 0 200 20" 
+                        fill="none" 
+                        xmlns="http://www.w3.org/2000/svg"
+                        preserveAspectRatio="none"
+                      >
+                        <path 
+                          d="M2 15.5C45.5 5.5 120 -2 198 12" 
+                          stroke="currentColor" 
+                          strokeWidth="4" 
+                          strokeLinecap="round" 
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      </svg>
+                    </span>
+                  </span>
+                </h1>
+              </div>
+            ))}
+          </div>
+
+          {/* Carousel Indicators (Dots) */}
+          <div className="flex space-x-2 mt-6 lg:absolute lg:top-[340px] lg:left-4 z-30">
+            {slides.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlide(index)}
+                className={`w-2 h-2 lg:w-2.5 lg:h-2.5 rounded-full transition-all duration-300 ${
+                  index === currentSlide ? 'bg-[#FA6C43] w-5 lg:w-6' : 'bg-gray-300 hover:bg-gray-400'
+                }`}
+                aria-label={`Go to slide ${index + 1}`}
+              />
+            ))}
+          </div>
+
+          {/* CSS-based floating shapes - Pushed further down via top-[Xpx] */}
+          <div className="hidden lg:block absolute inset-0 pointer-events-none overflow-visible z-10">
+            
+            {/* Tablet Shape */}
+            <div className="absolute top-[340px] right-[30%] w-36 h-24 bg-[#F9D0C4] border-4 border-[#FA6C43] rounded-sm transform -rotate-12 shadow-lg z-0 transition-transform hover:scale-105 duration-500">
+               <div className="absolute inset-1 border-2 border-[#FA6C43]/30 rounded-sm"></div>
+            </div>
+            
+            {/* Laptop Shape */}
+            <div className="absolute top-[440px] right-[5%] w-48 h-[100px] bg-[#8FCBEA] border-2 border-[#1E88E5] rounded-t-lg transform rotate-6 z-10 shadow-md transition-transform hover:scale-105 duration-500">
+                <div className="absolute inset-2 border-2 border-[#1E88E5]/20 rounded-sm"></div>
+                <div className="absolute -bottom-[14px] -left-[20px] w-[230px] h-4 bg-[#8FCBEA] border-2 border-[#1E88E5] transform skew-x-[45deg] rounded-b-md shadow-lg"></div>
+                <div className="absolute -bottom-[10px] left-[70px] w-12 h-1 bg-[#1E88E5]/30 transform skew-x-[45deg] rounded-full"></div>
+            </div>
+          </div>
+
         </div>
+
       </div>
     </div>
   );
 };
 
 export default LoginPage;
-
-

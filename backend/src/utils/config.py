@@ -14,6 +14,8 @@ def load_secrets():
     try:
         required_secret_keys = [
         "OPENAI_API_KEY",
+        "OPENAI_API_KEY_2",
+        "GEMINI_API_KEY",
         "QWEN_API_KEY",
         "DEEPSEEK_API_KEY",
         "MONGO_DB_NAME",

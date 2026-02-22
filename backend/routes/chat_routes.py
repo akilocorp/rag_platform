@@ -4,6 +4,7 @@ import logging
 import json
 import time
 import requests
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
@@ -335,16 +336,36 @@ def chat(config_id, chat_id):
             # -- DYNAMIC MODEL SELECTION --
             model_name = config_doc.get("model_name", "gpt-4o")
             temperature = config_doc.get("temperature", 0.7)
+            primary_openai_key = current_app.config.get("OPENAI_API_KEY")
+            fallback_openai_key = current_app.config.get("OPENAI_API_KEY_2")
 
             if model_name == "gpt-5-nano":
-                # CASE 1: GPT-5-Nano (gpt-4o w/o temperature)
-                llm = ChatOpenAI(
-                    model="gpt-4o", 
-                    api_key=current_app.config.get("OPENAI_API_KEY"),
-                    max_tokens=500,
+                    # CASE 1: GPT-5-Nano (gpt-4o w/o temperature)
+                    primary_llm = ChatOpenAI(
+                        model="gpt-5-nano", 
+                        api_key=primary_openai_key,
+                        max_tokens=500,
+                        streaming=True
+                    )
+                    if fallback_openai_key:
+                        fallback_llm = ChatOpenAI(
+                            model="gpt-5-nano", 
+                            api_key=fallback_openai_key,
+                            max_tokens=500,
+                            streaming=True
+                        )
+                        llm = primary_llm.with_fallbacks([fallback_llm])
+                    else:
+                        llm = primary_llm
+
+            elif model_name.lower().startswith("gemini"):
+                # CASE 2: Gemini Models (e.g., gemini-2.5-flash, gemini-2.5-pro)
+                llm = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    temperature=temperature,
+                    google_api_key=current_app.config.get("GEMINI_API_KEY"),
                     streaming=True
                 )
-
             elif model_name.lower().startswith("qwen"):
                 # CASE 2: Qwen models (Use ChatTongyi)
                 llm = ChatTongyi(
@@ -365,13 +386,24 @@ def chat(config_id, chat_id):
 
             else:
                 # CASE 4: Standard OpenAI
-                llm = ChatOpenAI(
+                primary_llm = ChatOpenAI(
                     model=model_name,
                     temperature=temperature,
-                    api_key=current_app.config.get("OPENAI_API_KEY"),
+                    api_key=primary_openai_key,
                     max_tokens=500,
                     streaming=True
                 )
+                if fallback_openai_key:
+                    fallback_llm = ChatOpenAI(
+                        model=model_name,
+                        temperature=temperature,
+                        api_key=fallback_openai_key,
+                        max_tokens=500,
+                        streaming=True
+                    )
+                    llm = primary_llm.with_fallbacks([fallback_llm])
+                else:
+                    llm = primary_llm
 
             # -- STEP C: STREAMING INFERENCE --
             chain = prompt | llm | StrOutputParser()
