@@ -91,12 +91,11 @@ const RegistrationPage = () => {
   };
 
   const getPasswordStrength = (password) => {
-    if (password.length >= 12 && /[A-Z]/.test(password) && /[0-9]/.test(password) && /[@$!%*?&]/.test(password)) {
-      return 'strong';
-    }
-    if (password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password)) {
-      return 'medium';
-    }
+    const hasLetter = /[a-zA-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSymbol = /[^a-zA-Z0-9]/.test(password);
+    if (hasLetter && hasNumber && hasSymbol) return 'strong';
+    if (hasLetter && hasNumber) return 'medium';
     return 'weak';
   };
 
@@ -178,23 +177,23 @@ const RegistrationPage = () => {
                   <label htmlFor="password" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Password
                   </label>
-                  <div className="relative">
+                  <div className={`relative overflow-hidden rounded-xl border ${
+                    errors.password ? 'border-red-500' : 'border-gray-200'
+                  } focus-within:ring-2 focus-within:ring-inset focus-within:ring-[#F9D0C4] focus-within:border-[#FA6C43] focus-within:outline-none`}>
                     <input
                       id="password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className={`w-full px-4 py-3 bg-white border ${
-                        errors.password ? 'border-red-500' : 'border-gray-200'
-                      } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
+                      className="w-full pl-4 pr-[3.75rem] py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                       placeholder="Create a strong password"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
+                      className="absolute right-0 top-0 bottom-0 w-[3.75rem] flex items-center justify-center text-gray-400 hover:text-gray-600 shrink-0"
                     >
-                      {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                      {showPassword ? <FaEyeSlash size={58} /> : <FaEye size={58} />}
                     </button>
                   </div>
                   

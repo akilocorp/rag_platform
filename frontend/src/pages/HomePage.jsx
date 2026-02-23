@@ -29,14 +29,18 @@ const HomePage = () => {
           <Link to="/register" className="py-4 px-8 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all active:scale-[0.98] shadow-sm text-lg">
             Get Started
           </Link>
-          <Link to="/about_us" className="py-4 px-8 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all active:scale-[0.98] text-lg">
+          <button
+            type="button"
+            onClick={() => document.getElementById('how-actr-works')?.scrollIntoView({ behavior: 'smooth' })}
+            className="py-4 px-8 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all active:scale-[0.98] text-lg"
+          >
             Learn More
-          </Link>
+          </button>
         </div>
       </div>
 
       {/* Core Features Grid */}
-      <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-8 py-16 z-10">
+      <div id="how-actr-works" className="w-full max-w-[1440px] mx-auto px-6 lg:px-8 py-16 z-10">
         <div className="text-center mb-12">
           <h2 className="text-3xl lg:text-4xl font-bold text-[#222] tracking-tight">How Actr Works</h2>
         </div>
