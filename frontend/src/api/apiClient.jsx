@@ -38,6 +38,13 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // Skip 401 handling for login/register - let the component show the error
+    const url = originalRequest?.url || '';
+    const isAuthRequest = url.includes('auth/login') || url.includes('auth/register');
+    if (isAuthRequest) {
+      return Promise.reject(error);
+    }
+
     // Check if the error is a 401 (Unauthorized) and we haven't already retried
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true; // Mark this request as retried

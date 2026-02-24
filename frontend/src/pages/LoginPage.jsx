@@ -31,6 +31,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -47,13 +48,20 @@ const LoginPage = () => {
     const newErrors = {};
     if (!username.trim()) newErrors.username = 'Email is required.';
     if (!password) newErrors.password = 'Password is required.';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return false;
+    }
+    return true;
+  };
+
+
+  const isFormValid = () => {
+    return !!username.trim() && !!password;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setErrors({});
 
     if (!validate()) return;
 
@@ -66,18 +74,19 @@ const LoginPage = () => {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
         setErrors({});
+        setFormError(null);
         navigate('/config_list', { replace: true });
       } else {
-        setErrors({ form: 'Login failed: No authentication token received.' });
+        setFormError('Login failed: No authentication token received.');
       }
     } catch (error) {
       console.error('Login error:', error);
       if (error.response) {
-        setErrors({ form: error.response.data.error || 'Invalid credentials' });
+        setFormError(error.response.data.error || 'Invalid credentials');
       } else if (error.request) {
-        setErrors({ form: 'No response from server. Please check your connection.' });
+        setFormError('No response from server. Please check your connection.');
       } else {
-        setErrors({ form: 'An unexpected error occurred.' });
+        setFormError('An unexpected error occurred.');
       }
     } finally {
       setIsLoading(false);
@@ -101,9 +110,9 @@ const LoginPage = () => {
         {/* Left Form Card (Order 2 on mobile, Order 1 on desktop) */}
         <div className="order-2 lg:order-1 w-full max-w-[420px] bg-white rounded-[2rem] shadow-sm p-8 lg:p-10 flex flex-col z-20">
           
-          {errors.form && (
+          {formError && (
             <div className="mb-6 p-3 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm text-center">
-              {errors.form}
+              {formError}
             </div>
           )}
 
@@ -129,23 +138,23 @@ const LoginPage = () => {
               <label htmlFor="password" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                 Password
               </label>
-              <div className="relative">
+              <div className={`relative overflow-hidden rounded-xl border ${
+                errors.password ? 'border-red-500' : 'border-gray-200'
+              } focus-within:ring-2 focus-within:ring-inset focus-within:ring-[#F9D0C4] focus-within:border-[#FA6C43] focus-within:outline-none`}>
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full px-4 py-3 bg-white border ${
-                    errors.password ? 'border-red-500' : 'border-gray-200'
-                  } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all`}
+                  className="w-full pl-4 pr-[3.75rem] py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                   placeholder="•••••••••••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
+                  className="absolute right-0 top-0 bottom-0 w-[3.75rem] flex items-center justify-center text-gray-400 hover:text-gray-600 shrink-0"
                 >
-                  {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                  {showPassword ? <FaEyeSlash size={58} /> : <FaEye size={58} />}
                 </button>
               </div>
               {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
@@ -160,7 +169,11 @@ const LoginPage = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl font-bold text-gray-900 flex items-center justify-center transition-all bg-[#F9D0C4] hover:bg-[#F4BFB0] active:scale-[0.98] mt-2"
+              className={`w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-[0.98] mt-2 ${
+                isFormValid()
+                  ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white'
+                  : 'bg-[#F9D0C4] hover:bg-[#F4BFB0] text-gray-900'
+              }`}
             >
               {isLoading ? (
                 <><LoadingSpinner /> Logging in...</>
@@ -195,7 +208,7 @@ const LoginPage = () => {
             {slides.map((slide, index) => (
               <div 
                 key={index}
-                className={`absolute top-0 left-0 w-full transition-all duration-700 ease-in-out ${
+                className={`absolute top-0 left-0 w-full transition-[opacity_0.3s_ease-out,transform_1s_ease-in-out] ${
                   index === currentSlide ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'
                 }`}
               >
@@ -209,7 +222,7 @@ const LoginPage = () => {
                       
                       {/* Dynamic, non-scaling SVG underline */}
                       <svg 
-                        className="absolute w-full h-3 lg:h-4 -bottom-1 lg:-bottom-1 left-0 text-[#FA6C43]" 
+                        className="absolute w-full h-3 lg:h-4 -bottom-[14px] lg:-bottom-[14px] left-0 text-[#FA6C43]" 
                         viewBox="0 0 200 20" 
                         fill="none" 
                         xmlns="http://www.w3.org/2000/svg"

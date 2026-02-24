@@ -51,14 +51,19 @@ const RegistrationPage = () => {
     
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(email.trim())) {
       newErrors.email = 'Please enter a valid email address.';
     }
 
-    // Password validation
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    // Username validation
+    if (!username.trim()) {
+      newErrors.username = 'Username is required.';
+    }
+
+    // Password validation: 8+ chars, letter, number, at least one special character
+    const passwordRegex = /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
     if (!passwordRegex.test(password)) {
-      newErrors.password = 'Password must be at least 8 characters with uppercase, lowercase, number, and special character.';
+      newErrors.password = 'Password must be at least 8 characters with letter, number, and special character.';
     }
 
     setErrors(newErrors);
@@ -97,6 +102,15 @@ const RegistrationPage = () => {
     if (hasLetter && hasNumber && hasSymbol) return 'strong';
     if (hasLetter && hasNumber) return 'medium';
     return 'weak';
+  };
+
+  const isFormValid = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) return false;
+    if (!username.trim()) return false;
+    const passwordRegex = /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+    if (!passwordRegex.test(password)) return false;
+    return true;
   };
 
   const LoadingSpinner = () => (
@@ -229,7 +243,11 @@ const RegistrationPage = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3.5 px-4 rounded-xl font-bold text-gray-900 flex items-center justify-center transition-all bg-[#F9D0C4] hover:bg-[#F4BFB0] active:scale-[0.98] mt-4"
+                  className={`w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-[0.98] mt-4 ${
+                    isFormValid()
+                      ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white'
+                      : 'bg-[#F9D0C4] hover:bg-[#F4BFB0] text-gray-900'
+                  }`}
                 >
                   {isLoading ? (
                     <><LoadingSpinner /> Creating account...</>
@@ -264,7 +282,7 @@ const RegistrationPage = () => {
             {slides.map((slide, index) => (
               <div 
                 key={index}
-                className={`absolute top-0 left-0 w-full transition-all duration-700 ease-in-out ${
+                className={`absolute top-0 left-0 w-full transition-[opacity_0.3s_ease-out,transform_1s_ease-in-out] ${
                   index === currentSlide ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none'
                 }`}
               >
@@ -278,7 +296,7 @@ const RegistrationPage = () => {
                       
                       {/* Dynamic, non-scaling SVG underline */}
                       <svg 
-                        className="absolute w-full h-3 lg:h-4 -bottom-1 lg:-bottom-1 left-0 text-[#FA6C43]" 
+                        className="absolute w-full h-3 lg:h-4 -bottom-[14px] lg:-bottom-[14px] left-0 text-[#FA6C43]" 
                         viewBox="0 0 200 20" 
                         fill="none" 
                         xmlns="http://www.w3.org/2000/svg"

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../assets/logo.png';
-import { FaUserGraduate, FaFileAlt, FaShareAlt, FaCogs, FaCheckCircle } from 'react-icons/fa';
+import { FaUserGraduate, FaFileAlt, FaShareAlt, FaCogs, FaCheckCircle, FaInfoCircle, FaComments, FaGraduationCap, FaBook, FaLightbulb } from 'react-icons/fa';
 import Navbar from './NavBar';
 
 const HomePage = () => {
@@ -17,7 +17,7 @@ const HomePage = () => {
           Bring custom AI assistants to your <span className="relative inline-block">
             classroom
             {/* Dynamic, non-scaling SVG underline */}
-            <svg className="absolute w-full h-3 lg:h-4 -bottom-1 left-0 text-[#FA6C43]" viewBox="0 0 200 20" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+            <svg className="absolute w-full h-3 lg:h-4 -bottom-[14px] left-0 text-[#FA6C43]" viewBox="0 0 200 20" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
               <path d="M2 15.5C45.5 5.5 120 -2 198 12" stroke="currentColor" strokeWidth="4" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
             </svg>
           </span>.
@@ -92,29 +92,175 @@ const HomePage = () => {
         </div>
       </div>
 
-      
-      {/* Advantage Section */}
-      <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-8 py-16 z-10 mb-10">
-        <div className="bg-[#222] rounded-[2.5rem] p-10 lg:p-16 text-white relative overflow-hidden shadow-xl">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#FA6C43] rounded-full blur-[120px] opacity-20 pointer-events-none"></div>
-          
-          <h2 className="text-3xl lg:text-4xl font-bold mb-8 relative z-10">Why faculty choose Actr</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-            <div className="flex items-start space-x-3">
-              <FaCheckCircle className="text-[#FA6C43] text-xl mt-1 shrink-0" />
-              <p className="text-gray-300 font-medium text-lg">Model flexibility: Effortlessly switch between GPT-4, Gemini, and DeepSeek.</p>
+      {/* Plans and Pricing */}
+      <div className="relative bg-gray-100 py-16 overflow-hidden">
+        {/* Academic icons pattern - faint, semi-transparent */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.06]">
+          <FaGraduationCap className="absolute top-[10%] left-[5%] text-6xl text-gray-600" />
+          <FaBook className="absolute top-[20%] right-[15%] text-5xl text-gray-600" />
+          <FaComments className="absolute top-[60%] left-[10%] text-5xl text-gray-600" />
+          <FaLightbulb className="absolute top-[70%] right-[8%] text-6xl text-gray-600" />
+          <FaGraduationCap className="absolute top-[40%] right-[25%] text-4xl text-gray-600" />
+          <FaBook className="absolute top-[80%] left-[30%] text-4xl text-gray-600" />
+          <FaComments className="absolute top-[15%] left-[40%] text-4xl text-gray-600" />
+          <FaLightbulb className="absolute top-[50%] left-[20%] text-5xl text-gray-600" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl lg:text-4xl font-bold text-[#4338CA] tracking-tight mb-2">Pick your perfect plan</h2>
+            <p className="text-gray-500 text-lg">Define your study environment</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Free Plan */}
+            <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100 flex flex-col">
+              <h3 className="text-2xl font-bold text-[#374151] mb-1">Free</h3>
+              <p className="text-gray-500 text-sm mb-6">Individual students starting their research journey.</p>
+              <div className="text-5xl font-bold text-[#374151] mb-8">$0</div>
+              <Link
+                to="/register"
+                className="w-full py-3 px-6 rounded-xl font-semibold text-[#374151] bg-gray-200 hover:bg-gray-300 transition-all text-center mb-8"
+              >
+                Start For Free
+              </Link>
+              <div className="mt-auto">
+                <p className="text-sm font-semibold text-[#374151] mb-4">What&apos;s included</p>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">
+                      Limited to 2-hour daily usage
+                      <FaInfoCircle className="inline-block ml-1 text-gray-400 text-xs cursor-help" title="Usage resets daily" />
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Share PDFs, images, notes, and videos (up to 5 items)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">10 daily messages with top-tier models (like GPT-4o or Claude 3.5 Sonnet)</span>
+                  </li>
+                </ul>
+              </div>
             </div>
-            <div className="flex items-start space-x-3">
-              <FaCheckCircle className="text-[#FA6C43] text-xl mt-1 shrink-0" />
-              <p className="text-gray-300 font-medium text-lg">Contextual accuracy: AI grounded strictly in your uploaded course files.</p>
+
+            {/* Regular Plan - Popular */}
+            <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100 flex flex-col">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-2xl font-bold text-[#374151]">Regular</h3>
+                <span className="px-3 py-0.5 rounded-full bg-amber-400 text-white text-xs font-semibold">Popular</span>
+              </div>
+              <p className="text-gray-500 text-sm mb-6">Audience Descriptor</p>
+              <div className="text-5xl font-bold text-[#374151] mb-8">$3</div>
+              <Link
+                to="/register"
+                className="w-full py-3 px-6 rounded-xl font-semibold text-white bg-[#7C3AED] hover:bg-[#6D28D9] transition-all text-center mb-8"
+              >
+                Start your 7-day trial
+              </Link>
+              <div className="mt-auto">
+                <p className="text-sm font-semibold text-[#374151] mb-4">All Free features, plus</p>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">No daily time limit</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">No file upload limit</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Lorem ipsum dolor sit amet</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">consectetur adipiscing elit. Etiam porttitor id leo sit amet elementum</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Phasellus et fringilla lectus. Duis eget elementum nisl</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Nullam pharetra risus varius, accumsan ligula eu, malesuada felis</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Praesent a tincidunt est. Mauris sed</span>
+                  </li>
+                </ul>
+              </div>
             </div>
-            <div className="flex items-start space-x-3">
-              <FaCheckCircle className="text-[#FA6C43] text-xl mt-1 shrink-0" />
-              <p className="text-gray-300 font-medium text-lg">Admin visibility: Access structured chat logs to see where students need help.</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <FaCheckCircle className="text-[#FA6C43] text-xl mt-1 shrink-0" />
-              <p className="text-gray-300 font-medium text-lg">Seamless integrations: Connects directly with Qualtrics for academic research.</p>
+
+            {/* Pro Plan */}
+            <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100 flex flex-col">
+              <div className="flex justify-center mb-4">
+                <FaComments className="text-6xl text-[#374151]" />
+              </div>
+              <h3 className="text-2xl font-bold text-[#374151] mb-1">Pro</h3>
+              <p className="text-gray-500 text-sm mb-6">Audience Descriptor</p>
+              <a
+                href="#"
+                className="w-full py-3 px-6 rounded-xl font-semibold text-[#374151] bg-gray-200 hover:bg-gray-300 transition-all text-center mb-8 block"
+              >
+                Contact Sales
+              </a>
+              <div className="mt-auto">
+                <p className="text-sm font-semibold text-[#374151] mb-4">All Regular features, plus</p>
+                <ul className="space-y-3">
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">No daily time limit</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">No file upload limit</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Lorem ipsum dolor sit amet</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">consectetur adipiscing elit. Etiam porttitor id leo sit amet elementum</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Phasellus et fringilla lectus. Duis eget elementum nisl</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Nullam pharetra risus varius, accumsan ligula eu, malesuada felis</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Eleifend aliquet magna</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Praesent a tincidunt est. Mauris sed</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Quisque aliquam dolor sed scelerisque dictum</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Aliquam iaculis neque felis</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">vitae pretium velit mollis id</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <FaCheckCircle className="text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-gray-600 text-sm">Proin tempus ornare elit</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
