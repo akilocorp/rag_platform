@@ -128,7 +128,7 @@ def get_heygen_avatars():
             )
         ]
         
-        # If the strict list is empty, let's return the basic Lite ones so the UI isn't empty
+        # If the swtrict list is empty, let's return the basic Lite ones so the UI isn't empty
        
             
         return jsonify({"avatars": interactive_avatars})
