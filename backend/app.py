@@ -42,6 +42,7 @@ def create_app():
     app.config['MAIL_PORT'] = int(app.config.get('MAIL_PORT', 587))
     app.config['MAIL_USE_TLS'] = str(app.config.get('MAIL_USE_TLS', 'true')).lower() in ['true', '1', 't']
     app.config['MAIL_USE_SSL'] = False  # Explicitly disable SSL if using TLS
+    app.config['MAIL_DEFAULT_CHARSET'] = 'utf-8'
     
     # JWT Config
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)

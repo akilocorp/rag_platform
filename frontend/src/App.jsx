@@ -11,6 +11,8 @@ import ConfigPage from './pages/ConfigPage';
 import ChatPage from './pages/ChatPage';
 import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 
 // Import the ProtectedRoute component
@@ -35,6 +37,8 @@ function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           {/* Chat Routes (Handled by PublicChatRoute to determine if auth is needed) */}
           <Route element={<PublicChatRoute />}>

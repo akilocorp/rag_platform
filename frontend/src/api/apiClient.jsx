@@ -38,9 +38,9 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Skip 401 handling for login/register - let the component show the error
+    // Skip 401 handling for auth endpoints - let the component show the error
     const url = originalRequest?.url || '';
-    const isAuthRequest = url.includes('auth/login') || url.includes('auth/register');
+    const isAuthRequest = url.includes('auth/login') || url.includes('auth/register') || url.includes('auth/forgot-password') || url.includes('auth/reset-password');
     if (isAuthRequest) {
       return Promise.reject(error);
     }

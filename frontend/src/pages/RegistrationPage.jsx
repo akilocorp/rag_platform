@@ -84,7 +84,9 @@ const RegistrationPage = () => {
     } catch (error) {
       console.error('Registration error:', error);
       if (error.response) {
-        setErrors({ form: error.response.data.error || 'Registration failed. Please try again.' });
+        const msg = error.response.data.error || 'Registration failed. Please try again.';
+        const detail = error.response.data.detail;
+        setErrors({ form: detail ? `${msg} (${detail})` : msg });
       } else if (error.request) {
         setErrors({ form: 'No response from server. Please check your connection.' });
       } else {
@@ -152,7 +154,7 @@ const RegistrationPage = () => {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
                 <div>
                   <label htmlFor="email" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Email Address
@@ -162,6 +164,7 @@ const RegistrationPage = () => {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="off"
                     className={`w-full px-4 py-3 bg-white border ${
                       errors.email ? 'border-red-500' : 'border-gray-200'
                     } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
@@ -179,6 +182,7 @@ const RegistrationPage = () => {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="off"
                     className={`w-full px-4 py-3 bg-white border ${
                       errors.username ? 'border-red-500' : 'border-gray-200'
                     } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
@@ -199,6 +203,7 @@ const RegistrationPage = () => {
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="new-password"
                       className="w-full pl-4 pr-[3.75rem] py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                       placeholder="Create a strong password"
                     />

@@ -23,8 +23,8 @@ const Navbar = () => {
           to="/home" 
           className={`text-sm lg:text-base transition-colors hidden sm:block ${
             isActive('/home') 
-              ? 'text-[#FA6C43] font-bold' 
-              : 'text-gray-700 font-medium hover:text-black'
+              ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]' 
+              : 'text-gray-700 font-medium hover:text-[#F8CABA]'
           }`}
         >
           Home
@@ -34,8 +34,8 @@ const Navbar = () => {
           to="/about" 
           className={`text-sm lg:text-base transition-colors hidden sm:block ${
             isActive('/about') 
-              ? 'text-[#FA6C43] font-bold' 
-              : 'text-gray-700 font-medium hover:text-black'
+              ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]' 
+              : 'text-gray-700 font-medium hover:text-[#8DCBED]'
           }`}
         >
           About Us

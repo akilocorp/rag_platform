@@ -33,7 +33,8 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
-  
+  const [allowInput, setAllowInput] = useState(false); // Prevent autofill: readonly until first focus
+
   const [currentSlide, setCurrentSlide] = useState(0);
   const navigate = useNavigate();
 
@@ -116,16 +117,19 @@ const LoginPage = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
             <div>
               <label htmlFor="username" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
-                ITSC Email
+                ITSC Email/Username
               </label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onFocus={() => setAllowInput(true)}
+                readOnly={!allowInput}
+                autoComplete="off"
                 className={`w-full px-4 py-3 bg-white border ${
                   errors.username ? 'border-red-500' : 'border-gray-200'
                 } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all`}
@@ -146,6 +150,9 @@ const LoginPage = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setAllowInput(true)}
+                  readOnly={!allowInput}
+                  autoComplete="new-password"
                   className="w-full pl-4 pr-[3.75rem] py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                   placeholder="•••••••••••••••••"
                 />

@@ -70,6 +70,18 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.1);
 }
 
+/* Override browser autofill - keep white background and visible text (same as manual input) */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  box-shadow: 0 0 0 30px white inset !important;
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #111827;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* Loading spinner */
 .loading-spinner {
   border: 3px solid #f3f3f3;
