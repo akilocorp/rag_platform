@@ -69,7 +69,7 @@ export const ChatSidebar = ({
     try {
       const response = await apiClient.get(`/history/${sessionId}`);
       const chatHistory = response.data.history;
-      //changes
+      //changess
       let textContent = `Chat History: ${title || 'New Chat'}\n`;
       textContent += `Downloaded on: ${new Date().toLocaleString()}\n`;
       textContent += '='.repeat(50) + '\n\n';
