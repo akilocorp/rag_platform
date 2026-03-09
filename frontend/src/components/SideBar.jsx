@@ -128,7 +128,7 @@ export const ChatSidebar = ({
     } left-0 top-0 pt-6 pr-2 pl-2`}>
       {/* Mobile close button */}
       <button 
-        className="absolute right-10 top-0 -mr-10 mt-4 p-2 rounded-full bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors md:hidden"
+        className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors md:hidden"
         onClick={onClose}
       >
         <FiChevronLeft className="w-5 h-5" />
@@ -136,7 +136,7 @@ export const ChatSidebar = ({
       
       {/* Desktop toggle button */}
       <button 
-        className="absolute right-10 top-0 -mr-10 mt-4 p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block"
+        className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block"
         onClick={onToggle}
       >
         {isCollapsed ? (
@@ -312,7 +312,7 @@ export const ChatSidebar = ({
                 {!isCollapsed && (
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center space-x-3 px-2 py-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors"
+                    className="w-full flex items-center space-x-3 px-2 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors border-0"
                   >
                     <FiLogOut className="text-sm" />
                     <span className="text-sm">Logout</span>

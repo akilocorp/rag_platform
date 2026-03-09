@@ -59,13 +59,13 @@ const UserInfo = () => {
       </div>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full mt-2 w-48 backdrop-blur-sm bg-gray-900/50 rounded-lg shadow-lg py-2 z-50 max-h-screen overflow-y-auto">
+        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
           <button
             onClick={(e) => {
               e.stopPropagation();
               handleLogout();
             }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-gray-400 flex items-center gap-2 hover:bg-gray-700/20 hover:text-white hover:outline-none hover:ring-0"
+            className="block w-full px-3 py-1.5 text-left text-xs text-gray-900 bg-white flex items-center gap-2 hover:bg-gray-50 hover:outline-none hover:ring-0 rounded-md border-0"
           >
             <FaSignOutAlt className="w-4 h-4" />
             Logout

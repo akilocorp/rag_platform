@@ -35,7 +35,7 @@ const Navbar = () => {
           className={`text-sm lg:text-base transition-colors hidden sm:block ${
             isActive('/about') 
               ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]' 
-              : 'text-gray-700 font-medium hover:text-[#8DCBED]'
+              : 'text-gray-700 font-medium hover:text-[#F8CABA]'
           }`}
         >
           About Us
@@ -45,14 +45,14 @@ const Navbar = () => {
         {isActive('/login') ? (
           <Link 
             to="/register" 
-            className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:bg-[#E55B34] transition-colors shadow-sm"
+            className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:text-[#F8CABA] transition-colors shadow-sm"
           >
             Register
           </Link>
         ) : (
           <Link 
             to="/login" 
-            className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:bg-[#E55B34] transition-colors shadow-sm"
+            className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:text-[#F8CABA] transition-colors shadow-sm"
           >
             Login
           </Link>

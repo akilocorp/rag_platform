@@ -29,7 +29,7 @@ const AboutPage = () => {
                 <h4 className="text-xl font-bold text-gray-900">T. Bradford Bitterly</h4>
               </div>
               <p className="text-gray-600 font-medium leading-relaxed">
-                He is an Assistant Professor in the Department of Management at the HKUST Business School, Hong Kong University of Science and Technology, focusing on negotiation, power, trust, and communication. He earned his Ph.D. in Operations, Information and Decisions from The Wharton School, University of Pennsylvania and a B.A. in Psychology from the University of Notre Dame.
+                An Assistant Professor in the Department of Management at the HKUST Business School, Hong Kong University of Science and Technology, focusing on negotiation, power, trust, and communication. He earned his Ph.D. in Operations, Information and Decisions from The Wharton School, University of Pennsylvania and a B.A. in Psychology from the University of Notre Dame.
               </p>
             </div>
             <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
@@ -38,7 +38,7 @@ const AboutPage = () => {
                 <h4 className="text-xl font-bold text-gray-900">Stephen W. Nason</h4>
               </div>
               <p className="text-gray-600 font-medium leading-relaxed">
-                Prof. Nason has taught at The Hong Kong University of Science and Technology since 1995. He is a faculty member in the Department of Management and the Co-director of LABU (Language-Business Case Program). Prof. Nason has worked with a variety of organizations, including Samsung Electronics, Cisco, Motorola, and the Health Care forum.
+                Taught at The Hong Kong University of Science and Technology since 1995. He is a faculty member in the Department of Management and the Co-director of LABU (Language-Business Case Program). Prof. Nason has worked with a variety of organizations, including Samsung Electronics, Cisco, Motorola, and the Health Care forum.
               </p>
             </div>
           </div>
@@ -53,7 +53,7 @@ const AboutPage = () => {
                 <h4 className="text-xl font-bold text-gray-900">Monica Xinjie Huang</h4>
               </div>
               <p className="text-gray-600 font-medium leading-relaxed text-sm">
-                Monica Xinjie Huang is a Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST), Hong Kong SAR, China. Her work focuses on how AI influences psychological interpersonal perceptions in organizations. Her research interests include AI adoption, trust, and status.
+                A Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST), Hong Kong SAR, China. Her work focuses on how AI influences psychological interpersonal perceptions in organizations. Her research interests include AI adoption, trust, and status.
               </p>
             </div>
             <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
@@ -62,7 +62,7 @@ const AboutPage = () => {
                 <h4 className="text-xl font-bold text-gray-900">Yonathan Aklilu Kidanemariam</h4>
               </div>
               <p className="text-gray-600 font-medium leading-relaxed text-sm">
-                Yonathan Aklilu Kidanemariam is a second year GBUS student at HKUST. He is a Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST). He has extensive experience in developing AI platforms dedicated to helping researchers and faculty.
+                A second year GBUS student at HKUST. He is a Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST). He has extensive experience in developing AI platforms dedicated to helping researchers and faculty.
               </p>
             </div>
             <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
@@ -71,7 +71,7 @@ const AboutPage = () => {
                 <h4 className="text-xl font-bold text-gray-900">Mingyu Li</h4>
               </div>
               <p className="text-gray-600 font-medium leading-relaxed text-sm">
-                Mingyu Li is a Ph.D. Candidate at HKUST Business School. She has worked in extensive research in power, trust, and communication. She provides insight from a researcher&apos;s perspective in helping Actr tailor the platform to serve that segment.
+                A Ph.D. Candidate at HKUST Business School. She has worked in extensive research in power, trust, and communication. She provides insight from a researcher&apos;s perspective in helping Actr tailor the platform to serve that segment.
               </p>
             </div>
           </div>
