@@ -92,7 +92,8 @@ const HomePage = () => {
         </div>
       </div>
 
-      {/* Plans and Pricing */}
+      {/* Plans and Pricing - hidden, uncomment to show */}
+      {false && (
       <div className="relative bg-gray-100 py-16 overflow-hidden">
         {/* Academic icons pattern - faint, semi-transparent */}
         <div className="absolute inset-0 pointer-events-none opacity-[0.06]">
@@ -265,6 +266,7 @@ const HomePage = () => {
           </div>
         </div>
       </div>
+      )}
 
     </div>
   );

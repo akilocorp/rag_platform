@@ -193,7 +193,7 @@ const LoginPage = () => {
           <div className="mt-6 text-[13px] text-gray-600">
             <span className="font-medium text-gray-800">New User?</span>{' '}
             <Link to="/register" className="text-blue-500 hover:text-blue-600 font-semibold transition-colors">
-              Link your ITSC Account
+              Please Sign Up
             </Link>
           </div>
 

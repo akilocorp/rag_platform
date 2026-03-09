@@ -53,7 +53,7 @@ const UserInfo = () => {
         e.stopPropagation();
         setShowDropdown(!showDropdown);
       }}>
-        <FaUser className="mr-2 text-indigo-400" />
+        <FaUser className="mr-2 text-[#FA6C43]" />
         <span>{userInfo.username}</span>
         <FaChevronDown className="ml-2 text-gray-400" />
       </div>

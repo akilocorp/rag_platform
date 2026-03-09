@@ -22,22 +22,22 @@ const ChatMessage = React.memo(({ message }) => {
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
       {!isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mt-1">
-          <RiRobot2Line className="text-indigo-400 text-sm" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
+          <RiRobot2Line className="text-[#FA6C43] text-sm" />
         </div>
       )}
 
       <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed ${
         isUser 
-          ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none' 
-          : 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 text-gray-100 rounded-bl-none'
+          ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none' 
+          : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
-          <div className="prose prose-invert max-w-none prose-p:my-0 prose-ul:my-2" dangerouslySetInnerHTML={createMarkup(text)} />
+          <div className={`prose max-w-none prose-p:my-0 prose-ul:my-2 ${isUser ? 'prose-invert' : ''}`} dangerouslySetInnerHTML={createMarkup(text)} />
       </div>
 
       {isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center mt-1">
-          <RiUser3Line className="text-purple-400 text-sm" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
+          <RiUser3Line className="text-[#FA6C43] text-sm" />
         </div>
       )}
     </div>
@@ -71,6 +71,7 @@ const ChatPage = () => {
   const sessionFetchRef = useRef(null);
   const messagesEndRef = useRef(null);
   const isStreamingRef = useRef(false); // New: specifically tracks if we are in the middle of a fetch
+  const inputRef = useRef(null);
 
   const isAuthenticated = !!getToken();
 
@@ -78,6 +79,18 @@ const ChatPage = () => {
   useEffect(() => {
     currentChatIdRef.current = chatId;
   }, [chatId]);
+
+  // Auto-expand textarea as user types
+  const adjustInputHeight = useCallback(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+  }, []);
+
+  useEffect(() => {
+    adjustInputHeight();
+  }, [input, adjustInputHeight]);
 
   // --- 1. INITIALIZATION: FETCH USER ---
   useEffect(() => {
@@ -273,8 +286,8 @@ const ChatPage = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   if (isInitializing) return (
-    <div className="h-screen flex items-center justify-center bg-gray-900 text-white flex-col gap-4">
-        <FaSpinner className="animate-spin text-4xl text-indigo-500" />
+    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] flex-col gap-4">
+        <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
     </div>
   );
 
@@ -282,7 +295,7 @@ const ChatPage = () => {
   const showAvatar = isAvatarMode && !avatarError;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-900 font-sans text-gray-100">
+    <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isAuthenticated && (
           <ChatSidebar 
               sessions={sessions}
@@ -298,13 +311,13 @@ const ChatPage = () => {
 
       <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-72' : 'md:ml-20'}`}>
         
-        <header className="flex items-center justify-between px-6 py-3 border-b border-gray-800 bg-gray-900/95 backdrop-blur z-10 h-16">
+        <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
             <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${isAvatarMode ? 'bg-purple-500/10 text-purple-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+                <div className={`p-2 rounded-lg ${isAvatarMode ? 'bg-[#F9D0C4]/40 text-[#FA6C43]' : 'bg-[#F9D0C4]/40 text-[#FA6C43]'}`}>
                     <RiRobot2Line className="text-xl" />
                 </div>
                 <div>
-                    <h1 className="font-semibold text-white text-base">{config?.bot_name || "AI Assistant"}</h1>
+                    <h1 className="font-semibold text-[#222] text-base">{config?.bot_name || "AI Assistant"}</h1>
                     {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{config.model_name}</p>}
                 </div>
             </div>
@@ -332,7 +345,7 @@ const ChatPage = () => {
                     <div className="absolute bottom-6 right-6 w-80 max-h-60 overflow-y-auto bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-3 z-10 scrollbar-hide">
                         {messages.slice(-3).map((m, i) => (
                              <div key={i} className={`text-xs leading-relaxed ${m.sender === 'user' ? 'text-gray-300' : 'text-white'}`}>
-                                <span className={`font-bold mr-1 ${m.sender === 'user' ? 'text-purple-400' : 'text-indigo-400'}`}>
+                                <span className={`font-bold mr-1 ${m.sender === 'user' ? 'text-[#FA6C43]' : 'text-[#FA6C43]'}`}>
                                     {m.sender === 'user' ? 'You:' : 'AI:'}
                                 </span>
                                 {m.text}
@@ -346,12 +359,12 @@ const ChatPage = () => {
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
                      <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
                         {messages.length === 0 && (
-                            <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-40">
-                                <div className="w-20 h-20 bg-gray-800 rounded-3xl flex items-center justify-center mb-6">
-                                    <RiRobot2Line className="text-5xl text-indigo-500" />
+                            <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
+                                <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
+                                    <RiRobot2Line className="text-5xl text-[#FA6C43]" />
                                 </div>
-                                <h2 className="text-2xl font-bold text-gray-200 mb-2">{config?.bot_name || "AI Assistant"}</h2>
-                                <p className="text-gray-400 max-w-md">{config?.introduction || "I'm ready to help."}</p>
+                                <h2 className="text-2xl font-bold text-[#222] mb-2">{config?.bot_name || "AI Assistant"}</h2>
+                                <p className="text-gray-600 max-w-md">{config?.introduction || "I'm ready to help."}</p>
                             </div>
                         )}
                         {messages.map((msg, i) => <ChatMessage key={i} message={msg} />)}
@@ -359,21 +372,27 @@ const ChatPage = () => {
                      </div>
                 </main>
 
-                <footer className="p-4 sm:p-6 bg-gray-900 border-t border-gray-800">
+                <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
                     <div className="max-w-4xl mx-auto relative flex items-center gap-3">
-                        <input 
-                            type="text"
+                        <textarea
+                            ref={inputRef}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleTextSend()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleTextSend();
+                              }
+                            }}
                             placeholder="Type a message..."
-                            className="flex-1 bg-gray-800/50 text-white placeholder-gray-500 border border-gray-700 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                            rows={1}
+                            className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
                             disabled={isLoading}
                         />
                         <button 
                             onClick={handleTextSend}
                             disabled={isLoading || !input.trim()}
-                            className="p-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95"
+                            className="p-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95"
                         >
                             {isLoading ? <FaSpinner className="animate-spin text-lg" /> : <FaPaperPlane className="text-lg" />}
                         </button>

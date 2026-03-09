@@ -14,47 +14,65 @@ const AboutPage = () => {
         <h1 className="text-4xl lg:text-5xl xl:text-6xl font-bold text-[#222] tracking-tight mb-6">
           Designed by <span className="text-[#FA6C43]">faculty</span>. Engineered by <span className="text-[#FA6C43]">students</span>.
         </h1>
-        <p className="text-lg lg:text-xl text-gray-600 font-medium max-w-4xl mx-auto leading-relaxed mb-8">
-          Actr was built from both sides of the desk. By combining the deep pedagogical expertise of our educators with the technical innovation of our student developers, we created an AI platform tailored specifically for real classroom needs. Grounded in experiential learning and research, Actr empowers both teaching and learning.
-        </p>
       </div>
 
       {/* The Team Section */}
       <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-8 py-12 z-10">
-        <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 p-8 lg:p-12 mb-12">
-          <h2 className="text-3xl font-bold text-[#222] mb-8 border-b border-gray-100 pb-4">Our Cross-Disciplinary Team</h2>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <div>
-              <h3 className="text-xl font-bold text-[#FA6C43] mb-4 uppercase tracking-wide text-sm">Project Leaders</h3>
-              <ul className="space-y-4">
-                <li className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-[#F0F6FB] rounded-full flex items-center justify-center text-[#FA6C43] font-bold">BB</div>
-                  <span className="text-lg font-bold text-gray-900">Bradford Bitterly</span>
-                </li>
-                <li className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-[#F0F6FB] rounded-full flex items-center justify-center text-[#FA6C43] font-bold">SN</div>
-                  <span className="text-lg font-bold text-gray-900">Stephen Nason</span>
-                </li>
-              </ul>
+        <h2 className="text-3xl font-bold text-[#222] mb-8 text-center">Our Cross-Disciplinary Team</h2>
+        
+        <div className="space-y-8 mb-12">
+          <h3 className="text-xl font-bold text-[#FA6C43] uppercase tracking-wide text-sm">Project Leaders</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-[#F0F6FB] rounded-full flex items-center justify-center text-[#FA6C43] font-bold shrink-0">BB</div>
+                <h4 className="text-xl font-bold text-gray-900">T. Bradford Bitterly</h4>
+              </div>
+              <p className="text-gray-600 font-medium leading-relaxed">
+                He is an Assistant Professor in the Department of Management at the HKUST Business School, Hong Kong University of Science and Technology, focusing on negotiation, power, trust, and communication. He earned his Ph.D. in Operations, Information and Decisions from The Wharton School, University of Pennsylvania and a B.A. in Psychology from the University of Notre Dame.
+              </p>
             </div>
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-[#F0F6FB] rounded-full flex items-center justify-center text-[#FA6C43] font-bold shrink-0">SN</div>
+                <h4 className="text-xl font-bold text-gray-900">Stephen W. Nason</h4>
+              </div>
+              <p className="text-gray-600 font-medium leading-relaxed">
+                Prof. Nason has taught at The Hong Kong University of Science and Technology since 1995. He is a faculty member in the Department of Management and the Co-director of LABU (Language-Business Case Program). Prof. Nason has worked with a variety of organizations, including Samsung Electronics, Cisco, Motorola, and the Health Care forum.
+              </p>
+            </div>
+          </div>
+        </div>
 
-            <div>
-              <h3 className="text-xl font-bold text-[#FA6C43] mb-4 uppercase tracking-wide text-sm">Project Members</h3>
-              <ul className="space-y-4">
-                <li className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold">YK</div>
-                  <span className="text-lg font-medium text-gray-800">Yonathan A. Kidanemariam</span>
-                </li>
-                <li className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold">XH</div>
-                  <span className="text-lg font-medium text-gray-800">Xinjie (Monica) Huang</span>
-                </li>
-                <li className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold">ML</div>
-                  <span className="text-lg font-medium text-gray-800">Mingyu Li</span>
-                </li>
-              </ul>
+        <div className="space-y-8">
+          <h3 className="text-xl font-bold text-[#FA6C43] uppercase tracking-wide text-sm">Project Members</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold shrink-0">XH</div>
+                <h4 className="text-xl font-bold text-gray-900">Monica Xinjie Huang</h4>
+              </div>
+              <p className="text-gray-600 font-medium leading-relaxed text-sm">
+                Monica Xinjie Huang is a Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST), Hong Kong SAR, China. Her work focuses on how AI influences psychological interpersonal perceptions in organizations. Her research interests include AI adoption, trust, and status.
+              </p>
+            </div>
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold shrink-0">YK</div>
+                <h4 className="text-xl font-bold text-gray-900">Yonathan Aklilu Kidanemariam</h4>
+              </div>
+              <p className="text-gray-600 font-medium leading-relaxed text-sm">
+                Yonathan Aklilu Kidanemariam is a second year GBUS student at HKUST. He is a Research Assistant in the Department of Management at the Hong Kong University of Science and Technology (HKUST). He has extensive experience in developing AI platforms dedicated to helping researchers and faculty.
+              </p>
+            </div>
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-bold shrink-0">ML</div>
+                <h4 className="text-xl font-bold text-gray-900">Mingyu Li</h4>
+              </div>
+              <p className="text-gray-600 font-medium leading-relaxed text-sm">
+                Mingyu Li is a Ph.D. Candidate at HKUST Business School. She has worked in extensive research in power, trust, and communication. She provides insight from a researcher&apos;s perspective in helping Actr tailor the platform to serve that segment.
+              </p>
             </div>
           </div>
         </div>
