@@ -417,7 +417,7 @@ const ConfigPage = () => {
               />
             </div>
 
-            {/* Public Access Toggle */}
+            {/* Public Access Togglee */}
             <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
               <div className="flex items-center justify-between">
                 <div>
@@ -454,6 +454,7 @@ const ConfigPage = () => {
     >
       Simple Instructions
     </button>
+    
     <button
       type="button"
       onClick={() => handlePromptModeChange('template')}
