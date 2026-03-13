@@ -155,7 +155,7 @@ export const ChatSidebar = ({
             </div>
             {!isCollapsed && (
               <h1 className="text-xl font-bold text-[#FA6C43]">
-                ChatBot AI
+                ACTR Labs
               </h1>
             )}
           </div>

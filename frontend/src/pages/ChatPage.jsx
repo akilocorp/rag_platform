@@ -386,7 +386,7 @@ const ChatPage = () => {
                             }}
                             placeholder="Type a message..."
                             rows={1}
-                            className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
+                            className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
                             disabled={isLoading}
                         />
                         <button 
