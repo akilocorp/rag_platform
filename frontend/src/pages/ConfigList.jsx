@@ -1,10 +1,13 @@
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaChartBar } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaChartBar, FaBug } from 'react-icons/fa';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
 import apiClient from '../api/apiClient';
-import logo from '../assets/logo.png'; // Make sure this path is correct!
+import logo from '../assets/logo.png';
+// Import your modal components here (adjust paths as needed)
+import ConfigModal from './ConfigPage'; 
+import ReportBugModal from './ReportBugModal';
 
 const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -74,6 +77,11 @@ const ConfigListPage = () => {
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  // State to manage modal visibilities
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false); 
+  const [isBugModalOpen, setIsBugModalOpen] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -117,11 +125,11 @@ const ConfigListPage = () => {
   };
 
   const handleCreateNew = () => {
-    navigate('/config');
+    setIsConfigModalOpen(true);
   };
 
   return (
-    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 flex flex-col">
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 flex flex-col relative">
       
       {/* Navbar */}
       <nav className="w-full flex justify-between items-center px-6 lg:px-8 py-6 max-w-[1440px] mx-auto z-10">
@@ -135,7 +143,17 @@ const ConfigListPage = () => {
             className="h-10 lg:h-12 w-auto object-contain" 
           />
         </div>
-        <div className="flex items-center space-x-4 lg:space-x-8">
+        <div className="flex items-center space-x-6 lg:space-x-8">
+          
+          {/* Report Bug Button added to Navbar */}
+          <button 
+            onClick={() => setIsBugModalOpen(true)}
+            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
+          >
+            <FaBug className="mr-2 text-sm" />
+            <span className="font-bold text-[14px]">Report a Bug</span>
+          </button>
+
           <UserInfo />
         </div>
       </nav>
@@ -161,13 +179,25 @@ const ConfigListPage = () => {
                 </p>
               </div>
               
-              <button 
-                className="flex items-center px-6 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]" 
-                onClick={handleCreateNew}
-              >
-                <FaPlus className="mr-2 text-sm" />
-                <span className="font-bold text-[15px]">New Assistant</span>
-              </button>
+              <div className="flex items-center space-x-4 w-full sm:w-auto">
+                {/* Mobile-only Bug Report Button */}
+                <button 
+                  onClick={() => setIsBugModalOpen(true)}
+                  className="sm:hidden flex items-center justify-center p-3 text-gray-500 bg-white border border-gray-200 hover:text-[#FA6C43] hover:border-[#FA6C43] rounded-xl transition-colors"
+                  aria-label="Report a Bug"
+                >
+                  <FaBug />
+                </button>
+
+                <button 
+                  className="flex-1 sm:flex-none flex items-center justify-center px-6 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]" 
+                  onClick={handleCreateNew}
+                >
+                  <FaPlus className="mr-2 text-sm" />
+                  <span className="font-bold text-[15px]">New Assistant</span>
+                </button>
+              </div>
+
             </div>
           </div>
         </div>
@@ -230,6 +260,18 @@ const ConfigListPage = () => {
         </div>
 
       </div>
+
+      {/* Mount Modals */}
+      <ConfigModal 
+        isOpen={isConfigModalOpen} 
+        onClose={() => setIsConfigModalOpen(false)} 
+      />
+      
+      <ReportBugModal 
+        isOpen={isBugModalOpen}
+        onClose={() => setIsBugModalOpen(false)}
+      />
+
     </div>
   );
 };
