@@ -279,7 +279,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
   const renderProgress = () => {
     return (
-      <div className="flex justify-between space-x-2 mb-6 px-4">
+      <div className="flex justify-between space-x-2 mb-6 px-4 flex-shrink-0">
         {[1, 2, 3, 4, 5].map(i => (
           <div 
             key={i} 
@@ -303,17 +303,17 @@ const ConfigModal = ({ isOpen, onClose }) => {
           <FaTimes className="text-xl" />
         </button>
 
-        <div className="p-8 sm:p-10 flex-1 flex flex-col pt-12">
+        <div className="p-8 sm:p-10 flex-1 flex flex-col pt-12 min-h-0 min-w-0">
           {renderProgress()}
 
           {errors.form && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start space-x-3">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start space-x-3 flex-shrink-0">
               <FaInfoCircle className="mt-0.5 flex-shrink-0 text-lg" />
               <span className="font-medium">{errors.form}</span>
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar">
             
             {/* STEP 1: Basic Info */}
             {step === 1 && (
@@ -606,7 +606,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
           </div>
 
           {/* Footer Navigation */}
-          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-100">
+          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
             <button 
               onClick={handleBack}
               disabled={isLoading}

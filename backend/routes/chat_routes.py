@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app, Response, stream_wit
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
 import json
+import re
 import time
 import requests
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,6 +20,18 @@ from langchain_deepseek import ChatDeepSeek
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint('chat_routes', __name__)
+
+# Allowed template variables for the chat prompt - others are escaped to avoid LangChain errors
+ALLOWED_PROMPT_VARS = {"context", "history", "question"}
+
+def _escape_prompt_variables(text: str) -> str:
+    """Escape {var} to {{var}} for any var not in ALLOWED_PROMPT_VARS, so LangChain treats them as literal."""
+    if not text:
+        return text
+    def replacer(m):
+        var = m.group(1)
+        return m.group(0) if var in ALLOWED_PROMPT_VARS else "{{" + var + "}}"
+    return re.sub(r"\{(\w+)\}", replacer, text)
 
 # --- DB Collections ---
 # 1. chat_session_metadata: Stores one document per chat session with user_id and config_id.
@@ -316,7 +329,9 @@ def chat(config_id, chat_id):
             # -- STEP B: PREPARE LLM --
             context_text = "\n\n".join(d.page_content for d in docs)
             base_instruction = config_doc.get("prompt_template", "Answer based on context.")
-            
+            # Escape any {var} in user prompt that isn't our template vars (context, history, question)
+            base_instruction = _escape_prompt_variables(base_instruction)
+
             # IMPROVED SYSTEM PROMPT: Forces AI to look at history
             system_message = f"""{base_instruction}
 
