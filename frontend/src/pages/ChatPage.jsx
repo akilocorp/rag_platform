@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
-import { RiRobot2Line, RiUser3Line } from 'react-icons/ri';
+import { RiUser3Line } from 'react-icons/ri';
+import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx'; 
 import AvatarView from '../components/AvatarView'; 
 import apiClient from '../api/apiClient'; 
@@ -12,18 +13,19 @@ import { marked } from 'marked';
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
 // --- MODERN CHAT MESSAGE COMPONENT ---
-const ChatMessage = React.memo(({ message }) => {
+const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const { sender, text } = message;
   const isUser = sender === 'user';
+  const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   
   // Render Markdown safely
   const createMarkup = (txt) => ({ __html: marked.parse(txt || '') });
 
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-      {!isUser && (
+      {!isUser && BotIcon && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
-          <RiRobot2Line className="text-[#FA6C43] text-sm" />
+          <BotIcon className="text-[#FA6C43] text-sm" />
         </div>
       )}
 
@@ -313,9 +315,15 @@ const ChatPage = () => {
         
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
             <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${isAvatarMode ? 'bg-[#F9D0C4]/40 text-[#FA6C43]' : 'bg-[#F9D0C4]/40 text-[#FA6C43]'}`}>
-                    <RiRobot2Line className="text-xl" />
+                {(() => {
+                  const HeaderIcon = getBotAvatarIconComponent(config?.bot_avatar);
+                  if (!HeaderIcon) return null;
+                  return (
+                <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
+                    <HeaderIcon className="text-xl" />
                 </div>
+                  );
+                })()}
                 <div>
                     <h1 className="font-semibold text-[#222] text-base">{config?.bot_name || "AI Assistant"}</h1>
                     {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{config.model_name}</p>}
@@ -360,14 +368,22 @@ const ChatPage = () => {
                      <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
                         {messages.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
+                                {(() => {
+                                  const EmptyIcon = getBotAvatarIconComponent(config?.bot_avatar);
+                                  if (!EmptyIcon) return null;
+                                  return (
                                 <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
-                                    <RiRobot2Line className="text-5xl text-[#FA6C43]" />
+                                    <EmptyIcon className="text-5xl text-[#FA6C43]" />
                                 </div>
+                                  );
+                                })()}
                                 <h2 className="text-2xl font-bold text-[#222] mb-2">{config?.bot_name || "AI Assistant"}</h2>
                                 <p className="text-gray-600 max-w-md">{config?.introduction || "I'm ready to help."}</p>
                             </div>
                         )}
-                        {messages.map((msg, i) => <ChatMessage key={i} message={msg} />)}
+                        {messages.map((msg, i) => (
+                          <ChatMessage key={i} message={msg} botAvatarId={config?.bot_avatar} />
+                        ))}
                         <div ref={messagesEndRef} />
                      </div>
                 </main>

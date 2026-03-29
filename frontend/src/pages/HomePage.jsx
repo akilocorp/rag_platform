@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import homeHeroPattern from '../assets/home-hero-pattern.png';
 import { FaUserGraduate, FaFileAlt, FaShareAlt, FaCogs, FaCheckCircle, FaInfoCircle, FaComments, FaGraduationCap, FaBook, FaLightbulb } from 'react-icons/fa';
 import Navbar from './NavBar';
 
@@ -12,7 +13,13 @@ const HomePage = () => {
       <Navbar/>
 
       {/* Hero Section */}
-      <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-8 pt-12 lg:pt-24 pb-16 z-10 flex flex-col items-center text-center">
+      <div className="relative w-full">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.10] bg-repeat [background-size:min(420px,70vw)]"
+          style={{ backgroundImage: `url(${homeHeroPattern})` }}
+        />
+        <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 lg:px-8 pt-12 lg:pt-24 pb-16 flex flex-col items-center text-center">
         <h1 className="text-5xl lg:text-7xl font-bold text-[#222] tracking-tight leading-[1.1] mb-6 max-w-4xl">
           Bring custom AI assistants to your <span className="relative inline-block">
             classroom
@@ -36,6 +43,7 @@ const HomePage = () => {
           >
             Learn More
           </button>
+        </div>
         </div>
       </div>
 

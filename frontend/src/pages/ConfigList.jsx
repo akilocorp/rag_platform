@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
+import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import apiClient from '../api/apiClient';
 import logo from '../assets/logo.png';
 // Import your modal components here (adjust paths as needed)
@@ -11,6 +12,7 @@ import ReportBugModal from './ReportBugModal';
 
 const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const ListIcon = getBotAvatarIconComponent(config.bot_avatar);
 
   return (
     <div
@@ -31,9 +33,11 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="flex items-start space-x-4">
-        <div className="flex-shrink-0 p-4 rounded-2xl bg-[#F9D0C4]/40 text-[#FA6C43]">
-          <FaRobot className="text-2xl" />
-        </div>
+        {ListIcon && (
+          <div className="flex-shrink-0 p-4 rounded-2xl bg-[#F9D0C4]/40 text-[#FA6C43]">
+            <ListIcon className="text-2xl" />
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2">
             <h3 className="text-lg font-bold text-[#222] truncate">{config.bot_name}</h3>

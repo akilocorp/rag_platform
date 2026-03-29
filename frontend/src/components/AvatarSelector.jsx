@@ -32,6 +32,16 @@ export const AVATAR_OPTIONS = [
   { id: 'shield', icon: RiShieldCheckLine, name: 'Secure', color: 'emerald' },
 ];
 
+/** Icon component for chat / list UI; null when user chose "None". Defaults to robot when unset. */
+export function getBotAvatarIconComponent(botAvatarId) {
+  if (botAvatarId === 'none') return null;
+  const id =
+    botAvatarId && String(botAvatarId).trim() !== '' ? botAvatarId : 'robot';
+  const entry = AVATAR_OPTIONS.find((a) => a.id === id);
+  if (!entry || entry.id === 'none') return RiRobot2Line;
+  return entry.icon;
+}
+
 const colorClasses = {
   gray: 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 ring-gray-500',
   indigo: 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 ring-indigo-500',
