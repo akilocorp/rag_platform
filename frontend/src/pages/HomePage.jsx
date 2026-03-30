@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../assets/logo.png';
-import homeHeroPattern from '../assets/home-hero-pattern.png';
+import heroPattern from '../assets/pattern.png';
 import { FaUserGraduate, FaFileAlt, FaShareAlt, FaCogs, FaCheckCircle, FaInfoCircle, FaComments, FaGraduationCap, FaBook, FaLightbulb } from 'react-icons/fa';
 import Navbar from './NavBar';
 
@@ -16,8 +16,8 @@ const HomePage = () => {
       <div className="relative w-full">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-0 opacity-[0.12] bg-repeat bg-center [background-size:min(1600px,220vw)]"
-          style={{ backgroundImage: `url(${homeHeroPattern})` }}
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.22] bg-repeat bg-center [background-size:min(1600px,220vw)]"
+          style={{ backgroundImage: `url(${heroPattern})` }}
         />
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 lg:px-8 pt-12 lg:pt-24 pb-16 flex flex-col items-center text-center">
         <h1 className="text-5xl lg:text-7xl font-bold text-[#222] tracking-tight leading-[1.1] mb-6 max-w-4xl">
