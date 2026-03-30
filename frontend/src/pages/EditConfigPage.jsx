@@ -44,6 +44,15 @@ const EditConfigPage = () => {
     }, 3000);
   };
 
+  const navigateToThisAgentChat = () => {
+    const id = config.config_id || config._id;
+    if (id) {
+      navigate(`/chat/${id}`, { state: { fromEdit: true } });
+    } else {
+      navigate('/config_list');
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     const val = type === 'checkbox' ? checked : value;
@@ -115,7 +124,7 @@ const EditConfigPage = () => {
 
       await apiClient.put(`/config/${config.config_id}`, formData);
 
-      navigate('/config_list', { state: { refresh: true, message: 'Assistant updated successfully.' } });
+      navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Assistant updated successfully.' } });
     } catch (error) {
       console.error('Error updating configuration:', error);
       const errorMessage = error.response?.data?.error || 'Failed to update configuration. Please try again.';
@@ -498,7 +507,7 @@ const EditConfigPage = () => {
               <div className="flex flex-col-reverse sm:flex-row items-center gap-3 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => navigate(-1)}
+                  onClick={navigateToThisAgentChat}
                   className="w-full sm:w-auto flex items-center justify-center py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.98]"
                 >
                   Cancel

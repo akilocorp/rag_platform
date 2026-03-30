@@ -34,7 +34,12 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none' 
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
-          <div className={`prose max-w-none prose-p:my-0 prose-ul:my-2 ${isUser ? 'prose-invert' : ''}`} dangerouslySetInnerHTML={createMarkup(text)} />
+          <div
+            className={`chat-message-md prose max-w-none prose-p:my-0 prose-ul:my-2 ${
+              isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
+            }`}
+            dangerouslySetInnerHTML={createMarkup(text)}
+          />
       </div>
 
       {isUser && (

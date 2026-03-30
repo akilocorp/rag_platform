@@ -16,6 +16,7 @@ import {
 } from 'react-icons/fi';
 import { RiRobot2Line } from 'react-icons/ri';
 import { FaSpinner } from 'react-icons/fa';
+import logo from '../assets/logo.png';
 
 export const ChatSidebar = ({ 
   sessions = [], 
@@ -96,12 +97,46 @@ export const ChatSidebar = ({
     }
   };
 
-  const handleConfigsClick = (e) => {
+  const goConfigList = () => {
+    navigate('/config_list');
+  };
+
+  const handleLogoClick = (e) => {
     if (onNavigateWithAutoSave) {
       e.preventDefault();
+      onNavigateWithAutoSave(goConfigList);
+    }
+  };
+
+  const navigateToEditCurrentAgent = async () => {
+    if (!configId) {
+      navigate('/config_list');
+      return;
+    }
+    try {
+      const res = await apiClient.get(`/config/${configId}`);
+      const cfg = res.data.config;
+      const configForEdit = {
+        ...cfg,
+        config_id: cfg.config_id,
+        _id: cfg.config_id,
+        documents: cfg.documents || [],
+      };
+      navigate('/edit-config', { state: { config: configForEdit } });
+    } catch (err) {
+      console.error('Failed to load config for edit:', err);
+      navigate('/config_list');
+    }
+  };
+
+  const handleConfigsClick = (e) => {
+    e.preventDefault();
+    if (onNavigateWithAutoSave) {
       onNavigateWithAutoSave(() => {
-        navigate('/config_list');
+        navigateToEditCurrentAgent();
       });
+    } else {
+      navigateToEditCurrentAgent();
     }
   };
 
@@ -118,7 +153,7 @@ export const ChatSidebar = ({
       text: 'Configs',
       link: `/config_list`,
       active: false,
-      onClick: handleConfigsClick
+      onClick: handleConfigsClick,
     },
   ];
 
@@ -148,17 +183,19 @@ export const ChatSidebar = ({
 
       <div className="flex flex-col h-full">
         {/* Header (Fixed) */}
-        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} mb-8`}>
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-[#F9D0C4]/40 rounded-lg">
-              <RiRobot2Line className="text-[#FA6C43] text-xl" />
-            </div>
-            {!isCollapsed && (
-              <h1 className="text-xl font-bold text-[#FA6C43]">
-                ACTR Labs
-              </h1>
-            )}
-          </div>
+        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'} mb-8 px-1`}>
+          <Link
+            to="/config_list"
+            onClick={handleLogoClick}
+            className="flex items-center hover:opacity-90 transition-opacity shrink-0"
+            title="ACTR Labs — Agent list"
+          >
+            <img
+              src={logo}
+              alt="ACTR Labs"
+              className={`w-auto object-contain ${isCollapsed ? 'h-9 max-w-[3rem]' : 'h-10'}`}
+            />
+          </Link>
         </div>
 
         {/* Main Navigation (Fixed) */}
