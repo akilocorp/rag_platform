@@ -18,6 +18,88 @@
 }
 
 @layer components {
+  /* Paragraphs & lists: clear separation between blocks (AI markdown) */
+  .chat-message-md p {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+  }
+  .chat-message-md p:last-child {
+    margin-bottom: 0;
+  }
+  .chat-message-md ul,
+  .chat-message-md ol {
+    margin-top: 0.35rem;
+    margin-bottom: 0.85rem;
+    padding-left: 1.25rem;
+  }
+  .chat-message-md ul:last-child,
+  .chat-message-md ol:last-child {
+    margin-bottom: 0;
+  }
+  .chat-message-md li {
+    margin-bottom: 0.45rem;
+    line-height: 1.5;
+  }
+  .chat-message-md li:last-child {
+    margin-bottom: 0;
+  }
+  .chat-message-md li > p {
+    margin-bottom: 0.35rem;
+  }
+  .chat-message-md li > p:last-child {
+    margin-bottom: 0;
+  }
+  .chat-message-md blockquote {
+    margin: 0.65rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid rgba(100, 100, 100, 0.25);
+  }
+  .chat-message-md--invert blockquote {
+    border-left-color: rgba(255, 255, 255, 0.35);
+  }
+  .chat-message-md pre {
+    margin: 0.65rem 0;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    font-size: 0.875em;
+  }
+  .chat-message-md hr {
+    margin: 1rem 0;
+    border: 0;
+    border-top: 1px solid rgba(100, 100, 100, 0.2);
+  }
+  .chat-message-md--invert hr {
+    border-top-color: rgba(255, 255, 255, 0.25);
+  }
+
+  /* KaTeX: display math — spaced / readable like ChatGPT block formulas */
+  .chat-message-md .katex-display {
+    margin: 0.9rem 0;
+    padding: 0.45rem 0 0.45rem 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    text-align: center;
+    border-left: 3px solid rgba(100, 100, 100, 0.15);
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 0.375rem;
+  }
+  .chat-message-md--invert .katex-display {
+    border-left-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .chat-message-md .katex-display > .katex {
+    margin: 0 auto;
+    text-align: left;
+  }
+  .chat-message-md .katex:not(.katex-display > .katex) {
+    font-size: 1.05em;
+  }
+  /* User (orange) bubble: light math text */
+  .chat-message-md--invert .katex {
+    color: #fff;
+  }
+
   /* Markdown headings inside AI chat bubbles: bold + visual separation */
   .chat-message-md h1,
   .chat-message-md h2,

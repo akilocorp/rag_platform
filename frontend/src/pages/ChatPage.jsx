@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
@@ -8,6 +8,16 @@ import AvatarView from '../components/AvatarView';
 import apiClient from '../api/apiClient'; 
 import axios from 'axios';
 import { marked } from 'marked';
+import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+
+marked.use({ gfm: true, breaks: true });
+
+const KATEX_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '$', right: '$', display: false },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '\\[', right: '\\]', display: true },
+];
 
 // --- HELPER: Get Token Safely ---
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -17,9 +27,23 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const { sender, text } = message;
   const isUser = sender === 'user';
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
-  
-  // Render Markdown safely
-  const createMarkup = (txt) => ({ __html: marked.parse(txt || '') });
+  const mdRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = mdRef.current;
+    if (!el) return;
+    el.innerHTML = marked.parse(text || '');
+    try {
+      renderMathInElement(el, {
+        delimiters: KATEX_DELIMITERS,
+        throwOnError: false,
+        strict: false,
+        trust: false,
+      });
+    } catch (e) {
+      console.warn('KaTeX render:', e);
+    }
+  }, [text]);
 
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
@@ -35,10 +59,10 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
           <div
-            className={`chat-message-md prose max-w-none prose-p:my-0 prose-ul:my-2 ${
+            ref={mdRef}
+            className={`chat-message-md prose max-w-none ${
               isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
             }`}
-            dangerouslySetInnerHTML={createMarkup(text)}
           />
       </div>
 

@@ -57,9 +57,12 @@ const PublicChatRoute = ({ children }) => {
 
   if (canAccess === null) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900">
-        <FaSpinner className="animate-spin text-3xl text-indigo-400 mb-4" />
-        <p className="text-gray-400">Verifying access...</p>
+      <div
+        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+        className="flex flex-col items-center justify-center min-h-screen bg-[#F0F6FB] text-[#222]"
+      >
+        <FaSpinner className="animate-spin text-4xl text-[#FA6C43] mb-4" />
+        <p className="text-gray-600 font-medium">Verifying access...</p>
       </div>
     );
   }

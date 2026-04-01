@@ -16,7 +16,7 @@ const HomePage = () => {
       <div className="relative w-full">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-0 opacity-[0.22] bg-repeat bg-center [background-size:min(1600px,220vw)]"
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.11] bg-repeat bg-center [background-size:min(1600px,220vw)]"
           style={{ backgroundImage: `url(${heroPattern})` }}
         />
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 lg:px-8 pt-12 lg:pt-24 pb-16 flex flex-col items-center text-center">

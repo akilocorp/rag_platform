@@ -12,6 +12,7 @@
   "dependencies": {
     "@heygen/streaming-avatar": "^2.1.0",
     "axios": "^1.10.0",
+    "katex": "^0.16.44",
     "livekit-client": "^2.16.1",
     "marked": "^16.0.0",
     "react": "^19.1.0",
