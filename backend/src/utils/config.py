@@ -45,7 +45,10 @@ def load_secrets():
         "MAIL_PASSWORD" ,
         "MAIL_DEFAULT_SENDER",
         "SECRET_KEY",
-        "FRONTEND_URL"
+        "FRONTEND_URL",
+        "SQL_DB_URI",
+        "POSTGRES_DB_URI",
+        "POSTGRES_READONLY_URI"
 
     ]
         

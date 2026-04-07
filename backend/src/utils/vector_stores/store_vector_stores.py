@@ -48,81 +48,143 @@ def handle_cleanup_error(func, path, exc_info):
     """
     current_app.logger.error(f"Error during cleanup of {path}: {exc_info}")
 
+import os
+import pandas as pd
+from sqlalchemy import create_engine
+from flask import current_app
+# Assuming get_document_loader, RecursiveCharacterTextSplitter, and MongoDBAtlasVectorSearch are imported above
+
 def process_files_and_create_vector_store(temp_file_paths, user_id, collection_name, config_id):
     """
-    Processes multiple uploaded documents, combines their content, creates a single 
-    Chroma vector store, uploads it to S3, and cleans up local files.
+    Processes multiple uploaded documents, routes them based on file type, 
+    stores structured data in SQL, and unstructured data in a Vector Store.
 
     Args:
         temp_file_paths (list): A list of paths to the temporary uploaded files.
         user_id (str): The ID of the user.
-        collection_name (str): The name for the ChromaDB collection.
+        collection_name (str): The name for the ChromaDB/MongoDB collection.
 
     Returns:
-        str: The S3 path to the created vector store, or None if an error occurs.
+        bool: True if processing was successful, False otherwise.
     """
     
-    
     all_splits = []
+    
+    # 1. Setup Database Connections
+    # Vector DB (MongoDB Atlas)
+    db = current_app.config['MONGO_DB']
+    mongo_collection = db['vector_collection']
+    
+    # Relational DB (SQL) - Using SQLite for demonstration, replace with Postgres/MySQL URI in production
+    sql_engine_uri = current_app.config.get('SQL_DB_URI', 'sqlite:///rag_structured_data.db')
+    sql_engine = create_engine(sql_engine_uri)
 
     try:
-        db = current_app.config['MONGO_DB']
-        mongo_collection = db['vector_collection']
-
-        # --- 1. Load and Split Documents from All Files ---
+        # --- 2. Route and Process Files ---
         for temp_file_path in temp_file_paths:
-            loader = get_document_loader(temp_file_path)
-            if not loader:
-                continue  # Skip unsupported file types
-
-            current_app.logger.info(f"Loading document: {temp_file_path}")
-            try:
-                pages = loader.load()
-                current_app.logger.info(f"Successfully loaded {len(pages)} pages from {temp_file_path}")
-            except Exception as e:
-                current_app.logger.error(f"Error loading document {temp_file_path}: {str(e)}")
-                continue
-
-
-            # Split the document and add its chunks to the master list
-            recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-            splits = recursive_splitter.split_documents(pages)
-            for split in splits:
-                split.metadata['user_id'] = user_id
-                split.metadata['config_id'] = str(config_id) # Link chunk to the config
-                split.metadata['collection_name'] = collection_name
-                split.metadata['original_file'] = os.path.basename(temp_file_path)
-
+            file_extension = os.path.splitext(temp_file_path)[1].lower()
+            file_basename = os.path.basename(temp_file_path)
             
-            all_splits.extend(splits)
-            current_app.logger.info(f"Processed {len(splits)} chunks from {os.path.basename(temp_file_path)}. First chunk content: {splits[0].page_content[:100] if splits else 'No chunks'}")
+           # ROUTE A: STRUCTURED DATA (CSV/Excel)
+            if file_extension in ['.csv', '.xlsx', '.xls']:
+                current_app.logger.info(f"Routing structured document: {temp_file_path}")
+                try:
+                    if file_extension == '.csv':
+                        df = pd.read_csv(temp_file_path)
+                    else:
+                        df = pd.read_excel(temp_file_path)
+                    
+                    # 1. Send to SQL (For Math & Exact Lookups)
+                    safe_filename = "".join([c if c.isalnum() else "_" for c in file_basename]).lower()
+                    table_name = f"table_{config_id}_{safe_filename}"
+                    df.to_sql(table_name, con=sql_engine, if_exists='replace', index=False)
+                    
+                    db['sql_metadata'].update_one(
+                        {"config_id": str(config_id), "table_name": table_name},
+                        {"$set": {"user_id": user_id, "original_file": file_basename}},
+                        upsert=True
+                    )
 
-        if not all_splits:
-            current_app.logger.error("No documents could be processed from the provided files.")
-            return None
+                    # 2. HYBRID UPGRADE: Send to Vector DB (For Summaries & Context)
+                    # Convert the dataframe into a giant string so the LLM can "read" it
+                    text_content = df.to_string()
+                    
+                    from langchain_core.documents import Document
+                    doc = Document(page_content=text_content, metadata={"source": file_basename})
+                    
+                    # Chunk it up and add it to our vector list
+                    recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+                    splits = recursive_splitter.split_documents([doc])
+                    
+                    for split in splits:
+                        split.metadata['user_id'] = user_id
+                        split.metadata['config_id'] = str(config_id)
+                        split.metadata['collection_name'] = collection_name
+                        split.metadata['original_file'] = file_basename
+                    
+                    all_splits.extend(splits)
+                    
+                except Exception as e:
+                    current_app.logger.error(f"Error processing CSV/Excel {temp_file_path}: {str(e)}")
+                
+                # We continue to the next file since we manually chunked it above
+                continue
+            # ROUTE B: UNSTRUCTURED DATA (PDF, Word, TXT) -> Send to Vector Store
+            else:
+                current_app.logger.info(f"Routing unstructured document to Vector DB: {temp_file_path}")
+                loader = get_document_loader(temp_file_path)
+                if not loader:
+                    current_app.logger.warning(f"No loader found for {file_basename}, skipping.")
+                    continue 
 
-        # --- 2. Create a Single Vector Store from All Combined Splits ---
-        current_app.logger.info(f"Inserting {len(all_splits)} document chunks into Atlas for collection '{collection_name}'")
-        # Note: Ensure you have your OpenAI API key set in your environment for this to work
-        embeddings = current_app.config['EMBEDDINGS']
-        
-        MongoDBAtlasVectorSearch.from_documents(
-            documents=all_splits,
-            embedding=embeddings,
-            collection=mongo_collection,
-            index_name="vector"
-        )
-        current_app.logger.info("Successfully inserted vectors into MongoDB Atlas.")
-       
-        # --- 3. Upload the Entire Vector Store Directory to S3 ---
-        
-       
+                try:
+                    pages = loader.load()
+                    current_app.logger.info(f"Successfully loaded {len(pages)} pages from {temp_file_path}")
+                except Exception as e:
+                    current_app.logger.error(f"Error loading document {temp_file_path}: {str(e)}")
+                    continue
+
+                # Split the document
+                recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+                splits = recursive_splitter.split_documents(pages)
+                
+                # Add Metadata
+                for split in splits:
+                    split.metadata['user_id'] = user_id
+                    split.metadata['config_id'] = str(config_id) 
+                    split.metadata['collection_name'] = collection_name
+                    split.metadata['original_file'] = file_basename
+
+                all_splits.extend(splits)
+                current_app.logger.info(f"Processed {len(splits)} chunks from {file_basename}.")
+
+        # --- 3. Execute Vector Store Insertion ---
+        if all_splits:
+            current_app.logger.info(f"Inserting {len(all_splits)} chunks into Atlas for collection '{collection_name}'")
+            embeddings = current_app.config['EMBEDDINGS']
+            
+            MongoDBAtlasVectorSearch.from_documents(
+                documents=all_splits,
+                embedding=embeddings,
+                collection=mongo_collection,
+                index_name="vector"
+            )
+            current_app.logger.info("Successfully inserted vectors into MongoDB Atlas.")
+        else:
+            current_app.logger.info("No unstructured chunks to insert into Vector Store.")
+
+        return True
+
     except Exception as e:
-        current_app.logger.error(f"Error during vector store processing/upload: {e}")
-        return None
+        current_app.logger.error(f"Error during document processing pipeline: {e}")
+        return False
         
     finally:
+        # --- 4. Cleanup ---
         for temp_file_path in temp_file_paths:
             if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-                current_app.logger.info(f"Cleaned up temporary upload file: {temp_file_path}")
+                try:
+                    os.remove(temp_file_path)
+                    current_app.logger.info(f"Cleaned up temporary upload file: {temp_file_path}")
+                except Exception as cleanup_error:
+                    current_app.logger.error(f"Failed to clean up file {temp_file_path}: {cleanup_error}")

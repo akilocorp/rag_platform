@@ -55,7 +55,7 @@ const ReportBugModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-[100] flex items-center justify-center bg-white/60 p-4 backdrop-blur-sm">
+    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col relative animate-in zoom-in-95 duration-200">
         
         {/* Close Button */}
