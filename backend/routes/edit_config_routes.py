@@ -84,20 +84,35 @@ def update_existing_config(config_id):
         
         # Update documents list with newly uploaded files
         updated_documents = list(set(current_documents + newly_uploaded_filenames))
+        # --- PARSE GROUP CHAT BOTS ---
+        bots_json_str = data.get('bots', '[]')
+        try:
+            bots_list = json.loads(bots_json_str) if isinstance(bots_json_str, str) else bots_json_str
+        except json.JSONDecodeError:
+            bots_list = []
+            
+        group_size = data.get('group_size')
+        group_duration = data.get('group_duration')
         
         # Prepare update data
         update_data = {
             "bot_name": data.get('bot_name'),
-            "bot_avatar": data.get('bot_avatar', 'robot'),
+            "bot_avatar": data.get('bot_avatar', 'none'),
+            "heygen_avatar_id": data.get('heygen_avatar_id', ''), # Added so avatar edits save
             "introduction": data.get('introduction', ''),
             "model_name": data.get('model_name'),
             "temperature": float(data.get('temperature', 0.7)),
             "response_timeout": int(data.get('response_timeout', 3)),
-            "is_public": data.get('is_public').lower() in ['true', '1'],
+            "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
             "instructions": data.get('instructions'),
             "prompt_template": data.get('prompt_template'),
             "collection_name": data.get('collection_name'),
-            "documents": updated_documents
+            "documents": updated_documents,
+            
+            # --- NEW GROUP CHAT FIELDS ---
+            "group_size": int(group_size) if group_size else 2,
+            "group_duration": int(group_duration) if group_duration else 10,
+            "bots": bots_list
         }
 
         # Update the document in the database

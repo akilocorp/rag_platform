@@ -32,14 +32,15 @@ export const AVATAR_OPTIONS = [
   { id: 'shield', icon: RiShieldCheckLine, name: 'Secure', color: 'emerald' },
 ];
 
-/** Icon component for chat / list UI; null when user chose "None". Defaults to robot when unset. */
+/** Icon component for chat / list UI; null when user chose "None", "", or null */
 export function getBotAvatarIconComponent(botAvatarId) {
-  if (botAvatarId === 'none') return null;
-  const id =
-    botAvatarId && String(botAvatarId).trim() !== '' ? botAvatarId : 'robot';
-  const entry = AVATAR_OPTIONS.find((a) => a.id === id);
-  if (!entry || entry.id === 'none') return RiRobot2Line;
-  return entry.icon;
+  // Explicitly check for falsy values (null, undefined, '') or 'none' to return no icon
+  if (!botAvatarId || botAvatarId === 'none' || botAvatarId === '') {
+    return null;
+  }
+  
+  const entry = AVATAR_OPTIONS.find((a) => a.id === botAvatarId);
+  return entry ? entry.icon : RiRobot2Line; // Fallback to robot only if a weird string was passed
 }
 
 const colorClasses = {
@@ -58,16 +59,21 @@ const colorClasses = {
   emerald: 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 ring-emerald-500',
 };
 
-const AvatarSelector = ({ selectedAvatar = 'robot', onSelect }) => {
+const AvatarSelector = ({ selectedAvatar, onSelect }) => {
+  // Normalize the selection so null, undefined, "", and "none" all map to 'none'
+  const currentSelection = (!selectedAvatar || selectedAvatar === '' || selectedAvatar === 'none') 
+    ? 'none' 
+    : selectedAvatar;
+
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-300 mb-3">
+      <label className="block text-[13px] font-semibold text-gray-700 mb-2">
         Bot Avatar
       </label>
       <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
         {AVATAR_OPTIONS.map((avatar) => {
           const Icon = avatar.icon;
-          const isSelected = selectedAvatar === avatar.id;
+          const isSelected = currentSelection === avatar.id;
           const colorClass = colorClasses[avatar.color];
           
           return (
@@ -86,7 +92,7 @@ const AvatarSelector = ({ selectedAvatar = 'robot', onSelect }) => {
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-gray-400">
+      <p className="mt-2 text-xs text-gray-400 font-medium">
         Select an avatar that represents your bot's personality
       </p>
     </div>
@@ -94,4 +100,3 @@ const AvatarSelector = ({ selectedAvatar = 'robot', onSelect }) => {
 };
 
 export default AvatarSelector;
-

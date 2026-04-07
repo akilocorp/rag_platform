@@ -115,7 +115,16 @@ const ConfigListPage = () => {
       setError('Failed to select configuration');
       return;
     }
-    navigate(`/chat/${configId}`);
+    const selectedConfig = configs.find(c => c.config_id === configId);
+    
+    if (selectedConfig && selectedConfig.bot_type === 'group_chat') {
+      // Send to the new Group Chat page
+      navigate(`/group-chat/${configId}`);
+    } else {
+      // Send to standard 1-on-1 Chat
+      navigate(`/chat/${configId}`);
+    }
+    
   };
 
   const onEdit = (config) => {

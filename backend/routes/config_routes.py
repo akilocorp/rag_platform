@@ -162,6 +162,13 @@ def configure_model():
 
         bot_name = config_data.get('bot_name', 'Assistant') 
         bot_type = config_data.get('bot_type', 'chat') 
+        group_size = int(config_data.get('group_size', 2))
+        group_duration = int(config_data.get('group_duration', 10))
+        bots_json_str = config_data.get('bots', '[]')
+        try:
+            bots_list = json.loads(bots_json_str) if isinstance(bots_json_str, str) else bots_json_str
+        except json.JSONDecodeError:
+            bots_list = [{"name": bot_name, "prompt": final_prompt_template}]
         heygen_avatar_id = config_data.get('heygen_avatar_id', '')
         bot_avatar = config_data.get('bot_avatar', 'robot') 
         introduction = config_data.get('introduction', '') 
@@ -243,7 +250,10 @@ Answer:"""
             "response_timeout": int(response_timeout),
             "is_public": is_public,
             "config_type": "normal",
-            "documents": uploaded_filenames
+            "documents": uploaded_filenames,
+            "group_size": group_size,
+            "group_duration": group_duration,
+            "bots": bots_list
         }
         
         result = mongo_collection.get_collection().insert_one(config_document)

@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import apiClient from '../api/apiClient'; // Adjust the import path if needed
+import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
-import { FaInfoCircle } from 'react-icons/fa';
-import logo from '../assets/logo.png';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot } from 'react-icons/fa';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -19,8 +18,25 @@ const EditConfigPage = () => {
   const [promptMode, setPromptMode] = useState('instructions');
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
+  
+  // HeyGen State
+  const [heygenAvatars, setHeygenAvatars] = useState([]);
+  const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
 
-  // Effect to handle cases where the user navigates directly to the page without a config.
+  const aiModels = [
+    { id: 'deepseek-chat', name: 'Deepseek Chat' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro' },
+    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    { id: 'gpt-4', name: 'GPT-4' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    { id: 'gpt-4.1', name: 'GPT-4.1' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'gpt-5-nano', name: 'GPT-5-nano' },
+    { id: 'qwen-turbo', name: 'Qwen Turbo' }
+  ];
+
+  // Initialize Data
   useEffect(() => {
     const configFromState = location.state?.config;
     if (!configFromState) {
@@ -29,11 +45,47 @@ const EditConfigPage = () => {
       return;
     }
 
-    // Set initial state from the passed-in config
-    setConfig(configFromState);
+    // Safely parse bots if it's a group chat and came as a string
+    let parsedBots = [];
+    if (configFromState.bot_type === 'group_chat') {
+        try {
+            parsedBots = typeof configFromState.bots === 'string' ? JSON.parse(configFromState.bots) : (configFromState.bots || []);
+        } catch(e) {
+            parsedBots = [];
+        }
+        if (parsedBots.length === 0) {
+             parsedBots = [{ name: 'Assistant', prompt: '', model_name: 'gpt-4o', temperature: 0.7 }];
+        }
+    }
+
+    setConfig({
+        ...configFromState,
+        bots: parsedBots,
+        group_size: configFromState.group_size || 2,
+        group_duration: configFromState.group_duration || 10
+    });
+    
     setInitialDocuments(configFromState.documents || []);
     setPromptMode(configFromState.prompt_template ? 'template' : 'instructions');
   }, [location.state, navigate]);
+
+  // Fetch HeyGen Avatars if needed
+  useEffect(() => {
+    if (config.bot_type === 'avatar' && heygenAvatars.length === 0) {
+      const fetchAvatars = async () => {
+        setIsFetchingAvatars(true);
+        try {
+          const response = await apiClient.get('/heygen/avatars'); 
+          setHeygenAvatars(response.data.avatars || []);
+        } catch (err) {
+          console.error("Failed to fetch HeyGen avatars", err);
+        } finally {
+          setIsFetchingAvatars(false);
+        }
+      };
+      fetchAvatars();
+    }
+  }, [config.bot_type]);
 
   const showNotificationMessage = (message) => {
     setNotificationMessage(message);
@@ -47,7 +99,8 @@ const EditConfigPage = () => {
   const navigateToThisAgentChat = () => {
     const id = config.config_id || config._id;
     if (id) {
-      navigate(`/chat/${id}`, { state: { fromEdit: true } });
+      if (config.bot_type === 'group_chat') navigate(`/group-chat/${id}`);
+      else navigate(`/chat/${id}`, { state: { fromEdit: true } });
     } else {
       navigate('/config_list');
     }
@@ -59,6 +112,27 @@ const EditConfigPage = () => {
     setConfig(prev => ({ ...prev, [name]: val }));
   };
 
+  // --- Group Chat Bot Handlers ---
+  const handleBotChange = (index, field, value) => {
+    const updatedBots = [...config.bots];
+    updatedBots[index][field] = value;
+    setConfig(prev => ({ ...prev, bots: updatedBots }));
+  };
+
+  const addBot = () => {
+    setConfig(prev => ({
+      ...prev,
+      bots: [...prev.bots, { name: `Bot ${prev.bots.length + 1}`, prompt: '', model_name: 'gpt-3.5-turbo', temperature: 0.7 }]
+    }));
+  };
+
+  const removeBot = (index) => {
+    if (config.bots.length > 1) {
+      setConfig(prev => ({ ...prev, bots: prev.bots.filter((_, i) => i !== index) }));
+    }
+  };
+
+  // --- File Handlers ---
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
     setNewFiles(prev => [...prev, ...files]);
@@ -84,56 +158,79 @@ const EditConfigPage = () => {
     setPromptMode(mode);
   };
 
+  // --- Submit Handler ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Perform validation first
     const newErrors = {};
-    if (!config.bot_name?.trim()) newErrors.bot_name = 'Chatbot name is required';
-    if (!config.model_name?.trim()) newErrors.model_name = 'Model name is required';
-    if (promptMode === 'instructions' && !config.instructions?.trim()) {
-      newErrors.instructions = 'Instructions are required';
-    }
-    if (promptMode === 'template' && !config.prompt_template?.trim()) {
-      newErrors.prompt_template = 'Prompt template is required';
+    if (!config.bot_name?.trim()) newErrors.bot_name = 'Name is required';
+    
+    if (config.bot_type === 'group_chat') {
+        config.bots.forEach((b, i) => {
+            if (!b.name.trim()) newErrors[`bot_${i}_name`] = 'Required';
+            if (!b.prompt.trim()) newErrors[`bot_${i}_prompt`] = 'Required';
+        });
+    } else {
+        if (promptMode === 'instructions' && !config.instructions?.trim()) newErrors.instructions = 'Required';
+        if (promptMode === 'template' && !config.prompt_template?.trim()) newErrors.prompt_template = 'Required';
     }
 
-    // If there are any errors, update the state and stop the submission
+    if (config.bot_type === 'avatar' && !config.heygen_avatar_id) {
+        newErrors.form = 'Please select a video avatar.';
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
 
     setIsLoading(true);
-    setErrors({}); // Clear any old errors
+    setErrors({});
 
     try {
       const formData = new FormData();
-      Object.entries(config).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files') {
+      const configToSubmit = { ...config };
+      
+      // Satisfy backend validation
+      if (configToSubmit.bot_type === 'group_chat') {
+          configToSubmit.instructions = "Group Space: Managing multiple AI agents.";
+          configToSubmit.prompt_template = "";
+      } else {
+          if (promptMode === 'instructions') configToSubmit.prompt_template = '';
+          else configToSubmit.instructions = '';
+      }
+
+      Object.entries(configToSubmit).forEach(([key, value]) => {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots') {
           formData.append(key, value);
         }
       });
+      
+      // Append bots safely
+      if (configToSubmit.bot_type === 'group_chat') {
+        formData.append('bots', JSON.stringify(configToSubmit.bots));
+      } else {
+        formData.append('bots', '[]');
+      }
 
-      newFiles.forEach(file => {
-        formData.append('files', file);
-      });
-
-      const filesToDelete = initialDocuments.filter(doc => !config.documents.includes(doc));
+      newFiles.forEach(file => formData.append('files', file));
+      const filesToDelete = initialDocuments.filter(doc => !configToSubmit.documents.includes(doc));
       formData.append('files_to_delete', JSON.stringify(filesToDelete));
 
       await apiClient.put(`/config/${config.config_id}`, formData);
 
-      navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Assistant updated successfully.' } });
+      if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
+      else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
+      
     } catch (error) {
-      console.error('Error updating configuration:', error);
-      const errorMessage = error.response?.data?.error || 'Failed to update configuration. Please try again.';
-      setErrors({ form: errorMessage });
+      console.error('Error updating config:', error);
+      setErrors({ form: error.response?.data?.error || 'Failed to update.' });
     } finally {
       setIsLoading(false);
     }
   };
 
+  // --- NEW: Handle opening the delete confirmation modal ---
   const handleDelete = () => {
     setShowConfirmModal(true);
   };
@@ -142,17 +239,10 @@ const EditConfigPage = () => {
     setShowConfirmModal(false);
     setIsDeleting(true);
     try {
-      if (!config.config_id) {
-        throw new Error('No valid ID found');
-      }
-
       await apiClient.delete(`/config/${config.config_id}`);
-      
-      navigate('/config_list', { state: { refresh: true, message: 'Assistant deleted successfully.' } });
+      navigate('/config_list', { state: { refresh: true, message: 'Deleted successfully.' } });
     } catch (error) {
-      console.error('Error deleting configuration:', error);
-      const errorMessage = error.response?.data?.error || 'Failed to delete configuration.';
-      setErrors({ form: errorMessage });
+      setErrors({ form: error.response?.data?.error || 'Failed to delete.' });
     } finally {
       setIsDeleting(false);
     }
@@ -164,7 +254,7 @@ const EditConfigPage = () => {
         
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
-            Edit AI Assistant
+            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : 'AI Assistant'}
           </h1>
         </div>
 
@@ -178,256 +268,178 @@ const EditConfigPage = () => {
 
           <form onSubmit={handleSubmit} className="space-y-8">
             
-            {/* Chatbot Name and Model - Grid Layout */}
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div>
-                <label htmlFor="bot_name" className="block text-[13px] font-semibold text-gray-700 mb-1.5">Assistant Name</label>
+                <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">{config.bot_type === 'group_chat' ? 'Group Lobby Name' : 'Assistant Name'}</label>
                 <input
                   type="text"
-                  id="bot_name"
                   name="bot_name"
                   value={config.bot_name || ''}
                   onChange={handleChange}
-                  className={`w-full px-4 py-3 bg-white border ${
-                    errors.bot_name ? 'border-red-500' : 'border-gray-200'
-                  } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
-                  placeholder="My Awesome Assistant"
+                  className={`w-full px-4 py-3 bg-white border ${errors.bot_name ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
                 />
                 {errors.bot_name && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.bot_name}</p>}
               </div>
 
-              <div>
-                <label htmlFor="model_name" className="block text-[13px] font-semibold text-gray-700 mb-1.5">Model Name</label>
-                <select
-                  id="model_name"
-                  name="model_name"
-                  value={config.model_name || ''}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all text-gray-900"
-                >
-                  <option value="deepseek-chat">Deepseek Chat</option>
-                  <option value="gemini-2.5-flash">Gemini 2.5 flash (Fast and accurate)</option>
-                  <option value="gemini-2.5-pro">Gemini 2.5 pro (Advanced reasoning)</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                  <option value="gpt-4">GPT-4</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="gpt-4.1">GPT-4.1 (Fastest, great for TAs)</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="gpt-5-nano">GPT-5-nano (Best reasoning agent)</option>
-                  <option value="qwen-turbo">Qwen Turbo</option>
-                </select>
-                {errors.model_name && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.model_name}</p>}
-              </div>
+              {config.bot_type !== 'group_chat' && (
+                <div>
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Model Name</label>
+                  <select
+                    name="model_name"
+                    value={config.model_name || ''}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
+                  >
+                    {aiModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
 
-            {/* Bot Avatar Selection (UI Icon) */}
+            {/* Avatar Selection Based on Type */}
             <div className="pt-2">
-              <AvatarSelector 
-                selectedAvatar={config.bot_avatar || 'robot'} 
-                onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
-              />
+                <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space / UI Icon</label>
+                {config.bot_type === 'avatar' ? (
+                    <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
+                      {isFetchingAvatars ? (
+                         <p className="text-sm text-gray-400">Loading avatars...</p>
+                      ) : (
+                         heygenAvatars.map((avatar) => (
+                           <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}>
+                               <img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" />
+                           </div>
+                         ))
+                      )}
+                    </div>
+                ) : (
+                    <AvatarSelector 
+                        selectedAvatar={config.bot_avatar} 
+                        onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+                    />
+                )}
             </div>
 
             {/* Introduction */}
             <div>
-              <label htmlFor="introduction" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
-                Introduction
-                <span className="text-gray-400 font-normal ml-1">(Optional)</span>
-              </label>
+              <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction <span className="text-gray-400 font-normal ml-1">(Optional)</span></label>
               <textarea
-                id="introduction"
                 name="introduction"
                 value={config.introduction || ''}
                 onChange={handleChange}
                 rows="2"
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
-                placeholder="e.g., You have been paired and can now begin chatting with your partner"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
               />
-              <p className="mt-2 text-xs font-medium text-gray-500">
-                Custom introduction message shown when starting a new chat. Leave blank to show no message.
-              </p>
             </div>
 
             {/* Public Access Toggle */}
             <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
               <div className="flex items-center justify-between">
                 <div>
-                  <label htmlFor="is_public" className="block text-[13px] font-bold text-gray-800 mb-0.5">
-                    Public Access
-                  </label>
-                  <p className="text-xs text-gray-500 font-medium">Allow anyone with the link to chat without logging in</p>
+                  <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Public Access</label>
+                  <p className="text-xs text-gray-500 font-medium">Allow anyone with the link to access this space</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    id="is_public"
-                    name="is_public"
-                    className="sr-only peer"
-                    checked={!!config.is_public}
-                    onChange={handleChange}
-                  />
-                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-[#F9D0C4] peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                  <input type="checkbox" name="is_public" className="sr-only peer" checked={!!config.is_public} onChange={handleChange} />
+                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
                 </label>
               </div>
             </div>
 
-            {/* Prompt Mode Selection */}
-            <div className="space-y-4 border-t border-gray-100 pt-8 mt-8">
-              <label className="block text-[13px] font-semibold text-gray-700">Configuration Method</label>
-              <div className="flex space-x-3 w-fit">
-                <button
-                  type="button"
-                  onClick={() => handlePromptModeChange('instructions')}
-                  className={`px-5 py-2 text-sm rounded-lg transition-all border ${
-                    promptMode === 'instructions' 
-                    ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold shadow-sm' 
-                    : 'bg-white border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium'
-                  }`}
-                >
-                  Simple Instructions
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePromptModeChange('template')}
-                  className={`px-5 py-2 text-sm rounded-lg transition-all border ${
-                    promptMode === 'template' 
-                    ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold shadow-sm' 
-                    : 'bg-white border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium'
-                  }`}
-                >
-                  Advanced Template
-                </button>
-              </div>
-
-              {promptMode === 'instructions' ? (
-                <div>
-                  <textarea
-                    name="instructions"
-                    value={config.instructions || ''}
-                    onChange={handleChange}
-                    rows="5"
-                    className={`w-full px-4 py-3 mt-2 bg-white border ${
-                      errors.instructions ? 'border-red-500' : 'border-gray-200'
-                    } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
-                    placeholder="Enter instructions for the bot..."
-                  />
-                  {errors.instructions && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.instructions}</p>}
+            {/* CONDITIONAL LOGIC: Group Chat vs Standard */}
+            {config.bot_type === 'group_chat' ? (
+              <div className="border-t border-gray-100 pt-8 mt-8 space-y-6">
+                <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Matchmaking Rules</h3>
+                <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                  <div>
+                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Target Size</span><span className="text-[#FA6C43] font-bold">{config.group_size}</span></label>
+                    <input type="range" name="group_size" min="2" max="10" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Duration</span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
+                    <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  </div>
                 </div>
-              ) : (
-                <div>
-                  <textarea
-                    name="prompt_template"
-                    value={config.prompt_template || ''}
-                    onChange={handleChange}
-                    rows="5"
-                    className={`w-full px-4 py-3 mt-2 bg-white border ${
-                      errors.prompt_template ? 'border-red-500' : 'border-gray-200'
-                    } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
-                    placeholder="Enter prompt template..."
-                  />
-                  {errors.prompt_template && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.prompt_template}</p>}
+
+                <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mt-6"><FaRobot className="mr-2 text-[#FA6C43]"/> AI Agents</h3>
+                {config.bots.map((bot, index) => {
+                   const noTemp = bot.model_name?.includes('gpt-5') || bot.model_name?.includes('gemini');
+                   return (
+                    <div key={index} className="bg-white p-5 rounded-2xl border-2 border-gray-100 shadow-sm relative">
+                        {config.bots.length > 1 && (
+                            <button type="button" onClick={() => removeBot(index)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-50 hover:bg-red-50 p-1.5 rounded-lg"><FaTrash/></button>
+                        )}
+                        <div className="grid grid-cols-2 gap-4 mb-4 pr-8">
+                            <div>
+                                <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Agent Name</label>
+                                <input type="text" value={bot.name} onChange={(e) => handleBotChange(index, 'name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]" />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Model</label>
+                                <select value={bot.model_name} onChange={(e) => handleBotChange(index, 'model_name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]">
+                                    {aiModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">System Prompt</label>
+                            <textarea value={bot.prompt} onChange={(e) => handleBotChange(index, 'prompt', e.target.value)} rows="2" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43] resize-none" />
+                        </div>
+                        <div>
+                            <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
+                                <span>Temperature</span>
+                                {noTemp ? <span>Auto-managed</span> : <span className="text-[#FA6C43] font-bold">{bot.temperature}</span>}
+                            </label>
+                            {!noTemp && <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />}
+                        </div>
+                    </div>
+                   )
+                })}
+                <button type="button" onClick={addBot} className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-2xl hover:text-[#FA6C43] hover:border-[#FA6C43] font-bold text-sm flex justify-center"><FaPlus className="mr-2 mt-0.5"/> Add Agent</button>
+              </div>
+            ) : (
+              // Standard AI Settings
+              <>
+                <div className="space-y-4 border-t border-gray-100 pt-8 mt-8">
+                  <div className="flex space-x-3 w-fit">
+                    <button type="button" onClick={() => handlePromptModeChange('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Simple Instructions</button>
+                    <button type="button" onClick={() => handlePromptModeChange('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Advanced Template</button>
+                  </div>
+
+                  <textarea name={promptMode === 'instructions' ? 'instructions' : 'prompt_template'} value={promptMode === 'instructions' ? config.instructions || '' : config.prompt_template || ''} onChange={handleChange} rows="5" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#FA6C43]" placeholder="Instructions..." />
                 </div>
-              )}
-            </div>
 
-            {/* Sliders: Temperature & Timeout */}
-            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
-              <div>
-                <label htmlFor="temperature" className="block text-[13px] font-semibold text-gray-700 mb-3">
-                  Temperature
-                  <span className="text-gray-500 ml-1 font-medium">
-                    ({config.temperature < 0.3 ? 'Precise' : config.temperature < 0.7 ? 'Balanced' : 'Creative'})
-                  </span>
-                </label>
-                <input
-                  id="temperature"
-                  type="range"
-                  name="temperature"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={config.temperature || 0.7}
-                  onChange={handleChange}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]"
-                />
-              </div>
+                <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Temperature ({config.temperature || 0.7})</label>
+                    <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response Timeout ({config.response_timeout || 3}s)</label>
+                    <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout || 3} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  </div>
+                </div>
+              </>
+            )}
 
-              <div>
-                <label htmlFor="response_timeout" className="block text-[13px] font-semibold text-gray-700 mb-3">
-                  Response Timeout
-                  <span className="text-gray-500 ml-1 font-medium">
-                    ({config.response_timeout || 3} second{(config.response_timeout || 3) !== 1 ? 's' : ''})
-                  </span>
-                </label>
-                <input
-                  id="response_timeout"
-                  type="range"
-                  name="response_timeout"
-                  min="1"
-                  max="10"
-                  step="1"
-                  value={config.response_timeout || 3}
-                  onChange={handleChange}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]"
-                />
-              </div>
-            </div>
-
-            {/* Collection Name */}
+            {/* Collection Name & File Management (Same for all types) */}
             <div>
-              <label htmlFor="collection_name" className="block text-[13px] font-semibold text-gray-700 mb-1.5">Collection Name</label>
-              <input
-                type="text"
-                id="collection_name"
-                name="collection_name"
-                value={config.collection_name || ''}
-                onChange={handleChange}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
-                placeholder="e.g., company-docs-2024"
-              />
+              <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">RAG Collection Name</label>
+              <input type="text" name="collection_name" value={config.collection_name || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" />
             </div>
 
-            {/* File Management */}
             <div className="border-t border-gray-100 pt-8 mt-8">
               <label className="block text-[13px] font-semibold text-gray-700 mb-2">Knowledge Base Files</label>
-
-              {/* Display existing files from the server */}
+              
               {config.documents && config.documents.length > 0 && (
                 <div className="mt-3 space-y-2">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Currently Uploaded</h4>
                   <ul className="space-y-2">
                     {config.documents.map((fileName) => (
-                      <li key={fileName} className="flex items-center justify-between bg-white border border-gray-100 shadow-sm p-3 rounded-xl">
-                        <span className="text-sm font-medium text-gray-700 flex items-center">
-                          <div className="p-2 bg-[#F0F6FB] rounded-lg text-blue-500 mr-3">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                             </svg>
-                          </div>
-                          {fileName}
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            type="button"
-                            onClick={() => handleViewDocument(fileName)}
-                            className="text-blue-500 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors"
-                            title="View Document"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDocument(fileName)}
-                            className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                            title="Remove Document"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
+                      <li key={fileName} className="flex items-center justify-between bg-white border border-gray-100 p-3 rounded-xl">
+                        <span className="text-sm font-medium text-gray-700 flex items-center"><div className="p-2 bg-[#F0F6FB] rounded-lg text-blue-500 mr-3"><FaInfoCircle/></div>{fileName}</span>
+                        <div className="flex space-x-2">
+                          <button type="button" onClick={() => handleViewDocument(fileName)} className="text-blue-500 p-2"><FaInfoCircle/></button>
+                          <button type="button" onClick={() => handleRemoveDocument(fileName)} className="text-gray-400 hover:text-red-500 p-2"><FaTrash/></button>
                         </div>
                       </li>
                     ))}
@@ -435,143 +447,58 @@ const EditConfigPage = () => {
                 </div>
               )}
 
-              {/* Display newly added files */}
               {newFiles.length > 0 && (
                 <div className="mt-6 space-y-2">
                   <h4 className="text-xs font-bold text-[#FA6C43] uppercase tracking-wider mb-3">Pending Upload</h4>
                   <ul className="space-y-2">
                     {newFiles.map((file) => (
-                      <li key={file.name} className="flex items-center justify-between bg-white border border-[#FA6C43]/30 shadow-sm p-3 rounded-xl">
-                        <span className="text-sm font-medium text-gray-700 flex items-center">
-                           <div className="p-2 bg-[#F9D0C4]/30 rounded-lg text-[#FA6C43] mr-3">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                             </svg>
-                          </div>
-                          {file.name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveNewFile(file.name)}
-                          className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                      <li key={file.name} className="flex items-center justify-between bg-white border border-[#FA6C43]/30 p-3 rounded-xl">
+                        <span className="text-sm font-medium text-gray-700">{file.name}</span>
+                        <button type="button" onClick={() => handleRemoveNewFile(file.name)} className="text-gray-400 hover:text-red-500 p-2"><FaTrash/></button>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              {/* File upload area */}
-              <label htmlFor="file-upload" className="mt-6 flex flex-col items-center justify-center px-6 pt-8 pb-8 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer border-gray-300 hover:border-[#FA6C43]/50 bg-gray-50">
-                <div className="text-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-8 w-8 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  <p className="text-sm font-medium text-gray-600">
-                    Drag & drop files or click to browse
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1.5">Supports: TXT, PDF, DOCX, MD (Max 500MB each)</p>
-                </div>
-                <input
-                  id="file-upload"
-                  type="file"
-                  multiple
-                  onChange={handleFileChange}
-                  className="hidden"
-                  accept=".txt,.pdf,.md,.docx"
-                />
+              <label className="mt-6 flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#FA6C43]/50 bg-gray-50">
+                <span className="text-sm font-medium text-gray-600">Drag & drop files or click to browse</span>
+                <input type="file" multiple onChange={handleFileChange} className="hidden" accept=".txt,.pdf,.md,.docx" />
               </label>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-4 pt-8 mt-4 border-t border-gray-100">
-              
-              {/* Delete Button - aligned left on desktop */}
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isDeleting || isLoading}
-                className="w-full sm:w-auto flex justify-center items-center py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed border border-red-200"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                {isDeleting ? 'Deleting...' : 'Delete Assistant'}
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-4 pt-8 border-t border-gray-100">
+              <button type="button" onClick={handleDelete} disabled={isDeleting || isLoading} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200">
+                {isDeleting ? 'Deleting...' : 'Delete Space'}
               </button>
-
-              {/* Cancel and Save Buttons - grouped on the right */}
-              <div className="flex flex-col-reverse sm:flex-row items-center gap-3 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={navigateToThisAgentChat}
-                  className="w-full sm:w-auto flex items-center justify-center py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.98]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLoading || isDeleting}
-                  className={`w-full sm:w-auto flex justify-center items-center py-3.5 px-6 border border-transparent rounded-xl shadow-sm font-bold transition-all active:scale-[0.98] disabled:opacity-50 ${
-                    isLoading || isDeleting
-                    ? 'bg-[#F9D0C4] text-[#FA6C43] cursor-not-allowed'
-                    : 'bg-[#FA6C43] hover:bg-[#E55B34] text-white'
-                  }`}
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                      </svg>
-                      Save Changes
-                    </>
-                  )}
+              <div className="flex gap-3 w-full sm:w-auto">
+                <button type="button" onClick={navigateToThisAgentChat} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
+                <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">
+                  {isLoading ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>
+
           </form>
         </div>
       </div>
 
-      {/* Delete Confirmation Modal (Also updated styling) */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-[#222] mb-3">Confirm Deletion</h3>
-            <p className="text-gray-600 font-medium mb-8 leading-relaxed">
-              Are you sure you want to permanently delete <span className="font-bold text-gray-900">{config.bot_name}</span>? This action cannot be undone.
-            </p>
-            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="w-full sm:w-auto py-3 px-5 rounded-xl font-bold border-2 border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDelete}
-                className="w-full sm:w-auto py-3 px-5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-colors shadow-sm"
-              >
-                Delete
-              </button>
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full mx-4">
+            <h3 className="text-xl font-bold mb-3">Confirm Deletion</h3>
+            <p className="text-gray-600 mb-8">Are you sure you want to permanently delete {config.bot_name}? This action cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setShowConfirmModal(false)} className="py-3 px-5 rounded-xl font-bold border-2 border-gray-200">Cancel</button>
+              <button type="button" onClick={confirmDelete} className="py-3 px-5 rounded-xl font-bold text-white bg-red-600">Delete</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Toast Notification */}
       {showNotification && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white font-medium px-6 py-3 rounded-xl shadow-xl transition-all duration-300 z-50">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white font-medium px-6 py-3 rounded-xl shadow-xl z-50">
           {notificationMessage}
         </div>
       )}

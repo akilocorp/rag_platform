@@ -41,8 +41,16 @@ const ReportBugModal = ({ isOpen, onClose }) => {
     setError('');
 
     try {
-      // Assuming you have an endpoint for this. Adjust the URL as needed.
-      await apiClient.post('/report-bug', formData);
+      // Map frontend state to match the backend expectations
+      const payload = {
+        title: `Issue in category: ${formData.category}`, 
+        description: formData.description,
+        steps: formData.stepsToReproduce,
+        severity: 'normal' 
+      };
+
+      // Call the new Blueprint route
+      await apiClient.post('/bugs/report', payload);
       setIsSuccess(true);
     } catch (err) {
       console.error('Error reporting bug:', err);

@@ -14,6 +14,7 @@ import EmailVerificationPage from './pages/EmailVerification';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
+import GroupChatPage from './pages/GroupChatPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -39,6 +40,7 @@ function App() {
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/group-chat/:configId" element={<GroupChatPage />}/>
 
           {/* Chat Routes (Handled by PublicChatRoute to determine if auth is needed) */}
           <Route element={<PublicChatRoute />}>
