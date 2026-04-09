@@ -1,6 +1,9 @@
+import logging
 import os
 from typing import Optional, Dict, List
 from flask import current_app
+
+logger = logging.getLogger(__name__)
 
 # --- LangChain Imports ---
 from langchain_openai import ChatOpenAI
@@ -126,7 +129,22 @@ room_bot_registry: Dict[str, Dict[str, ChatBot]] = {}
 
 def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Optional[str]:
     """Decides which bot should speak using a fast routing model."""
-    if not bots_config: return None
+    if not bots_config:
+        return None
+
+    # No OpenAI call needed — avoids extra failures when the router model is unavailable (e.g. region block).
+    if len(bots_config) == 1:
+        return bots_config[0].get("name")
+
+    text_lower = (user_text or "").strip().lower()
+    # @Name or explicit mention of a persona name
+    for bot in bots_config:
+        name = (bot.get("name") or "").strip()
+        if not name:
+            continue
+        nlow = name.lower()
+        if text_lower.startswith("@" + nlow) or text_lower.startswith("@" + nlow.replace(" ", "_")):
+            return name
 
     persona_list = "\n".join([f"- {b['name']}: {b['prompt']}" for b in bots_config])
 
@@ -172,7 +190,7 @@ def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Opti
                 return bot['name']
         return None
     except Exception as e:
-        print(f"❌ Intent Analysis Error: {e}")
+        logger.warning("Intent router LLM failed: %s", e)
         return None
 
 def get_or_create_bot(room_id: str, bot_config: Dict) -> ChatBot:

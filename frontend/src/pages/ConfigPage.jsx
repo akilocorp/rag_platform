@@ -146,7 +146,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     rag_files: [],
     collection_name: '',
     is_public: false,
-    bot_avatar: '',
+    bot_avatar: 'robot',
     introduction: '',
     // Group Chat Specifics
     group_size: 3,
@@ -315,7 +315,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
     } catch (error) {
       console.error('Config error:', error);
-      setErrors({ form: error.response?.data?.error || 'An unexpected error occurred' });
+      const d = error.response?.data;
+      const apiMsg = d && (d.error || d.message || d.msg);
+      setErrors({ form: apiMsg || error.message || 'An unexpected error occurred' });
     } finally {
       setIsLoading(false);
     }
@@ -383,6 +385,17 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     </label>
                   </div>
                 </div>
+
+                {config.bot_type === 'group_chat' && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <AvatarSelector
+                      selectedAvatar={config.bot_avatar}
+                      onSelect={(avatarId) => setConfig((prev) => ({ ...prev, bot_avatar: avatarId }))}
+                      label="Lobby / Space Icon"
+                      hint="Shown in your agent list and at the top of this group space."
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -531,18 +544,26 @@ const ConfigModal = ({ isOpen, onClose }) => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                <div>
-                  <label className="block text-[13px] font-semibold text-gray-700 mb-2">Lobby / Space Icon</label>
-                  {config.bot_type === 'avatar' ? (
-                    <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
-                      {heygenAvatars.map((avatar) => (
-                        <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}><img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" /></div>
-                      ))}
-                    </div>
-                  ) : (
-                    <AvatarSelector selectedAvatar={config.bot_avatar} onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))} />
-                  )}
-                </div>
+                {config.bot_type !== 'group_chat' && (
+                  <div>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-2">
+                      {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}
+                    </label>
+                    {config.bot_type === 'avatar' ? (
+                      <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
+                        {heygenAvatars.map((avatar) => (
+                          <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}><img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" /></div>
+                        ))}
+                      </div>
+                    ) : (
+                      <AvatarSelector
+                        selectedAvatar={config.bot_avatar}
+                        onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+                        label={null}
+                      />
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction Message</label>

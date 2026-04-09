@@ -149,12 +149,12 @@ def configure_model():
 
         config_json_str = request.form.get('config')
         if not config_json_str:
-            return jsonify({"message": "Missing 'config' part in form data"}), 400
+            return jsonify({"error": "Missing 'config' part in form data", "message": "Missing 'config' part in form data"}), 400
         
         try:
             config_data = json.loads(config_json_str)
         except json.JSONDecodeError:
-            return jsonify({"message": "Invalid JSON in 'config' part"}), 400
+            return jsonify({"error": "Invalid JSON in 'config' part", "message": "Invalid JSON in 'config' part"}), 400
         
         uploaded_files = request.files.getlist('files')
         llm_type = config_data.get('model_name')
@@ -164,11 +164,6 @@ def configure_model():
         bot_type = config_data.get('bot_type', 'chat') 
         group_size = int(config_data.get('group_size', 2))
         group_duration = int(config_data.get('group_duration', 10))
-        bots_json_str = config_data.get('bots', '[]')
-        try:
-            bots_list = json.loads(bots_json_str) if isinstance(bots_json_str, str) else bots_json_str
-        except json.JSONDecodeError:
-            bots_list = [{"name": bot_name, "prompt": final_prompt_template}]
         heygen_avatar_id = config_data.get('heygen_avatar_id', '')
         bot_avatar = config_data.get('bot_avatar', 'robot') 
         introduction = config_data.get('introduction', '') 
@@ -187,8 +182,8 @@ def configure_model():
             # If a full template is provided, use it directly (highest priority)
             final_prompt_template = custom_prompt_template
         elif instructions:
-            # Otherwise, if instructions are provided, build the template
-            starter_template = """You are a helpful AI assistant named '{bot_name}'.
+            # Use f-string so user instructions may contain "{" / "}" without breaking str.format
+            final_prompt_template = f"""You are a helpful AI assistant named '{bot_name}'.
 Your goal is to answer questions accurately based on the context provided.
 
 Follow these specific instructions:
@@ -198,16 +193,22 @@ Based on the context below, please answer the user's question. If the context do
 Context: {{context}}
 Question: {{question}}
 Answer:"""
-            final_prompt_template = starter_template.format(
-                bot_name=bot_name, 
-                instructions=instructions
-            )
         else:
             # If neither is provided, it's an error
             return jsonify({"error": "Missing required field: please provide either 'instructions' or a 'prompt_template'"}), 400
 
-        # --- 4. Validate Other Inputs ---
-        if not all([llm_type, temperature_str]):
+        # --- 4. Parse bots (after prompt template exists for safe fallbacks) ---
+        bots_json_str = config_data.get('bots', '[]')
+        try:
+            bots_list = json.loads(bots_json_str) if isinstance(bots_json_str, str) else (bots_json_str or [])
+            if not isinstance(bots_list, list):
+                bots_list = []
+        except json.JSONDecodeError:
+            logger.warning("Invalid JSON in bots; defaulting to empty list")
+            bots_list = []
+
+        # --- 5. Validate Other Inputs (0 is valid temperature — do not use truthiness) ---
+        if llm_type is None or str(llm_type).strip() == "" or temperature_str is None:
             return jsonify({"error": "Missing required fields: llm_type or temperature"}), 400
         
         try:
@@ -217,7 +218,7 @@ Answer:"""
         except (ValueError, TypeError):
             return jsonify({"error": "Temperature must be a number between 0.0 and 2.0"}), 400
 
-        # --- 5. Handle File Uploads ---
+        # --- 6. Handle File Uploads ---
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         temp_file_paths = []
         for file in uploaded_files:
@@ -230,7 +231,7 @@ Answer:"""
             elif file and file.filename:
                 current_app.logger.warning(f"File type not allowed for {file.filename}, skipping.")
 
-        # --- 6. Save Configuration to MongoDB ---
+        # --- 7. Save Configuration to MongoDB ---
         mongo_collection = Config
 
         # Get the filenames of uploaded files
@@ -260,7 +261,7 @@ Answer:"""
         config_id = result.inserted_id
         config_document['_id'] = str(config_id)
 
-        # --- 7. Process Files ---
+        # --- 8. Process Files ---
         if temp_file_paths:
             # Use the provided collection name, or generate one if it's empty
             final_collection_name = collection_name if collection_name else f"config_{config_id}"

@@ -298,23 +298,31 @@ const EditConfigPage = () => {
 
             {/* Avatar Selection Based on Type */}
             <div className="pt-2">
-                <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space / UI Icon</label>
                 {config.bot_type === 'avatar' ? (
-                    <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
-                      {isFetchingAvatars ? (
-                         <p className="text-sm text-gray-400">Loading avatars...</p>
-                      ) : (
-                         heygenAvatars.map((avatar) => (
-                           <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}>
-                               <img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" />
-                           </div>
-                         ))
-                      )}
-                    </div>
+                    <>
+                      <label className="block text-[13px] font-semibold text-gray-700 mb-2">Video Avatar</label>
+                      <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
+                        {isFetchingAvatars ? (
+                           <p className="text-sm text-gray-400">Loading avatars...</p>
+                        ) : (
+                           heygenAvatars.map((avatar) => (
+                             <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}>
+                                 <img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" />
+                             </div>
+                           ))
+                        )}
+                      </div>
+                    </>
                 ) : (
-                    <AvatarSelector 
-                        selectedAvatar={config.bot_avatar} 
+                    <AvatarSelector
+                        selectedAvatar={config.bot_avatar}
                         onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+                        label={config.bot_type === 'group_chat' ? 'Lobby / Space Icon' : 'Bot Avatar'}
+                        hint={
+                          config.bot_type === 'group_chat'
+                            ? 'Shown in your list and at the top of this group space.'
+                            : undefined
+                        }
                     />
                 )}
             </div>

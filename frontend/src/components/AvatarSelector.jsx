@@ -59,7 +59,13 @@ const colorClasses = {
   emerald: 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 ring-emerald-500',
 };
 
-const AvatarSelector = ({ selectedAvatar, onSelect }) => {
+const AvatarSelector = ({
+  selectedAvatar,
+  onSelect,
+  /** Default "Bot Avatar"; pass null or "" to hide the title row (e.g. when parent provides a label) */
+  label = 'Bot Avatar',
+  hint = "Select an avatar that represents your bot's personality",
+}) => {
   // Normalize the selection so null, undefined, "", and "none" all map to 'none'
   const currentSelection = (!selectedAvatar || selectedAvatar === '' || selectedAvatar === 'none') 
     ? 'none' 
@@ -67,9 +73,11 @@ const AvatarSelector = ({ selectedAvatar, onSelect }) => {
 
   return (
     <div>
-      <label className="block text-[13px] font-semibold text-gray-700 mb-2">
-        Bot Avatar
-      </label>
+      {label != null && label !== '' && (
+        <label className="block text-[13px] font-semibold text-gray-700 mb-2">
+          {label}
+        </label>
+      )}
       <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
         {AVATAR_OPTIONS.map((avatar) => {
           const Icon = avatar.icon;
@@ -92,9 +100,9 @@ const AvatarSelector = ({ selectedAvatar, onSelect }) => {
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-gray-400 font-medium">
-        Select an avatar that represents your bot's personality
-      </p>
+      {hint != null && hint !== '' && (
+        <p className="mt-2 text-xs text-gray-400 font-medium">{hint}</p>
+      )}
     </div>
   );
 };

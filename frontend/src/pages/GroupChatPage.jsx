@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
+import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -113,6 +114,8 @@ const GroupChatPage = () => {
     );
   }
 
+  const LobbyIcon = getBotAvatarIconComponent(config?.bot_avatar);
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div className="relative flex-1 flex flex-col w-full h-full transition-all duration-300">
@@ -124,11 +127,19 @@ const GroupChatPage = () => {
               <FaArrowLeft />
             </button>
             <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
-              <FaUsers className="text-xl" />
+              {LobbyIcon ? <LobbyIcon className="text-xl" /> : <FaUsers className="text-xl" />}
             </div>
-            <div>
-              <h1 className="font-semibold text-[#222] text-base">{config?.bot_name || "Drop-In Space"}</h1>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Live Session Active</p>
+            <div className="min-w-0">
+              <h1 className="font-semibold text-[#222] text-base truncate">{config?.bot_name || "Drop-In Space"}</h1>
+              <div className="mt-1.5 inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 px-3 py-1 shadow-sm ring-1 ring-[#FA6C43]/10">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#FA6C43] opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#FA6C43]" />
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#C2410C]">
+                  Live session active
+                </span>
+              </div>
             </div>
           </div>
         </header>
@@ -140,7 +151,11 @@ const GroupChatPage = () => {
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 opacity-80">
                     <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
-                        <FaUsers className="text-4xl text-[#FA6C43]" />
+                        {LobbyIcon ? (
+                          <LobbyIcon className="text-4xl text-[#FA6C43]" />
+                        ) : (
+                          <FaUsers className="text-4xl text-[#FA6C43]" />
+                        )}
                     </div>
                     <h2 className="text-2xl font-bold text-[#222] mb-2">Welcome to {config?.bot_name}</h2>
                     <p className="text-gray-500">Say hello to get the group talking!</p>

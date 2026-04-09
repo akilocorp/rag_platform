@@ -169,31 +169,41 @@ export const ChatSidebar = ({
         <FiChevronLeft className="w-5 h-5" />
       </button>
       
-      {/* Desktop toggle button */}
-      <button 
-        className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block"
-        onClick={onToggle}
-      >
-        {isCollapsed ? (
-          <FiChevronRight className="w-5 h-5" />
-        ) : (
-          <FiChevronLeft className="w-5 h-5" />
-        )}
-      </button>
-
       <div className="flex flex-col h-full">
-        {/* Header (Fixed) */}
-        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'} mb-8 px-1`}>
+        {/* Header: expanded = logo row + absolute toggle; collapsed = stacked toggle then logo (no overlap in narrow rail) */}
+        <div
+          className={`relative mb-8 px-1 flex ${
+            isCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-start min-h-[2.75rem]'
+          }`}
+        >
+          <button
+            type="button"
+            className={`p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block ${
+              isCollapsed
+                ? 'relative shrink-0'
+                : 'absolute right-2 top-0 mt-4'
+            }`}
+            onClick={onToggle}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? (
+              <FiChevronRight className="w-5 h-5" />
+            ) : (
+              <FiChevronLeft className="w-5 h-5" />
+            )}
+          </button>
           <Link
             to="/config_list"
             onClick={handleLogoClick}
-            className="flex items-center hover:opacity-90 transition-opacity shrink-0"
+            className={`flex items-center justify-center hover:opacity-90 transition-opacity shrink-0 ${
+              isCollapsed ? 'w-full' : ''
+            }`}
             title="ACTR Labs — Agent list"
           >
             <img
               src={logo}
               alt="ACTR Labs"
-              className={`w-auto object-contain ${isCollapsed ? 'h-9 max-w-[3rem]' : 'h-10'}`}
+              className={`w-auto object-contain ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />
           </Link>
         </div>

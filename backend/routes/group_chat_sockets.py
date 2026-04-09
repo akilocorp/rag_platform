@@ -66,13 +66,29 @@ def process_ai_logic(app, room_id, uid, text, socketio):
     """Background task for RAG and AI Generation."""
     with app.app_context():
         try:
-            config_doc = app.config['MONGO_DB']['config_collections'].find_one({"_id": ObjectId(room_id)})
-            if not config_doc or config_doc.get('bot_type') != 'group_chat':
+            # Must use the same collection name as models.config.Config (CONFIG env), not a hard-coded name.
+            config_collection_name = app.config.get("CONFIG")
+            if not config_collection_name:
+                logger.error("CONFIG collection name missing; cannot load group chat config")
                 return
 
-            bots_raw = config_doc.get('bots', [])
-            bots_config = json.loads(bots_raw) if isinstance(bots_raw, str) else bots_raw
-            if not bots_config: return
+            config_doc = app.config["MONGO_DB"][config_collection_name].find_one(
+                {"_id": ObjectId(room_id)}
+            )
+            if not config_doc:
+                logger.warning(f"No config document for room_id={room_id} in collection {config_collection_name}")
+                return
+            if config_doc.get("bot_type") != "group_chat":
+                return
+
+            bots_raw = config_doc.get("bots", [])
+            try:
+                bots_config = json.loads(bots_raw) if isinstance(bots_raw, str) else (bots_raw or [])
+            except json.JSONDecodeError:
+                logger.warning("Invalid bots JSON in config; skipping AI reply")
+                return
+            if not bots_config:
+                return
 
             ctx = get_or_create_context(room_id)
             ctx.add_message(uid, text)
@@ -80,29 +96,53 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             orch_history = ctx.get_context_summary(num_messages=10)
             chosen_bot_name = analyze_intent(text, bots_config, orch_history)
 
-            if chosen_bot_name:
-                bot_cfg = next((b for b in bots_config if b['name'] == chosen_bot_name), None)
-                if bot_cfg:
-                    vector_store = MongoDBAtlasVectorSearch(
-                        collection=app.config['MONGO_DB']['vector_collection'],
-                        embedding=app.config['EMBEDDINGS'],
-                        index_name="vector"
-                    )
-                    
-                    docs = vector_store.similarity_search(
-                        query=text, k=3, pre_filter={"config_id": {"$eq": room_id}}
-                    )
-                    rag_context = "\n\n".join(d.page_content for d in docs)
+            # Orchestrator often returns NONE for generic greetings; still reply with a default lobby agent.
+            if not chosen_bot_name:
+                chosen_bot_name = bots_config[0].get("name")
 
-                    bot_instance = get_or_create_bot(room_id, bot_cfg)
-                    full_summary = ctx.get_context_summary(num_messages=20)
-                    
-                    reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
-                    
-                    if reply:
-                        ctx.add_message(bot_instance.name, reply)
-                        socketio.sleep(1) # Slight natural delay
-                        socketio.emit('message', {'sender': bot_instance.name, 'text': reply}, room=room_id)
+            bot_cfg = next((b for b in bots_config if b.get("name") == chosen_bot_name), None)
+            if not bot_cfg:
+                bot_cfg = bots_config[0]
+
+            rag_context = ""
+            try:
+                vector_store = MongoDBAtlasVectorSearch(
+                    collection=app.config["MONGO_DB"]["vector_collection"],
+                    embedding=app.config["EMBEDDINGS"],
+                    index_name="vector",
+                )
+                docs = vector_store.similarity_search(
+                    query=text, k=3, pre_filter={"config_id": {"$eq": room_id}}
+                )
+                rag_context = "\n\n".join(d.page_content for d in docs)
+            except Exception as rag_err:
+                logger.warning(f"RAG search skipped for group chat: {rag_err}")
+
+            bot_instance = get_or_create_bot(room_id, bot_cfg)
+            full_summary = ctx.get_context_summary(num_messages=20)
+
+            reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
+
+            if reply:
+                ctx.add_message(bot_instance.name, reply)
+                socketio.sleep(1)
+                socketio.emit(
+                    "message",
+                    {"sender": bot_instance.name, "text": reply},
+                    room=room_id,
+                )
+            else:
+                # e.g. OpenAI 403 unsupported_country_region_territory — user sees silence otherwise
+                err_text = (
+                    "无法生成 AI 回复：模型接口返回错误（常见于当前地区不可用 OpenAI、密钥无效或网络问题）。"
+                    "请在「编辑配置」里为该智能体选择你所在地区可用的模型（例如 DeepSeek、Gemini、通义千问），"
+                    "或确认已配置对应 API Key。"
+                )
+                socketio.emit(
+                    "message",
+                    {"sender": "System", "text": err_text},
+                    room=room_id,
+                )
 
         except Exception as e:
             logger.error(f"❌ AI Logic Error: {e}", exc_info=True)
