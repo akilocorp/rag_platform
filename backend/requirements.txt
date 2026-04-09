@@ -20,4 +20,5 @@ dashscope
 docx2txt
 PyPDF2
 pypdf
+Flask-SocketIO
 
