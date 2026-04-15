@@ -22,8 +22,9 @@ const GroupChatPage = () => {
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  
+
   const userIdRef = useRef(null);
+  const phaseRef = useRef('loading'); // mirrors phase state for use inside socket closures
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage
   const resolveUid = async () => {
@@ -75,9 +76,11 @@ const GroupChatPage = () => {
         socketRef.current = io("/", { path: "/socket.io" });
         const socket = socketRef.current;
 
-        // Wait for connection, then enter the matchmaking queue
+        // Wait for connection, then enter the matchmaking queue.
+        // Guard against reconnects firing join_queue while already in chat.
         socket.on('connect', () => {
-          console.log("🟢 Connected to Socket! Joining queue...");
+          console.log("🟢 Connected to Socket! Phase:", phaseRef.current);
+          if (phaseRef.current === 'chat') return;
           socket.emit('join_queue', {
             uid: userIdRef.current,
             config_id: configId
@@ -123,6 +126,9 @@ const GroupChatPage = () => {
       if (socketRef.current) socketRef.current.disconnect();
     };
   }, [configId]);
+  // Keep phaseRef in sync so socket closures always see the current phase
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -45,6 +45,13 @@ def register_socket_events(socketio, app):
         except Exception as e:
             logger.warning(f"Could not load group_size for config {config_id}: {e}")
 
+        # If user already has a matched room (e.g. socket reconnected), skip re-queueing
+        existing_room = match_manager.get_room_for_user(uid)
+        if existing_room:
+            logger.info(f"🔁 {uid} reconnected, already in room {existing_room}")
+            emit('match_found', {'room_id': existing_room}, to=request.sid)
+            return
+
         room_id, matched_uids = match_manager.join_queue(config_id, uid, group_size)
 
         if room_id is None:
