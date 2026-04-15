@@ -21,26 +21,55 @@ const GroupChatPage = () => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   
-  // Create a persistent username (In a real app, pull from JWT user profile)
-  const userIdRef = useRef(`User_${Math.random().toString(36).substring(2, 6).toUpperCase()}`); 
+  const userIdRef = useRef(null);
 
-  // 1. Fetch Config & Connect Socket
-  
-  
+  // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage
+  const resolveUid = async () => {
+    const token = getToken();
+    if (token) {
+      try {
+        const res = await axios.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        const id = res.data?.user_id || res.data?.id || res.data?.email;
+        if (id) {
+          localStorage.setItem('group_chat_uid', String(id));
+          return String(id);
+        }
+      } catch {}
+    }
+    const qualtricsId = window.ragChatConfig?.responseId;
+    if (qualtricsId && !qualtricsId.includes('${')) {
+      const qid = `Q_${qualtricsId}`;
+      localStorage.setItem('group_chat_uid', qid);
+      return qid;
+    }
+    // Fall back to whatever is already stored, or generate a new random ID
+    let stored = localStorage.getItem('group_chat_uid');
+    if (!stored) {
+      stored = `User_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      localStorage.setItem('group_chat_uid', stored);
+    }
+    return stored;
+  };
+
   // 1. Fetch Config & Connect Socket
   useEffect(() => {
     let isMounted = true;
-    
+
     const initSpace = async () => {
       try {
         const token = getToken();
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const response = await axios.get(`/api/config/${configId}`, { headers });
-        
-        if (!isMounted) return;
-        setConfig(response.data.config);
 
-        // Connect Socket & Force WebSocket transport for better stability
+        const [configResponse, uid] = await Promise.all([
+          axios.get(`/api/config/${configId}`, { headers }),
+          resolveUid()
+        ]);
+
+        if (!isMounted) return;
+        userIdRef.current = uid;
+        setConfig(configResponse.data.config);
+
+        // Connect Socket
         socketRef.current = io("/", { path: "/socket.io" });
         const socket = socketRef.current;
 
