@@ -15,7 +15,9 @@ const GroupChatPage = () => {
   const [config, setConfig] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [isReady, setIsReady] = useState(false);
+  const [phase, setPhase] = useState('loading'); // 'loading' | 'waiting' | 'chat'
+  const [queuePosition, setQueuePosition] = useState(null);
+  const [roomId, setRoomId] = useState(null);
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -73,16 +75,31 @@ const GroupChatPage = () => {
         socketRef.current = io("/", { path: "/socket.io" });
         const socket = socketRef.current;
 
-        // --- NEW FIX: Wait for connection BEFORE emitting ---
+        // Wait for connection, then enter the matchmaking queue
         socket.on('connect', () => {
-          console.log("🟢 Connected to Socket! Joining room...");
-          socket.emit('join_group_chat', {
+          console.log("🟢 Connected to Socket! Joining queue...");
+          socket.emit('join_queue', {
             uid: userIdRef.current,
             config_id: configId
           });
         });
 
-        // Listen for history when dropping in
+        // Still waiting — update queue position and show waiting screen
+        socket.on('queued', (data) => {
+          console.log("⏳ Queued at position", data.position);
+          setQueuePosition(data.position);
+          setPhase('waiting');
+        });
+
+        // Match found — store room_id, load history, enter chat
+        socket.on('match_found', (data) => {
+          console.log("✅ Match found, room:", data.room_id);
+          setRoomId(data.room_id);
+          socket.emit('get_history', { room_id: data.room_id });
+          setPhase('chat');
+        });
+
+        // Listen for history on room join
         socket.on('chat_history', (data) => {
           if (data.messages) {
             setMessages(data.messages.map(m => ({ sender: m.sender, text: m.text })));
@@ -93,8 +110,6 @@ const GroupChatPage = () => {
         socket.on('message', (data) => {
           setMessages(prev => [...prev, { sender: data.sender, text: data.text }]);
         });
-
-        setIsReady(true);
 
       } catch (e) {
         console.error("Failed to load group space", e);
@@ -127,7 +142,7 @@ const GroupChatPage = () => {
     if (!input.trim() || !socketRef.current) return;
 
     socketRef.current.emit('send_message', {
-      config_id: configId,
+      room_id: roomId,
       uid: userIdRef.current,
       text: input
     });
@@ -135,10 +150,42 @@ const GroupChatPage = () => {
     setInput('');
   };
 
-  if (!isReady) {
+  if (phase === 'loading') {
     return (
       <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222]">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
+      </div>
+    );
+  }
+
+  if (phase === 'waiting') {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="flex flex-col items-center gap-6 bg-white rounded-3xl shadow-md border border-gray-100 px-12 py-14 max-w-sm w-full mx-4">
+          {/* Pulsing icon */}
+          <div className="relative flex items-center justify-center w-20 h-20 rounded-3xl bg-[#F9D0C4]/40">
+            <FaUsers className="text-4xl text-[#FA6C43]" />
+            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FA6C43] opacity-60" />
+              <span className="relative inline-flex h-4 w-4 rounded-full bg-[#FA6C43]" />
+            </span>
+          </div>
+
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-[#222] mb-2">Finding your group…</h2>
+            <p className="text-gray-500 text-sm">Waiting for other participants to join.</p>
+          </div>
+
+          {queuePosition !== null && (
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 px-4 py-2 shadow-sm ring-1 ring-[#FA6C43]/10">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#C2410C]">
+                Position in queue: {queuePosition}
+              </span>
+            </div>
+          )}
+
+          <FaSpinner className="animate-spin text-2xl text-[#FA6C43] opacity-60" />
+        </div>
       </div>
     );
   }

@@ -11,46 +11,79 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 
 logger = logging.getLogger(__name__)
 
+# sid ↔ uid mappings so we can target specific users by socket ID
+sid_to_uid: dict = {}
+uid_to_sid: dict = {}
+
 def register_socket_events(socketio, app):
     @socketio.on('connect')
     def handle_connect():
         logger.info(f"✅ SUCCESS: Frontend connected to Socket.IO! SID: {request.sid}")
     # ----------------------------    
-    @socketio.on('join_group_chat')
-    def handle_join_chat(data):
-        """User drops directly into the persistent group chat."""
+    @socketio.on('join_queue')
+    def handle_join_queue(data):
+        """User enters matchmaking queue for a group chat config."""
         uid = data.get('uid')
         config_id = data.get('config_id')
-        
+
         if not config_id or not uid:
             return
-            
-        # The Config ID IS the Room ID. Everyone with this config shares the space.
-        room_id = config_id 
-        
+
+        # Register sid ↔ uid
+        sid_to_uid[request.sid] = uid
+        uid_to_sid[uid] = request.sid
+
+        # Load group_size from config doc (default 2)
+        config_collection_name = app.config.get("CONFIG")
+        group_size = 2
+        try:
+            config_doc = app.config["MONGO_DB"][config_collection_name].find_one(
+                {"_id": ObjectId(config_id)}
+            )
+            if config_doc:
+                group_size = int(config_doc.get("group_size", 2))
+        except Exception as e:
+            logger.warning(f"Could not load group_size for config {config_id}: {e}")
+
+        room_id, matched_uids = match_manager.join_queue(config_id, uid, group_size)
+
+        if room_id is None:
+            # Still waiting — tell this user their position
+            position = match_manager.queue_position(config_id, uid)
+            logger.info(f"⏳ {uid} queued for config {config_id} at position {position}")
+            emit('queued', {'position': position}, to=request.sid)
+        else:
+            # A full group formed — notify every matched user via their sid
+            logger.info(f"✅ Match found: {matched_uids} → room {room_id}")
+            for matched_uid in matched_uids:
+                target_sid = uid_to_sid.get(matched_uid)
+                if target_sid:
+                    socketio.emit('match_found', {'room_id': room_id}, to=target_sid)
+                else:
+                    logger.warning(f"No SID found for matched uid {matched_uid}")
+
+    @socketio.on('get_history')
+    def handle_get_history(data):
+        """Send persisted room history to the user who just matched in."""
+        room_id = data.get('room_id')
+        if not room_id:
+            return
         join_room(room_id)
-        match_manager.create_room(room_id, [uid])
-        logger.info(f"🚪 {uid} dropped into drop-in space {room_id}")
-        
-        # --- Catch the user up on missed messages ---
         ctx = get_or_create_context(room_id)
         if ctx.messages:
-            # request.sid targets ONLY the user who just connected
             emit('chat_history', {'messages': ctx.messages}, to=request.sid)
-
-        # Announce the arrival to everyone else
-        emit('message', {'sender': 'System', 'text': f'{uid} joined the space.'}, room=room_id)
+        logger.info(f"📜 Sent history for room {room_id} to {request.sid}")
 
     @socketio.on('send_message')
     def handle_message(data):
-        room_id = data.get('config_id') # Room ID is Config ID
+        room_id = data.get('room_id')
         uid = data.get('uid')
         text = data.get('text')
-        
+
         if not text or not room_id:
             return
 
-        # 1. Immediate Broadcast to humans
+        # 1. Immediate broadcast to humans in the room
         emit('message', {'sender': uid, 'text': text}, room=room_id)
 
         # 2. Trigger AI background processing
@@ -58,22 +91,27 @@ def register_socket_events(socketio, app):
 
     @socketio.on('disconnect')
     def handle_disconnect():
-        # Clean up memory when they close the tab
-        pass
+        uid = sid_to_uid.pop(request.sid, None)
+        if uid:
+            uid_to_sid.pop(uid, None)
+            match_manager.leave_queue(uid)
+            logger.info(f"🔌 {uid} disconnected and removed from queue")
 
 
 def process_ai_logic(app, room_id, uid, text, socketio):
     """Background task for RAG and AI Generation."""
     with app.app_context():
         try:
-            # Must use the same collection name as models.config.Config (CONFIG env), not a hard-coded name.
+            # room_id format is "{config_id}_{8chars}" — extract the real config_id
+            config_id = room_id.rsplit('_', 1)[0]
+
             config_collection_name = app.config.get("CONFIG")
             if not config_collection_name:
                 logger.error("CONFIG collection name missing; cannot load group chat config")
                 return
 
             config_doc = app.config["MONGO_DB"][config_collection_name].find_one(
-                {"_id": ObjectId(room_id)}
+                {"_id": ObjectId(config_id)}
             )
             if not config_doc:
                 logger.warning(f"No config document for room_id={room_id} in collection {config_collection_name}")
