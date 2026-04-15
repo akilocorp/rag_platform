@@ -41,7 +41,7 @@ const GroupChatPage = () => {
         setConfig(response.data.config);
 
         // Connect Socket & Force WebSocket transport for better stability
-        socketRef.current = io("http://localhost:5000");
+        socketRef.current = io("/", { path: "/socket.io" });
         const socket = socketRef.current;
 
         // --- NEW FIX: Wait for connection BEFORE emitting ---
