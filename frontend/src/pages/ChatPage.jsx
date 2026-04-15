@@ -103,6 +103,7 @@ const ChatPage = () => {
   const messagesEndRef = useRef(null);
   const isStreamingRef = useRef(false); // New: specifically tracks if we are in the middle of a fetch
   const inputRef = useRef(null);
+  const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
 
@@ -282,35 +283,33 @@ const ChatPage = () => {
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
   // --- 6. QUALTRICS INTEGRATION: Send messages to Parent Window ---
   useEffect(() => {
-    // Stop if there are no messages to send
     if (messages.length === 0) return;
 
-    // Get the most recent message
-    const lastMessage = messages[messages.length - 1];
+    // Send all messages that haven't been sent yet (handles user+AI added in same render)
+    const unsent = messages.slice(qualtricsSentCountRef.current);
+    unsent.forEach((msg, i) => {
+      const absoluteIndex = qualtricsSentCountRef.current + i;
 
-    // 1. Send the Message content
-    const payload = {
-      type: "CHAT_MESSAGE",
-      sender: lastMessage.sender, // 'user' or 'ai'
-      content: lastMessage.text,
-      timestamp: new Date().toISOString()
-    };
+      // Skip streaming AI placeholders (empty text, isTyping) — wait for the final update
+      if (msg.sender === 'ai' && (!msg.text || msg.isTyping)) return;
 
-    // Send to parent window (Qualtrics)
-    // We use '*' to ensure it reaches Qualtrics regardless of the specific subdomain
-    window.parent.postMessage(payload, "*");
+      window.parent.postMessage({
+        type: "CHAT_MESSAGE",
+        sender: msg.sender,
+        content: msg.text,
+        timestamp: new Date().toISOString()
+      }, "*");
 
-    // 2. Initialize Config on First Message
-    // This ensures Qualtrics knows which Config ID & Chat ID we are using
-    if (messages.length === 1) {
-       window.parent.postMessage({
-         type: "INIT_RAG_CONFIG",
-         payload: {
-           configId: configId,
-           chatId: currentChatIdRef.current
-         }
-       }, "*");
-    }
+      // Initialize config on the very first message
+      if (absoluteIndex === 0) {
+        window.parent.postMessage({
+          type: "INIT_RAG_CONFIG",
+          payload: { configId, chatId: currentChatIdRef.current }
+        }, "*");
+      }
+
+      qualtricsSentCountRef.current = absoluteIndex + 1;
+    });
 
   }, [messages, configId]); // <--- Runs every time 'messages' changes
 
