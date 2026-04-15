@@ -96,9 +96,9 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             orch_history = ctx.get_context_summary(num_messages=10)
             chosen_bot_name = analyze_intent(text, bots_config, orch_history)
 
-            # Orchestrator often returns NONE for generic greetings; still reply with a default lobby agent.
+            # If orchestrator returns NONE, the message is off-topic — no bot should reply.
             if not chosen_bot_name:
-                chosen_bot_name = bots_config[0].get("name")
+                return
 
             bot_cfg = next((b for b in bots_config if b.get("name") == chosen_bot_name), None)
             if not bot_cfg:

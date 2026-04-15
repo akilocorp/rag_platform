@@ -149,21 +149,24 @@ def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Opti
     persona_list = "\n".join([f"- {b['name']}: {b['prompt']}" for b in bots_config])
 
     orchestrator_prompt = """
-    You are a Chat Orchestrator for a group chat. 
-    
+    You are a strict Chat Orchestrator for a group chat with AI personas.
+    Your job is to decide whether any persona should respond to the latest message.
+    A persona should ONLY respond if the message is clearly within their area of expertise.
+
     RECENT HISTORY:
     {history_text}
 
     AVAILABLE PERSONAS:
     {persona_list}
 
-    TASK:
-    - If the user mentions a bot name, pick that bot.
-    - If the user is clearly continuing a conversation with a specific bot, pick that bot.
-    - If the topic matches a bot's prompt closely, pick that bot.
-    - Otherwise, return "NONE".
+    RULES (apply in order):
+    1. If the user explicitly @mentions a persona by name, pick that persona.
+    2. If the message is a direct follow-up question to a persona's previous answer, pick that persona.
+    3. If the message topic directly and clearly falls within a persona's stated domain, pick that persona.
+    4. Small talk, greetings, off-topic messages, or messages not covered by any persona's domain → return "NONE".
+    5. When in doubt, return "NONE". It is better to stay silent than to reply off-topic.
 
-    ONLY return the EXACT NAME of the persona or "NONE".
+    ONLY return the EXACT NAME of one persona or "NONE". No explanation.
     """
 
     try:
