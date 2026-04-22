@@ -32,8 +32,6 @@ const EditConfigPage = () => {
     { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
     { id: 'gpt-4.1', name: 'GPT-4.1' },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-    { id: 'gpt-5-nano', name: 'GPT-5-nano' },
-    { id: 'qwen-turbo', name: 'Qwen Turbo' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
