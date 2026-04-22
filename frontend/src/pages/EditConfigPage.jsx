@@ -24,6 +24,8 @@ const EditConfigPage = () => {
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
 
   const aiModels = [
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro' },

@@ -18,6 +18,7 @@ def load_secrets():
         "GEMINI_API_KEY",
         "QWEN_API_KEY",
         "DEEPSEEK_API_KEY",
+        "ANTHROPIC_API_KEY",
         "MONGO_DB_NAME",
         "MONGO_COLLECTION_NAME",
         "USERNAME",

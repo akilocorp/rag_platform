@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
+from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -76,6 +77,14 @@ class ChatBot:
             return ChatDeepSeek(
                 model=self.model_name,
                 api_key=current_app.config.get("DEEPSEEK_API_KEY"),
+                **temp_kwargs
+            )
+
+        elif "claude" in model_lower:
+            return ChatAnthropic(
+                model=self.model_name,
+                api_key=current_app.config.get("ANTHROPIC_API_KEY"),
+                max_tokens=500,
                 **temp_kwargs
             )
 

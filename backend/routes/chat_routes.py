@@ -17,6 +17,7 @@ from langchain_core.messages import BaseMessage, message_to_dict
 from bson import ObjectId
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
+from langchain_anthropic import ChatAnthropic
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint('chat_routes', __name__)
@@ -396,6 +397,16 @@ def chat(config_id, chat_id):
                     model=model_name,
                     temperature=temperature,
                     api_key=current_app.config.get("DEEPSEEK_API_KEY"),
+                    streaming=True
+                )
+
+            elif model_name.lower().startswith("claude"):
+                # CASE 3b: Anthropic Claude models
+                llm = ChatAnthropic(
+                    model=model_name,
+                    temperature=temperature,
+                    api_key=current_app.config.get("ANTHROPIC_API_KEY"),
+                    max_tokens=500,
                     streaming=True
                 )
 
