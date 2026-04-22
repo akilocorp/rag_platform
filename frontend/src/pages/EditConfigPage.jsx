@@ -24,8 +24,6 @@ const EditConfigPage = () => {
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
 
   const aiModels = [
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro' },
@@ -35,8 +33,19 @@ const EditConfigPage = () => {
     { id: 'gpt-4.1', name: 'GPT-4.1' },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
     { id: 'gpt-5-nano', name: 'GPT-5-nano' },
-    { id: 'qwen-turbo', name: 'Qwen Turbo' }
+    { id: 'qwen-turbo', name: 'Qwen Turbo' },
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
+
+  // Ensures the <select> always contains the currently-saved id, even if it
+  // predates the canonical list (e.g. legacy "gpt-4o"). Without this, the
+  // browser silently falls back to the first option and onChange stops firing
+  // when the user tries to pick that option.
+  const withCurrent = (currentId) => {
+    if (!currentId || aiModels.some(m => m.id === currentId)) return aiModels;
+    return [{ id: currentId, name: `${currentId} (current)` }, ...aiModels];
+  };
 
   // Initialize Data
   useEffect(() => {
@@ -292,7 +301,7 @@ const EditConfigPage = () => {
                     onChange={handleChange}
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
                   >
-                    {aiModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    {withCurrent(config.model_name).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>
               )}
@@ -386,7 +395,7 @@ const EditConfigPage = () => {
                             <div>
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Model</label>
                                 <select value={bot.model_name} onChange={(e) => handleBotChange(index, 'model_name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]">
-                                    {aiModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    {withCurrent(bot.model_name).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                 </select>
                             </div>
                         </div>
