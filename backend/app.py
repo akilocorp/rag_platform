@@ -21,6 +21,7 @@ from routes.bug_routes import bug_bp # <--- NEW IMPORT
 from routes.config_routes import config_bp
 from routes.chat_routes import chat_bp
 from routes.edit_config_routes import edit_config_bp
+from routes.user_files import user_files_bp
 from routes.group_chat_sockets import register_socket_events
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -77,6 +78,7 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix='/api/auth') 
     app.register_blueprint(config_bp, url_prefix='/api')
     app.register_blueprint(edit_config_bp, url_prefix='/api')
+    app.register_blueprint(user_files_bp, url_prefix='/api')
     app.register_blueprint(bug_bp, url_prefix='/api/bugs')
 
     register_socket_events(socketio, app)

@@ -15,6 +15,7 @@ langchain-community
 langchain-deepseek
 langchain-google-genai
 langchain-anthropic
+boto3
 Werkzeug
 gunicorn
 dashscope

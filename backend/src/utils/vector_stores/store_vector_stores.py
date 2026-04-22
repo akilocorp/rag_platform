@@ -126,3 +126,49 @@ def process_files_and_create_vector_store(temp_file_paths, user_id, collection_n
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
                 current_app.logger.info(f"Cleaned up temporary upload file: {temp_file_path}")
+
+
+def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, filename, source_file_id):
+    """
+    Ingests a single user-uploaded file into the personal-library namespace.
+
+    Chunks are tagged with config_id = f"user:{user_id}" so the existing Atlas
+    vector index (which filters on config_id) can serve both config-scoped and
+    user-scoped retrieval without schema changes.
+
+    The caller owns the tmp file lifecycle — this function does NOT delete it,
+    so the caller can still ship the original to S3 after a successful ingest.
+    """
+    try:
+        db = current_app.config['MONGO_DB']
+        mongo_collection = db['vector_collection']
+
+        loader = get_document_loader(temp_file_path)
+        if not loader:
+            return False
+
+        pages = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+        splits = splitter.split_documents(pages)
+        if not splits:
+            return False
+
+        for split in splits:
+            split.metadata['user_id'] = user_id
+            split.metadata['config_id'] = f"user:{user_id}"
+            split.metadata['owner_user_id'] = user_id
+            split.metadata['scope'] = 'user'
+            split.metadata['source_file_id'] = str(source_file_id)
+            split.metadata['folder_path'] = folder_path or ''
+            split.metadata['original_file'] = filename
+
+        MongoDBAtlasVectorSearch.from_documents(
+            documents=splits,
+            embedding=current_app.config['EMBEDDINGS'],
+            collection=mongo_collection,
+            index_name="vector"
+        )
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Error ingesting user file {filename}: {e}")
+        return False

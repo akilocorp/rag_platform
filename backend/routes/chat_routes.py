@@ -313,11 +313,17 @@ def chat(config_id, chat_id):
     def generate():
         try:
             # -- STEP A: VECTOR RETRIEVAL --
+            # Pull both the config-owner's baseline docs and the caller's personal
+            # library. User-library chunks are stored with a synthetic
+            # config_id = f"user:{user_id}" so the existing Atlas filter works.
             vector_store = get_vector_store()
+            config_ids = [config_id]
+            if user_id_for_history and user_id_for_history != "anonymous":
+                config_ids.append(f"user:{user_id_for_history}")
             docs = vector_store.similarity_search(
                 query=user_input,
-                k=3,
-                pre_filter={"config_id": {"$eq": config_id}}
+                k=5 if len(config_ids) > 1 else 3,
+                pre_filter={"config_id": {"$in": config_ids}}
             )
 
             # Send Sources immediately
