@@ -1,46 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { 
-  FiMessageSquare, 
-  FiPlus, 
-  FiSettings, 
+import {
+  FiPlus,
   FiClock,
   FiChevronRight,
   FiChevronLeft,
-  FiLoader,
+  FiHome,
   FiUser,
   FiLogOut,
   FiMoreHorizontal,
-  FiDownload
+  FiDownload,
+  FiFolder,
+  FiMessageSquare,
 } from 'react-icons/fi';
 import { RiRobot2Line } from 'react-icons/ri';
 import { FaSpinner } from 'react-icons/fa';
 import logo from '../assets/logo.png';
+import FilesPanel from './FilesPanel.jsx';
 
-export const ChatSidebar = ({ 
-  sessions = [], 
+export const ChatSidebar = ({
+  sessions = [],
   sessionsLoading = false,
   userInfo = null,
   userInfoLoaded = false,
-  configId, 
-  isCollapsed, 
-  onClose, 
+  configId,
+  isCollapsed,
+  onClose,
   onToggle,
   onNewChat,
   onNavigateWithAutoSave,
-  isPublic
+  isPublic,
+  // Files tab props
+  activeTab = 'chats',
+  onSetTab,
+  currentFolder = '',
+  onSetFolder,
+  libraryFiles = [],
+  libraryFolders = [],
+  filesLoading = false,
+  isUploading = false,
+  uploadError = null,
+  onUpload,
+  onDeleteFile,
+  onCreateFolder,
+  onDeleteFolder,
 }) => {
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = () => {
-      setOpenDropdown(null);
-    };
-    
+    const handleClickOutside = () => setOpenDropdown(null);
     if (openDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
@@ -51,7 +62,6 @@ export const ChatSidebar = ({
     if (onNewChat) {
       e.preventDefault();
       onNewChat();
-      
     }
   };
 
@@ -70,17 +80,16 @@ export const ChatSidebar = ({
     try {
       const response = await apiClient.get(`/history/${sessionId}`);
       const chatHistory = response.data.history;
-      //changess
       let textContent = `Chat History: ${title || 'New Chat'}\n`;
       textContent += `Downloaded on: ${new Date().toLocaleString()}\n`;
       textContent += '='.repeat(50) + '\n\n';
-      
-      chatHistory.forEach((message, index) => {
+
+      chatHistory.forEach((message) => {
         const sender = message.type === 'human' ? 'User' : 'AI';
         const content = message.data?.content || '';
         textContent += `${sender}: ${content}\n\n`;
       });
-      
+
       const blob = new Blob([textContent], { type: 'text/plain' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -90,16 +99,14 @@ export const ChatSidebar = ({
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       setOpenDropdown(null);
     } catch (error) {
       console.error('Error downloading chat:', error);
     }
   };
 
-  const goConfigList = () => {
-    navigate('/config_list');
-  };
+  const goConfigList = () => navigate('/config_list');
 
   const handleLogoClick = (e) => {
     if (onNavigateWithAutoSave) {
@@ -108,89 +115,46 @@ export const ChatSidebar = ({
     }
   };
 
-  const navigateToEditCurrentAgent = async () => {
-    if (!configId) {
-      navigate('/config_list');
-      return;
-    }
-    try {
-      const res = await apiClient.get(`/config/${configId}`);
-      const cfg = res.data.config;
-      const configForEdit = {
-        ...cfg,
-        config_id: cfg.config_id,
-        _id: cfg.config_id,
-        documents: cfg.documents || [],
-      };
-      navigate('/edit-config', { state: { config: configForEdit } });
-    } catch (err) {
-      console.error('Failed to load config for edit:', err);
-      navigate('/config_list');
-    }
-  };
-
-  const handleConfigsClick = (e) => {
+  const handleHomeClick = (e) => {
     e.preventDefault();
-    if (onNavigateWithAutoSave) {
-      onNavigateWithAutoSave(() => {
-        navigateToEditCurrentAgent();
-      });
-    } else {
-      navigateToEditCurrentAgent();
-    }
+    if (onNavigateWithAutoSave) onNavigateWithAutoSave(goConfigList);
+    else goConfigList();
   };
 
-  const menuItems = [
-    {
-      icon: <FiPlus className="w-5 h-5" />,
-      text: 'New Chat',
-      link: `/chat/${configId}`,
-      active: activeChatId === undefined,
-      onClick: handleNewChatClick
-    },
-    {
-      icon: <FiChevronLeft className="w-5 h-5" />,
-      text: 'Configs',
-      link: `/config_list`,
-      active: false,
-      onClick: handleConfigsClick,
-    },
-  ];
+  const switchTab = (tab) => {
+    if (onSetTab) onSetTab(tab);
+  };
 
   return (
-    <aside className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm ${
-      isCollapsed ? 'w-20' : 'w-72'
-    } left-0 top-0 pt-6 pr-2 pl-2`}>
+    <aside
+      className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm ${
+        isCollapsed ? 'w-20' : 'w-72'
+      } left-0 top-0 pt-6 pr-2 pl-2`}
+    >
       {/* Mobile close button */}
-      <button 
+      <button
         className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors md:hidden"
         onClick={onClose}
       >
         <FiChevronLeft className="w-5 h-5" />
       </button>
-      
+
       <div className="flex flex-col h-full">
-        {/* Header: expanded = logo row + absolute toggle; collapsed = stacked toggle then logo (no overlap in narrow rail) */}
+        {/* Header: logo + collapse toggle */}
         <div
-          className={`relative mb-8 px-1 flex ${
+          className={`relative mb-5 px-1 flex ${
             isCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-start min-h-[2.75rem]'
           }`}
         >
           <button
             type="button"
             className={`p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block ${
-              isCollapsed
-                ? 'relative shrink-0'
-                : 'absolute right-2 top-0 mt-4'
+              isCollapsed ? 'relative shrink-0' : 'absolute right-2 top-0 mt-4'
             }`}
             onClick={onToggle}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {isCollapsed ? (
-              <FiChevronRight className="w-5 h-5" />
-            ) : (
-              <FiChevronLeft className="w-5 h-5" />
-            )}
+            {isCollapsed ? <FiChevronRight className="w-5 h-5" /> : <FiChevronLeft className="w-5 h-5" />}
           </button>
           <Link
             to="/config_list"
@@ -208,144 +172,203 @@ export const ChatSidebar = ({
           </Link>
         </div>
 
-        {/* Main Navigation (Fixed) */}
-        <nav className="space-y-2 mb-8">
-          {menuItems.map((item, index) => (
-            <Link
-              key={index}
-              to={item.link}
-              onClick={item.onClick}
-              className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3 px-4'} py-3 rounded-xl transition-all ${
-                item.active
-                  ? 'bg-[#FA6C43] text-white shadow-lg'
-                  : 'hover:bg-[#F0F6FB] text-gray-600 hover:text-[#FA6C43]'
-              }`}
-              title={isCollapsed ? item.text : ''}
+        {/* Home + New Chat row */}
+        {!isCollapsed ? (
+          <div className="flex items-center gap-2 mb-5 px-1">
+            <button
+              onClick={handleHomeClick}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-medium text-[#222] transition-all"
             >
-              <div className={`p-1 rounded-lg ${
-                item.active ? 'bg-white/20' : 'bg-[#F0F6FB]'
-              }`}>
-                {React.cloneElement(item.icon, {
-                  className: `${item.icon.props.className} ${
-                    item.active ? 'text-white' : 'text-gray-500'
-                  }`
-                })}
-              </div>
-              {!isCollapsed && (
-                <span className="text-sm font-medium">{item.text}</span>
-              )}
-            </Link>
-          ))}
-        </nav>
-
-        {/* Scrollable Chat History Section (Hidden when collapsed) */}
-        {!isCollapsed && (
-          <div className="flex-1 overflow-y-auto pr-2">
-            <div className="mb-6">
-              <div className="flex items-center justify-between px-2 mb-4">
-                <h2 className="flex items-center text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  <FiClock className="mr-2" />
-                  Recent Chats
-                </h2>
-                <span className="text-xs text-gray-500">
-                  {sessions.length} {sessions.length === 1 ? 'chat' : 'chats'}
-                </span>
-              </div>
-
-              <div className="space-y-1">
-                {sessionsLoading ? (
-                  <div className="flex items-center justify-center p-6">
-                    <div className="flex flex-col items-center">
-                      <FaSpinner className="animate-spin text-2xl text-[#FA6C43] mb-4" />
-                      <p className="text-gray-400 text-sm">Loading recent chats...</p>
-                    </div>
-                  </div>
-                ) : sessions.length > 0 ? (
-                  sessions.map((session) => (
-                    <div key={session.session_id} className="relative">
-                      <Link
-                        to={`/chat/${configId}/${session.session_id}`}
-                        className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
-                          activeChatId === session.session_id 
-                            ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
-                            : 'hover:bg-[#F0F6FB]'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm truncate ${
-                            activeChatId === session.session_id ? 'text-[#222] font-medium' : 'text-gray-600'
-                          }`}>
-
-                            {session.session_id ? `${session.session_id} - ${session.title}` : "New Chat"}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {new Date(session.timestamp).toLocaleString('default', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                        </div>
-                        <div className="flex items-center space-x-2 pr-8">
-                          <FiChevronRight className="text-gray-500" />
-                        </div>
-                      </Link>
-                      
-                      {/* Three-dot menu */}
-                      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setOpenDropdown(openDropdown === session.session_id ? null : session.session_id);
-                          }}
-                          className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
-                        >
-                          <FiMoreHorizontal className="w-4 h-4" />
-                        </button>
-                        
-                        {/* Dropdown menu */}
-                        {openDropdown === session.session_id && (
-                          <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleDownloadChat(session.session_id, session.title);
-                              }}
-                              className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
-                            >
-                              <FiDownload className="w-4 h-4 flex-shrink-0" />
-                              <span>Download Chat</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center p-4">
-                    <p className="text-gray-500 text-sm">No recent conversations</p>
-                    <Link 
-                      to={`/chat/${configId}`} 
-                      className="text-[#FA6C43] text-xs hover:underline mt-1 inline-block"
-                    >
-                      Start a new chat
-                    </Link>
-                  </div>
-                )}
-              </div>
-            </div>
+              <FiHome className="w-4 h-4 text-gray-500" />
+              Home
+            </button>
+            <button
+              onClick={handleNewChatClick}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white text-sm font-medium transition-all shadow-sm"
+            >
+              <FiPlus className="w-4 h-4" />
+              New Chat
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 mb-5">
+            <button
+              onClick={handleHomeClick}
+              title="Home"
+              className="p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-[#FA6C43] transition-colors"
+            >
+              <FiHome className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleNewChatClick}
+              title="New Chat"
+              className="p-2.5 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white transition-colors"
+            >
+              <FiPlus className="w-4 h-4" />
+            </button>
           </div>
         )}
-        
+
+        {/* Tab bar: Chats / Files */}
+        {!isCollapsed && (
+          <div className="flex items-center gap-1 mb-4 px-1 bg-[#F0F6FB] rounded-xl p-1">
+            <button
+              onClick={() => switchTab('chats')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === 'chats'
+                  ? 'bg-white text-[#222] shadow-sm'
+                  : 'text-gray-500 hover:text-[#222]'
+              }`}
+            >
+              <FiMessageSquare className="w-3.5 h-3.5" />
+              Chats
+            </button>
+            <button
+              onClick={() => switchTab('files')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === 'files'
+                  ? 'bg-white text-[#222] shadow-sm'
+                  : 'text-gray-500 hover:text-[#222]'
+              }`}
+            >
+              <FiFolder className="w-3.5 h-3.5" />
+              Files
+            </button>
+          </div>
+        )}
+
+        {/* Body: tabbed content */}
+        {!isCollapsed && (
+          <div className="flex-1 overflow-y-auto pr-1">
+            {activeTab === 'files' ? (
+              <FilesPanel
+                currentFolder={currentFolder}
+                onSetFolder={onSetFolder}
+                files={libraryFiles}
+                folders={libraryFolders}
+                isLoading={filesLoading}
+                isUploading={isUploading}
+                uploadError={uploadError}
+                onUpload={onUpload}
+                onDeleteFile={onDeleteFile}
+                onCreateFolder={onCreateFolder}
+                onDeleteFolder={onDeleteFolder}
+              />
+            ) : (
+              <div className="mb-6">
+                <div className="flex items-center justify-between px-2 mb-4">
+                  <h2 className="flex items-center text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    <FiClock className="mr-2" />
+                    Recent Chats
+                  </h2>
+                  <span className="text-xs text-gray-500">
+                    {sessions.length} {sessions.length === 1 ? 'chat' : 'chats'}
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  {sessionsLoading ? (
+                    <div className="flex items-center justify-center p-6">
+                      <div className="flex flex-col items-center">
+                        <FaSpinner className="animate-spin text-2xl text-[#FA6C43] mb-4" />
+                        <p className="text-gray-400 text-sm">Loading recent chats...</p>
+                      </div>
+                    </div>
+                  ) : sessions.length > 0 ? (
+                    sessions.map((session) => (
+                      <div key={session.session_id} className="relative">
+                        <Link
+                          to={`/chat/${configId}/${session.session_id}`}
+                          className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+                            activeChatId === session.session_id
+                              ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
+                              : 'hover:bg-[#F0F6FB]'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-sm truncate ${
+                                activeChatId === session.session_id
+                                  ? 'text-[#222] font-medium'
+                                  : 'text-gray-600'
+                              }`}
+                            >
+                              {session.session_id ? `${session.session_id} - ${session.title}` : 'New Chat'}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {new Date(session.timestamp).toLocaleString('default', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2 pr-8">
+                            <FiChevronRight className="text-gray-500" />
+                          </div>
+                        </Link>
+
+                        {/* Three-dot menu */}
+                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setOpenDropdown(
+                                openDropdown === session.session_id ? null : session.session_id,
+                              );
+                            }}
+                            className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
+                          >
+                            <FiMoreHorizontal className="w-4 h-4" />
+                          </button>
+
+                          {openDropdown === session.session_id && (
+                            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDownloadChat(session.session_id, session.title);
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+                              >
+                                <FiDownload className="w-4 h-4 flex-shrink-0" />
+                                <span>Download Chat</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center p-4">
+                      <p className="text-gray-500 text-sm">No recent conversations</p>
+                      <Link
+                        to={`/chat/${configId}`}
+                        className="text-[#FA6C43] text-xs hover:underline mt-1 inline-block"
+                      >
+                        Start a new chat
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* User Profile (Fixed) */}
-        <div className="p-4 ">
-          {userInfoLoaded && (
-            userInfo ? (
+        <div className="p-4">
+          {userInfoLoaded &&
+            (userInfo ? (
               <div className="space-x-4">
-                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3 px-2'} py-3 rounded-lg cursor-pointer transition-colors`}>
+                <div
+                  className={`flex items-center ${
+                    isCollapsed ? 'justify-center' : 'space-x-3 px-2'
+                  } py-3 rounded-lg cursor-pointer transition-colors`}
+                >
                   <div className="w-8 h-8 rounded-full bg-[#F9D0C4]/40 flex items-center justify-center">
                     <FiUser className="text-[#FA6C43]" />
                   </div>
@@ -375,12 +398,15 @@ export const ChatSidebar = ({
                   <div className="text-center mt-2">
                     <p className="text-sm font-medium text-gray-300">Public Chat</p>
                     <p className="text-xs text-gray-500">Viewing as a guest</p>
-                   
                   </div>
                 )}
               </div>
             ) : (
-              <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3 px-2'} py-3 rounded-lg`}>
+              <div
+                className={`flex items-center ${
+                  isCollapsed ? 'justify-center' : 'space-x-3 px-2'
+                } py-3 rounded-lg`}
+              >
                 <div className="w-8 h-8 rounded-full bg-gray-500/10 flex items-center justify-center">
                   <FiUser className="text-gray-400" />
                 </div>
@@ -391,8 +417,7 @@ export const ChatSidebar = ({
                   </div>
                 )}
               </div>
-            )
-          )}
+            ))}
         </div>
       </div>
     </aside>
@@ -400,4 +425,3 @@ export const ChatSidebar = ({
 };
 
 export default ChatSidebar;
-

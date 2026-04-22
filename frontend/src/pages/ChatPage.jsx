@@ -2,10 +2,11 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
+import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
-import ChatSidebar from '../components/SideBar.jsx'; 
-import AvatarView from '../components/AvatarView'; 
-import apiClient from '../api/apiClient'; 
+import ChatSidebar from '../components/SideBar.jsx';
+import AvatarView from '../components/AvatarView';
+import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { marked } from 'marked';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
@@ -96,6 +97,17 @@ const ChatPage = () => {
   const [avatarSession, setAvatarSession] = useState(null);
   const [avatarError, setAvatarError] = useState(false);
 
+  // File Library State
+  const [sidebarTab, setSidebarTab] = useState('chats');
+  const [currentFolder, setCurrentFolder] = useState('');
+  const [libraryFiles, setLibraryFiles] = useState([]);
+  const [libraryFolders, setLibraryFolders] = useState([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [sessionUploads, setSessionUploads] = useState([]);
+  const libraryLoadedRef = useRef(false);
+
   // --- REFS (The "Brain" of the component) ---
   const currentChatIdRef = useRef(chatId); // Tracks the session ID across renders
   const userFetchRef = useRef(false);
@@ -103,6 +115,7 @@ const ChatPage = () => {
   const messagesEndRef = useRef(null);
   const isStreamingRef = useRef(false); // New: specifically tracks if we are in the middle of a fetch
   const inputRef = useRef(null);
+  const attachInputRef = useRef(null);
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
@@ -168,6 +181,101 @@ const ChatPage = () => {
   }, [configId, isAuthenticated]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  // --- 3b. FILE LIBRARY ---
+  const loadLibrary = useCallback(async () => {
+    if (!isAuthenticated) return;
+    setFilesLoading(true);
+    try {
+      const [filesRes, foldersRes] = await Promise.all([
+        apiClient.get('/files'),
+        apiClient.get('/folders'),
+      ]);
+      setLibraryFiles(filesRes.data.files || []);
+      setLibraryFolders((foldersRes.data.folders || []).map((f) => f.path));
+    } catch (e) {
+      console.error('Library fetch failed', e);
+    } finally {
+      setFilesLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || libraryLoadedRef.current) return;
+    libraryLoadedRef.current = true;
+    loadLibrary();
+  }, [isAuthenticated, loadLibrary]);
+
+  const uploadFiles = useCallback(async (fileList, folderPath = currentFolder) => {
+    if (!fileList || fileList.length === 0) return;
+    setIsUploading(true);
+    setUploadError(null);
+    const uploaded = [];
+    try {
+      for (const file of fileList) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('folder_path', folderPath || '');
+        try {
+          const res = await apiClient.post('/files', form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          if (res.data?.file) {
+            uploaded.push(res.data.file);
+            setLibraryFiles((prev) => [res.data.file, ...prev]);
+          }
+        } catch (err) {
+          const msg = err.response?.data?.message || `Failed to upload ${file.name}`;
+          setUploadError(msg);
+        }
+      }
+      if (uploaded.length) {
+        setSessionUploads((prev) => [...prev, ...uploaded]);
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  }, [currentFolder]);
+
+  const deleteLibraryFile = useCallback(async (fileId) => {
+    try {
+      await apiClient.delete(`/files/${fileId}`);
+      setLibraryFiles((prev) => prev.filter((f) => f._id !== fileId));
+      setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
+    } catch (e) {
+      console.error('Delete file failed', e);
+    }
+  }, []);
+
+  const createFolder = useCallback(async (path) => {
+    try {
+      await apiClient.post('/folders', { path });
+      setLibraryFolders((prev) => (prev.includes(path) ? prev : [...prev, path].sort()));
+    } catch (e) {
+      console.error('Create folder failed', e);
+    }
+  }, []);
+
+  const deleteFolder = useCallback(async (folderId) => {
+    try {
+      await apiClient.delete(`/folders/${folderId}`);
+      await loadLibrary();
+    } catch (e) {
+      console.error('Delete folder failed', e);
+    }
+  }, [loadLibrary]);
+
+  const handleAttachPick = () => attachInputRef.current?.click();
+
+  const handleAttachChange = (e) => {
+    const picked = Array.from(e.target.files || []);
+    if (picked.length) uploadFiles(picked, currentFolder);
+    e.target.value = '';
+  };
+
+  const removeFromSession = (fileId) => {
+    setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
+  };
 
   // --- 4. HISTORY LOADER (Guarded) ---
   useEffect(() => {
@@ -327,15 +435,28 @@ const ChatPage = () => {
   return (
     <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isAuthenticated && (
-          <ChatSidebar 
+          <ChatSidebar
               sessions={sessions}
               userInfo={userInfo}
               userInfoLoaded={!!userInfo}
               configId={configId}
-              isCollapsed={isSidebarCollapsed} 
+              isCollapsed={isSidebarCollapsed}
               onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               onNewChat={() => { setMessages([]); navigate(`/chat/${configId}`); }}
               onNavigateWithAutoSave={(cb) => cb()}
+              activeTab={sidebarTab}
+              onSetTab={setSidebarTab}
+              currentFolder={currentFolder}
+              onSetFolder={setCurrentFolder}
+              libraryFiles={libraryFiles}
+              libraryFolders={libraryFolders}
+              filesLoading={filesLoading}
+              isUploading={isUploading}
+              uploadError={uploadError}
+              onUpload={uploadFiles}
+              onDeleteFile={deleteLibraryFile}
+              onCreateFolder={createFolder}
+              onDeleteFolder={deleteFolder}
           />
       )}
 
@@ -417,29 +538,92 @@ const ChatPage = () => {
                 </main>
 
                 <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
-                    <div className="max-w-4xl mx-auto relative flex items-center gap-3">
-                        <textarea
-                            ref={inputRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleTextSend();
-                              }
-                            }}
-                            placeholder="Type a message..."
-                            rows={1}
-                            className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
-                            disabled={isLoading}
-                        />
-                        <button 
-                            onClick={handleTextSend}
-                            disabled={isLoading || !input.trim()}
-                            className="p-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95"
-                        >
-                            {isLoading ? <FaSpinner className="animate-spin text-lg" /> : <FaPaperPlane className="text-lg" />}
-                        </button>
+                    <div className="max-w-4xl mx-auto">
+                        {sessionUploads.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                                {sessionUploads.map((f) => (
+                                    <div
+                                        key={f._id}
+                                        className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222] max-w-xs"
+                                    >
+                                        {f.folder_path ? (
+                                            <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        ) : (
+                                            <FiFile className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                                        )}
+                                        <span className="truncate">
+                                            {f.folder_path ? (
+                                                <>
+                                                    {f.folder_path.split('/').map((seg, i, arr) => (
+                                                        <React.Fragment key={i}>
+                                                            <span className="text-gray-500">{seg}</span>
+                                                            <FiChevronRight className="inline w-3 h-3 text-gray-400 mx-0.5" />
+                                                        </React.Fragment>
+                                                    ))}
+                                                    {f.filename}
+                                                </>
+                                            ) : (
+                                                f.filename
+                                            )}
+                                        </span>
+                                        <button
+                                            onClick={() => removeFromSession(f._id)}
+                                            title="Remove from this chat"
+                                            className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <FiX className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="relative flex items-end gap-2">
+                            <button
+                                onClick={handleAttachPick}
+                                disabled={isUploading}
+                                title="Attach files"
+                                className="p-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50"
+                            >
+                                {isUploading ? (
+                                    <FaSpinner className="animate-spin text-base" />
+                                ) : (
+                                    <FiPaperclip className="text-base" />
+                                )}
+                            </button>
+                            <input
+                                ref={attachInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={handleAttachChange}
+                                accept=".pdf,.txt,.md,.docx"
+                            />
+                            <textarea
+                                ref={inputRef}
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleTextSend();
+                                  }
+                                }}
+                                placeholder="Type a message..."
+                                rows={1}
+                                className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
+                                disabled={isLoading}
+                            />
+                            <button
+                                onClick={handleTextSend}
+                                disabled={isLoading || !input.trim()}
+                                className="p-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95"
+                            >
+                                {isLoading ? <FaSpinner className="animate-spin text-lg" /> : <FaPaperPlane className="text-lg" />}
+                            </button>
+                        </div>
+                        {uploadError && (
+                            <p className="text-xs text-red-500 mt-2 px-1">{uploadError}</p>
+                        )}
                     </div>
                 </footer>
             </>
