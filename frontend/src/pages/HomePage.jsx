@@ -22,7 +22,7 @@ const HomePage = () => {
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 lg:px-8 pt-12 lg:pt-24 pb-16 flex flex-col items-center text-center">
         <h1 className="text-5xl lg:text-7xl font-bold text-[#222] tracking-tight leading-[1.1] mb-6 max-w-4xl">
           Bring custom AI assistants to your <span className="relative inline-block">
-            class
+            classroom
             {/* Dynamic, non-scaling SVG underline */}
             <svg className="absolute w-full h-3 lg:h-4 -bottom-[14px] left-0 text-[#FA6C43]" viewBox="0 0 200 20" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
               <path d="M2 15.5C45.5 5.5 120 -2 198 12" stroke="currentColor" strokeWidth="4" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
