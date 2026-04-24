@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
+import { useVariant } from '../context/VariantContext';
 import {
   FiPlus,
   FiClock,
@@ -54,6 +55,7 @@ export const ChatSidebar = ({
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
+  const { variant, setVariant } = useVariant();
 
   useEffect(() => {
     const handleClickOutside = () => setOpenDropdown(null);
@@ -246,6 +248,26 @@ export const ChatSidebar = ({
         {!isCollapsed && (
           <div className="flex-1 overflow-y-auto pr-1">
             {activeTab === 'files' ? (
+              <>
+              {/* A/B mode toggle */}
+              <div className="flex items-center gap-1 mb-3 bg-[#F0F6FB] rounded-xl p-1">
+                <button
+                  onClick={() => setVariant('A')}
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
+                    variant === 'A' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'
+                  }`}
+                >
+                  Global Library
+                </button>
+                <button
+                  onClick={() => setVariant('B')}
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
+                    variant === 'B' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'
+                  }`}
+                >
+                  Bot Files
+                </button>
+              </div>
               <FilesPanel
                 currentFolder={currentFolder}
                 onSetFolder={onSetFolder}
@@ -263,6 +285,7 @@ export const ChatSidebar = ({
                 onToggleFile={onToggleFile}
                 libraryLabel={libraryLabel}
               />
+              </>
             ) : (
               <div className="mb-6">
                 <div className="flex items-center justify-between px-2 mb-4">

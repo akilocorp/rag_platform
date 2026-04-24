@@ -1,7 +1,6 @@
 import re
 import secrets
 import smtplib
-from bson import ObjectId
 from email import policy
 from email.message import EmailMessage
 from datetime import datetime, timedelta
@@ -386,22 +385,6 @@ def refresh():
         current_app.logger.error(f"Error in /refresh: {e}")
         return jsonify({"error": "Refresh failed"}), 500
 
-
-@auth_bp.route('/me/variant', methods=['GET'])
-@jwt_required()
-def get_or_assign_variant():
-    """Returns (and lazily assigns) this user's A/B file-library variant."""
-    import random
-    current_user_id = get_jwt_identity()
-    collection = User.get_collection()
-    user = collection.find_one({"_id": ObjectId(current_user_id)}, {"file_variant": 1})
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    variant = user.get("file_variant")
-    if not variant:
-        variant = "A" if random.random() < 0.5 else "B"
-        collection.update_one({"_id": ObjectId(current_user_id)}, {"$set": {"file_variant": variant}})
-    return jsonify({"variant": variant}), 200
 
 
 @auth_bp.route('/me', methods=['GET'])

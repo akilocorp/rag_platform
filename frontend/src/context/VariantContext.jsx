@@ -1,21 +1,19 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import apiClient from '../api/apiClient';
+import React, { createContext, useContext, useState } from 'react';
 
-const VariantContext = createContext({ variant: 'A' });
+const VariantContext = createContext({ variant: 'A', setVariant: () => {} });
 
 export function VariantProvider({ children }) {
-  const [variant, setVariant] = useState('A');
+  const [variant, setVariantState] = useState(
+    () => localStorage.getItem('file_variant') || 'A'
+  );
 
-  useEffect(() => {
-    const token = localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
-    if (!token) return;
-    apiClient.get('/auth/me/variant')
-      .then((res) => setVariant(res.data.variant || 'A'))
-      .catch(() => {});
-  }, []);
+  const setVariant = (v) => {
+    localStorage.setItem('file_variant', v);
+    setVariantState(v);
+  };
 
   return (
-    <VariantContext.Provider value={{ variant }}>
+    <VariantContext.Provider value={{ variant, setVariant }}>
       {children}
     </VariantContext.Provider>
   );
