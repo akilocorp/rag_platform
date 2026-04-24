@@ -8,6 +8,7 @@ import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
+import { useVariant } from '../context/VariantContext';
 import { marked } from 'marked';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 
@@ -79,6 +80,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
 const ChatPage = () => {
   const { configId, chatId } = useParams();
   const navigate = useNavigate();
+  const { variant } = useVariant();
   
   // --- STATE ---
   const [messages, setMessages] = useState([]);
@@ -106,6 +108,8 @@ const ChatPage = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [sessionUploads, setSessionUploads] = useState([]);
+  // Variant A: tracks which library files are selected for this chat session
+  const [selectedFileIds, setSelectedFileIds] = useState([]);
   const libraryLoadedRef = useRef(false);
 
   // --- REFS (The "Brain" of the component) ---
@@ -187,9 +191,10 @@ const ChatPage = () => {
     if (!isAuthenticated) return;
     setFilesLoading(true);
     try {
+      const scope = variant === 'B' ? `?config_id=${configId}` : '';
       const [filesRes, foldersRes] = await Promise.all([
-        apiClient.get('/files'),
-        apiClient.get('/folders'),
+        apiClient.get(`/files${scope}`),
+        apiClient.get(`/folders${scope}`),
       ]);
       setLibraryFiles(filesRes.data.files || []);
       setLibraryFolders((foldersRes.data.folders || []).map((f) => f.path));
@@ -198,10 +203,10 @@ const ChatPage = () => {
     } finally {
       setFilesLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, variant, configId]);
 
   useEffect(() => {
-    if (!isAuthenticated || libraryLoadedRef.current) return;
+    if (!isAuthenticated) return;
     libraryLoadedRef.current = true;
     loadLibrary();
   }, [isAuthenticated, loadLibrary]);
@@ -216,6 +221,7 @@ const ChatPage = () => {
         const form = new FormData();
         form.append('file', file);
         form.append('folder_path', folderPath || '');
+        if (variant === 'B') form.append('config_id', configId);
         try {
           const res = await apiClient.post('/files', form, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -231,11 +237,15 @@ const ChatPage = () => {
       }
       if (uploaded.length) {
         setSessionUploads((prev) => [...prev, ...uploaded]);
+        // Variant A: auto-select newly uploaded files
+        if (variant === 'A') {
+          setSelectedFileIds((prev) => [...prev, ...uploaded.map((f) => f._id)]);
+        }
       }
     } finally {
       setIsUploading(false);
     }
-  }, [currentFolder]);
+  }, [currentFolder, variant, configId]);
 
   const deleteLibraryFile = useCallback(async (fileId) => {
     try {
@@ -275,6 +285,13 @@ const ChatPage = () => {
 
   const removeFromSession = (fileId) => {
     setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
+    setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
+  };
+
+  const toggleFileSelection = (fileId) => {
+    setSelectedFileIds((prev) =>
+      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
+    );
   };
 
   // --- 4. HISTORY LOADER (Guarded) ---
@@ -325,7 +342,11 @@ const ChatPage = () => {
       const response = await fetch(`/api/chat/${configId}/${workingChatId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ input: textInput })
+        body: JSON.stringify({
+          input: textInput,
+          variant,
+          selected_file_ids: variant === 'A' ? selectedFileIds : [],
+        })
       });
 
       const reader = response.body.getReader();
@@ -457,6 +478,10 @@ const ChatPage = () => {
               onDeleteFile={deleteLibraryFile}
               onCreateFolder={createFolder}
               onDeleteFolder={deleteFolder}
+              selectable={variant === 'A'}
+              selectedFileIds={selectedFileIds}
+              onToggleFile={toggleFileSelection}
+              libraryLabel={variant === 'B' ? `${config?.bot_name || 'Bot'} Files` : 'My Library'}
           />
       )}
 

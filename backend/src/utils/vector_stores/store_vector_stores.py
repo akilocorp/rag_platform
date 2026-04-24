@@ -128,7 +128,7 @@ def process_files_and_create_vector_store(temp_file_paths, user_id, collection_n
                 current_app.logger.info(f"Cleaned up temporary upload file: {temp_file_path}")
 
 
-def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, filename, source_file_id):
+def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, filename, source_file_id, config_id_override=None):
     """
     Ingests a single user-uploaded file into the personal-library namespace.
 
@@ -153,11 +153,13 @@ def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, f
         if not splits:
             return False
 
+        effective_config_id = config_id_override if config_id_override else f"user:{user_id}"
+        scope = 'config' if config_id_override else 'user'
         for split in splits:
             split.metadata['user_id'] = user_id
-            split.metadata['config_id'] = f"user:{user_id}"
+            split.metadata['config_id'] = effective_config_id
             split.metadata['owner_user_id'] = user_id
-            split.metadata['scope'] = 'user'
+            split.metadata['scope'] = scope
             split.metadata['source_file_id'] = str(source_file_id)
             split.metadata['folder_path'] = folder_path or ''
             split.metadata['original_file'] = filename

@@ -73,6 +73,8 @@ def upload_file():
         }), 400
 
     folder_path = _normalize_path(request.form.get('folder_path', ''))
+    # Variant B: caller passes config_id to scope files to a specific bot
+    config_id = request.form.get('config_id') or None
     filename = secure_filename(f.filename)
     content_type = f.content_type or mimetypes.guess_type(filename)[0]
 
@@ -98,10 +100,13 @@ def upload_file():
             "vector_ingested": False,
             "storage_key": None,
         }
+        if config_id:
+            doc["config_id"] = config_id
         file_id = files_col.insert_one(doc).inserted_id
 
         ok = process_user_file_and_create_vectors(
-            tmp_path, user_id, folder_path, filename, file_id
+            tmp_path, user_id, folder_path, filename, file_id,
+            config_id_override=config_id,
         )
         if not ok:
             files_col.delete_one({"_id": file_id})
@@ -144,6 +149,12 @@ def list_files():
     raw_folder = request.args.get('folder_path')
     if raw_folder is not None:
         query['folder_path'] = _normalize_path(raw_folder)
+    config_id = request.args.get('config_id')
+    if config_id:
+        query['config_id'] = config_id
+    else:
+        # Variant A: only return library files (no bot-scoped files)
+        query['config_id'] = {'$exists': False}
 
     files = [_serialize(d) for d in files_col.find(query).sort("uploaded_at", -1)]
     return jsonify({"files": files}), 200
@@ -230,12 +241,21 @@ def list_folders():
     user_id = get_jwt_identity()
     db = current_app.config['MONGO_DB']
 
+    config_id = request.args.get('config_id')
+    folder_query = {"user_id": user_id}
+    file_query = {"user_id": user_id}
+    if config_id:
+        folder_query['config_id'] = config_id
+        file_query['config_id'] = config_id
+    else:
+        file_query['config_id'] = {'$exists': False}
+
     explicit = {
         d['path']
-        for d in db['user_folders'].find({"user_id": user_id}, {"path": 1})
+        for d in db['user_folders'].find(folder_query, {"path": 1})
     }
     implicit = set()
-    for f in db['user_files'].find({"user_id": user_id}, {"folder_path": 1}):
+    for f in db['user_files'].find(file_query, {"folder_path": 1}):
         p = f.get('folder_path') or ''
         if not p:
             continue

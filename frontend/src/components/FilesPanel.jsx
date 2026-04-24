@@ -40,6 +40,12 @@ const FilesPanel = ({
   onDeleteFile,
   onCreateFolder,
   onDeleteFolder,
+  // Variant A: selectable files
+  selectable = false,
+  selectedFileIds = [],
+  onToggleFile,
+  // Variant B: custom label
+  libraryLabel = 'My Library',
 }) => {
   const fileInputRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -130,7 +136,7 @@ const FilesPanel = ({
           </button>
         ) : (
           <div className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-2">
-            My Library
+            {libraryLabel}
           </div>
         )}
         <button
@@ -189,25 +195,44 @@ const FilesPanel = ({
             </div>
           ))}
 
-          {visibleFiles.map((f) => (
-            <div
-              key={f._id}
-              className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 text-sm text-[#222]"
-            >
-              <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="truncate text-[13px]">{f.filename}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{formatSize(f.size_bytes)}</p>
-              </div>
-              <button
-                onClick={() => onDeleteFile(f._id)}
-                title="Delete file"
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50"
+          {visibleFiles.map((f) => {
+            const isSelected = selectedFileIds.includes(f._id);
+            return (
+              <div
+                key={f._id}
+                onClick={selectable && onToggleFile ? () => onToggleFile(f._id) : undefined}
+                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
+                  selectable ? 'cursor-pointer' : ''
+                } ${
+                  isSelected
+                    ? 'bg-[#F9D0C4]/30 border-[#FA6C43]/40'
+                    : 'bg-white border-gray-100 hover:border-gray-200'
+                }`}
               >
-                <FiTrash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+                {selectable && (
+                  <div className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                    isSelected ? 'bg-[#FA6C43] border-[#FA6C43]' : 'border-gray-300'
+                  }`}>
+                    {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </div>
+                )}
+                <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-[13px]">{f.filename}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{formatSize(f.size_bytes)}</p>
+                </div>
+                {!selectable && (
+                  <button
+                    onClick={() => onDeleteFile(f._id)}
+                    title="Delete file"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50"
+                  >
+                    <FiTrash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
           {visibleFiles.length === 0 && visibleFolders.length === 0 && (
             <p className="text-xs text-gray-400 text-center py-6">

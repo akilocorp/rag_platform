@@ -18,10 +18,12 @@ import GroupChatPage from './pages/GroupChatPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
-import PublicChatRoute from './components/PublicChatRoute'; 
+import PublicChatRoute from './components/PublicChatRoute';
+import { VariantProvider } from './context/VariantContext';
 
 function App() {
   return (
+    <VariantProvider>
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
@@ -58,6 +60,7 @@ function App() {
         </Routes>
       </div>
     </Router>
+    </VariantProvider>
   );
 }
 

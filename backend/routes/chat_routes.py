@@ -285,6 +285,8 @@ def chat(config_id, chat_id):
     user_input = data.get('input')
     if not user_input:
         return jsonify({"message": "Missing 'input' field"}), 400
+    file_variant = data.get('variant', 'A')
+    selected_file_ids = data.get('selected_file_ids', [])
 
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
@@ -317,14 +319,35 @@ def chat(config_id, chat_id):
             # library. User-library chunks are stored with a synthetic
             # config_id = f"user:{user_id}" so the existing Atlas filter works.
             vector_store = get_vector_store()
-            config_ids = [config_id]
-            if user_id_for_history and user_id_for_history != "anonymous":
-                config_ids.append(f"user:{user_id_for_history}")
-            docs = vector_store.similarity_search(
-                query=user_input,
-                k=5 if len(config_ids) > 1 else 3,
-                pre_filter={"config_id": {"$in": config_ids}}
-            )
+            is_authenticated = user_id_for_history and user_id_for_history != "anonymous"
+
+            if file_variant == 'B':
+                # Variant B: files are scoped to this bot's config_id — no user library merge
+                docs = vector_store.similarity_search(
+                    query=user_input,
+                    k=3,
+                    pre_filter={"config_id": config_id}
+                )
+            elif selected_file_ids and is_authenticated:
+                # Variant A with explicit selection: config baseline + selected files only
+                docs = vector_store.similarity_search(
+                    query=user_input,
+                    k=5,
+                    pre_filter={"$or": [
+                        {"config_id": config_id},
+                        {"source_file_id": {"$in": selected_file_ids}},
+                    ]}
+                )
+            else:
+                # Variant A default: config baseline + full user library
+                config_ids = [config_id]
+                if is_authenticated:
+                    config_ids.append(f"user:{user_id_for_history}")
+                docs = vector_store.similarity_search(
+                    query=user_input,
+                    k=5 if len(config_ids) > 1 else 3,
+                    pre_filter={"config_id": {"$in": config_ids}}
+                )
 
             # Send Sources immediately
             sources = [

@@ -45,6 +45,11 @@ export const ChatSidebar = ({
   onDeleteFile,
   onCreateFolder,
   onDeleteFolder,
+  // A/B variant props
+  selectable = false,
+  selectedFileIds = [],
+  onToggleFile,
+  libraryLabel = 'My Library',
 }) => {
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
@@ -253,6 +258,10 @@ export const ChatSidebar = ({
                 onDeleteFile={onDeleteFile}
                 onCreateFolder={onCreateFolder}
                 onDeleteFolder={onDeleteFolder}
+                selectable={selectable}
+                selectedFileIds={selectedFileIds}
+                onToggleFile={onToggleFile}
+                libraryLabel={libraryLabel}
               />
             ) : (
               <div className="mb-6">
