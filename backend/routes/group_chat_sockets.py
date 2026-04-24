@@ -139,15 +139,11 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             ctx.add_message(uid, text)
 
             orch_history = ctx.get_context_summary(num_messages=10)
-            chosen_bot_name = analyze_intent(text, bots_config, orch_history)
+            chosen_bot_names = analyze_intent(text, bots_config, orch_history)
 
-            # If orchestrator returns NONE, the message is off-topic — no bot should reply.
-            if not chosen_bot_name:
+            # If orchestrator returns nothing, the message is off-topic — no bot should reply.
+            if not chosen_bot_names:
                 return
-
-            bot_cfg = next((b for b in bots_config if b.get("name") == chosen_bot_name), None)
-            if not bot_cfg:
-                bot_cfg = bots_config[0]
 
             rag_context = ""
             try:
@@ -163,31 +159,37 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             except Exception as rag_err:
                 logger.warning(f"RAG search skipped for group chat: {rag_err}")
 
-            bot_instance = get_or_create_bot(room_id, bot_cfg)
+            # Snapshot context once so all bots respond to the same state independently
             full_summary = ctx.get_context_summary(num_messages=20)
 
-            reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
+            for chosen_bot_name in chosen_bot_names:
+                bot_cfg = next((b for b in bots_config if b.get("name") == chosen_bot_name), None)
+                if not bot_cfg:
+                    continue
 
-            if reply:
-                ctx.add_message(bot_instance.name, reply)
-                socketio.sleep(1)
-                socketio.emit(
-                    "message",
-                    {"sender": bot_instance.name, "text": reply},
-                    room=room_id,
-                )
-            else:
-                # e.g. OpenAI 403 unsupported_country_region_territory — user sees silence otherwise
-                err_text = (
-                    "无法生成 AI 回复：模型接口返回错误（常见于当前地区不可用 OpenAI、密钥无效或网络问题）。"
-                    "请在「编辑配置」里为该智能体选择你所在地区可用的模型（例如 DeepSeek、Gemini、通义千问），"
-                    "或确认已配置对应 API Key。"
-                )
-                socketio.emit(
-                    "message",
-                    {"sender": "System", "text": err_text},
-                    room=room_id,
-                )
+                bot_instance = get_or_create_bot(room_id, bot_cfg)
+                reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
+
+                if reply:
+                    ctx.add_message(bot_instance.name, reply)
+                    socketio.sleep(1)
+                    socketio.emit(
+                        "message",
+                        {"sender": bot_instance.name, "text": reply},
+                        room=room_id,
+                    )
+                else:
+                    # e.g. OpenAI 403 unsupported_country_region_territory — user sees silence otherwise
+                    err_text = (
+                        "无法生成 AI 回复：模型接口返回错误（常见于当前地区不可用 OpenAI、密钥无效或网络问题）。"
+                        "请在「编辑配置」里为该智能体选择你所在地区可用的模型（例如 DeepSeek、Gemini、通义千问），"
+                        "或确认已配置对应 API Key。"
+                    )
+                    socketio.emit(
+                        "message",
+                        {"sender": "System", "text": err_text},
+                        room=room_id,
+                    )
 
         except Exception as e:
             logger.error(f"❌ AI Logic Error: {e}", exc_info=True)

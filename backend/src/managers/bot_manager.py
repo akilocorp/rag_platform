@@ -136,30 +136,33 @@ class ChatBot:
 
 room_bot_registry: Dict[str, Dict[str, ChatBot]] = {}
 
-def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Optional[str]:
-    """Decides which bot should speak using a fast routing model."""
+def analyze_intent(user_text: str, bots_config: list, history_text: str) -> List[str]:
+    """Returns list of bot names that should respond. Multiple bots returned when all are explicitly @mentioned."""
     if not bots_config:
-        return None
+        return []
 
     # No OpenAI call needed — avoids extra failures when the router model is unavailable (e.g. region block).
     if len(bots_config) == 1:
-        return bots_config[0].get("name")
+        return [bots_config[0].get("name")]
 
     text_lower = (user_text or "").strip().lower()
-    # @Name or explicit mention of a persona name
+    # Scan full message for all @mentions — collect every matched bot
+    mentioned = []
     for bot in bots_config:
         name = (bot.get("name") or "").strip()
         if not name:
             continue
         nlow = name.lower()
-        if text_lower.startswith("@" + nlow) or text_lower.startswith("@" + nlow.replace(" ", "_")):
-            return name
+        if "@" + nlow in text_lower or "@" + nlow.replace(" ", "_") in text_lower:
+            mentioned.append(name)
+    if mentioned:
+        return mentioned
 
     persona_list = "\n".join([f"- {b['name']}: {b['prompt']}" for b in bots_config])
 
     orchestrator_prompt = """
     You are a strict Chat Orchestrator for a group chat with AI personas.
-    Your job is to decide whether any persona should respond to the latest message.
+    Your job is to decide which persona(s) should respond to the latest message.
     A persona should ONLY respond if the message is clearly within their area of expertise.
 
     RECENT HISTORY:
@@ -169,23 +172,23 @@ def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Opti
     {persona_list}
 
     RULES (apply in order):
-    1. If the user explicitly @mentions a persona by name, pick that persona.
-    2. If the message is a direct follow-up question to a persona's previous answer, pick that persona.
-    3. If the message topic directly and clearly falls within a persona's stated domain, pick that persona.
+    1. If the message is a direct follow-up question to a persona's previous answer, pick that persona.
+    2. If the message topic directly and clearly falls within ONE persona's stated domain, return that persona's name.
+    3. If the message clearly spans MULTIPLE personas' domains and each would provide distinct, non-overlapping value, return all relevant names separated by commas.
     4. Small talk, greetings, off-topic messages, or messages not covered by any persona's domain → return "NONE".
     5. When in doubt, return "NONE". It is better to stay silent than to reply off-topic.
 
-    ONLY return the EXACT NAME of one persona or "NONE". No explanation.
+    Return ONLY exact persona name(s) separated by commas, or "NONE". No explanation.
     """
 
     try:
         router_llm = ChatOpenAI(
-            model="gpt-4o-mini", 
-            temperature=0, 
-            max_tokens=10,
+            model="gpt-4o-mini",
+            temperature=0,
+            max_tokens=20,
             api_key=current_app.config.get("OPENAI_API_KEY")
         )
-        
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", orchestrator_prompt),
             ("user", 'NEW MESSAGE: "{user_text}"')
@@ -197,13 +200,14 @@ def analyze_intent(user_text: str, bots_config: list, history_text: str) -> Opti
             "user_text": user_text
         }).strip().replace("@", "")
 
+        matched = []
         for bot in bots_config:
             if bot['name'].lower() in decision.lower():
-                return bot['name']
-        return None
+                matched.append(bot['name'])
+        return matched
     except Exception as e:
         logger.warning("Intent router LLM failed: %s", e)
-        return None
+        return []
 
 def get_or_create_bot(room_id: str, bot_config: Dict) -> ChatBot:
     """Retrieves or creates a specific bot persona within a room."""
