@@ -6,6 +6,7 @@ import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight } from 'react-icons/
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
+import ThinkingIndicator from '../components/ThinkingIndicator';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { useVariant } from '../context/VariantContext';
@@ -26,12 +27,14 @@ const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem(
 
 // --- MODERN CHAT MESSAGE COMPONENT ---
 const ChatMessage = React.memo(({ message, botAvatarId }) => {
-  const { sender, text } = message;
+  const { sender, text, isTyping } = message;
   const isUser = sender === 'user';
+  const showThinking = !isUser && isTyping && !text;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
 
   useLayoutEffect(() => {
+    if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
     el.innerHTML = marked.parse(text || '');
@@ -45,7 +48,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     } catch (e) {
       console.warn('KaTeX render:', e);
     }
-  }, [text]);
+  }, [text, showThinking]);
 
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
@@ -56,16 +59,20 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
       )}
 
       <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed ${
-        isUser 
-          ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none' 
+        isUser
+          ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none'
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
-          <div
-            ref={mdRef}
-            className={`chat-message-md prose max-w-none ${
-              isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
-            }`}
-          />
+          {showThinking ? (
+            <ThinkingIndicator />
+          ) : (
+            <div
+              ref={mdRef}
+              className={`chat-message-md prose max-w-none ${
+                isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
+              }`}
+            />
+          )}
       </div>
 
       {isUser && (
