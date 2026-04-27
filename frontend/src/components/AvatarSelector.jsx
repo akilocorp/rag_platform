@@ -78,7 +78,7 @@ const AvatarSelector = ({
           {label}
         </label>
       )}
-      <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 p-1 -m-1">
         {AVATAR_OPTIONS.map((avatar) => {
           const Icon = avatar.icon;
           const isSelected = currentSelection === avatar.id;
