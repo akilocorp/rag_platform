@@ -33,7 +33,7 @@ const HomePage = () => {
           Actr empowers faculty to create custom chatbots using top models like ChatGPT, Gemini, and Qwen. Upload your course files, set instructions, and instantly distribute them to students for test prep, tutoring, and assessments.
         </p>
         <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-          <Link to="/register" className="py-4 px-8 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all active:scale-[0.98] shadow-sm text-lg">
+          <Link to="/register" className="py-4 px-8 rounded-xl font-bold text-white bg-[#FA6C43] hover:text-[#F8CABA] transition-colors active:scale-[0.98] shadow-sm text-lg">
             Get Started
           </Link>
           <button
