@@ -116,12 +116,14 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - `tools/web_fetch.py` — `web_fetch`. Wraps `utils/web/fetch.py:fetch_url_as_documents` (same safety check as URL ingestion). Caps return to 12k chars.
   - `requirements.txt` — added `tavily-python` and `anthropic` (anthropic SDK needed in Step 4).
   - **Setup needed before Step 4 testing**: add `TAVILY_API_KEY=...` to `backend/.env`. Without it, `web_search` is silently dropped from the tool list (`enabled_when` returns false) — no errors.
-- [ ] **Step 4** — Agent runner (`backend/src/agentic/agent_runner.py`)
-  - `stream_agentic_response(config, messages, ctx)` using `client.messages.stream(...)`
-  - Loop: stream → on `tool_use` block, look up via `registry.execute()`, append `tool_result`, continue until `stop_reason == "end_turn"`
-  - Emit NDJSON: existing `{type: "token"}` plus new `{type: "tool_use", name, input}` and `{type: "tool_result", name, summary}`
-  - System prompt: user's `prompt_template` + tool-usage preamble. If `web_access=false` (and model is Claude → still uses agentic but only with KB tool? Decide: probably keep old LangChain path for `web_access=false` since it's already strict-RAG)
-  - Prompt caching on system + tools block (`cache_control: {type: "ephemeral"}`)
+- [x] **Step 4** — Agent runner (`backend/src/agentic/agent_runner.py`)
+  - `stream_agentic_response(config, user_input, history_messages, ctx)` — single entry point, generator yielding event dicts.
+  - Event types: `{type: "token", data}`, `{type: "tool_use", id, name, input}`, `{type: "tool_result", id, name, content, is_error}`, `{type: "done", stop_reason, assistant_blocks}`. The `assistant_blocks` field is the full block sequence (text + tool_use + tool_result) for Step 5 to persist as `additional_kwargs.tool_trace`.
+  - Loop: `client.messages.stream(...)` → stream text via `text_stream` → `get_final_message()` → if `stop_reason == "tool_use"`, execute tools via `registry.execute()`, append results, loop. Caps at `MAX_TOOL_ROUNDS = 8` per turn.
+  - System prompt assembly: `bot_name` + `instructions` (or scrubbed `prompt_template` for legacy configs that only have the wrapped string) + auto-generated tool guidance based on enabled tools. Citation instruction included.
+  - Prompt caching: `cache_control: {type: "ephemeral"}` on system block + last tool spec. Pays off on multi-turn chats.
+  - Failure modes: missing `ANTHROPIC_API_KEY`, missing `anthropic` package, stream exception, max-rounds exhaustion — all yield a clean error message + `done` event without crashing the request.
+  - Default `web_access=false` → existing LangChain path (Step 5 branch). This runner assumes Claude (Step 5 enforces).
 - [ ] **Step 5** — Wire branch in `chat_routes.py:281`
   - Single `if config.get("web_access") and model_name.startswith("claude"): return stream_agentic_response(...)` at top of `chat()`
   - History adapter: convert Anthropic content blocks → `tool_trace` shape before persisting
