@@ -142,7 +142,7 @@ const LoginPage = () => {
               <label htmlFor="password" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                 Password
               </label>
-              <div className={`relative overflow-hidden rounded-xl border ${
+              <div className={`relative rounded-xl border ${
                 errors.password ? 'border-red-500' : 'border-gray-200'
               } focus-within:ring-2 focus-within:ring-inset focus-within:ring-[#F9D0C4] focus-within:border-[#FA6C43] focus-within:outline-none`}>
                 <input
@@ -153,15 +153,20 @@ const LoginPage = () => {
                   onFocus={() => setAllowInput(true)}
                   readOnly={!allowInput}
                   autoComplete="new-password"
-                  className="w-full pl-4 pr-[3.75rem] py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
+                  className="w-full pl-4 pr-12 py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                   placeholder="•••••••••••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-0 top-0 bottom-0 w-[3.75rem] flex items-center justify-center text-gray-400 hover:text-gray-600 shrink-0"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
                 >
-                  {showPassword ? <FaEyeSlash size={58} /> : <FaEye size={58} />}
+                  {showPassword ? (
+                    <FaEyeSlash style={{ width: '16px', height: '16px' }} />
+                  ) : (
+                    <FaEye style={{ width: '16px', height: '16px' }} />
+                  )}
                 </button>
               </div>
               {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
