@@ -71,7 +71,8 @@ const EditConfigPage = () => {
         ...configFromState,
         bots: parsedBots,
         group_size: configFromState.group_size || 2,
-        group_duration: configFromState.group_duration || 10
+        group_duration: configFromState.group_duration || 10,
+        web_access: configFromState.web_access !== undefined ? configFromState.web_access : true
     });
     
     setInitialDocuments(configFromState.documents || []);
@@ -433,6 +434,19 @@ const EditConfigPage = () => {
                   <div>
                     <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response Timeout ({config.response_timeout || 3}s)</label>
                     <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout || 3} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  </div>
+                </div>
+
+                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Allow web search & URL access</label>
+                      <p className="text-xs text-gray-500 font-medium">When off, the bot only uses your uploaded files.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input type="checkbox" name="web_access" className="sr-only peer" checked={!!config.web_access} onChange={handleChange} />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
                   </div>
                 </div>
               </>

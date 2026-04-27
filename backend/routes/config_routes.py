@@ -246,7 +246,7 @@ Answer:"""
             "introduction": introduction,
             "collection_name": collection_name,
             "model_name": llm_type,
-            "prompt_template": final_prompt_template, 
+            "prompt_template": final_prompt_template,
             "temperature": temperature,
             "response_timeout": int(response_timeout),
             "is_public": is_public,
@@ -254,7 +254,8 @@ Answer:"""
             "documents": uploaded_filenames,
             "group_size": group_size,
             "group_duration": group_duration,
-            "bots": bots_list
+            "bots": bots_list,
+            "web_access": bool(config_data.get('web_access', True)),
         }
         
         result = mongo_collection.get_collection().insert_one(config_document)

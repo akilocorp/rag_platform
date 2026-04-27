@@ -146,6 +146,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     rag_files: [],
     collection_name: '',
     is_public: false,
+    web_access: true,
     bot_avatar: 'robot',
     introduction: '',
     // Group Chat Specifics
@@ -533,6 +534,25 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         <label className="block text-[13px] font-semibold text-gray-700 mb-3">Timeout ({config.response_timeout}s)</label>
                         <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                       </div>
+                    </div>
+
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center justify-between cursor-pointer gap-4">
+                        <div>
+                          <p className="text-[13px] font-semibold text-gray-700">Allow web search & URL access</p>
+                          <p className="text-xs text-gray-500 mt-0.5">When off, the bot only uses your uploaded files.</p>
+                        </div>
+                        <span className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            name="web_access"
+                            className="sr-only peer"
+                            checked={!!config.web_access}
+                            onChange={handleChange}
+                          />
+                          <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
+                        </span>
+                      </label>
                     </div>
                   </>
                 )}
