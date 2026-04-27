@@ -137,10 +137,12 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - Citations footer at bottom of AI bubble (parse `[1]`, `[2]` markers)
   - URL paste detection in input → "🔗 will be fetched" chip
   - Replay: `ChatMessage` reads `tool_trace` from history and re-renders pills + citations on load
-- [ ] **Step 7** — Safety constants (`backend/src/agentic/constants.py`)
-  - `MAX_TOOL_USES = 8`, `WEB_SEARCH_MAX_USES = 5`
-  - `BLOCKED_HOSTS = {"localhost", "127.0.0.1", "169.254.169.254", ...}` for `web_fetch`
-  - Read `TAVILY_API_KEY` from env (add to `backend/.env`)
+- [x] **Step 7** — Safety constants (`backend/src/agentic/constants.py`)
+  - `MAX_TOOL_ROUNDS = 8` — total model↔tool round-trips per turn (was inline in `agent_runner.py`, now centralized).
+  - `DEFAULT_MAX_TOKENS = 2048` — Anthropic max_tokens per stream round.
+  - `MAX_USES_PER_TOOL = {"web_search": 5, "web_fetch": 5}` — per-tool per-turn caps. Enforced in `agent_runner.py` *before* invoking `registry.execute` — over-budget calls return a synthetic `is_error: true` tool_result so the model can recover (typically gives up and synthesizes from what it has). Tools not listed → only `MAX_TOOL_ROUNDS` applies.
+  - `BLOCKED_HOSTS` deliberately stays in `backend/src/utils/web/fetch.py` — that helper is shared by URL ingestion (non-agentic), so duplicating into `constants.py` would drift. Documented as a comment in `constants.py`.
+  - `TAVILY_API_KEY` is in `backend/.env` (gitignored). `web_search` tool's `enabled_when` already gates on its presence — missing key just removes the tool from the spec list, no errors.
 - [ ] **Step 8** — Rollout
   - Env var `AGENTIC_ENABLED=true` kill-switch wrapping the Step 5 branch
   - Dogfood on one bot, then flip default

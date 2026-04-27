@@ -11,17 +11,15 @@ import logging
 import os
 from typing import Any, Dict, Iterator, List
 
+from src.agentic.constants import (
+    DEFAULT_MAX_TOKENS,
+    MAX_TOOL_ROUNDS,
+    MAX_USES_PER_TOOL,
+)
 from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
-
-# Per-turn safety cap — hard-stops runaway tool loops. Increase cautiously;
-# every iteration is a full model round-trip.
-MAX_TOOL_ROUNDS = 8
-
-# Generous enough for synthesis + citations without burning tokens.
-DEFAULT_MAX_TOKENS = 2048
 
 
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
@@ -153,6 +151,8 @@ def stream_agentic_response(
 
     full_trace: List[Dict[str, Any]] = []
     final_stop_reason = "end_turn"
+    # Per-turn use count per tool — enforced against MAX_USES_PER_TOOL below.
+    tool_use_counts: Dict[str, int] = {}
 
     for round_idx in range(MAX_TOOL_ROUNDS):
         kwargs = {
@@ -208,9 +208,22 @@ def stream_agentic_response(
                 "input": tu_input,
             }
 
-            result = execute(tu_name, tu_input, ctx)
-            content = result.get("content") or ""
-            is_error = bool(result.get("is_error"))
+            # Enforce per-tool cap before invoking — return a synthetic error
+            # so the model can recover (use a different tool / answer with
+            # what it already has).
+            cap = MAX_USES_PER_TOOL.get(tu_name)
+            current = tool_use_counts.get(tu_name, 0)
+            tool_use_counts[tu_name] = current + 1
+            if cap is not None and current >= cap:
+                content = (
+                    f"Tool '{tu_name}' has reached its per-turn limit of {cap}. "
+                    "Answer with what you already have or try a different tool."
+                )
+                is_error = True
+            else:
+                result = execute(tu_name, tu_input, ctx)
+                content = result.get("content") or ""
+                is_error = bool(result.get("is_error"))
 
             yield {
                 "type": "tool_result",
