@@ -12,7 +12,7 @@ from src.utils.vector_stores.store_vector_stores import process_files_and_create
 edit_config_bp = Blueprint('edit_config_routes', __name__)
 
 UPLOAD_FOLDER = "uploads/"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS

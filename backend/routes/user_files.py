@@ -26,13 +26,15 @@ from src.utils.s3_client import (
 )
 from src.utils.vector_stores.store_vector_stores import (
     process_user_file_and_create_vectors,
+    process_user_url_and_create_vectors,
 )
+from src.utils.web.fetch import fetch_url_as_documents, UnsafeURLError
 
 logger = logging.getLogger(__name__)
 user_files_bp = Blueprint('user_files_routes', __name__)
 
 TMP_UPLOAD_DIR = "uploads/user_tmp"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
@@ -136,6 +138,76 @@ def upload_file():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+@user_files_bp.route('/files/url', methods=['POST'])
+@jwt_required()
+def upload_url():
+    """Ingest a URL into the user's library as a virtual 'file' record.
+
+    Stored in user_files like a normal upload, except `source_url` is set
+    instead of `storage_key` (no S3 round-trip — re-fetchable from the URL).
+    """
+    user_id = get_jwt_identity()
+    body = request.get_json(silent=True) or {}
+    url = (body.get('url') or '').strip()
+    if not url:
+        return jsonify({"message": "URL is required"}), 400
+    if not url.startswith(('http://', 'https://')):
+        return jsonify({"message": "URL must start with http:// or https://"}), 400
+
+    folder_path = _normalize_path(body.get('folder_path', ''))
+    config_id = body.get('config_id') or None
+
+    try:
+        documents, title = fetch_url_as_documents(url)
+    except UnsafeURLError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"URL fetch failed for {url}: {e}")
+        return jsonify({"message": "Failed to fetch URL"}), 502
+
+    if not documents:
+        return jsonify({"message": "Could not extract content from URL"}), 422
+
+    display_name = (title or url)[:200]
+    size_bytes = sum(len(d.page_content) for d in documents)
+
+    db = current_app.config['MONGO_DB']
+    files_col = db['user_files']
+    doc = {
+        "user_id": user_id,
+        "folder_path": folder_path,
+        "filename": display_name,
+        "content_type": "text/html",
+        "size_bytes": size_bytes,
+        "uploaded_at": time.time(),
+        "vector_ingested": False,
+        "storage_key": None,
+        "source_url": url,
+        "is_url": True,
+    }
+    if config_id:
+        doc["config_id"] = config_id
+    file_id = files_col.insert_one(doc).inserted_id
+
+    ok = process_user_url_and_create_vectors(
+        documents=documents,
+        user_id=user_id,
+        folder_path=folder_path,
+        filename=display_name,
+        source_file_id=file_id,
+        source_url=url,
+        config_id_override=config_id,
+    )
+    if not ok:
+        files_col.delete_one({"_id": file_id})
+        return jsonify({"message": "Failed to ingest URL content"}), 500
+
+    files_col.update_one({"_id": file_id}, {"$set": {"vector_ingested": True}})
+    doc["_id"] = str(file_id)
+    doc["vector_ingested"] = True
+    return jsonify({"file": doc}), 201
 
 
 @user_files_bp.route('/files', methods=['GET'])

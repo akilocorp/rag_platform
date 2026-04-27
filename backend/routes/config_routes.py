@@ -15,7 +15,7 @@ from bson import ObjectId
 # --- Setup and Configuration ---
 logger = logging.getLogger(__name__)
 UPLOAD_FOLDER = "uploads/"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
 
 config_bp = Blueprint('config_routes', __name__)
 

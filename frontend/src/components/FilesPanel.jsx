@@ -8,6 +8,7 @@ import {
   FiTrash2,
   FiPlus,
   FiLoader,
+  FiLink,
 } from 'react-icons/fi';
 
 const formatSize = (bytes) => {
@@ -37,6 +38,7 @@ const FilesPanel = ({
   isUploading,
   uploadError,
   onUpload,
+  onUploadUrl,
   onDeleteFile,
   onCreateFolder,
   onDeleteFolder,
@@ -51,6 +53,8 @@ const FilesPanel = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [urlValue, setUrlValue] = useState('');
 
   const visibleFiles = files.filter((f) => (f.folder_path || '') === currentFolder);
   const visibleFolders = childrenOf(folders, currentFolder);
@@ -78,6 +82,14 @@ const FilesPanel = ({
     onCreateFolder(path);
     setNewFolderName('');
     setShowNewFolder(false);
+  };
+
+  const submitUrl = () => {
+    const trimmed = urlValue.trim();
+    if (!trimmed || !onUploadUrl) return;
+    onUploadUrl(trimmed, currentFolder);
+    setUrlValue('');
+    setShowUrlInput(false);
   };
 
   return (
@@ -111,9 +123,48 @@ const FilesPanel = ({
           multiple
           className="hidden"
           onChange={handlePicked}
-          accept=".pdf,.txt,.md,.docx"
+          accept=".pdf,.txt,.md,.docx,.pptx"
         />
       </div>
+
+      {onUploadUrl && (
+        <div>
+          {showUrlInput ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                autoFocus
+                placeholder="https://example.com/article"
+                value={urlValue}
+                onChange={(e) => setUrlValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitUrl();
+                  if (e.key === 'Escape') {
+                    setShowUrlInput(false);
+                    setUrlValue('');
+                  }
+                }}
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#FA6C43]"
+              />
+              <button
+                onClick={submitUrl}
+                disabled={isUploading}
+                className="px-3 py-2 text-xs font-semibold bg-[#FA6C43] text-white rounded-xl hover:bg-[#E55B34] transition-colors disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowUrlInput(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-gray-500 hover:text-[#FA6C43] hover:bg-[#F0F6FB] rounded-xl transition-colors"
+            >
+              <FiLink className="w-3.5 h-3.5" />
+              Paste a URL
+            </button>
+          )}
+        </div>
+      )}
 
       {uploadError && (
         <p className="text-xs text-red-500 px-1">{uploadError}</p>
@@ -216,10 +267,16 @@ const FilesPanel = ({
                     {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                 )}
-                <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                {f.is_url ? (
+                  <FiLink className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
+                ) : (
+                  <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="truncate text-[13px]">{f.filename}</p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{formatSize(f.size_bytes)}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
+                  </p>
                 </div>
                 {!selectable && (
                   <button

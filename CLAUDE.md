@@ -98,13 +98,14 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - `web_access: bool` field on config doc, default `true`
   - Toggle in `ConfigPage.jsx` step 4 + `EditConfigPage.jsx` standard section (non-group only)
   - Backend POST `config_routes.py:258` and PUT `edit_config_routes.py:107` accept and persist the field
-- [ ] **Step 2** — Ingestion: PPT + URL
-  - Add `python-pptx`, `trafilatura` to `requirements.txt`
-  - New `backend/src/utils/loaders/pptx_loader.py` (one Doc per slide, `{slide_number, original_file}` metadata)
-  - New `backend/src/utils/web/fetch.py` (shared by ingestion + `web_fetch` tool)
-  - New `POST /api/files/url` endpoint in `user_files.py`
-  - Frontend: "Paste URL" tab in file library uploader
-  - Update `ALLOWED_EXTENSIONS` in `config_routes.py:18`, `edit_config_routes.py:15`, `user_files.py:35` to include `pptx`
+- [x] **Step 2** — Ingestion: PPT + URL
+  - `python-pptx`, `trafilatura` in `requirements.txt`
+  - `backend/src/utils/loaders/pptx_loader.py` — `SimplePPTXLoader`, one Doc per slide, `{slide_number, source}` metadata. Lazy `from pptx import Presentation` so missing dep doesn't break module import.
+  - `backend/src/utils/web/fetch.py` — `fetch_url_as_documents(url)` + `UnsafeURLError`. Blocks private IPs / loopback / link-local / cloud metadata. Trafilatura imported lazily inside the function for the same reason.
+  - `POST /api/files/url` in `user_files.py` — fetches URL, ingests via new `process_user_url_and_create_vectors` in `store_vector_stores.py`. Stored in `user_files` with `is_url: true`, `source_url`, no S3 round-trip (`storage_key: null`).
+  - `ALLOWED_EXTENSIONS` updated in all 3 spots (`config_routes.py:18`, `edit_config_routes.py:15`, `user_files.py:35`) to include `pptx`.
+  - Frontend: `FilesPanel.jsx` got a "Paste a URL" button below the dropzone (collapses to inline input). URL items render with `FiLink` icon and show source URL instead of size. `accept=".pdf,.txt,.md,.docx,.pptx"` everywhere (`FilesPanel`, `ChatPage` attach input, `ConfigPage` step 3, `EditConfigPage` knowledge base block).
+  - Plumbing: `ChatPage.uploadUrl(url, folder)` → `SideBar` `onUploadUrl` prop → `FilesPanel`.
 - [ ] **Step 3** — Tool registry + 3 tools
   - `backend/src/agentic/tools/base.py`, `registry.py`, `tools/__init__.py`, `tools/README.md`
   - `tools/knowledge_base.py` — wraps `similarity_search` with right pre_filter (config_id or `user:{user_id}` for variant A)

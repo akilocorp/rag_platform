@@ -8,6 +8,8 @@ from langchain_openai import OpenAIEmbeddings
 import time
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 
+from src.utils.loaders.pptx_loader import SimplePPTXLoader
+
 def get_document_loader(file_path):
     """
     Returns the appropriate LangChain document loader based on the file extension.
@@ -34,6 +36,7 @@ def get_document_loader(file_path):
         '.pdf': PyPDFLoader,
         '.txt': TextLoader,
         '.md': TextLoader,
+        '.pptx': SimplePPTXLoader,
     }
     
     loader_class = loader_class = loader_map.get(file_extension)
@@ -173,4 +176,43 @@ def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, f
         return True
     except Exception as e:
         current_app.logger.error(f"Error ingesting user file {filename}: {e}")
+        return False
+
+
+def process_user_url_and_create_vectors(documents, user_id, folder_path, filename, source_file_id, source_url, config_id_override=None):
+    """
+    Same shape as process_user_file_and_create_vectors but takes pre-loaded
+    LangChain Documents (from a URL fetch) instead of a file path. No file
+    cleanup needed — the caller never wrote to disk.
+    """
+    try:
+        db = current_app.config['MONGO_DB']
+        mongo_collection = db['vector_collection']
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+        splits = splitter.split_documents(documents)
+        if not splits:
+            return False
+
+        effective_config_id = config_id_override if config_id_override else f"user:{user_id}"
+        scope = 'config' if config_id_override else 'user'
+        for split in splits:
+            split.metadata['user_id'] = user_id
+            split.metadata['config_id'] = effective_config_id
+            split.metadata['owner_user_id'] = user_id
+            split.metadata['scope'] = scope
+            split.metadata['source_file_id'] = str(source_file_id)
+            split.metadata['folder_path'] = folder_path or ''
+            split.metadata['original_file'] = filename
+            split.metadata['source_url'] = source_url
+
+        MongoDBAtlasVectorSearch.from_documents(
+            documents=splits,
+            embedding=current_app.config['EMBEDDINGS'],
+            collection=mongo_collection,
+            index_name="vector"
+        )
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Error ingesting URL {source_url}: {e}")
         return False

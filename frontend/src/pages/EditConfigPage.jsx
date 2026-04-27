@@ -494,7 +494,7 @@ const EditConfigPage = () => {
 
               <label className="mt-6 flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#FA6C43]/50 bg-gray-50">
                 <span className="text-sm font-medium text-gray-600">Drag & drop files or click to browse</span>
-                <input type="file" multiple onChange={handleFileChange} className="hidden" accept=".txt,.pdf,.md,.docx" />
+                <input type="file" multiple onChange={handleFileChange} className="hidden" accept=".txt,.pdf,.md,.docx,.pptx" />
               </label>
             </div>
 

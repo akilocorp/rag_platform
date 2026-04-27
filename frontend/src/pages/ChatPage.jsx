@@ -254,6 +254,32 @@ const ChatPage = () => {
     }
   }, [currentFolder, variant, configId]);
 
+  const uploadUrl = useCallback(async (url, folderPath = currentFolder) => {
+    if (!url || !url.trim()) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const res = await apiClient.post('/files/url', {
+        url: url.trim(),
+        folder_path: folderPath || '',
+        ...(variant === 'B' ? { config_id: configId } : {}),
+      });
+      const f = res.data?.file;
+      if (f) {
+        setLibraryFiles((prev) => [f, ...prev]);
+        setSessionUploads((prev) => [...prev, f]);
+        if (variant === 'A') {
+          setSelectedFileIds((prev) => [...prev, f._id]);
+        }
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to ingest URL';
+      setUploadError(msg);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [currentFolder, variant, configId]);
+
   const deleteLibraryFile = useCallback(async (fileId) => {
     try {
       await apiClient.delete(`/files/${fileId}`);
@@ -482,6 +508,7 @@ const ChatPage = () => {
               isUploading={isUploading}
               uploadError={uploadError}
               onUpload={uploadFiles}
+              onUploadUrl={uploadUrl}
               onDeleteFile={deleteLibraryFile}
               onCreateFolder={createFolder}
               onDeleteFolder={deleteFolder}
@@ -628,7 +655,7 @@ const ChatPage = () => {
                                 multiple
                                 className="hidden"
                                 onChange={handleAttachChange}
-                                accept=".pdf,.txt,.md,.docx"
+                                accept=".pdf,.txt,.md,.docx,.pptx"
                             />
                             <textarea
                                 ref={inputRef}

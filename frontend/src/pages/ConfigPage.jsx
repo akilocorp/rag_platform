@@ -74,7 +74,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
           <p className={`text-sm font-medium ${isDragging ? 'text-[#FA6C43]' : 'text-gray-600'}`}>
             {isDragging ? 'Drop files here' : 'Drag & drop files or click to browse'}
           </p>
-          <p className="text-xs text-gray-400 mt-1.5">Supports: TXT, DOCX, MD (Max 500MB each)</p>
+          <p className="text-xs text-gray-400 mt-1.5">Supports: TXT, DOCX, MD, PDF, PPTX (Max 500MB each)</p>
         </div>
       </div>
       <p className="text-xs text-center text-gray-400 mt-4">More files can be uploaded after publishing</p>
@@ -85,7 +85,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
         onChange={handleFileChange}
         multiple
         className="hidden"
-        accept=".txt,.pdf,.md,.docx"
+        accept=".txt,.pdf,.md,.docx,.pptx"
       />
       {files.length > 0 && (
         <div className="mt-4 max-h-40 overflow-y-auto">

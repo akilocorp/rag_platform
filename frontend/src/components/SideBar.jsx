@@ -43,6 +43,7 @@ export const ChatSidebar = ({
   isUploading = false,
   uploadError = null,
   onUpload,
+  onUploadUrl,
   onDeleteFile,
   onCreateFolder,
   onDeleteFolder,
@@ -275,6 +276,7 @@ export const ChatSidebar = ({
                 isUploading={isUploading}
                 uploadError={uploadError}
                 onUpload={onUpload}
+                onUploadUrl={onUploadUrl}
                 onDeleteFile={onDeleteFile}
                 onCreateFolder={onCreateFolder}
                 onDeleteFolder={onDeleteFolder}

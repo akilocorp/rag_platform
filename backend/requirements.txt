@@ -22,5 +22,7 @@ dashscope
 docx2txt
 PyPDF2
 pypdf
+python-pptx
+trafilatura
 Flask-SocketIO
 
