@@ -347,7 +347,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-2 custom-scrollbar">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pr-2 custom-scrollbar">
             
             {/* STEP 1: Basic Info */}
             {step === 1 && (
