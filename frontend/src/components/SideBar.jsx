@@ -150,19 +150,9 @@ export const ChatSidebar = ({
         {/* Header: logo + collapse toggle */}
         <div
           className={`relative mb-5 px-1 flex ${
-            isCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-start min-h-[2.75rem]'
+            isCollapsed ? 'flex-col items-center gap-3' : 'items-center justify-between min-h-[2.75rem]'
           }`}
         >
-          <button
-            type="button"
-            className={`p-2 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block ${
-              isCollapsed ? 'relative shrink-0' : 'absolute right-2 top-0 mt-4'
-            }`}
-            onClick={onToggle}
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {isCollapsed ? <FiChevronRight className="w-5 h-5" /> : <FiChevronLeft className="w-5 h-5" />}
-          </button>
           <Link
             to="/config_list"
             onClick={handleLogoClick}
@@ -177,6 +167,14 @@ export const ChatSidebar = ({
               className={`w-auto object-contain ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />
           </Link>
+          <button
+            type="button"
+            className="p-2.5 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block shrink-0"
+            onClick={onToggle}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? <FiChevronRight className="w-6 h-6" /> : <FiChevronLeft className="w-6 h-6" />}
+          </button>
         </div>
 
         {/* Home + New Chat row */}
@@ -198,7 +196,7 @@ export const ChatSidebar = ({
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2 mb-5">
+          <div className="flex flex-col items-center gap-5 mb-5">
             <button
               onClick={handleHomeClick}
               title="Home"
@@ -390,6 +388,8 @@ export const ChatSidebar = ({
             )}
           </div>
         )}
+
+        {isCollapsed && <div className="flex-1" />}
 
         {/* User Profile (Fixed) */}
         <div className="p-4">
