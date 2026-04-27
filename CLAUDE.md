@@ -124,9 +124,13 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - Prompt caching: `cache_control: {type: "ephemeral"}` on system block + last tool spec. Pays off on multi-turn chats.
   - Failure modes: missing `ANTHROPIC_API_KEY`, missing `anthropic` package, stream exception, max-rounds exhaustion — all yield a clean error message + `done` event without crashing the request.
   - Default `web_access=false` → existing LangChain path (Step 5 branch). This runner assumes Claude (Step 5 enforces).
-- [ ] **Step 5** — Wire branch in `chat_routes.py:281`
-  - Single `if config.get("web_access") and model_name.startswith("claude"): return stream_agentic_response(...)` at top of `chat()`
-  - History adapter: convert Anthropic content blocks → `tool_trace` shape before persisting
+- [x] **Step 5** — Wire branch in `chat_routes.py`
+  - Branch added right after the auth check (around line 313): if `config.web_access` AND `model_name.lower().startswith("claude")` → `_generate_agentic(...)`. Otherwise falls through to the unchanged legacy `generate()` (LangChain RAG path).
+  - Config projection extended (line 292) to include `web_access`, `bot_name`, `instructions` alongside the existing fields.
+  - New `_load_anthropic_history(history_obj)` helper: converts LangChain HumanMessage/AIMessage → `[{role, content}, ...]` for the runner. **Only the rendered text** is fed back into Claude on follow-up turns — the `tool_trace` stays in MongoDB for frontend replay but isn't replayed into model context (saves tokens, avoids stale tool_use IDs that would 400 the API).
+  - New `_generate_agentic(...)` generator: builds `ToolContext`, calls `stream_agentic_response`, forwards `token`/`tool_use`/`tool_result` events as NDJSON, captures the final assistant text + `assistant_blocks`, then persists `add_user_message(user_input)` + `AIMessage(content=text, additional_kwargs={"tool_trace": blocks})`. Skips persistence on `stop_reason == "error"` so error messages don't pollute history.
+  - The `done` event sent to the client is stripped of `assistant_blocks` (large + redundant with the token stream).
+  - `get_chat_history` endpoint (`/api/history/<id>`) already serializes via `message_to_dict` — `additional_kwargs.tool_trace` flows through automatically. Step 6 reads it on replay.
 - [ ] **Step 6** — Frontend status pills + replay
   - Extend stream parser in `ChatPage.jsx` for new event types
   - New `<ToolStatusPill>` component inside AI bubble: "🔎 Searched: *…*", "📄 Reading: *example.com*"

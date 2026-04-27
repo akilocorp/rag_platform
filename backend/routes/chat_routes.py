@@ -13,11 +13,14 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.messages import BaseMessage, message_to_dict
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, message_to_dict
 from bson import ObjectId
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
 from langchain_anthropic import ChatAnthropic
+
+from src.agentic.agent_runner import stream_agentic_response
+from src.agentic.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint('chat_routes', __name__)
@@ -276,6 +279,97 @@ def get_vector_store():
         index_name="vector"
     )
 
+
+def _load_anthropic_history(history_obj):
+    """Convert LangChain MongoDB messages → Anthropic [{role, content}, ...].
+
+    For agentic AI messages we only feed the rendered text back to Claude on
+    follow-up turns — the tool_trace stays in MongoDB for frontend replay
+    but isn't replayed into the model context (saves tokens, avoids stale
+    tool-use IDs that would confuse the API).
+    """
+    out = []
+    for msg in history_obj.messages:
+        if isinstance(msg, HumanMessage):
+            content = (msg.content or "").strip()
+            if content:
+                out.append({"role": "user", "content": content})
+        elif isinstance(msg, AIMessage):
+            content = (msg.content or "").strip()
+            if content:
+                out.append({"role": "assistant", "content": content})
+    return out
+
+
+def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
+                     user_id_for_history, file_variant, selected_file_ids):
+    """NDJSON generator for the agentic path.
+
+    Forwards token / tool_use / tool_result events from the runner to the
+    client, captures the final assistant text + block trace, and persists
+    them to chat_histories with `additional_kwargs.tool_trace`.
+    """
+    try:
+        history_obj = get_session_history(
+            session_id=chat_id,
+            user_id=user_id_for_history,
+            config_id=config_id,
+        )
+        history_messages = _load_anthropic_history(history_obj)
+
+        ctx = ToolContext(
+            user_id=user_id_for_history if user_id_for_history != "anonymous" else None,
+            config_id=config_id,
+            config=config_doc,
+            variant=file_variant,
+            selected_file_ids=selected_file_ids or [],
+        )
+
+        accumulated_text = ""
+        full_trace = []
+        final_stop_reason = "end_turn"
+
+        for event in stream_agentic_response(
+            config=config_doc,
+            user_input=user_input,
+            history_messages=history_messages,
+            ctx=ctx,
+        ):
+            etype = event.get("type")
+            if etype == "token":
+                accumulated_text += event.get("data") or ""
+                yield json.dumps(event) + "\n"
+            elif etype in ("tool_use", "tool_result"):
+                yield json.dumps(event) + "\n"
+            elif etype == "done":
+                full_trace = event.get("assistant_blocks") or []
+                final_stop_reason = event.get("stop_reason") or "end_turn"
+                # Don't ship assistant_blocks to the client (large + redundant
+                # with the token stream and individual tool events).
+                yield json.dumps({
+                    "type": "done",
+                    "stop_reason": final_stop_reason,
+                }) + "\n"
+
+        # Persist this turn. User message first, then AI message with the
+        # full trace so frontend replay can re-render the tool pills.
+        # Skip on error — don't write a user-visible error string as if it
+        # were a real model response.
+        if final_stop_reason != "error" and accumulated_text.strip():
+            try:
+                history_obj.add_user_message(user_input)
+                ai_msg = AIMessage(
+                    content=accumulated_text,
+                    additional_kwargs={"tool_trace": full_trace} if full_trace else {},
+                )
+                history_obj.add_message(ai_msg)
+            except Exception as e:
+                logger.error("Failed to persist agentic turn: %s", e, exc_info=True)
+
+    except Exception as e:
+        logger.error("Agentic stream error: %s", e, exc_info=True)
+        yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+
 # --- MAIN CHAT ROUTE ---
 
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['POST'])
@@ -291,7 +385,11 @@ def chat(config_id, chat_id):
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
         {"_id": ObjectId(config_id.strip())},
-        {"model_name": 1, "temperature": 1, "prompt_template": 1, "is_public": 1, "user_id": 1}
+        {
+            "model_name": 1, "temperature": 1, "prompt_template": 1,
+            "is_public": 1, "user_id": 1,
+            "web_access": 1, "bot_name": 1, "instructions": 1,
+        }
     )
     
     if not config_doc:
@@ -309,6 +407,23 @@ def chat(config_id, chat_id):
                 user_id_for_history = get_jwt_identity()
             except Exception as e:
                 return jsonify({"message": "Authentication failed."}), 401
+
+    # 4a. Agentic branch — Claude bots with web_access enabled use the
+    # tool-using runner. Everything else falls through to the legacy chain.
+    model_name_check = (config_doc.get("model_name") or "").lower()
+    if config_doc.get("web_access") and model_name_check.startswith("claude"):
+        return Response(
+            stream_with_context(_generate_agentic(
+                config_doc=config_doc,
+                user_input=user_input,
+                chat_id=chat_id,
+                config_id=config_id,
+                user_id_for_history=user_id_for_history,
+                file_variant=file_variant,
+                selected_file_ids=selected_file_ids,
+            )),
+            mimetype='application/x-ndjson',
+        )
 
     # 4. Streaming Generator
     @stream_with_context
