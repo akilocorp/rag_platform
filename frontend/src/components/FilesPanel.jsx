@@ -278,15 +278,16 @@ const FilesPanel = ({
                     {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
                   </p>
                 </div>
-                {!selectable && (
-                  <button
-                    onClick={() => onDeleteFile(f._id)}
-                    title="Delete file"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50"
-                  >
-                    <FiTrash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteFile(f._id);
+                  }}
+                  title="Delete file"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50"
+                >
+                  <FiTrash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             );
           })}

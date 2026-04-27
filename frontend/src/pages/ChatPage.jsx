@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight } from 'react-icons/fi';
+import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -742,6 +742,54 @@ const ChatPage = () => {
                                             </div>
                                         );
                                     })}
+                                </div>
+                            );
+                        })()}
+                        {variant === 'A' && (() => {
+                            const sessionIds = new Set(sessionUploads.map((f) => f._id));
+                            const librarySelected = selectedFileIds
+                                .filter((id) => !sessionIds.has(id))
+                                .map((id) => libraryFiles.find((f) => f._id === id))
+                                .filter(Boolean);
+                            if (librarySelected.length === 0) return null;
+                            return (
+                                <div className="flex flex-wrap items-center gap-2 mb-3">
+                                    {librarySelected.map((f) => (
+                                        <div
+                                            key={f._id}
+                                            className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222] max-w-xs"
+                                        >
+                                            {f.is_url ? (
+                                                <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                            ) : f.folder_path ? (
+                                                <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                            ) : (
+                                                <FiFile className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                                            )}
+                                            <span className="truncate">
+                                                {f.folder_path ? (
+                                                    <>
+                                                        {f.folder_path.split('/').map((seg, i) => (
+                                                            <React.Fragment key={i}>
+                                                                <span className="text-gray-500">{seg}</span>
+                                                                <FiChevronRight className="inline w-3 h-3 text-gray-400 mx-0.5" />
+                                                            </React.Fragment>
+                                                        ))}
+                                                        {f.filename}
+                                                    </>
+                                                ) : (
+                                                    f.filename
+                                                )}
+                                            </span>
+                                            <button
+                                                onClick={() => toggleFileSelection(f._id)}
+                                                title="Deselect file"
+                                                className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
+                                            >
+                                                <FiX className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
                             );
                         })()}
