@@ -131,12 +131,13 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - New `_generate_agentic(...)` generator: builds `ToolContext`, calls `stream_agentic_response`, forwards `token`/`tool_use`/`tool_result` events as NDJSON, captures the final assistant text + `assistant_blocks`, then persists `add_user_message(user_input)` + `AIMessage(content=text, additional_kwargs={"tool_trace": blocks})`. Skips persistence on `stop_reason == "error"` so error messages don't pollute history.
   - The `done` event sent to the client is stripped of `assistant_blocks` (large + redundant with the token stream).
   - `get_chat_history` endpoint (`/api/history/<id>`) already serializes via `message_to_dict` — `additional_kwargs.tool_trace` flows through automatically. Step 6 reads it on replay.
-- [ ] **Step 6** — Frontend status pills + replay
-  - Extend stream parser in `ChatPage.jsx` for new event types
-  - New `<ToolStatusPill>` component inside AI bubble: "🔎 Searched: *…*", "📄 Reading: *example.com*"
-  - Citations footer at bottom of AI bubble (parse `[1]`, `[2]` markers)
-  - URL paste detection in input → "🔗 will be fetched" chip
-  - Replay: `ChatMessage` reads `tool_trace` from history and re-renders pills + citations on load
+- [x] **Step 6** — Frontend status pills + replay
+  - New `frontend/src/components/ToolStatusPill.jsx` — collapsed pill (icon + verb + input snippet), expandable to show truncated raw tool_result. Three known tools have icon/verb metadata; unknown tools fall back to a generic pill. Pending state shows spinner; error state turns red with a warning icon.
+  - `ChatMessage` in `ChatPage.jsx` extended: pills render above text, sources footer below text. `ThinkingIndicator` only shows when there's no text AND no tool_calls AND `isTyping` (so once the first tool starts, the shimmer is replaced by the pill).
+  - Stream parser in `handleMessageProcess` now handles `tool_use` (push new entry) and `tool_result` (find by id, fill `result` + `is_error`) events. Unknown event types ignored — legacy path unaffected.
+  - History loader extracts `additional_kwargs.tool_trace` and rebuilds the `tool_calls` array via `extractToolCallsFromTrace` so replay shows pills in their done state.
+  - Sources footer: `extractSources` parses `[N] title — url` lines from web_search results and includes the input URL from web_fetch. Deduped, hostname computed defensively. Renders as numbered chips that link out in a new tab.
+  - URL chip above the input bar: when a Claude+web_access bot is selected and the user's draft contains http(s) URLs, a small "🔗 host — will be fetched" chip appears. UX hint only — the URL is just part of the message and the agent decides whether to call web_fetch.
 - [x] **Step 7** — Safety constants (`backend/src/agentic/constants.py`)
   - `MAX_TOOL_ROUNDS = 8` — total model↔tool round-trips per turn (was inline in `agent_runner.py`, now centralized).
   - `DEFAULT_MAX_TOKENS = 2048` — Anthropic max_tokens per stream round.

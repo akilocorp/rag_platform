@@ -7,6 +7,7 @@ import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
+import ToolStatusPill from '../components/ToolStatusPill';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { useVariant } from '../context/VariantContext';
@@ -25,13 +26,72 @@ const KATEX_DELIMITERS = [
 // --- HELPER: Get Token Safely ---
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
+// Reconstruct paired tool calls from a persisted Anthropic block trace.
+// trace: [{type: 'text'|'tool_use'|'tool_result', ...}]
+// returns: [{id, name, input, result?, is_error?}, ...]
+const extractToolCallsFromTrace = (trace) => {
+  if (!Array.isArray(trace)) return [];
+  const calls = [];
+  const byId = {};
+  for (const block of trace) {
+    if (block?.type === 'tool_use') {
+      const call = { id: block.id, name: block.name, input: block.input || {} };
+      calls.push(call);
+      byId[block.id] = call;
+    } else if (block?.type === 'tool_result') {
+      const call = byId[block.tool_use_id];
+      if (call) {
+        call.result = typeof block.content === 'string'
+          ? block.content
+          : JSON.stringify(block.content);
+        call.is_error = !!block.is_error;
+      }
+    }
+  }
+  return calls;
+};
+
+const safeHostname = (url) => {
+  try { return new URL(url).hostname; } catch { return url; }
+};
+
+// Build a deduped list of cited URLs from completed tool calls.
+// - web_fetch: the input URL
+// - web_search: parses "[N] title — url" lines from the result
+const extractSources = (toolCalls) => {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return [];
+  const seen = new Set();
+  const sources = [];
+  const push = (url, title) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    sources.push({ url, title: title || safeHostname(url) });
+  };
+  for (const tc of toolCalls) {
+    if (!tc || tc.is_error) continue;
+    if (tc.name === 'web_fetch') {
+      push(tc.input?.url, null);
+    } else if (tc.name === 'web_search' && typeof tc.result === 'string') {
+      const re = /\[(\d+)\]\s+(.+?)\s+—\s+(https?:\/\/\S+)/g;
+      let m;
+      while ((m = re.exec(tc.result)) !== null) {
+        push(m[3], m[2]);
+      }
+    }
+  }
+  return sources;
+};
+
 // --- MODERN CHAT MESSAGE COMPONENT ---
 const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const { sender, text, isTyping } = message;
+  const toolCalls = message.tool_calls || [];
   const isUser = sender === 'user';
-  const showThinking = !isUser && isTyping && !text;
+  const hasToolCalls = toolCalls.length > 0;
+  const showThinking = !isUser && isTyping && !text && !hasToolCalls;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
+  const sources = !isUser ? extractSources(toolCalls) : [];
 
   useLayoutEffect(() => {
     if (showThinking) return;
@@ -63,6 +123,14 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none'
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
+          {!isUser && hasToolCalls && (
+            <div className="mb-1">
+              {toolCalls.map((tc) => (
+                <ToolStatusPill key={tc.id} toolCall={tc} />
+              ))}
+            </div>
+          )}
+
           {showThinking ? (
             <ThinkingIndicator />
           ) : (
@@ -72,6 +140,27 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
                 isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
               }`}
             />
+          )}
+
+          {!isUser && sources.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Sources</p>
+              <div className="flex flex-wrap gap-1.5">
+                {sources.map((s, i) => (
+                  <a
+                    key={s.url}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
+                    title={s.title ? `${s.title} — ${s.url}` : s.url}
+                  >
+                    <span className="text-[#FA6C43] font-semibold">[{i + 1}]</span>
+                    <span className="truncate">{s.title}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
       </div>
 
@@ -336,10 +425,14 @@ const ChatPage = () => {
       try {
         const res = await apiClient.get(`/history/${chatId}`);
         const historyData = res.data.history || [];
-        setMessages(historyData.map(msg => ({
-          sender: msg.type === 'human' ? 'user' : 'ai',
-          text: msg.data.content
-        })));
+        setMessages(historyData.map(msg => {
+          const trace = msg.data?.additional_kwargs?.tool_trace;
+          return {
+            sender: msg.type === 'human' ? 'user' : 'ai',
+            text: msg.data.content,
+            tool_calls: trace ? extractToolCallsFromTrace(trace) : [],
+          };
+        }));
       } catch (e) { console.error("History load failed", e); }
     };
     loadHistory();
@@ -396,7 +489,7 @@ const ChatPage = () => {
         for (const line of lines) {
           try {
             const data = JSON.parse(line);
-            const content = data.data || data.chunk; 
+            const content = data.data || data.chunk;
             if (content && (data.type === 'token' || !data.type)) {
               accumulatedText += content;
               currentSentence += content;
@@ -410,13 +503,43 @@ const ChatPage = () => {
 
               // Avatar Integration
               if (avatarSession && /[.!?]/.test(content) && currentSentence.trim().length > 10) {
-                apiClient.post('/heygen/task', { 
-                  session_id: avatarSession.session_id, 
-                  heygen_token: avatarSession.heygen_token, 
-                  text: currentSentence 
+                apiClient.post('/heygen/task', {
+                  session_id: avatarSession.session_id,
+                  heygen_token: avatarSession.heygen_token,
+                  text: currentSentence
                 }).catch(() => {});
-                currentSentence = ''; 
+                currentSentence = '';
               }
+            } else if (data.type === 'tool_use') {
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                const existing = newMsgs[lastIdx].tool_calls || [];
+                newMsgs[lastIdx] = {
+                  ...newMsgs[lastIdx],
+                  isTyping: false,
+                  tool_calls: [
+                    ...existing,
+                    { id: data.id, name: data.name, input: data.input || {} },
+                  ],
+                };
+                return newMsgs;
+              });
+            } else if (data.type === 'tool_result') {
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                const existing = newMsgs[lastIdx].tool_calls || [];
+                newMsgs[lastIdx] = {
+                  ...newMsgs[lastIdx],
+                  tool_calls: existing.map((tc) =>
+                    tc.id === data.id
+                      ? { ...tc, result: data.content, is_error: !!data.is_error }
+                      : tc
+                  ),
+                };
+                return newMsgs;
+              });
             }
           } catch (e) { /* partial JSON chunk */ }
         }
@@ -598,6 +721,30 @@ const ChatPage = () => {
 
                 <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
                     <div className="max-w-4xl mx-auto">
+                        {(() => {
+                            if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;
+                            const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
+                            if (matches.length === 0) return null;
+                            return (
+                                <div className="flex flex-wrap items-center gap-2 mb-3">
+                                    {matches.map((url) => {
+                                        let host = url;
+                                        try { host = new URL(url).hostname; } catch { /* ignore */ }
+                                        return (
+                                            <div
+                                                key={url}
+                                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222]"
+                                                title={url}
+                                            >
+                                                <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                                <span className="truncate max-w-[200px]">{host}</span>
+                                                <span className="text-gray-500">— will be fetched</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
                         {sessionUploads.length > 0 && (
                             <div className="flex flex-wrap items-center gap-2 mb-3">
                                 {sessionUploads.map((f) => (
