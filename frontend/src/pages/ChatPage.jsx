@@ -374,8 +374,10 @@ const ChatPage = () => {
       await apiClient.delete(`/files/${fileId}`);
       setLibraryFiles((prev) => prev.filter((f) => f._id !== fileId));
       setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
+      setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
     } catch (e) {
       console.error('Delete file failed', e);
+      throw e;
     }
   }, []);
 
