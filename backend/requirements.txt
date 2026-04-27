@@ -24,5 +24,7 @@ PyPDF2
 pypdf
 python-pptx
 trafilatura
+tavily-python
+anthropic
 Flask-SocketIO
 

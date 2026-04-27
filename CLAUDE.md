@@ -106,11 +106,16 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
   - `ALLOWED_EXTENSIONS` updated in all 3 spots (`config_routes.py:18`, `edit_config_routes.py:15`, `user_files.py:35`) to include `pptx`.
   - Frontend: `FilesPanel.jsx` got a "Paste a URL" button below the dropzone (collapses to inline input). URL items render with `FiLink` icon and show source URL instead of size. `accept=".pdf,.txt,.md,.docx,.pptx"` everywhere (`FilesPanel`, `ChatPage` attach input, `ConfigPage` step 3, `EditConfigPage` knowledge base block).
   - Plumbing: `ChatPage.uploadUrl(url, folder)` → `SideBar` `onUploadUrl` prop → `FilesPanel`.
-- [ ] **Step 3** — Tool registry + 3 tools
-  - `backend/src/agentic/tools/base.py`, `registry.py`, `tools/__init__.py`, `tools/README.md`
-  - `tools/knowledge_base.py` — wraps `similarity_search` with right pre_filter (config_id or `user:{user_id}` for variant A)
-  - `tools/web_search.py` — wraps `tavily-python`, formats results as `[1] title — url\n<content>` for citation by index
-  - `tools/web_fetch.py` — wraps shared fetch helper, blocks private IPs/hosts
+- [x] **Step 3** — Tool registry + 3 tools
+  - `backend/src/agentic/tools/base.py` — `@tool` decorator, `ToolContext` dataclass, module-level `TOOLS` dict. Name collisions raise at import time.
+  - `backend/src/agentic/tools/__init__.py` — auto-imports every sibling module via `pkgutil.iter_modules` so `@tool` decorators register on first import. **Drop a file = registered. No edits to existing files.**
+  - `backend/src/agentic/registry.py` — public API: `get_tool_specs(config)`, `execute(name, inputs, ctx)`, `get_tool_names()`. Importing it triggers tool discovery.
+  - `backend/src/agentic/tools/README.md` — dev guide with copy-paste template.
+  - `tools/knowledge_base.py` — `search_knowledge_base`. Mirrors chat_routes filter logic exactly (variant A vs B, selected_file_ids vs full library, anonymous vs authenticated). Returns numbered passages `[1] file (slide N)\n<content>` for citation by index. Always enabled.
+  - `tools/web_search.py` — `web_search` via Tavily. `enabled_when` gates on `config.web_access` AND `os.getenv("TAVILY_API_KEY")`. Lazy-imports `tavily-python`. Returns `[1] title — url\n<content>` per result.
+  - `tools/web_fetch.py` — `web_fetch`. Wraps `utils/web/fetch.py:fetch_url_as_documents` (same safety check as URL ingestion). Caps return to 12k chars.
+  - `requirements.txt` — added `tavily-python` and `anthropic` (anthropic SDK needed in Step 4).
+  - **Setup needed before Step 4 testing**: add `TAVILY_API_KEY=...` to `backend/.env`. Without it, `web_search` is silently dropped from the tool list (`enabled_when` returns false) — no errors.
 - [ ] **Step 4** — Agent runner (`backend/src/agentic/agent_runner.py`)
   - `stream_agentic_response(config, messages, ctx)` using `client.messages.stream(...)`
   - Loop: stream → on `tool_use` block, look up via `registry.execute()`, append `tool_result`, continue until `stop_reason == "end_turn"`
