@@ -314,7 +314,10 @@ const FilesPanel = ({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="truncate text-[13px]">{f.filename}</p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">
+                  <p
+                    className="truncate text-[10px] text-gray-500 mt-0.5"
+                    title={f.is_url ? (f.source_url || '') : ''}
+                  >
                     {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
                   </p>
                 </div>

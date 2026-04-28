@@ -76,9 +76,17 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
 
 
 def _to_dict(block) -> Dict[str, Any]:
-    """Anthropic SDK returns pydantic models for content blocks."""
+    """Anthropic SDK returns pydantic models for content blocks.
+
+    `client.messages.stream(...)` returns `ParsedTextBlock` (subclass of
+    `TextBlock`) with a streaming-only `parsed_output` field. The SDK marks
+    those fields with `__api_exclude__` but plain `model_dump()` ignores it,
+    and feeding them back into the next round trips the API's strict input
+    validation (`Extra inputs are not permitted`). Honor `__api_exclude__`.
+    """
     if hasattr(block, 'model_dump'):
-        return block.model_dump()
+        exclude = getattr(block, '__api_exclude__', None)
+        return block.model_dump(exclude=exclude) if exclude else block.model_dump()
     if isinstance(block, dict):
         return block
     return {"type": "text", "text": str(block)}

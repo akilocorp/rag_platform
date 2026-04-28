@@ -146,9 +146,9 @@ const ConfigListPage = () => {
       
       {/* Navbar */}
       <nav className="w-full flex justify-between items-center px-6 lg:px-8 py-6 max-w-[1440px] mx-auto z-10">
-        <div 
+        <div
           className="flex items-center hover:opacity-90 transition-opacity cursor-pointer"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/config_list')}
         >
           <img 
             src={logo} 

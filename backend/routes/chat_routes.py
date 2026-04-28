@@ -301,6 +301,47 @@ def _load_anthropic_history(history_obj):
     return out
 
 
+def _selected_files_context_note(selected_file_ids, user_id_for_history):
+    """Return a short bracketed note listing names of the user's selected
+    library files, or empty string if none. Prepended to the user input so
+    the agent recognizes that "this", "the document", etc. refer to files
+    it can read via search_knowledge_base.
+    """
+    if not selected_file_ids or user_id_for_history == "anonymous":
+        return ""
+    try:
+        oids = []
+        for fid in selected_file_ids:
+            try:
+                oids.append(ObjectId(str(fid)))
+            except Exception:
+                continue
+        if not oids:
+            return ""
+        files_col = current_app.config['MONGO_DB']['user_files']
+        names = []
+        for doc in files_col.find(
+            {"_id": {"$in": oids}, "user_id": user_id_for_history},
+            {"filename": 1, "source_url": 1, "is_url": 1},
+        ):
+            label = doc.get("filename") or doc.get("source_url") or "(untitled)"
+            if doc.get("is_url") and doc.get("source_url"):
+                label = f"{label} (URL: {doc['source_url']})"
+            names.append(f'"{label}"')
+        if not names:
+            return ""
+        listing = ", ".join(names)
+        return (
+            f"[System note: The user has selected the following file(s) "
+            f"from their library: {listing}. When they refer to \"this\", "
+            f"\"that\", \"the document\", \"the link\", etc., they almost "
+            f"certainly mean these. Use search_knowledge_base to read them.]\n\n"
+        )
+    except Exception as e:
+        logger.warning("Could not build selected-files context note: %s", e)
+        return ""
+
+
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids):
     """NDJSON generator for the agentic path.
@@ -317,6 +358,12 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         )
         history_messages = _load_anthropic_history(history_obj)
 
+        # Prepend a context note about selected library files so the agent
+        # knows what "this" / "the document" refers to. Persisted user input
+        # below stays clean — the note is model-only.
+        note = _selected_files_context_note(selected_file_ids, user_id_for_history)
+        agent_input = note + user_input if note else user_input
+
         ctx = ToolContext(
             user_id=user_id_for_history if user_id_for_history != "anonymous" else None,
             config_id=config_id,
@@ -331,7 +378,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
 
         for event in stream_agentic_response(
             config=config_doc,
-            user_input=user_input,
+            user_input=agent_input,
             history_messages=history_messages,
             ctx=ctx,
         ):
