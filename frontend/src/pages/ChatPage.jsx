@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink } from 'react-icons/fi';
+import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -212,6 +212,7 @@ const ChatPage = () => {
   // Sidebar/User State
   const [sessions, setSessions] = useState([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
 
   // Avatar State
@@ -649,6 +650,15 @@ const ChatPage = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {isAuthenticated && isMobileSidebarOpen && (
+          <button
+              type="button"
+              aria-label="Close sidebar"
+              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              onClick={() => setIsMobileSidebarOpen(false)}
+          />
+      )}
+
       {isAuthenticated && (
           <ChatSidebar
               sessions={sessions}
@@ -656,8 +666,10 @@ const ChatPage = () => {
               userInfoLoaded={!!userInfo}
               configId={configId}
               isCollapsed={isSidebarCollapsed}
+              isMobileOpen={isMobileSidebarOpen}
+              onClose={() => setIsMobileSidebarOpen(false)}
               onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              onNewChat={() => { setMessages([]); navigate(`/chat/${configId}`); }}
+              onNewChat={() => { setMessages([]); navigate(`/chat/${configId}`); setIsMobileSidebarOpen(false); }}
               onNavigateWithAutoSave={(cb) => cb()}
               activeTab={sidebarTab}
               onSetTab={setSidebarTab}
@@ -682,8 +694,18 @@ const ChatPage = () => {
 
       <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-72' : 'md:ml-20'}`}>
         
-        <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
+        <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
             <div className="flex items-center gap-3">
+                {isAuthenticated && (
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileSidebarOpen(true)}
+                    className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors md:hidden"
+                    aria-label="Open sidebar"
+                  >
+                    <FiMenu className="w-5 h-5" />
+                  </button>
+                )}
                 {(() => {
                   const HeaderIcon = getBotAvatarIconComponent(config?.bot_avatar);
                   if (!HeaderIcon) return null;

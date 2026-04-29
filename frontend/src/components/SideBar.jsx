@@ -27,6 +27,7 @@ export const ChatSidebar = ({
   userInfoLoaded = false,
   configId,
   isCollapsed,
+  isMobileOpen = false,
   onClose,
   onToggle,
   onNewChat,
@@ -135,9 +136,9 @@ export const ChatSidebar = ({
 
   return (
     <aside
-      className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm ${
-        isCollapsed ? 'w-20' : 'w-72'
-      } left-0 top-0 pt-6 pr-2 pl-2`}
+      className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm w-72 ${
+        isCollapsed ? 'md:w-20' : 'md:w-72'
+      } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} left-0 top-0 pt-6 pr-2 pl-2`}
     >
       {/* Mobile close button */}
       <button
@@ -311,6 +312,7 @@ export const ChatSidebar = ({
                       <div key={session.session_id} className="relative">
                         <Link
                           to={`/chat/${configId}/${session.session_id}`}
+                          onClick={() => onClose && onClose()}
                           className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
                             activeChatId === session.session_id
                               ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
