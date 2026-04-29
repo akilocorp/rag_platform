@@ -111,6 +111,11 @@ def upload_file():
             config_id_override=config_id,
         )
         if not ok:
+            logger.error(
+                "Upload FAIL at vector ingest | user=%s file=%s size=%s tmp=%s "
+                "(see preceding 'Ingest FAIL' log line for the root cause)",
+                user_id, filename, size_bytes, tmp_path,
+            )
             files_col.delete_one({"_id": file_id})
             return jsonify({"message": "Failed to process file"}), 500
 
