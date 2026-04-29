@@ -22,8 +22,17 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-# Install curl for health checks
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install curl for health checks + ocrmypdf system deps for tier-2 OCR
+# (tesseract, ghostscript, qpdf are required by ocrmypdf for the small-PDF
+# inline OCR path; pngquant is optional but improves output PDF size).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        tesseract-ocr \
+        ghostscript \
+        qpdf \
+        pngquant \
+        unpaper \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container
 WORKDIR /app

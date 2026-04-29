@@ -27,4 +27,5 @@ trafilatura
 tavily-python
 anthropic
 Flask-SocketIO
+ocrmypdf
 

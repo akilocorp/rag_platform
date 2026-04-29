@@ -29,6 +29,7 @@ from src.utils.s3_client import (
 )
 from src.utils.vector_stores.store_vector_stores import (
     _extract_pdf_text_via_claude,
+    _extract_pdf_text_via_ocrmypdf,
     extract_pdf_chunks_fast,
     ingest_chunks,
     process_user_url_and_create_vectors,
@@ -167,7 +168,46 @@ def upload_file():
         logger.error("Upload FAIL: non-PDF with no extractable text | file=%s ext=%s", filename, ext)
         return jsonify({"message": "No extractable text in file"}), 500
 
-    # Tier 3 (Tier 2 added in next commit): dispatch to the async Claude worker.
+    # Tier 2: short scanned PDFs (≤ SYNC_OCR_MAX_PAGES) → run ocrmypdf inline.
+    # ~3 s/page on CPU; 3 pages = ~9 s, just under the upload-response budget.
+    if 0 < page_count <= SYNC_OCR_MAX_PAGES:
+        logger.info(
+            "Upload tier-2: trying ocrmypdf inline | file=%s pages=%d",
+            filename, page_count,
+        )
+        ocr_text = _extract_pdf_text_via_ocrmypdf(tmp_path, filename)
+        if ocr_text:
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+            ocr_splits = splitter.split_documents([
+                Document(page_content=ocr_text, metadata={"source": filename})
+            ])
+            if ocr_splits and ingest_chunks(
+                ocr_splits, user_id, folder_path, filename, file_id, config_id_override=config_id
+            ):
+                storage_key = f"user_files/{user_id}/{file_id}/{filename}"
+                try:
+                    s3_upload(tmp_path, storage_key, content_type=content_type)
+                except Exception as e:
+                    current_app.logger.error(f"S3 upload failed for {storage_key}: {e}")
+                    storage_key = None
+                files_col.update_one(
+                    {"_id": file_id},
+                    {"$set": {
+                        "vector_ingested": True,
+                        "ingest_status": "done",
+                        "storage_key": storage_key,
+                    }},
+                )
+                _safe_unlink(tmp_path)
+                doc["_id"] = str(file_id)
+                doc["vector_ingested"] = True
+                doc["ingest_status"] = "done"
+                doc["storage_key"] = storage_key
+                return jsonify({"file": doc}), 201
+        # ocrmypdf produced nothing useful → fall through to async Claude
+        # (we deliberately keep tmp_path so the worker can use it).
+
+    # Tier 3: dispatch to the async Claude worker.
     jobs_col = db['upload_jobs']
     job_doc = {
         "user_id": user_id,

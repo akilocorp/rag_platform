@@ -21,6 +21,64 @@ CLAUDE_PDF_MAX_PAGES = 100
 CLAUDE_PDF_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
 
 
+def _extract_pdf_text_via_ocrmypdf(pdf_path: str, filename: str) -> str | None:
+    """Tier-2 fallback: run Tesseract OCR via ocrmypdf, then re-extract text.
+
+    Used for short scanned PDFs (≤ a few pages) where 3 s/page on CPU still
+    fits inside the upload budget. Returns the extracted text, or None if
+    ocrmypdf isn't installed or fails. Caller should fall through to the
+    async Claude path on None.
+    """
+    import tempfile
+    try:
+        try:
+            import ocrmypdf
+        except ImportError:
+            logger.error("ocrmypdf fallback: ocrmypdf not installed | file=%s", filename)
+            return None
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            ocr_out_path = tmp.name
+        try:
+            ocrmypdf.ocr(
+                pdf_path,
+                ocr_out_path,
+                language="eng",
+                deskew=True,
+                optimize=0,            # skip image optimisation — saves seconds
+                progress_bar=False,
+                output_type="pdf",     # don't try to make a fancy PDF/A
+                force_ocr=True,        # we already know there's no text layer
+                jobs=2,
+            )
+
+            from pypdf import PdfReader
+            reader = PdfReader(ocr_out_path)
+            text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
+            text = text.strip()
+            if not text:
+                logger.error("ocrmypdf fallback: empty text after OCR | file=%s", filename)
+                return None
+
+            logger.info(
+                "ocrmypdf fallback OK | file=%s pages=%d chars=%d",
+                filename, len(reader.pages), len(text),
+            )
+            return text
+        finally:
+            try:
+                os.remove(ocr_out_path)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(
+            "ocrmypdf fallback: crashed | file=%s err=%s",
+            filename, e,
+            exc_info=True,
+        )
+        return None
+
+
 def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
     """Fallback for scanned/image-only PDFs.
 
