@@ -86,8 +86,10 @@ const extractSources = (toolCalls) => {
 const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
+  const attachedFiles = message.attachedFiles || [];
   const isUser = sender === 'user';
   const hasToolCalls = toolCalls.length > 0;
+  const hasAttachedFiles = isUser && attachedFiles.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
@@ -123,6 +125,27 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none'
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
       }`}>
+          {hasAttachedFiles && (
+            <div className="flex flex-wrap gap-1.5 mb-2 -mx-1">
+              {attachedFiles.map((f) => (
+                <div
+                  key={f._id}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/20 border border-white/30 text-[11px] text-white max-w-[240px]"
+                  title={f.folder_path ? `${f.folder_path}/${f.filename}` : f.filename}
+                >
+                  {f.is_url ? (
+                    <FiLink className="w-3 h-3 flex-shrink-0" />
+                  ) : f.folder_path ? (
+                    <FiFolder className="w-3 h-3 flex-shrink-0" />
+                  ) : (
+                    <FiFile className="w-3 h-3 flex-shrink-0" />
+                  )}
+                  <span className="truncate">{f.filename}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {!isUser && hasToolCalls && (
             <div className="mb-1">
               {toolCalls.map((tc) => (
@@ -452,12 +475,25 @@ const ChatPage = () => {
     isStreamingRef.current = true; 
     setIsLoading(true);
 
+    // Snapshot library-selected files so the chips ride along with this prompt
+    const sessionIds = new Set(sessionUploads.map((f) => f._id));
+    const attachedFiles = variant === 'A'
+        ? selectedFileIds
+            .filter((id) => !sessionIds.has(id))
+            .map((id) => libraryFiles.find((f) => f._id === id))
+            .filter(Boolean)
+            .map((f) => ({ _id: f._id, filename: f.filename, folder_path: f.folder_path, is_url: f.is_url }))
+        : [];
+
     // C. Optimistic UI Update
     setMessages(prev => [
-        ...prev, 
-        { sender: 'user', text: textInput }, 
+        ...prev,
+        { sender: 'user', text: textInput, attachedFiles },
         { sender: 'ai', text: '', isTyping: true }
     ]);
+
+    // Drop the library selection so chips disappear from the input box
+    if (attachedFiles.length > 0) setSelectedFileIds([]);
 
     // D. Navigation (Non-blocking)
     if (isNewChat) {
