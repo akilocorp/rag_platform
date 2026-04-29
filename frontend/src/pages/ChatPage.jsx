@@ -120,7 +120,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         </div>
       )}
 
-      <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed ${
+      <div className={`min-w-0 max-w-[85%] rounded-2xl px-4 py-3 sm:px-5 shadow-sm text-sm leading-relaxed break-words overflow-hidden ${
         isUser
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none'
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
@@ -649,7 +649,7 @@ const ChatPage = () => {
   const showAvatar = isAvatarMode && !avatarError;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isAuthenticated && isMobileSidebarOpen && (
           <button
               type="button"

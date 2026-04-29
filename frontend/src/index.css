@@ -18,6 +18,17 @@
 }
 
 @layer components {
+  /* Wrap long URLs / unbreakable strings so AI replies never force the bubble
+     wider than its max-width on mobile (which caused horizontal scrolling). */
+  .chat-message-md {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 0;
+  }
+  .chat-message-md a {
+    overflow-wrap: anywhere;
+  }
+
   /* Paragraphs & lists: clear separation between blocks (AI markdown) */
   .chat-message-md p {
     margin-top: 0;
@@ -62,6 +73,7 @@
     padding: 0.65rem 0.75rem;
     border-radius: 0.5rem;
     overflow-x: auto;
+    max-width: 100%;
     font-size: 0.875em;
   }
   .chat-message-md hr {
