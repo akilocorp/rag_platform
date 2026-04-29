@@ -615,7 +615,7 @@ const ChatPage = () => {
       setIsLoading(false);
       isStreamingRef.current = false; // "Unlock" the history loader
     }
-  }, [configId, navigate, avatarSession, fetchSessions, isLoading]);
+  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles]);
 
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
   // --- 6. QUALTRICS INTEGRATION: Send messages to Parent Window ---
