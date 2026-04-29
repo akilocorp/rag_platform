@@ -453,10 +453,12 @@ const ChatPage = () => {
         const historyData = res.data.history || [];
         setMessages(historyData.map(msg => {
           const trace = msg.data?.additional_kwargs?.tool_trace;
+          const attached = msg.data?.additional_kwargs?.attached_files;
           return {
             sender: msg.type === 'human' ? 'user' : 'ai',
             text: msg.data.content,
             tool_calls: trace ? extractToolCallsFromTrace(trace) : [],
+            attachedFiles: Array.isArray(attached) ? attached : [],
           };
         }));
       } catch (e) { console.error("History load failed", e); }
@@ -511,6 +513,7 @@ const ChatPage = () => {
           input: textInput,
           variant,
           selected_file_ids: variant === 'A' ? selectedFileIds : [],
+          attached_files: attachedFiles,
         })
       });
 

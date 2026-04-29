@@ -252,7 +252,35 @@ def get_chat_list(config_id):
 
 # --- FACTORY & HELPERS ---
 
-def get_session_history(session_id: str, user_id: str, config_id: str) -> MongoDBChatMessageHistory:
+class _AttachedFilesMongoHistory(MongoDBChatMessageHistory):
+    """MongoDBChatMessageHistory that injects `attached_files` into the
+    `additional_kwargs` of the next HumanMessage it persists.
+
+    Set `pending_attached_files` on the instance before the chain (or
+    direct add_user_message call) runs; it's consumed once and cleared.
+    """
+
+    def _maybe_inject(self, message):
+        files = getattr(self, "pending_attached_files", None) or []
+        if (
+            files
+            and isinstance(message, HumanMessage)
+            and not (message.additional_kwargs or {}).get("attached_files")
+        ):
+            kwargs = dict(message.additional_kwargs or {})
+            kwargs["attached_files"] = files
+            message = HumanMessage(content=message.content, additional_kwargs=kwargs)
+            self.pending_attached_files = []
+        return message
+
+    def add_message(self, message):
+        super().add_message(self._maybe_inject(message))
+
+    def add_messages(self, messages):
+        super().add_messages([self._maybe_inject(m) for m in messages])
+
+
+def get_session_history(session_id: str, user_id: str, config_id: str) -> _AttachedFilesMongoHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
 
@@ -265,7 +293,7 @@ def get_session_history(session_id: str, user_id: str, config_id: str) -> MongoD
             "timestamp": time.time()
         })
 
-    return MongoDBChatMessageHistory(
+    return _AttachedFilesMongoHistory(
         session_id=session_id,
         connection_string=current_app.config["MONGO_URI"],
         database_name=db.name,           # Uses "survey"
@@ -343,7 +371,8 @@ def _selected_files_context_note(selected_file_ids, user_id_for_history):
 
 
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
-                     user_id_for_history, file_variant, selected_file_ids):
+                     user_id_for_history, file_variant, selected_file_ids,
+                     attached_files):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -404,6 +433,8 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         # were a real model response.
         if final_stop_reason != "error" and accumulated_text.strip():
             try:
+                if attached_files:
+                    history_obj.pending_attached_files = attached_files
                 history_obj.add_user_message(user_input)
                 ai_msg = AIMessage(
                     content=accumulated_text,
@@ -428,6 +459,9 @@ def chat(config_id, chat_id):
         return jsonify({"message": "Missing 'input' field"}), 400
     file_variant = data.get('variant', 'A')
     selected_file_ids = data.get('selected_file_ids', [])
+    # Snapshot of file metadata the frontend showed as chips at send time;
+    # persisted on the user message so the chips survive a history reload.
+    attached_files = data.get('attached_files', []) or []
 
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
@@ -468,6 +502,7 @@ def chat(config_id, chat_id):
                 user_id_for_history=user_id_for_history,
                 file_variant=file_variant,
                 selected_file_ids=selected_file_ids,
+                attached_files=attached_files,
             )),
             mimetype='application/x-ndjson',
         )
@@ -626,11 +661,14 @@ def chat(config_id, chat_id):
             chain = prompt | llm | StrOutputParser()
             
             def get_history_factory(session_id):
-                return get_session_history(
+                h = get_session_history(
                     session_id=session_id,
-                    user_id=user_id_for_history, 
+                    user_id=user_id_for_history,
                     config_id=config_id
                 )
+                if attached_files:
+                    h.pending_attached_files = attached_files
+                return h
 
             chain_with_history = RunnableWithMessageHistory(
                 chain,
