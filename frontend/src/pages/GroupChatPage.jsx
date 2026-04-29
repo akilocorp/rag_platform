@@ -144,6 +144,14 @@ const GroupChatPage = () => {
 
   useEffect(() => { adjustInputHeight(); }, [input, adjustInputHeight]);
 
+  const handleCancelQueue = () => {
+    if (socketRef.current) {
+      socketRef.current.emit('leave_queue', { uid: userIdRef.current });
+      socketRef.current.disconnect();
+    }
+    navigate('/config_list');
+  };
+
   const handleSend = () => {
     if (!input.trim() || !socketRef.current) return;
 
@@ -191,6 +199,14 @@ const GroupChatPage = () => {
           )}
 
           <FaSpinner className="animate-spin text-2xl text-[#FA6C43] opacity-60" />
+
+          <button
+            onClick={handleCancelQueue}
+            className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
+          >
+            <FaArrowLeft className="text-xs" />
+            Leave queue
+          </button>
         </div>
       </div>
     );

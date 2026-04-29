@@ -63,6 +63,21 @@ class MatchManager:
 
         return None, None
 
+    def create_solo_room(self, config_id: str, uid: str) -> str:
+        """
+        Create a single-user room without going through the queue.
+        Used when group_size == 1 (one human + AIs).
+        """
+        self.leave_queue(uid)
+        room_id = f"{config_id}_{uuid4().hex[:8]}"
+        self.active_rooms[room_id] = {
+            "members": [uid],
+            "config_id": config_id,
+            "created_at": datetime.now()
+        }
+        self.user_to_room[uid] = room_id
+        return room_id
+
     def leave_queue(self, uid: str):
         """Remove uid from whatever queue they are currently waiting in."""
         config_id = self.user_to_queue.pop(uid, None)

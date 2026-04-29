@@ -52,6 +52,13 @@ def register_socket_events(socketio, app):
             emit('match_found', {'room_id': existing_room}, to=request.sid)
             return
 
+        # Solo group (1 human + AIs): skip the queue, drop them straight into a room
+        if group_size <= 1:
+            room_id = match_manager.create_solo_room(config_id, uid)
+            logger.info(f"👤 Solo room created for {uid} → {room_id}")
+            emit('match_found', {'room_id': room_id}, to=request.sid)
+            return
+
         room_id, matched_uids = match_manager.join_queue(config_id, uid, group_size)
 
         if room_id is None:
@@ -68,6 +75,15 @@ def register_socket_events(socketio, app):
                     socketio.emit('match_found', {'room_id': room_id}, to=target_sid)
                 else:
                     logger.warning(f"No SID found for matched uid {matched_uid}")
+
+    @socketio.on('leave_queue')
+    def handle_leave_queue(data):
+        """User explicitly cancelled the matchmaking wait."""
+        uid = (data or {}).get('uid') or sid_to_uid.get(request.sid)
+        if not uid:
+            return
+        match_manager.leave_queue(uid)
+        logger.info(f"🚪 {uid} left the queue")
 
     @socketio.on('get_history')
     def handle_get_history(data):

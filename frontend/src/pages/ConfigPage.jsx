@@ -440,9 +440,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         <div>
                           <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
                             <span>Target Group Size</span>
-                            <span className="text-[#FA6C43] font-bold">{config.group_size} Users</span>
+                            <span className="text-[#FA6C43] font-bold">{Number(config.group_size) === 1 ? 'Solo (1 user + AIs)' : `${config.group_size} Users`}</span>
                           </label>
-                          <input type="range" name="group_size" min="2" max="10" step="1" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                          <input type="range" name="group_size" min="1" max="10" step="1" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
                         </div>
                         <div>
                           <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">

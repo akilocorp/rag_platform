@@ -43,25 +43,39 @@ Configurable chatbot research platform. Professors set persona, system prompt, a
 
 ---
 
-## In-Progress: Group Chat Matching System
+## Group Chat Matching System
 
 ### Goal
-When a user opens a group chat, instead of joining immediately, they enter a **matchmaking queue**. Once enough users are queued (determined by `group_size` in the config), they are matched into a unique room together.
+When a user opens a group chat, instead of joining immediately, they enter a **matchmaking queue**. Once enough users are queued (determined by `group_size` in the config), they are matched into a unique room together. `group_size = 1` is a valid solo configuration (1 human + AIs) and bypasses the queue entirely.
 
 ### Config field
-`group_size` (int, default 2) — stored in `config_collections` per bot config.
+`group_size` (int, default 2, min 1) — stored in `config_collections` per bot config. UI sliders in `ConfigPage.jsx` and `EditConfigPage.jsx` allow 1–10; the label renders "Solo (1 user + AIs)" when set to 1.
 
-### What's done
-- **`match_manager.py`** — fully rewritten with queue + matching logic:
-  - `join_queue(config_id, uid, group_size)` → returns `(room_id, matched_uids)` when queue fills, else `(None, None)`
-  - `leave_queue(uid)` → removes from queue on disconnect
-  - `queue_position(config_id, uid)` → 1-based position for UI display
-  - `get_room_for_user(uid)` → returns matched room_id
-  - Matched room IDs are unique: `{config_id}_{random8chars}`
+### Backend (`backend/src/managers/match_manager.py`)
+In-process singleton. Queue and room state are in-memory only — a backend restart wipes both.
+- `join_queue(config_id, uid, group_size)` → `(room_id, matched_uids)` when the queue fills, else `(None, None)`. Remainder stays queued.
+- `create_solo_room(config_id, uid)` → builds a 1-member room directly, no queue. Used for `group_size <= 1`.
+- `leave_queue(uid)` → removes from waiting queue (no-op if already in a matched room).
+- `queue_position(config_id, uid)` → 1-based position for UI.
+- `get_room_for_user(uid)` → returns matched room_id (drives the reconnect short-circuit).
+- Room IDs: `{config_id}_{8 hex chars}` so multiple groups from the same config don't collide.
 
-### What's TODO
-- **`group_chat_sockets.py`** — replace `join_group_chat` event with `join_queue` / `leave_queue` events. Emit `match_found` (with `room_id`) to each matched user. Use matched `room_id` (not `config_id`) as the Socket.IO room for `send_message`.
-- **`GroupChatPage.jsx`** — add a waiting screen UI, listen for `match_found` event, then transition into the chat.
+### Sockets (`backend/routes/group_chat_sockets.py`)
+- `join_queue {uid, config_id}` — registers `sid↔uid`, loads `group_size` from the config doc. Reconnect short-circuit: if user already has a room, re-emit `match_found` and return. Solo path: if `group_size <= 1`, call `create_solo_room` and emit `match_found` immediately. Otherwise enqueue → emit `queued {position}` to this socket, or `match_found {room_id}` to each matched user via their stored `sid`.
+- `leave_queue {uid}` — explicit cancel (Cancel button on waiting screen). Falls back to `sid_to_uid` lookup if `uid` missing.
+- `disconnect` — also calls `match_manager.leave_queue(uid)` so dropped clients are cleaned up automatically.
+- `get_history {room_id}` — joins the Socket.IO room (this is when the user actually enters), replays persisted `group_chat_messages`.
+- `send_message {room_id, uid, text}` — broadcasts to humans, kicks off `process_ai_logic` background task.
+
+### Frontend (`frontend/src/pages/GroupChatPage.jsx`)
+Three phases via `phase` state: `loading → waiting → chat`. `phaseRef` mirrors the state so socket closures see the current phase (prevents reconnects from re-queueing once you're in chat).
+- On `connect` → emit `join_queue`. `queued` → show waiting screen with position chip. `match_found` → store `room_id`, emit `get_history`, transition to chat.
+- Waiting screen has a "Leave queue" button → `handleCancelQueue` emits `leave_queue`, disconnects the socket, navigates to `/config_list`.
+- Solo configs skip the waiting screen entirely because the backend emits `match_found` without ever emitting `queued`.
+
+### Known limits
+- Queue position is one-shot — when someone ahead leaves, the waiting users don't see their position update until another event refreshes them. Acceptable for now.
+- All state is in-process; multi-worker deployment would need to move queues/rooms to Redis.
 
 ---
 
