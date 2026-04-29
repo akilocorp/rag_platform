@@ -478,15 +478,22 @@ const ChatPage = () => {
     isStreamingRef.current = true; 
     setIsLoading(true);
 
-    // Snapshot library-selected files so the chips ride along with this prompt
+    // Snapshot every chip currently shown above the input — both library
+    // selections and session uploads — so they ride along with this prompt
+    // and disappear from the input box once it's sent.
     const sessionIds = new Set(sessionUploads.map((f) => f._id));
-    const attachedFiles = variant === 'A'
+    const librarySelected = variant === 'A'
         ? selectedFileIds
             .filter((id) => !sessionIds.has(id))
             .map((id) => libraryFiles.find((f) => f._id === id))
             .filter(Boolean)
-            .map((f) => ({ _id: f._id, filename: f.filename, folder_path: f.folder_path, is_url: f.is_url }))
         : [];
+    const attachedFiles = [...librarySelected, ...sessionUploads].map((f) => ({
+        _id: f._id,
+        filename: f.filename,
+        folder_path: f.folder_path,
+        is_url: f.is_url,
+    }));
 
     // C. Optimistic UI Update
     setMessages(prev => [
@@ -495,8 +502,11 @@ const ChatPage = () => {
         { sender: 'ai', text: '', isTyping: true }
     ]);
 
-    // Drop the library selection so chips disappear from the input box
-    if (attachedFiles.length > 0) setSelectedFileIds([]);
+    // Clear chips from the input box now that they've been pinned to the prompt
+    if (attachedFiles.length > 0) {
+        setSelectedFileIds([]);
+        setSessionUploads([]);
+    }
 
     // D. Navigation (Non-blocking)
     if (isNewChat) {
