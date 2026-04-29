@@ -1,8 +1,10 @@
 import os
 import shutil
+import base64
 import logging
 from flask import current_app
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 
@@ -12,6 +14,112 @@ from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 from src.utils.loaders.pptx_loader import SimplePPTXLoader
 
 logger = logging.getLogger(__name__)
+
+# Claude PDF input limits (Anthropic spec)
+CLAUDE_PDF_MAX_BYTES = 32 * 1024 * 1024
+CLAUDE_PDF_MAX_PAGES = 100
+CLAUDE_PDF_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
+    """Fallback for scanned/image-only PDFs.
+
+    Sends the whole PDF to Claude Haiku as a document block and asks for
+    plain extracted text. Returns the text, or None if the PDF exceeds
+    Claude's limits, the SDK/key isn't available, or the call fails.
+    Caller logs + treats None as a clean failure.
+    """
+    try:
+        size = os.path.getsize(pdf_path)
+        if size > CLAUDE_PDF_MAX_BYTES:
+            logger.error(
+                "Claude PDF fallback: file too large | file=%s size=%s max=%s",
+                filename, size, CLAUDE_PDF_MAX_BYTES,
+            )
+            return None
+
+        try:
+            from pypdf import PdfReader
+            page_count = len(PdfReader(pdf_path).pages)
+        except Exception:
+            page_count = -1  # unknown — Claude will reject if it's actually too many
+        if page_count > CLAUDE_PDF_MAX_PAGES:
+            logger.error(
+                "Claude PDF fallback: too many pages | file=%s pages=%s max=%s",
+                filename, page_count, CLAUDE_PDF_MAX_PAGES,
+            )
+            return None
+
+        api_key = (
+            current_app.config.get("ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        if not api_key:
+            logger.error(
+                "Claude PDF fallback: ANTHROPIC_API_KEY not configured | file=%s",
+                filename,
+            )
+            return None
+
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            logger.error(
+                "Claude PDF fallback: anthropic SDK not installed | file=%s",
+                filename,
+            )
+            return None
+
+        with open(pdf_path, "rb") as f:
+            pdf_b64 = base64.b64encode(f.read()).decode("ascii")
+
+        client = Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=CLAUDE_PDF_FALLBACK_MODEL,
+            max_tokens=8192,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "Extract every piece of text from this document, in reading order. "
+                            "Preserve paragraph breaks, headings, and lists. Do not summarize, "
+                            "rephrase, or add commentary. Return only the extracted text."
+                        ),
+                    },
+                ],
+            }],
+        )
+
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        if not text.strip():
+            logger.error("Claude PDF fallback: empty response | file=%s", filename)
+            return None
+
+        usage = getattr(msg, "usage", None)
+        logger.info(
+            "Claude PDF fallback OK | file=%s pages=%s chars=%d in_tokens=%s out_tokens=%s",
+            filename, page_count, len(text),
+            getattr(usage, "input_tokens", "?") if usage else "?",
+            getattr(usage, "output_tokens", "?") if usage else "?",
+        )
+        return text
+    except Exception as e:
+        logger.error(
+            "Claude PDF fallback: API call crashed | file=%s err=%s",
+            filename, e,
+            exc_info=True,
+        )
+        return None
 
 def get_document_loader(file_path):
     """
@@ -186,10 +294,28 @@ def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, f
 
         splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
         splits = splitter.split_documents(pages)
+
+        # Scanned/image-only PDFs produce 0 chunks here. Fall back to Claude
+        # so the PDF's pages are OCR'd via vision, then re-split.
+        if not splits and ext == ".pdf":
+            logger.info(
+                "Ingest FALLBACK: pypdf extracted no text, trying Claude PDF | file=%s pages=%d",
+                filename, len(pages),
+            )
+            extracted = _extract_pdf_text_via_claude(temp_file_path, filename)
+            if extracted:
+                splits = splitter.split_documents([
+                    Document(page_content=extracted, metadata={"source": filename})
+                ])
+                logger.info(
+                    "Ingest FALLBACK: Claude extraction produced %d chunks | file=%s",
+                    len(splits), filename,
+                )
+
         if not splits:
             logger.error(
                 "Ingest FAIL: no chunks produced | file=%s pages=%d "
-                "(loader returned pages but splitter found no text — likely a scanned/image-only PDF)",
+                "(scanned/image PDF + Claude fallback failed, or non-PDF with no extractable text)",
                 filename, len(pages),
             )
             return False
