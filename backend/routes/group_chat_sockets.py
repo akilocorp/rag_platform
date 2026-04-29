@@ -19,6 +19,15 @@ def register_socket_events(socketio, app):
     @socketio.on('connect')
     def handle_connect():
         logger.info(f"✅ SUCCESS: Frontend connected to Socket.IO! SID: {request.sid}")
+
+    @socketio.on('subscribe_uploads')
+    def handle_subscribe_uploads(data):
+        """Join a user-scoped room so async upload workers can push completion events."""
+        uid = (data or {}).get('user_id')
+        if not uid:
+            return
+        join_room(f"user:{uid}")
+        logger.info(f"📥 sid={request.sid} subscribed to upload events for user:{uid}")
     # ----------------------------    
     @socketio.on('join_queue')
     def handle_join_queue(data):

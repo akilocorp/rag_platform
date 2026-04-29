@@ -288,12 +288,16 @@ const FilesPanel = ({
 
           {visibleFiles.map((f) => {
             const isSelected = selectedFileIds.includes(f._id);
+            const isPending = f.vector_ingested === false;
             return (
               <div
                 key={f._id}
-                onClick={selectable && onToggleFile ? () => onToggleFile(f._id) : undefined}
+                onClick={selectable && onToggleFile && !isPending ? () => onToggleFile(f._id) : undefined}
+                title={isPending ? 'This file is still being indexed' : undefined}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
-                  selectable ? 'cursor-pointer' : ''
+                  selectable && !isPending ? 'cursor-pointer' : ''
+                } ${
+                  isPending ? 'opacity-60' : ''
                 } ${
                   isSelected
                     ? 'bg-[#F9D0C4]/30 border-[#FA6C43]/40'
@@ -307,7 +311,9 @@ const FilesPanel = ({
                     {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                 )}
-                {f.is_url ? (
+                {isPending ? (
+                  <FiLoader className="w-4 h-4 text-[#FA6C43] flex-shrink-0 animate-spin" />
+                ) : f.is_url ? (
                   <FiLink className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
                 ) : (
                   <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -318,7 +324,9 @@ const FilesPanel = ({
                     className="truncate text-[10px] text-gray-500 mt-0.5"
                     title={f.is_url ? (f.source_url || '') : ''}
                   >
-                    {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
+                    {isPending
+                      ? 'Indexing…'
+                      : f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
                   </p>
                 </div>
                 <button

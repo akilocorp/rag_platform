@@ -10,6 +10,7 @@ import logging
 import mimetypes
 import os
 import re
+import threading
 import time
 import uuid
 
@@ -17,6 +18,8 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from werkzeug.utils import secure_filename
 
 from src.utils.s3_client import (
@@ -25,7 +28,9 @@ from src.utils.s3_client import (
     upload_file as s3_upload,
 )
 from src.utils.vector_stores.store_vector_stores import (
-    process_user_file_and_create_vectors,
+    _extract_pdf_text_via_claude,
+    extract_pdf_chunks_fast,
+    ingest_chunks,
     process_user_url_and_create_vectors,
 )
 from src.utils.web.fetch import fetch_url_as_documents, UnsafeURLError
@@ -59,6 +64,13 @@ def _serialize(doc):
 # Files
 # ---------------------------------------------------------------------------
 
+# Image-only PDFs over this page count are dispatched to the async Claude
+# worker rather than being OCR'd inline. (Inline path doesn't exist yet —
+# Commit B will add ocrmypdf for ≤3 pages. For now everything image-only
+# goes async.)
+SYNC_OCR_MAX_PAGES = 3
+
+
 @user_files_bp.route('/files', methods=['POST'])
 @jwt_required()
 def upload_file():
@@ -79,70 +91,229 @@ def upload_file():
     config_id = request.form.get('config_id') or None
     filename = secure_filename(f.filename)
     content_type = f.content_type or mimetypes.guess_type(filename)[0]
+    ext = os.path.splitext(filename)[1].lower()
 
     os.makedirs(TMP_UPLOAD_DIR, exist_ok=True)
     tmp_path = os.path.join(TMP_UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
     f.save(tmp_path)
 
-    try:
-        size_bytes = os.path.getsize(tmp_path)
-        if size_bytes > MAX_FILE_SIZE:
-            return jsonify({"message": "File exceeds 50 MB limit"}), 413
+    size_bytes = os.path.getsize(tmp_path)
+    if size_bytes > MAX_FILE_SIZE:
+        _safe_unlink(tmp_path)
+        return jsonify({"message": "File exceeds 50 MB limit"}), 413
 
-        db = current_app.config['MONGO_DB']
-        files_col = db['user_files']
+    db = current_app.config['MONGO_DB']
+    files_col = db['user_files']
 
-        doc = {
+    doc = {
+        "user_id": user_id,
+        "folder_path": folder_path,
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": size_bytes,
+        "uploaded_at": time.time(),
+        "vector_ingested": False,
+        "ingest_status": "pending",
+        "storage_key": None,
+    }
+    if config_id:
+        doc["config_id"] = config_id
+    file_id = files_col.insert_one(doc).inserted_id
+
+    # Tier 1: pypdf-only fast extraction.
+    splits, page_count = extract_pdf_chunks_fast(tmp_path, filename)
+
+    if splits is None:
+        # Hard error during extraction (unsupported, corrupted, etc.)
+        files_col.delete_one({"_id": file_id})
+        _safe_unlink(tmp_path)
+        return jsonify({"message": "Failed to read file"}), 500
+
+    if splits:
+        # FAST PATH: text PDF / docx / md / txt / pptx → sync ingest
+        try:
+            if not ingest_chunks(splits, user_id, folder_path, filename, file_id, config_id_override=config_id):
+                files_col.delete_one({"_id": file_id})
+                return jsonify({"message": "Failed to process file"}), 500
+
+            storage_key = f"user_files/{user_id}/{file_id}/{filename}"
+            try:
+                s3_upload(tmp_path, storage_key, content_type=content_type)
+            except Exception as e:
+                current_app.logger.error(f"S3 upload failed for {storage_key}: {e}")
+                db['vector_collection'].delete_many({
+                    "source_file_id": str(file_id),
+                    "owner_user_id": user_id,
+                })
+                files_col.delete_one({"_id": file_id})
+                return jsonify({"message": "Failed to persist file to storage"}), 502
+
+            files_col.update_one(
+                {"_id": file_id},
+                {"$set": {"vector_ingested": True, "ingest_status": "done", "storage_key": storage_key}},
+            )
+            doc["_id"] = str(file_id)
+            doc["vector_ingested"] = True
+            doc["ingest_status"] = "done"
+            doc["storage_key"] = storage_key
+            return jsonify({"file": doc}), 201
+        finally:
+            _safe_unlink(tmp_path)
+
+    # 0 chunks. Image-only PDF goes async; anything else is a hard fail.
+    if ext != ".pdf":
+        files_col.delete_one({"_id": file_id})
+        _safe_unlink(tmp_path)
+        logger.error("Upload FAIL: non-PDF with no extractable text | file=%s ext=%s", filename, ext)
+        return jsonify({"message": "No extractable text in file"}), 500
+
+    # Tier 3 (Tier 2 added in next commit): dispatch to the async Claude worker.
+    jobs_col = db['upload_jobs']
+    job_doc = {
+        "user_id": user_id,
+        "file_id": str(file_id),
+        "filename": filename,
+        "page_count": page_count,
+        "status": "pending",
+        "error": None,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    job_id = jobs_col.insert_one(job_doc).inserted_id
+
+    # Hand the tmp file off to the worker — it owns cleanup from here.
+    app = current_app._get_current_object()
+    threading.Thread(
+        target=_run_async_pdf_ingest,
+        kwargs={
+            "app": app,
+            "tmp_path": tmp_path,
             "user_id": user_id,
+            "file_id_str": str(file_id),
+            "job_id_str": str(job_id),
             "folder_path": folder_path,
             "filename": filename,
             "content_type": content_type,
-            "size_bytes": size_bytes,
-            "uploaded_at": time.time(),
-            "vector_ingested": False,
-            "storage_key": None,
-        }
-        if config_id:
-            doc["config_id"] = config_id
-        file_id = files_col.insert_one(doc).inserted_id
+            "config_id": config_id,
+        },
+        daemon=True,
+    ).start()
 
-        ok = process_user_file_and_create_vectors(
-            tmp_path, user_id, folder_path, filename, file_id,
-            config_id_override=config_id,
-        )
-        if not ok:
-            logger.error(
-                "Upload FAIL at vector ingest | user=%s file=%s size=%s tmp=%s "
-                "(see preceding 'Ingest FAIL' log line for the root cause)",
-                user_id, filename, size_bytes, tmp_path,
+    logger.info(
+        "Upload async dispatched | file=%s pages=%d job=%s file_id=%s",
+        filename, page_count, str(job_id), str(file_id),
+    )
+
+    doc["_id"] = str(file_id)
+    return jsonify({"file": doc, "job_id": str(job_id)}), 202
+
+
+def _safe_unlink(path):
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
+                          folder_path, filename, content_type, config_id):
+    """Background worker: Claude OCR → split → embed → write → S3 → emit."""
+    with app.app_context():
+        db = current_app.config['MONGO_DB']
+        files_col = db['user_files']
+        jobs_col = db['upload_jobs']
+
+        def update_job(status, **extra):
+            jobs_col.update_one(
+                {"_id": ObjectId(job_id_str)},
+                {"$set": {"status": status, "updated_at": time.time(), **extra}},
             )
-            files_col.delete_one({"_id": file_id})
-            return jsonify({"message": "Failed to process file"}), 500
 
-        storage_key = f"user_files/{user_id}/{file_id}/{filename}"
+        def emit(status, error=None):
+            try:
+                from app import socketio  # lazy to dodge circular import
+                socketio.emit(
+                    'upload_job_done',
+                    {
+                        'job_id': job_id_str,
+                        'file_id': file_id_str,
+                        'filename': filename,
+                        'status': status,
+                        'error': error,
+                    },
+                    room=f"user:{user_id}",
+                )
+            except Exception as e:
+                logger.warning("Failed to emit upload_job_done: %s", e)
+
         try:
-            s3_upload(tmp_path, storage_key, content_type=content_type)
-        except Exception as e:
-            current_app.logger.error(f"S3 upload failed for {storage_key}: {e}")
-            # Roll back: drop vectors + metadata so the user can retry cleanly.
-            db['vector_collection'].delete_many({
-                "source_file_id": str(file_id),
-                "owner_user_id": user_id,
-            })
-            files_col.delete_one({"_id": file_id})
-            return jsonify({"message": "Failed to persist file to storage"}), 502
+            update_job("extracting")
+            text = _extract_pdf_text_via_claude(tmp_path, filename)
+            if not text:
+                update_job("failed", error="Could not extract text (Claude OCR returned nothing)")
+                files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
+                emit("failed", error="Could not extract text from PDF")
+                return
 
-        files_col.update_one(
-            {"_id": file_id},
-            {"$set": {"vector_ingested": True, "storage_key": storage_key}},
-        )
-        doc["_id"] = str(file_id)
-        doc["vector_ingested"] = True
-        doc["storage_key"] = storage_key
-        return jsonify({"file": doc}), 201
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+            update_job("ingesting")
+            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+            splits = splitter.split_documents([
+                Document(page_content=text, metadata={"source": filename})
+            ])
+            if not ingest_chunks(splits, user_id, folder_path, filename, file_id_str, config_id_override=config_id):
+                update_job("failed", error="Vector indexing failed")
+                files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
+                emit("failed", error="Vector indexing failed")
+                return
+
+            # S3 best-effort: ingestion succeeded, so don't fail the job if S3 hiccups.
+            storage_key = f"user_files/{user_id}/{file_id_str}/{filename}"
+            try:
+                s3_upload(tmp_path, storage_key, content_type=content_type)
+            except Exception as e:
+                logger.error("S3 upload failed in async worker | err=%s", e, exc_info=True)
+                storage_key = None
+
+            files_col.update_one(
+                {"_id": ObjectId(file_id_str)},
+                {"$set": {
+                    "vector_ingested": True,
+                    "ingest_status": "done",
+                    "storage_key": storage_key,
+                }},
+            )
+            update_job("done")
+            emit("done")
+        except Exception as e:
+            logger.error("Async ingest crashed | job=%s err=%s", job_id_str, e, exc_info=True)
+            try:
+                jobs_col.update_one(
+                    {"_id": ObjectId(job_id_str)},
+                    {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}},
+                )
+                files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
+                emit("failed", error=str(e))
+            except Exception:
+                pass
+        finally:
+            _safe_unlink(tmp_path)
+
+
+@user_files_bp.route('/files/jobs/<string:job_id>', methods=['GET'])
+@jwt_required()
+def get_upload_job(job_id):
+    """Polling fallback for async upload jobs (socket push is the primary channel)."""
+    user_id = get_jwt_identity()
+    try:
+        oid = ObjectId(job_id)
+    except InvalidId:
+        return jsonify({"message": "Invalid job id"}), 400
+    job = current_app.config['MONGO_DB']['upload_jobs'].find_one({"_id": oid})
+    if not job or job.get('user_id') != user_id:
+        return jsonify({"message": "Job not found"}), 404
+    job['_id'] = str(job['_id'])
+    return jsonify({"job": job}), 200
 
 
 @user_files_bp.route('/files/url', methods=['POST'])

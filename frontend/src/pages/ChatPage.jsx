@@ -10,6 +10,7 @@ import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 import { useVariant } from '../context/VariantContext';
 import { marked } from 'marked';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
@@ -265,10 +266,37 @@ const ChatPage = () => {
   useEffect(() => {
     const token = getToken();
     if (token && !userFetchRef.current) {
-        userFetchRef.current = true; 
+        userFetchRef.current = true;
         apiClient.get('/auth/me').then(res => setUserInfo(res.data)).catch(() => {});
     }
   }, []);
+
+  // --- 1b. SOCKET: listen for async upload completion ---
+  // Async PDF uploads return 202 with a job_id; the backend pushes
+  // 'upload_job_done' once Claude OCR + indexing finishes. We update the
+  // matching file row in libraryFiles in place.
+  useEffect(() => {
+    const uid = userInfo?.user_id || userInfo?.id;
+    if (!uid) return;
+
+    const socket = io("/", { path: "/socket.io" });
+    socket.on('connect', () => socket.emit('subscribe_uploads', { user_id: uid }));
+    socket.on('upload_job_done', (data) => {
+      if (!data || !data.file_id) return;
+      if (data.status === 'done') {
+        setLibraryFiles((prev) => prev.map((f) =>
+          f._id === data.file_id
+            ? { ...f, vector_ingested: true, ingest_status: 'done' }
+            : f
+        ));
+      } else if (data.status === 'failed') {
+        setLibraryFiles((prev) => prev.filter((f) => f._id !== data.file_id));
+        setUploadError(`Failed to process ${data.filename}${data.error ? `: ${data.error}` : ''}`);
+      }
+    });
+
+    return () => { socket.disconnect(); };
+  }, [userInfo]);
 
   // --- 2. FETCH CONFIG ---
   useEffect(() => {

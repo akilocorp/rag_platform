@@ -249,77 +249,53 @@ def process_files_and_create_vector_store(temp_file_paths, user_id, collection_n
                 current_app.logger.info(f"Cleaned up temporary upload file: {temp_file_path}")
 
 
-def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, filename, source_file_id, config_id_override=None):
-    """
-    Ingests a single user-uploaded file into the personal-library namespace.
+def extract_pdf_chunks_fast(temp_file_path, filename):
+    """Fast synchronous extraction via pypdf (no Claude).
 
-    Chunks are tagged with config_id = f"user:{user_id}" so the existing Atlas
-    vector index (which filters on config_id) can serve both config-scoped and
-    user-scoped retrieval without schema changes.
-
-    The caller owns the tmp file lifecycle — this function does NOT delete it,
-    so the caller can still ship the original to S3 after a successful ingest.
+    Returns (chunks, page_count). chunks may be [] if the PDF is
+    scanned/image-only — caller decides whether to dispatch async OCR.
+    Returns (None, 0) on hard error (corrupted file, unsupported type).
     """
-    try:
-        size_bytes = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else -1
-        ext = os.path.splitext(filename)[1].lower()
-        logger.info(
-            "Ingest START | file=%s ext=%s size=%s user=%s config_override=%s",
-            filename, ext, size_bytes, user_id, config_id_override,
+    size_bytes = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else -1
+    ext = os.path.splitext(filename)[1].lower()
+    logger.info(
+        "Ingest START | file=%s ext=%s size=%s",
+        filename, ext, size_bytes,
+    )
+
+    loader = get_document_loader(temp_file_path)
+    if not loader:
+        logger.error(
+            "Ingest FAIL: no loader for file | file=%s ext=%s size=%s",
+            filename, ext, size_bytes,
         )
+        return None, 0
 
-        db = current_app.config['MONGO_DB']
-        mongo_collection = db['vector_collection']
+    try:
+        pages = loader.load()
+    except Exception as e:
+        logger.error(
+            "Ingest FAIL: loader.load() crashed | file=%s loader=%s err=%s",
+            filename, type(loader).__name__, e,
+            exc_info=True,
+        )
+        return None, 0
 
-        loader = get_document_loader(temp_file_path)
-        if not loader:
-            logger.error(
-                "Ingest FAIL: no loader for file | file=%s ext=%s size=%s "
-                "(get_document_loader returned None — unsupported extension or file too large)",
-                filename, ext, size_bytes,
-            )
-            return False
+    logger.info("Ingest LOADED | file=%s pages=%d", filename, len(pages))
 
-        try:
-            pages = loader.load()
-        except Exception as e:
-            logger.error(
-                "Ingest FAIL: loader.load() crashed | file=%s ext=%s size=%s loader=%s err=%s",
-                filename, ext, size_bytes, type(loader).__name__, e,
-                exc_info=True,
-            )
-            return False
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+    splits = splitter.split_documents(pages)
+    return splits, len(pages)
 
-        logger.info("Ingest LOADED | file=%s pages=%d", filename, len(pages))
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-        splits = splitter.split_documents(pages)
+def ingest_chunks(splits, user_id, folder_path, filename, source_file_id, config_id_override=None):
+    """Stamp metadata onto chunks and write them to the vector collection.
 
-        # Scanned/image-only PDFs produce 0 chunks here. Fall back to Claude
-        # so the PDF's pages are OCR'd via vision, then re-split.
-        if not splits and ext == ".pdf":
-            logger.info(
-                "Ingest FALLBACK: pypdf extracted no text, trying Claude PDF | file=%s pages=%d",
-                filename, len(pages),
-            )
-            extracted = _extract_pdf_text_via_claude(temp_file_path, filename)
-            if extracted:
-                splits = splitter.split_documents([
-                    Document(page_content=extracted, metadata={"source": filename})
-                ])
-                logger.info(
-                    "Ingest FALLBACK: Claude extraction produced %d chunks | file=%s",
-                    len(splits), filename,
-                )
-
-        if not splits:
-            logger.error(
-                "Ingest FAIL: no chunks produced | file=%s pages=%d "
-                "(scanned/image PDF + Claude fallback failed, or non-PDF with no extractable text)",
-                filename, len(pages),
-            )
-            return False
-
+    Returns True on success, False on failure. Logs explicit error lines.
+    """
+    if not splits:
+        return False
+    try:
         effective_config_id = config_id_override if config_id_override else f"user:{user_id}"
         scope = 'config' if config_id_override else 'user'
         for split in splits:
@@ -331,23 +307,61 @@ def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, f
             split.metadata['folder_path'] = folder_path or ''
             split.metadata['original_file'] = filename
 
-        try:
-            MongoDBAtlasVectorSearch.from_documents(
-                documents=splits,
-                embedding=current_app.config['EMBEDDINGS'],
-                collection=mongo_collection,
-                index_name="vector"
+        MongoDBAtlasVectorSearch.from_documents(
+            documents=splits,
+            embedding=current_app.config['EMBEDDINGS'],
+            collection=current_app.config['MONGO_DB']['vector_collection'],
+            index_name="vector",
+        )
+        logger.info(
+            "Ingest OK | file=%s chunks=%d config_id=%s",
+            filename, len(splits), effective_config_id,
+        )
+        return True
+    except Exception as e:
+        logger.error(
+            "Ingest FAIL: vector write/embed crashed | file=%s chunks=%d err=%s",
+            filename, len(splits), e,
+            exc_info=True,
+        )
+        return False
+
+
+def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, filename, source_file_id, config_id_override=None):
+    """
+    Synchronous orchestrator: pypdf → (Claude fallback if image-only PDF) → ingest.
+
+    Kept for callers that want one-shot synchronous ingestion. The /api/files
+    upload route uses extract_pdf_chunks_fast + ingest_chunks directly so it
+    can branch into the async worker for slow Claude OCR cases.
+    """
+    try:
+        ext = os.path.splitext(filename)[1].lower()
+        splits, page_count = extract_pdf_chunks_fast(temp_file_path, filename)
+        if splits is None:
+            return False  # hard error already logged
+
+        if not splits and ext == ".pdf":
+            logger.info(
+                "Ingest FALLBACK: pypdf extracted no text, trying Claude PDF (sync) | file=%s pages=%d",
+                filename, page_count,
             )
-        except Exception as e:
+            extracted = _extract_pdf_text_via_claude(temp_file_path, filename)
+            if extracted:
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+                splits = splitter.split_documents([
+                    Document(page_content=extracted, metadata={"source": filename})
+                ])
+                logger.info("Ingest FALLBACK: Claude produced %d chunks | file=%s", len(splits), filename)
+
+        if not splits:
             logger.error(
-                "Ingest FAIL: vector write/embed crashed | file=%s chunks=%d err=%s",
-                filename, len(splits), e,
-                exc_info=True,
+                "Ingest FAIL: no chunks produced | file=%s pages=%d",
+                filename, page_count,
             )
             return False
 
-        logger.info("Ingest OK | file=%s chunks=%d config_id=%s", filename, len(splits), effective_config_id)
-        return True
+        return ingest_chunks(splits, user_id, folder_path, filename, source_file_id, config_id_override)
     except Exception as e:
         logger.error(
             "Ingest FAIL: unexpected error | file=%s err=%s",
