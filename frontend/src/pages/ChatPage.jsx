@@ -825,7 +825,7 @@ const ChatPage = () => {
         ) : (
             <>
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
-                     <div className="w-full max-w-5xl mx-auto space-y-6 pb-4">
+                     <div className="w-full max-w-7xl mx-auto space-y-6 pb-4">
                         {messages.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
                                 {(() => {
@@ -849,7 +849,7 @@ const ChatPage = () => {
                 </main>
 
                 <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
-                    <div className="max-w-5xl mx-auto">
+                    <div className="max-w-7xl mx-auto">
                         {(() => {
                             if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;
                             const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
