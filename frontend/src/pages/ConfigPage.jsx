@@ -241,14 +241,24 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
   const handleNext = () => {
     if (validateStep()) {
-      if (step < 5) setStep(prev => prev + 1);
-      else handleSubmit();
+      if (step < 5) {
+        // Group chat skips step 2 (model picker) — the lobby AI is fixed at
+        // gpt-3.5-turbo (set in initial config). Per-bot models are picked on step 4.
+        const skipModel = config.bot_type === 'group_chat' && step + 1 === 2;
+        setStep(skipModel ? 3 : step + 1);
+      } else {
+        handleSubmit();
+      }
     }
   };
 
   const handleBack = () => {
-    if (step > 1) setStep(prev => prev - 1);
-    else if (onClose) onClose();
+    if (step > 1) {
+      const skipModel = config.bot_type === 'group_chat' && step - 1 === 2;
+      setStep(skipModel ? 1 : step - 1);
+    } else if (onClose) {
+      onClose();
+    }
   };
 
   const handleSubmit = async () => {
