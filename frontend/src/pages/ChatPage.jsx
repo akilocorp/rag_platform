@@ -352,6 +352,16 @@ const ChatPage = () => {
       ]);
       const visible = (filesRes.data.files || []).filter((f) => f.ingest_status !== 'failed');
       setLibraryFiles(visible);
+      // Sync sessionUploads against the fresh server state. Without this, a
+      // poll-discovered completion would leave sessionUploads stale at
+      // vector_ingested:false — and the chip blocks (sessionUploads requires
+      // ingested, librarySelected skips anything in sessionUploads) would
+      // hide the file until the user reloads.
+      const visibleById = new Map(visible.map((f) => [f._id, f]));
+      setSessionUploads((prev) => prev
+        .filter((su) => visibleById.has(su._id))
+        .map((su) => ({ ...su, ...visibleById.get(su._id) }))
+      );
       setLibraryFolders((foldersRes.data.folders || []).map((f) => f.path));
     } catch (e) {
       console.error('Library fetch failed', e);
