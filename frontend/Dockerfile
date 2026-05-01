@@ -1,17 +1,13 @@
-# --- Stage 1: Build the React App ---
+# syntax=docker/dockerfile:1.4
 # --- Stage 1: Build the React App ---
 FROM node:20-alpine AS builder
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json to leverage Docker cache
 COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy the rest of the application source code
 COPY . .
 
 # Set the API URL environment variable

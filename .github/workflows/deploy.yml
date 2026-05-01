@@ -73,9 +73,12 @@ jobs:
           echo "Using compose file: $COMPOSE_FILE"
           echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-          compose -f $COMPOSE_FILE down --remove-orphans || true
-          compose -f $COMPOSE_FILE build
-          compose -f $COMPOSE_FILE up -d
+          # Reap last deploy's dangling images + build cache so we don't
+          # run out of disk on requirements.txt-busting rebuilds.
+          sudo docker system prune -f || true
+          sudo docker builder prune -f || true
+
+          compose -f $COMPOSE_FILE up -d --build --remove-orphans
           compose -f $COMPOSE_FILE ps
 
   main-deploy:
@@ -142,9 +145,12 @@ jobs:
         
                   echo "Using compose file: $COMPOSE_FILE"
                   echo "FRONTEND_API_URL=$FRONTEND_API_URL"
-        
-                  compose -f $COMPOSE_FILE down --remove-orphans || true
-                  compose -f $COMPOSE_FILE build
-                  compose -f $COMPOSE_FILE up -d
+
+                  # Reap last deploy's dangling images + build cache so we
+                  # don't run out of disk on requirements.txt-busting rebuilds.
+                  sudo docker system prune -f || true
+                  sudo docker builder prune -f || true
+
+                  compose -f $COMPOSE_FILE up -d --build --remove-orphans
                   compose -f $COMPOSE_FILE ps
         
