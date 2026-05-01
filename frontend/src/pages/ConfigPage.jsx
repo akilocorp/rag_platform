@@ -344,9 +344,11 @@ const ConfigModal = ({ isOpen, onClose }) => {
         </button>
 
         <div className="p-8 sm:p-10 flex-1 flex flex-col pt-12 min-h-0 min-w-0">
-          {/* Progress Bar */}
+          {/* Progress Bar — group chat skips step 2 (model picker), so its
+              progress bar has 4 segments instead of 5. A segment lights up
+              when its step number is <= current step. */}
           <div className="flex justify-between space-x-2 mb-6 px-4 flex-shrink-0">
-            {[1, 2, 3, 4, 5].map(i => (
+            {(config.bot_type === 'group_chat' ? [1, 3, 4, 5] : [1, 2, 3, 4, 5]).map(i => (
               <div key={i} className={`h-2 flex-1 rounded-full transition-colors duration-300 ${i <= step ? 'bg-[#FA6C43]' : 'bg-gray-200'}`} />
             ))}
           </div>
