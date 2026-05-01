@@ -824,7 +824,7 @@ const ChatPage = () => {
             </div>
         ) : (
             <>
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
+                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
                      <div className="w-full space-y-6 pb-4">
                         {messages.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
@@ -848,7 +848,7 @@ const ChatPage = () => {
                      </div>
                 </main>
 
-                <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
+                <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">
                     <div className="w-full">
                         {(() => {
                             if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;

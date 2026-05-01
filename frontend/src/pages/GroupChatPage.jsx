@@ -283,7 +283,7 @@ const GroupChatPage = () => {
         </header>
 
         {/* Chat Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="w-full space-y-6 pb-4">
             
             {messages.length === 0 && (
@@ -348,7 +348,7 @@ const GroupChatPage = () => {
         </main>
 
         {/* Input Area */}
-        <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
+        <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">
           <div className="w-full relative flex items-center gap-3">
             <textarea
               ref={inputRef}
