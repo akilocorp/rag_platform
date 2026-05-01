@@ -112,7 +112,9 @@
     color: #fff;
   }
 
-  /* Markdown headings inside AI chat bubbles: bold + visual separation */
+  /* Markdown headings inside AI chat bubbles: bold + visual separation.
+     Tailwind preflight resets heading font-sizes to 1em, so we have to set
+     them explicitly to get any actual hierarchy. */
   .chat-message-md h1,
   .chat-message-md h2,
   .chat-message-md h3,
@@ -121,11 +123,17 @@
   .chat-message-md h6 {
     font-weight: 700;
     line-height: 1.3;
-    margin-top: 1.1em;
-    margin-bottom: 0.45em;
-    padding-bottom: 0.35em;
+    margin-top: 1.2em;
+    margin-bottom: 0.5em;
+    padding-bottom: 0.3em;
     display: block;
   }
+  .chat-message-md h1 { font-size: 1.5em; letter-spacing: -0.01em; }
+  .chat-message-md h2 { font-size: 1.28em; letter-spacing: -0.005em; }
+  .chat-message-md h3 { font-size: 1.12em; }
+  .chat-message-md h4 { font-size: 1.02em; text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 0; }
+  .chat-message-md h5,
+  .chat-message-md h6 { font-size: 0.95em; padding-bottom: 0; }
   .chat-message-md h1:first-child,
   .chat-message-md h2:first-child,
   .chat-message-md h3:first-child,
@@ -134,23 +142,124 @@
   .chat-message-md h6:first-child {
     margin-top: 0;
   }
-  .chat-message-md--light h1,
-  .chat-message-md--light h2,
+  .chat-message-md--light h1 {
+    border-bottom: 1px solid rgba(34, 34, 34, 0.18);
+    color: #111827;
+  }
+  .chat-message-md--light h2 {
+    border-bottom: 1px solid rgba(34, 34, 34, 0.12);
+    color: #111827;
+  }
   .chat-message-md--light h3,
   .chat-message-md--light h4,
   .chat-message-md--light h5,
   .chat-message-md--light h6 {
-    border-bottom: 1px solid rgba(34, 34, 34, 0.12);
-    color: #111827;
+    color: #1f2937;
+  }
+  .chat-message-md--light h4 {
+    color: #FA6C43;
   }
   .chat-message-md--invert h1,
-  .chat-message-md--invert h2,
+  .chat-message-md--invert h2 {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+    color: inherit;
+  }
   .chat-message-md--invert h3,
   .chat-message-md--invert h4,
   .chat-message-md--invert h5,
   .chat-message-md--invert h6 {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.35);
     color: inherit;
+  }
+
+  /* Strong / emphasis */
+  .chat-message-md strong { font-weight: 700; }
+  .chat-message-md--light strong { color: #111827; }
+
+  /* Inline code */
+  .chat-message-md code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.88em;
+    padding: 0.12em 0.38em;
+    border-radius: 0.3em;
+  }
+  .chat-message-md--light code {
+    background: rgba(250, 108, 67, 0.10);
+    color: #c44a26;
+    border: 1px solid rgba(250, 108, 67, 0.18);
+  }
+  .chat-message-md--invert code {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+  /* Code blocks: <pre><code> — undo the inline-code chip style */
+  .chat-message-md pre {
+    background: rgba(15, 23, 42, 0.04);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+  }
+  .chat-message-md--invert pre {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .chat-message-md pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font-size: 0.875em;
+  }
+
+  /* Links */
+  .chat-message-md a {
+    color: #FA6C43;
+    text-decoration: underline;
+    text-decoration-color: rgba(250, 108, 67, 0.4);
+    text-underline-offset: 2px;
+    transition: text-decoration-color 0.15s ease;
+  }
+  .chat-message-md a:hover {
+    text-decoration-color: #FA6C43;
+  }
+  .chat-message-md--invert a {
+    color: #fff;
+    text-decoration-color: rgba(255, 255, 255, 0.6);
+  }
+
+  /* Tables */
+  .chat-message-md table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 0.9em;
+    display: block;
+    overflow-x: auto;
+  }
+  .chat-message-md th,
+  .chat-message-md td {
+    padding: 0.45rem 0.65rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(34, 34, 34, 0.1);
+  }
+  .chat-message-md th {
+    font-weight: 700;
+    background: rgba(250, 108, 67, 0.06);
+    border-bottom: 2px solid rgba(250, 108, 67, 0.25);
+  }
+  .chat-message-md--invert th,
+  .chat-message-md--invert td {
+    border-bottom-color: rgba(255, 255, 255, 0.2);
+  }
+  .chat-message-md--invert th {
+    background: rgba(255, 255, 255, 0.12);
+    border-bottom-color: rgba(255, 255, 255, 0.4);
+  }
+
+  /* List bullets a touch more visible */
+  .chat-message-md ul { list-style: disc; }
+  .chat-message-md ol { list-style: decimal; }
+  .chat-message-md--light ul li::marker,
+  .chat-message-md--light ol li::marker {
+    color: #FA6C43;
   }
 }
 

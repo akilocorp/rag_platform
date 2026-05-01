@@ -72,7 +72,29 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "sources used."
         )
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}"
+    formatting_block = (
+        "\n\nFormat your responses in Markdown so the chat UI can render "
+        "them with visual hierarchy:\n"
+        "- Use `## Heading` to title major sections, and `### Subheading` "
+        "for sub-sections, when the answer is more than a couple of "
+        "paragraphs.\n"
+        "- Use **bold** for key terms or names the reader should not miss.\n"
+        "- Use bulleted (`- `) or numbered (`1. `) lists for steps, options, "
+        "or any itemized info — never write a wall of text where a list "
+        "would read better.\n"
+        "- Use `inline code` for filenames, identifiers, commands, and short "
+        "literal strings.\n"
+        "- Use fenced code blocks with a language tag (```python, ```bash, "
+        "etc.) for multi-line code.\n"
+        "- Use `> ` blockquotes for direct quotations from the user's "
+        "documents or web sources.\n"
+        "- Use Markdown tables when comparing items across attributes.\n"
+        "Keep formatting purposeful — for short conversational replies "
+        "(a sentence or two), plain prose is fine. Don't add headings to "
+        "trivially short answers."
+    )
+
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{formatting_block}"
 
 
 def _to_dict(block) -> Dict[str, Any]:
