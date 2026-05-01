@@ -1,12 +1,52 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
+import { marked } from 'marked';
+import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
 
+marked.use({ gfm: true, breaks: true });
+
+const KATEX_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '$', right: '$', display: false },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '\\[', right: '\\]', display: true },
+];
+
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
+
+// AI/other-human messages render as markdown so headings, lists, **bold** etc.
+// look the same as the 1:1 chat. The user's own bubble stays plain text.
+const GroupMessageBody = React.memo(({ text, isMe }) => {
+  const mdRef = useRef(null);
+  useLayoutEffect(() => {
+    if (isMe) return;
+    const el = mdRef.current;
+    if (!el) return;
+    el.innerHTML = marked.parse(text || '');
+    try {
+      renderMathInElement(el, {
+        delimiters: KATEX_DELIMITERS,
+        throwOnError: false,
+        strict: false,
+        trust: false,
+      });
+    } catch (e) {
+      console.warn('KaTeX render:', e);
+    }
+  }, [text, isMe]);
+
+  if (isMe) {
+    return <p className="whitespace-pre-wrap">{text}</p>;
+  }
+  return (
+    <div ref={mdRef} className="chat-message-md chat-message-md--light max-w-none" />
+  );
+});
 
 const GroupChatPage = () => {
   const { configId } = useParams();
@@ -244,7 +284,7 @@ const GroupChatPage = () => {
 
         {/* Chat Area */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
-          <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
+          <div className="w-full max-w-5xl mx-auto space-y-6 pb-4">
             
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 opacity-80">
@@ -286,12 +326,12 @@ const GroupChatPage = () => {
                   <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     {!isMe && <span className="text-[10px] font-bold text-gray-500 ml-1 mb-1">{msg.sender}</span>}
                     
-                    <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed ${
-                      isMe 
-                        ? 'bg-[#FA6C43] text-white rounded-br-none' 
+                    <div className={`min-w-0 max-w-[88%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed break-words overflow-hidden ${
+                      isMe
+                        ? 'bg-[#FA6C43] text-white rounded-br-none'
                         : 'bg-white border border-gray-200 text-[#222] rounded-bl-none'
                     }`}>
-                      {msg.text}
+                      <GroupMessageBody text={msg.text} isMe={isMe} />
                     </div>
                   </div>
 
@@ -309,7 +349,7 @@ const GroupChatPage = () => {
 
         {/* Input Area */}
         <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
-          <div className="max-w-4xl mx-auto relative flex items-center gap-3">
+          <div className="max-w-5xl mx-auto relative flex items-center gap-3">
             <textarea
               ref={inputRef}
               value={input}
