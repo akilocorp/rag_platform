@@ -121,7 +121,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         </div>
       )}
 
-      <div className={`min-w-0 max-w-[85%] rounded-2xl px-4 py-3 sm:px-5 shadow-sm text-sm leading-relaxed break-words overflow-hidden ${
+      <div className={`min-w-0 max-w-[88%] rounded-2xl px-4 py-3 sm:px-5 shadow-sm text-sm leading-relaxed break-words overflow-hidden ${
         isUser
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-br-none'
           : 'bg-white border border-gray-200 text-[#222] rounded-bl-none shadow-sm'
@@ -825,7 +825,7 @@ const ChatPage = () => {
         ) : (
             <>
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin">
-                     <div className="w-full max-w-4xl mx-auto space-y-6 pb-4">
+                     <div className="w-full max-w-5xl mx-auto space-y-6 pb-4">
                         {messages.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
                                 {(() => {
@@ -849,7 +849,7 @@ const ChatPage = () => {
                 </main>
 
                 <footer className="p-4 sm:p-6 bg-white border-t border-gray-200">
-                    <div className="max-w-4xl mx-auto">
+                    <div className="max-w-5xl mx-auto">
                         {(() => {
                             if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;
                             const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
