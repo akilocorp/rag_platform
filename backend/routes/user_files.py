@@ -253,10 +253,18 @@ def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
                 {"$set": {"status": status, "updated_at": time.time(), **extra}},
             )
 
+        # Flask-SocketIO registers itself on app.extensions during init_app;
+        # pulling from current_app avoids the `from app import socketio` lazy
+        # import which re-loads app.py as a fresh module (since the entry
+        # point runs it as __main__) and yields a detached SocketIO instance.
+        sio = current_app.extensions.get('socketio')
+
         def emit(status, error=None):
+            if not sio:
+                logger.warning("upload_job_done not emitted: socketio missing from app.extensions")
+                return
             try:
-                from app import socketio  # lazy to dodge circular import
-                socketio.emit(
+                sio.emit(
                     'upload_job_done',
                     {
                         'job_id': job_id_str,
@@ -271,9 +279,10 @@ def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
                 logger.warning("Failed to emit upload_job_done: %s", e)
 
         def emit_progress(stage, **extra):
+            if not sio:
+                return
             try:
-                from app import socketio
-                socketio.emit(
+                sio.emit(
                     'upload_job_progress',
                     {
                         'job_id': job_id_str,
