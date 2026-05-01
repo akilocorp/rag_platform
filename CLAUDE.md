@@ -167,3 +167,65 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
 - Group chat is intentionally untouched — different code path (`group_chat_sockets.py`), agentic doesn't apply in v1
 - For `web_access=false`: keep using existing LangChain path (it's already pure RAG). The agentic path is only for `web_access=true && model.startswith("claude")`.
 - Anthropic model id used by configs: `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. `model_name.startswith("claude")` covers both.
+
+---
+
+## 2026-05-01 Session: PDF Ingestion Overhaul + UX Polish
+
+### PDF ingestion: ocrmypdf → PyMuPDF + Claude Haiku image-block OCR
+- **Removed** `ocrmypdf` Python wheel + tesseract/ghostscript/qpdf/pngquant/unpaper apt packages from `backend/Dockerfile`. (~200 MB image bloat gone.)
+- `_extract_pdf_text_via_claude` in `backend/src/utils/vector_stores/store_vector_stores.py` now renders each PDF page to a 150-DPI JPEG (quality 75) via PyMuPDF (`pymupdf` wheel, ~20 MB, no system deps) and sends them as Anthropic image blocks. Cheaper + more predictable than the raw `document` block.
+- Default model: `claude-haiku-4-5-20251001` (~3× cheaper than Sonnet, fine for OCR-style transcription).
+- **Per-page filtering for mixed PDFs**: `extract_pdf_chunks_fast` returns `(chunks, page_count, image_only_pages)`. Upload route ingests text-layer chunks synchronously and dispatches the async worker with `page_indices=image_only_pages` so Claude only OCRs the scanned pages.
+- **Anthropic Batch API for ≥40 pages**: `_claude_via_batch` in the same file submits a single-request batch and polls (5s for first minute, 15s after) with a 10-min hard timeout. 50% off list price. Below threshold, the live `messages.create` path keeps sub-30s latency for small uploads. Constants: `CLAUDE_BATCH_PAGE_THRESHOLD = 40`, `CLAUDE_BATCH_TIMEOUT_SECONDS = 600`.
+- Async worker (`_run_async_pdf_ingest` in `backend/routes/user_files.py`) emits `upload_job_progress` events at OCR start and at the OCR→indexing transition. Soft-fails OCR errors when `is_mixed=True` (text-layer chunks already saved).
+
+### Socket emit fix
+- Old code in the worker did `from app import socketio` lazily, but `python app.py` runs the file as `__main__`, so the import re-loaded `app.py` as a fresh `app` module where `socketio.init_app(app)` never runs → emit() errored with `'NoneType' object has no attribute 'emit'`. Worker now reads `current_app.extensions['socketio']` inside the existing `app.app_context()` block — Flask-SocketIO registers itself there during `init_app`. Fix shipped in commit `b6ec4ac`.
+
+### Frontend upload UX (`FilesPanel.jsx`, `ChatPage.jsx`)
+- Stage-aware pending row: filename pulses, subtitle reads *"Preparing your file"* → *"Reading images in your PDF"* (or *"Reading N pages — this can take a few minutes"* for batch jobs) → *"Indexing extracted text"* → done. Bouncing dots after the label + a 2-segment progress indicator.
+- **Chip filter**: file chips above the chat input only render when `vector_ingested === true`, so an in-progress upload doesn't show a half-baked breadcrumb.
+- **Polling fallback**: `useEffect` polls `/api/files` every 30s while any file is `vector_ingested === false`. Recovers from missed `upload_job_done` socket events; drops anything the backend marked `ingest_status: 'failed'`.
+- **`sessionUploads` sync**: `loadLibrary` patches `sessionUploads` against the fresh server state. Without this, polling-recovered completions stayed at `vector_ingested: false` in `sessionUploads` and the chip stayed hidden until the user reloaded (combined effect of `librarySelected` skipping anything in `sessionUploads`, and the `sessionUploads` block requiring ingested).
+
+### Markdown formatting
+- `frontend/src/index.css` got explicit font sizes for `h1` (1.5em) → `h6` (0.95em), `code` chip styling, fenced-block style, link colors, table borders, list-marker color. Tailwind preflight resets headings to 1em, so without this they were bold-but-flat.
+- `_build_system_prompt` in `backend/src/agentic/agent_runner.py` appends a Markdown formatting nudge to Claude's system prompt (use `## headings`, `**bold**`, lists, code fences, tables — but stay plain for short replies).
+- **Group chat AI replies** now render through the same `marked.parse` + KaTeX pipeline as the 1:1 chat (`GroupMessageBody` component in `GroupChatPage.jsx`). Was previously dumped as plain text.
+
+### Chat layout
+- Column dropped from `max-w-4xl` → no cap (`w-full`) on both `ChatPage.jsx` and `GroupChatPage.jsx`. Side breathing room comes from responsive padding on `<main>` / `<footer>`: `p-4 sm:p-6 lg:px-12 xl:px-20`. Bubble cap: `max-w-[88%]`.
+
+### Group chat config flow
+- Step 2 (model picker) is skipped on create (`ConfigPage.jsx`) when `bot_type === 'group_chat'`. Lobby AI defaults to `gpt-3.5-turbo`. Edit page already hid the same dropdown via `bot_type !== 'group_chat'` gate.
+- Progress bar renders 4 segments `[1, 3, 4, 5]` for group chat instead of 5.
+
+### Deploy efficiency (`backend/Dockerfile`, `frontend/Dockerfile`, `.github/workflows/deploy.yml`)
+- Backend Dockerfile collapsed from a fake-multi-stage that ran `pip install` 3× into a single stage with one BuildKit-cached install (`# syntax=docker/dockerfile:1.4`, `RUN --mount=type=cache,target=/root/.cache/pip`). Wheels now persist across `requirements.txt` changes.
+- Frontend `npm install` → `npm ci` with npm cache mount.
+- `compose down` + `build` + `up` collapsed to `compose up -d --build --remove-orphans`.
+- **Prune-before-build**: `sudo docker system prune -f && sudo docker builder prune -f` runs before each compose build to reap last deploy's dangling images. Prevents the "no space left on device" failure mode that took down the dev EC2 mid-deploy.
+
+### Commit trail (newest first, all on `dev`)
+| Commit | What |
+|---|---|
+| `bb5e653` | Group chat progress bar: 4 segments instead of 5 |
+| `fc72342` | Group chat: skip lobby-AI picker, default to gpt-3.5-turbo |
+| `3b82e30` | Add side breathing room: lg:px-12 xl:px-20 |
+| `2d4c749` | Drop chat column max-width so bubbles reach the screen edges |
+| `92a13b2` | Halve chat side gap: max-w-5xl → max-w-7xl |
+| `96c247f` | Render markdown in group chat AI messages |
+| `d95838e` | Widen chat column and bubble max-width for better spread |
+| `624007e` | Better AI reply formatting: markdown styles + system prompt nudge |
+| `afe47b1` | Sync sessionUploads with library refresh so post-ingest chip appears |
+| `3371cc1` | Pending-upload UX: stage-aware progress, polling fallback, chip filters |
+| `b6ec4ac` | Fix async-worker socket emits: read SocketIO from app.extensions |
+| `d77dd32` | Trim deploy: single-stage Dockerfiles, BuildKit cache, prune-before-build |
+| `f1ca0e8` | Replace ocrmypdf with PyMuPDF + Haiku image-block OCR |
+
+### Notes for the next session
+- Untracked files in working tree (NOT committed): `.claude/`, `add_bug.py`, `telegram credentials.txt` (secrets — should be `.gitignore`d and rotated), and pre-existing edit to `frontend/src/utils/testing files/paste.js`.
+- The lobby-AI step skip is one-way: existing group chats keep whatever `model_name` they were saved with. To force-migrate them to `gpt-3.5-turbo`, the EditConfigPage submit handler would need a `if bot_type === 'group_chat': model_name = 'gpt-3.5-turbo'` line.
+- **Group chat AI bots** still don't get the formatting nudge — that lives in `agent_runner.py`, which only the 1:1 agentic path uses. Group chat bots flow through `group_chat_sockets.py` / `context_manager.py`. If their replies need the same Markdown polish, the prompt change has to land there too.
+- Step 8 of the agentic upgrade (rollout kill-switch + dogfood) is still open from the prior session.
