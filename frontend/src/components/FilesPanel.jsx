@@ -289,13 +289,17 @@ const FilesPanel = ({
           {visibleFiles.map((f) => {
             const isSelected = selectedFileIds.includes(f._id);
             const isPending = f.vector_ingested === false;
-            const isOcr = isPending && f.progress?.stage === 'ocr';
+            const stage = f.progress?.stage;
+            const isOcr = isPending && stage === 'ocr';
             const isBatchOcr = isOcr && f.progress?.batch;
+            const isIngesting = isPending && stage === 'ingesting';
             const pendingLabel = isBatchOcr
-              ? `Reading images in your PDF — ${f.progress.pages} pages, this can take a few minutes…`
+              ? `Reading ${f.progress.pages} pages of images — this can take a few minutes`
               : isOcr
-                ? 'Reading images in your PDF…'
-                : 'Indexing…';
+                ? 'Reading images in your PDF'
+                : isIngesting
+                  ? 'Indexing extracted text'
+                  : 'Preparing your file';
             return (
               <div
                 key={f._id}
@@ -326,15 +330,33 @@ const FilesPanel = ({
                   <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className={`truncate text-[13px] ${isOcr ? 'animate-pulse' : ''}`}>{f.filename}</p>
-                  <p
-                    className={`truncate text-[10px] mt-0.5 ${isOcr ? 'text-[#FA6C43]' : 'text-gray-500'}`}
-                    title={f.is_url ? (f.source_url || '') : (isPending ? pendingLabel : '')}
-                  >
-                    {isPending
-                      ? pendingLabel
-                      : f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
-                  </p>
+                  <p className={`truncate text-[13px] ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
+                  {isPending ? (
+                    <div className="mt-0.5" title={pendingLabel}>
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#FA6C43]">
+                        <span className="truncate">{pendingLabel}</span>
+                        <span className="flex gap-0.5 flex-shrink-0">
+                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce" />
+                        </span>
+                      </div>
+                      {(isOcr || isIngesting) && (
+                        <div className="flex items-center gap-1 mt-1.5 max-w-[120px]">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOcr ? 'bg-[#FA6C43] animate-pulse' : 'bg-[#FA6C43]'}`} />
+                          <span className={`flex-1 h-px ${isIngesting ? 'bg-[#FA6C43]' : 'bg-gray-300'}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isIngesting ? 'bg-[#FA6C43] animate-pulse' : 'bg-gray-300'}`} />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p
+                      className="truncate text-[10px] text-gray-500 mt-0.5"
+                      title={f.is_url ? (f.source_url || '') : ''}
+                    >
+                      {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={(e) => handleDeleteClick(e, f)}

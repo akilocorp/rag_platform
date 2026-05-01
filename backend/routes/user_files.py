@@ -308,6 +308,7 @@ def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
 
             if text:
                 update_job("ingesting")
+                emit_progress('ingesting')
                 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
                 ocr_splits = splitter.split_documents([
                     Document(page_content=text, metadata={"source": filename})

@@ -283,22 +283,20 @@ const ChatPage = () => {
     socket.on('connect', () => socket.emit('subscribe_uploads', { user_id: uid }));
     socket.on('upload_job_progress', (data) => {
       if (!data || !data.file_id) return;
-      setLibraryFiles((prev) => prev.map((f) =>
-        f._id === data.file_id
-          ? { ...f, progress: { stage: data.stage, batch: !!data.batch, pages: data.pages || 0 } }
-          : f
-      ));
+      const patch = { progress: { stage: data.stage, batch: !!data.batch, pages: data.pages || 0 } };
+      setLibraryFiles((prev) => prev.map((f) => f._id === data.file_id ? { ...f, ...patch } : f));
+      setSessionUploads((prev) => prev.map((f) => f._id === data.file_id ? { ...f, ...patch } : f));
     });
     socket.on('upload_job_done', (data) => {
       if (!data || !data.file_id) return;
       if (data.status === 'done') {
-        setLibraryFiles((prev) => prev.map((f) =>
-          f._id === data.file_id
-            ? { ...f, vector_ingested: true, ingest_status: 'done', progress: undefined }
-            : f
-        ));
+        const patch = { vector_ingested: true, ingest_status: 'done', progress: undefined };
+        setLibraryFiles((prev) => prev.map((f) => f._id === data.file_id ? { ...f, ...patch } : f));
+        setSessionUploads((prev) => prev.map((f) => f._id === data.file_id ? { ...f, ...patch } : f));
       } else if (data.status === 'failed') {
         setLibraryFiles((prev) => prev.filter((f) => f._id !== data.file_id));
+        setSessionUploads((prev) => prev.filter((f) => f._id !== data.file_id));
+        setSelectedFileIds((prev) => prev.filter((id) => id !== data.file_id));
         setUploadError(`Failed to process ${data.filename}${data.error ? `: ${data.error}` : ''}`);
       }
     });
@@ -352,7 +350,8 @@ const ChatPage = () => {
         apiClient.get(`/files${scope}`),
         apiClient.get(`/folders${scope}`),
       ]);
-      setLibraryFiles(filesRes.data.files || []);
+      const visible = (filesRes.data.files || []).filter((f) => f.ingest_status !== 'failed');
+      setLibraryFiles(visible);
       setLibraryFolders((foldersRes.data.folders || []).map((f) => f.path));
     } catch (e) {
       console.error('Library fetch failed', e);
@@ -366,6 +365,17 @@ const ChatPage = () => {
     libraryLoadedRef.current = true;
     loadLibrary();
   }, [isAuthenticated, loadLibrary]);
+
+  // POLL fallback for stuck pending files — if the upload_job_done socket
+  // event is missed (backend restart, network hiccup), the row would sit on
+  // "Indexing…" forever. Resync every 30s while anything is pending; loadLibrary
+  // also drops files the backend has marked failed.
+  const hasPendingFiles = libraryFiles.some((f) => f.vector_ingested === false);
+  useEffect(() => {
+    if (!hasPendingFiles) return;
+    const id = setInterval(() => loadLibrary(), 30000);
+    return () => clearInterval(id);
+  }, [hasPendingFiles, loadLibrary]);
 
   const uploadFiles = useCallback(async (fileList, folderPath = currentFolder) => {
     if (!fileList || fileList.length === 0) return;
@@ -859,7 +869,8 @@ const ChatPage = () => {
                             const librarySelected = selectedFileIds
                                 .filter((id) => !sessionIds.has(id))
                                 .map((id) => libraryFiles.find((f) => f._id === id))
-                                .filter(Boolean);
+                                .filter(Boolean)
+                                .filter((f) => f.vector_ingested === true);
                             if (librarySelected.length === 0) return null;
                             return (
                                 <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -902,9 +913,12 @@ const ChatPage = () => {
                                 </div>
                             );
                         })()}
-                        {sessionUploads.length > 0 && (
+                        {(() => {
+                            const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true);
+                            if (ingestedSessionUploads.length === 0) return null;
+                            return (
                             <div className="flex flex-wrap items-center gap-2 mb-3">
-                                {sessionUploads.map((f) => (
+                                {ingestedSessionUploads.map((f) => (
                                     <div
                                         key={f._id}
                                         className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222] max-w-xs"
@@ -939,7 +953,8 @@ const ChatPage = () => {
                                     </div>
                                 ))}
                             </div>
-                        )}
+                            );
+                        })()}
                         <div className="relative flex items-end gap-2">
                             <button
                                 onClick={handleAttachPick}
