@@ -28,8 +28,8 @@ from src.utils.s3_client import (
     upload_file as s3_upload,
 )
 from src.utils.vector_stores.store_vector_stores import (
+    CLAUDE_BATCH_PAGE_THRESHOLD,
     _extract_pdf_text_via_claude,
-    _extract_pdf_text_via_ocrmypdf,
     extract_pdf_chunks_fast,
     ingest_chunks,
     process_user_url_and_create_vectors,
@@ -64,12 +64,6 @@ def _serialize(doc):
 # ---------------------------------------------------------------------------
 # Files
 # ---------------------------------------------------------------------------
-
-# Image-only PDFs over this page count are dispatched to the async Claude
-# worker rather than being OCR'd inline. (Inline path doesn't exist yet —
-# Commit B will add ocrmypdf for ≤3 pages. For now everything image-only
-# goes async.)
-SYNC_OCR_MAX_PAGES = 3
 
 
 @user_files_bp.route('/files', methods=['POST'])
@@ -122,7 +116,7 @@ def upload_file():
     file_id = files_col.insert_one(doc).inserted_id
 
     # Tier 1: pypdf-only fast extraction.
-    splits, page_count = extract_pdf_chunks_fast(tmp_path, filename)
+    splits, page_count, image_only_pages = extract_pdf_chunks_fast(tmp_path, filename)
 
     if splits is None:
         # Hard error during extraction (unsupported, corrupted, etc.)
@@ -130,7 +124,11 @@ def upload_file():
         _safe_unlink(tmp_path)
         return jsonify({"message": "Failed to read file"}), 500
 
-    if splits:
+    # Mixed PDF: some pages have a text layer, some are scanned. Ingest the
+    # text-layer chunks now and async-OCR only the image-only pages.
+    is_mixed = bool(splits) and bool(image_only_pages) and ext == ".pdf"
+
+    if splits and not is_mixed:
         # FAST PATH: text PDF / docx / md / txt / pptx → sync ingest
         try:
             if not ingest_chunks(splits, user_id, folder_path, filename, file_id, config_id_override=config_id):
@@ -161,53 +159,26 @@ def upload_file():
         finally:
             _safe_unlink(tmp_path)
 
-    # 0 chunks. Image-only PDF goes async; anything else is a hard fail.
-    if ext != ".pdf":
+    # No splits and not a PDF → hard fail (can't OCR a docx/txt/etc.)
+    if not splits and ext != ".pdf":
         files_col.delete_one({"_id": file_id})
         _safe_unlink(tmp_path)
         logger.error("Upload FAIL: non-PDF with no extractable text | file=%s ext=%s", filename, ext)
         return jsonify({"message": "No extractable text in file"}), 500
 
-    # Tier 2: short scanned PDFs (≤ SYNC_OCR_MAX_PAGES) → run ocrmypdf inline.
-    # ~3 s/page on CPU; 3 pages = ~9 s, just under the upload-response budget.
-    if 0 < page_count <= SYNC_OCR_MAX_PAGES:
+    # Mixed PDF: ingest text-layer chunks synchronously, then dispatch async
+    # OCR for the remaining image-only pages.
+    if is_mixed:
+        if not ingest_chunks(splits, user_id, folder_path, filename, file_id, config_id_override=config_id):
+            files_col.delete_one({"_id": file_id})
+            _safe_unlink(tmp_path)
+            return jsonify({"message": "Failed to process file"}), 500
         logger.info(
-            "Upload tier-2: trying ocrmypdf inline | file=%s pages=%d",
-            filename, page_count,
+            "Upload mixed PDF: text-layer ingested, async OCR for %d/%d pages | file=%s",
+            len(image_only_pages), page_count, filename,
         )
-        ocr_text = _extract_pdf_text_via_ocrmypdf(tmp_path, filename)
-        if ocr_text:
-            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-            ocr_splits = splitter.split_documents([
-                Document(page_content=ocr_text, metadata={"source": filename})
-            ])
-            if ocr_splits and ingest_chunks(
-                ocr_splits, user_id, folder_path, filename, file_id, config_id_override=config_id
-            ):
-                storage_key = f"user_files/{user_id}/{file_id}/{filename}"
-                try:
-                    s3_upload(tmp_path, storage_key, content_type=content_type)
-                except Exception as e:
-                    current_app.logger.error(f"S3 upload failed for {storage_key}: {e}")
-                    storage_key = None
-                files_col.update_one(
-                    {"_id": file_id},
-                    {"$set": {
-                        "vector_ingested": True,
-                        "ingest_status": "done",
-                        "storage_key": storage_key,
-                    }},
-                )
-                _safe_unlink(tmp_path)
-                doc["_id"] = str(file_id)
-                doc["vector_ingested"] = True
-                doc["ingest_status"] = "done"
-                doc["storage_key"] = storage_key
-                return jsonify({"file": doc}), 201
-        # ocrmypdf produced nothing useful → fall through to async Claude
-        # (we deliberately keep tmp_path so the worker can use it).
 
-    # Tier 3: dispatch to the async Claude worker.
+    # Async dispatch (image-only PDF, or mixed PDF's image-only pages).
     jobs_col = db['upload_jobs']
     job_doc = {
         "user_id": user_id,
@@ -235,13 +206,17 @@ def upload_file():
             "filename": filename,
             "content_type": content_type,
             "config_id": config_id,
+            "page_indices": image_only_pages if is_mixed else None,
+            "ocr_page_count": len(image_only_pages) if is_mixed else page_count,
         },
         daemon=True,
     ).start()
 
     logger.info(
-        "Upload async dispatched | file=%s pages=%d job=%s file_id=%s",
-        filename, page_count, str(job_id), str(file_id),
+        "Upload async dispatched | file=%s pages=%d ocr_pages=%s job=%s file_id=%s",
+        filename, page_count,
+        len(image_only_pages) if is_mixed else "all",
+        str(job_id), str(file_id),
     )
 
     doc["_id"] = str(file_id)
@@ -257,8 +232,16 @@ def _safe_unlink(path):
 
 
 def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
-                          folder_path, filename, content_type, config_id):
-    """Background worker: Claude OCR → split → embed → write → S3 → emit."""
+                          folder_path, filename, content_type, config_id,
+                          page_indices=None, ocr_page_count=0):
+    """Background worker: Claude OCR → split → embed → write → S3 → emit.
+
+    If page_indices is set, only those pages are OCR'd (mixed PDF where
+    text-layer chunks were already ingested synchronously). OCR failures
+    are soft-fail in that case — the file still has its text-layer content.
+    """
+    is_mixed = page_indices is not None
+    will_batch = ocr_page_count >= CLAUDE_BATCH_PAGE_THRESHOLD
     with app.app_context():
         db = current_app.config['MONGO_DB']
         files_col = db['user_files']
@@ -287,25 +270,54 @@ def _run_async_pdf_ingest(*, app, tmp_path, user_id, file_id_str, job_id_str,
             except Exception as e:
                 logger.warning("Failed to emit upload_job_done: %s", e)
 
+        def emit_progress(stage, **extra):
+            try:
+                from app import socketio
+                socketio.emit(
+                    'upload_job_progress',
+                    {
+                        'job_id': job_id_str,
+                        'file_id': file_id_str,
+                        'filename': filename,
+                        'stage': stage,
+                        **extra,
+                    },
+                    room=f"user:{user_id}",
+                )
+            except Exception as e:
+                logger.warning("Failed to emit upload_job_progress: %s", e)
+
         try:
             update_job("extracting")
-            text = _extract_pdf_text_via_claude(tmp_path, filename)
-            if not text:
+            emit_progress('ocr', batch=will_batch, pages=ocr_page_count)
+            text = _extract_pdf_text_via_claude(tmp_path, filename, page_indices=page_indices)
+            if not text and not is_mixed:
                 update_job("failed", error="Could not extract text (Claude OCR returned nothing)")
                 files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
                 emit("failed", error="Could not extract text from PDF")
                 return
 
-            update_job("ingesting")
-            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
-            splits = splitter.split_documents([
-                Document(page_content=text, metadata={"source": filename})
-            ])
-            if not ingest_chunks(splits, user_id, folder_path, filename, file_id_str, config_id_override=config_id):
-                update_job("failed", error="Vector indexing failed")
-                files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
-                emit("failed", error="Vector indexing failed")
-                return
+            if text:
+                update_job("ingesting")
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
+                ocr_splits = splitter.split_documents([
+                    Document(page_content=text, metadata={"source": filename})
+                ])
+                if not ingest_chunks(ocr_splits, user_id, folder_path, filename, file_id_str, config_id_override=config_id):
+                    if not is_mixed:
+                        update_job("failed", error="Vector indexing failed")
+                        files_col.update_one({"_id": ObjectId(file_id_str)}, {"$set": {"ingest_status": "failed"}})
+                        emit("failed", error="Vector indexing failed")
+                        return
+                    logger.warning(
+                        "Async ingest: OCR chunk index failed for mixed PDF | file=%s file_id=%s",
+                        filename, file_id_str,
+                    )
+            elif is_mixed:
+                logger.warning(
+                    "Async ingest: OCR returned nothing for mixed PDF | file=%s file_id=%s pages=%s",
+                    filename, file_id_str, page_indices,
+                )
 
             # S3 best-effort: ingestion succeeded, so don't fail the job if S3 hiccups.
             storage_key = f"user_files/{user_id}/{file_id_str}/{filename}"

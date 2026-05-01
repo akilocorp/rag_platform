@@ -281,12 +281,20 @@ const ChatPage = () => {
 
     const socket = io("/", { path: "/socket.io" });
     socket.on('connect', () => socket.emit('subscribe_uploads', { user_id: uid }));
+    socket.on('upload_job_progress', (data) => {
+      if (!data || !data.file_id) return;
+      setLibraryFiles((prev) => prev.map((f) =>
+        f._id === data.file_id
+          ? { ...f, progress: { stage: data.stage, batch: !!data.batch, pages: data.pages || 0 } }
+          : f
+      ));
+    });
     socket.on('upload_job_done', (data) => {
       if (!data || !data.file_id) return;
       if (data.status === 'done') {
         setLibraryFiles((prev) => prev.map((f) =>
           f._id === data.file_id
-            ? { ...f, vector_ingested: true, ingest_status: 'done' }
+            ? { ...f, vector_ingested: true, ingest_status: 'done', progress: undefined }
             : f
         ));
       } else if (data.status === 'failed') {

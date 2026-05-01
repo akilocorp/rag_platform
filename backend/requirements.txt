@@ -26,6 +26,6 @@ python-pptx
 trafilatura
 tavily-python
 anthropic
+pymupdf
 Flask-SocketIO
-ocrmypdf
 

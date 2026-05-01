@@ -20,71 +20,21 @@ CLAUDE_PDF_MAX_BYTES = 32 * 1024 * 1024
 CLAUDE_PDF_MAX_PAGES = 100
 CLAUDE_PDF_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
 
-
-def _extract_pdf_text_via_ocrmypdf(pdf_path: str, filename: str) -> str | None:
-    """Tier-2 fallback: run Tesseract OCR via ocrmypdf, then re-extract text.
-
-    Used for short scanned PDFs (≤ a few pages) where 3 s/page on CPU still
-    fits inside the upload budget. Returns the extracted text, or None if
-    ocrmypdf isn't installed or fails. Caller should fall through to the
-    async Claude path on None.
-    """
-    import tempfile
-    try:
-        try:
-            import ocrmypdf
-        except ImportError:
-            logger.error("ocrmypdf fallback: ocrmypdf not installed | file=%s", filename)
-            return None
-
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            ocr_out_path = tmp.name
-        try:
-            ocrmypdf.ocr(
-                pdf_path,
-                ocr_out_path,
-                language="eng",
-                deskew=True,
-                optimize=0,            # skip image optimisation — saves seconds
-                progress_bar=False,
-                output_type="pdf",     # don't try to make a fancy PDF/A
-                force_ocr=True,        # we already know there's no text layer
-                jobs=2,
-            )
-
-            from pypdf import PdfReader
-            reader = PdfReader(ocr_out_path)
-            text = "\n\n".join((page.extract_text() or "") for page in reader.pages)
-            text = text.strip()
-            if not text:
-                logger.error("ocrmypdf fallback: empty text after OCR | file=%s", filename)
-                return None
-
-            logger.info(
-                "ocrmypdf fallback OK | file=%s pages=%d chars=%d",
-                filename, len(reader.pages), len(text),
-            )
-            return text
-        finally:
-            try:
-                os.remove(ocr_out_path)
-            except Exception:
-                pass
-    except Exception as e:
-        logger.error(
-            "ocrmypdf fallback: crashed | file=%s err=%s",
-            filename, e,
-            exc_info=True,
-        )
-        return None
+# Anthropic Batch API: 50% off, but adds polling latency. Only worth using
+# for jobs large enough that the savings outweigh the wait.
+CLAUDE_BATCH_PAGE_THRESHOLD = 40
+CLAUDE_BATCH_TIMEOUT_SECONDS = 600  # 10 min hard cap
 
 
-def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
+def _extract_pdf_text_via_claude(pdf_path: str, filename: str, page_indices=None) -> str | None:
     """Fallback for scanned/image-only PDFs.
 
-    Sends the whole PDF to Claude Haiku as a document block and asks for
-    plain extracted text. Returns the text, or None if the PDF exceeds
-    Claude's limits, the SDK/key isn't available, or the call fails.
+    Renders each page to a 150-DPI JPEG via PyMuPDF and sends them as image
+    blocks to Claude Haiku for transcription. Cheaper than the raw `document`
+    block because we control DPI + JPEG quality. If page_indices is given
+    (0-based), only those pages are rendered — used for mixed PDFs where
+    pypdf already extracted text from the rest. Returns the text, or None
+    if the PDF exceeds limits, a dep/key is missing, or the call fails.
     Caller logs + treats None as a clean failure.
     """
     try:
@@ -93,18 +43,6 @@ def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
             logger.error(
                 "Claude PDF fallback: file too large | file=%s size=%s max=%s",
                 filename, size, CLAUDE_PDF_MAX_BYTES,
-            )
-            return None
-
-        try:
-            from pypdf import PdfReader
-            page_count = len(PdfReader(pdf_path).pages)
-        except Exception:
-            page_count = -1  # unknown — Claude will reject if it's actually too many
-        if page_count > CLAUDE_PDF_MAX_PAGES:
-            logger.error(
-                "Claude PDF fallback: too many pages | file=%s pages=%s max=%s",
-                filename, page_count, CLAUDE_PDF_MAX_PAGES,
             )
             return None
 
@@ -120,6 +58,12 @@ def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
             return None
 
         try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            logger.error("Claude PDF fallback: pymupdf not installed | file=%s", filename)
+            return None
+
+        try:
             from anthropic import Anthropic
         except ImportError:
             logger.error(
@@ -128,45 +72,65 @@ def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
             )
             return None
 
-        with open(pdf_path, "rb") as f:
-            pdf_b64 = base64.b64encode(f.read()).decode("ascii")
+        mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI
+        image_blocks = []
+        with fitz.open(pdf_path) as pdf_doc:
+            page_count = pdf_doc.page_count
+            selected = list(page_indices) if page_indices is not None else list(range(page_count))
+            if len(selected) > CLAUDE_PDF_MAX_PAGES:
+                logger.error(
+                    "Claude PDF fallback: too many pages | file=%s pages=%s max=%s",
+                    filename, len(selected), CLAUDE_PDF_MAX_PAGES,
+                )
+                return None
+
+            for i in selected:
+                pix = pdf_doc[i].get_pixmap(matrix=mat, alpha=False)
+                img_bytes = pix.tobytes("jpeg", jpg_quality=75)
+                image_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64.b64encode(img_bytes).decode("ascii"),
+                    },
+                })
+
+        content = [
+            *image_blocks,
+            {
+                "type": "text",
+                "text": (
+                    "Extract every piece of text from this document, in reading order. "
+                    "Preserve paragraph breaks, headings, and lists. Do not summarize, "
+                    "rephrase, or add commentary. Return only the extracted text."
+                ),
+            },
+        ]
 
         client = Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model=CLAUDE_PDF_FALLBACK_MODEL,
-            max_tokens=8192,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "application/pdf",
-                            "data": pdf_b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "Extract every piece of text from this document, in reading order. "
-                            "Preserve paragraph breaks, headings, and lists. Do not summarize, "
-                            "rephrase, or add commentary. Return only the extracted text."
-                        ),
-                    },
-                ],
-            }],
-        )
+        if len(selected) >= CLAUDE_BATCH_PAGE_THRESHOLD:
+            logger.info(
+                "Claude PDF fallback: using Batch API | file=%s pages=%d",
+                filename, len(selected),
+            )
+            text, usage = _claude_via_batch(client, content, filename)
+        else:
+            msg = client.messages.create(
+                model=CLAUDE_PDF_FALLBACK_MODEL,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": content}],
+            )
+            text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+            usage = getattr(msg, "usage", None)
 
-        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-        if not text.strip():
+        if not text or not text.strip():
             logger.error("Claude PDF fallback: empty response | file=%s", filename)
             return None
 
-        usage = getattr(msg, "usage", None)
         logger.info(
             "Claude PDF fallback OK | file=%s pages=%s chars=%d in_tokens=%s out_tokens=%s",
-            filename, page_count, len(text),
+            filename, len(selected), len(text),
             getattr(usage, "input_tokens", "?") if usage else "?",
             getattr(usage, "output_tokens", "?") if usage else "?",
         )
@@ -178,6 +142,64 @@ def _extract_pdf_text_via_claude(pdf_path: str, filename: str) -> str | None:
             exc_info=True,
         )
         return None
+
+
+def _claude_via_batch(client, content, filename):
+    """Submit a single-request Message Batch and poll until it ends.
+
+    Returns (text, usage) on success, (None, None) on timeout / error /
+    non-success result. Caller decides whether to treat None as a hard fail.
+    """
+    try:
+        batch = client.messages.batches.create(
+            requests=[{
+                "custom_id": "ocr-1",
+                "params": {
+                    "model": CLAUDE_PDF_FALLBACK_MODEL,
+                    "max_tokens": 8192,
+                    "messages": [{"role": "user", "content": content}],
+                },
+            }],
+        )
+        logger.info("Claude batch submitted | file=%s batch=%s", filename, batch.id)
+
+        start = time.time()
+        deadline = start + CLAUDE_BATCH_TIMEOUT_SECONDS
+        while True:
+            b = client.messages.batches.retrieve(batch.id)
+            if b.processing_status == "ended":
+                break
+            if time.time() > deadline:
+                logger.error(
+                    "Claude batch timed out | file=%s batch=%s elapsed=%ds",
+                    filename, batch.id, int(time.time() - start),
+                )
+                try:
+                    client.messages.batches.cancel(batch.id)
+                except Exception:
+                    pass
+                return None, None
+            time.sleep(5 if (time.time() - start) < 60 else 15)
+
+        for result in client.messages.batches.results(batch.id):
+            if result.result.type != "succeeded":
+                logger.error(
+                    "Claude batch result not succeeded | file=%s type=%s",
+                    filename, result.result.type,
+                )
+                return None, None
+            msg = result.result.message
+            text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+            return text, getattr(msg, "usage", None)
+        return None, None
+    except Exception as e:
+        logger.error(
+            "Claude batch crashed | file=%s err=%s",
+            filename, e,
+            exc_info=True,
+        )
+        return None, None
+
 
 def get_document_loader(file_path):
     """
@@ -310,9 +332,10 @@ def process_files_and_create_vector_store(temp_file_paths, user_id, collection_n
 def extract_pdf_chunks_fast(temp_file_path, filename):
     """Fast synchronous extraction via pypdf (no Claude).
 
-    Returns (chunks, page_count). chunks may be [] if the PDF is
-    scanned/image-only — caller decides whether to dispatch async OCR.
-    Returns (None, 0) on hard error (corrupted file, unsupported type).
+    Returns (chunks, page_count, image_only_pages). chunks may be [] if the
+    PDF is scanned/image-only — caller decides whether to dispatch async OCR.
+    image_only_pages is the 0-based indices of PDF pages with no extractable
+    text (always [] for non-PDF files). Returns (None, 0, []) on hard error.
     """
     size_bytes = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else -1
     ext = os.path.splitext(filename)[1].lower()
@@ -327,7 +350,7 @@ def extract_pdf_chunks_fast(temp_file_path, filename):
             "Ingest FAIL: no loader for file | file=%s ext=%s size=%s",
             filename, ext, size_bytes,
         )
-        return None, 0
+        return None, 0, []
 
     try:
         pages = loader.load()
@@ -337,13 +360,20 @@ def extract_pdf_chunks_fast(temp_file_path, filename):
             filename, type(loader).__name__, e,
             exc_info=True,
         )
-        return None, 0
+        return None, 0, []
 
     logger.info("Ingest LOADED | file=%s pages=%d", filename, len(pages))
 
+    image_only = []
+    if ext == ".pdf":
+        image_only = [
+            i for i, p in enumerate(pages)
+            if not (p.page_content or "").strip()
+        ]
+
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20)
     splits = splitter.split_documents(pages)
-    return splits, len(pages)
+    return splits, len(pages), image_only
 
 
 def ingest_chunks(splits, user_id, folder_path, filename, source_file_id, config_id_override=None):
@@ -395,7 +425,7 @@ def process_user_file_and_create_vectors(temp_file_path, user_id, folder_path, f
     """
     try:
         ext = os.path.splitext(filename)[1].lower()
-        splits, page_count = extract_pdf_chunks_fast(temp_file_path, filename)
+        splits, page_count, _ = extract_pdf_chunks_fast(temp_file_path, filename)
         if splits is None:
             return False  # hard error already logged
 

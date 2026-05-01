@@ -289,11 +289,18 @@ const FilesPanel = ({
           {visibleFiles.map((f) => {
             const isSelected = selectedFileIds.includes(f._id);
             const isPending = f.vector_ingested === false;
+            const isOcr = isPending && f.progress?.stage === 'ocr';
+            const isBatchOcr = isOcr && f.progress?.batch;
+            const pendingLabel = isBatchOcr
+              ? `Reading images in your PDF — ${f.progress.pages} pages, this can take a few minutes…`
+              : isOcr
+                ? 'Reading images in your PDF…'
+                : 'Indexing…';
             return (
               <div
                 key={f._id}
                 onClick={selectable && onToggleFile && !isPending ? () => onToggleFile(f._id) : undefined}
-                title={isPending ? 'This file is still being indexed' : undefined}
+                title={isPending ? pendingLabel : undefined}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
                   selectable && !isPending ? 'cursor-pointer' : ''
                 } ${
@@ -319,13 +326,13 @@ const FilesPanel = ({
                   <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[13px]">{f.filename}</p>
+                  <p className={`truncate text-[13px] ${isOcr ? 'animate-pulse' : ''}`}>{f.filename}</p>
                   <p
-                    className="truncate text-[10px] text-gray-500 mt-0.5"
-                    title={f.is_url ? (f.source_url || '') : ''}
+                    className={`truncate text-[10px] mt-0.5 ${isOcr ? 'text-[#FA6C43]' : 'text-gray-500'}`}
+                    title={f.is_url ? (f.source_url || '') : (isPending ? pendingLabel : '')}
                   >
                     {isPending
-                      ? 'Indexing…'
+                      ? pendingLabel
                       : f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
                   </p>
                 </div>
