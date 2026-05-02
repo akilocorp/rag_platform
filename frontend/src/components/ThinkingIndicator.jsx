@@ -18,7 +18,7 @@ const ThinkingIndicator = () => {
   }, []);
 
   return (
-    <div className="flex items-center gap-2 py-0.5">
+    <div className="flex items-center gap-2 h-8 mt-1">
       <span
         key={phraseIdx}
         className="thinking-shimmer text-sm font-semibold animate-in fade-in duration-500"
