@@ -269,13 +269,17 @@ export const ChatSidebar = ({
 
         {/* Tab bar: Chats / Files */}
         {!isCollapsed && (
-          <div className="flex items-center gap-1 mb-4 px-1 bg-[#F0F6FB] rounded-xl p-1">
+          <div className="relative flex mb-4 bg-[#F0F6FB] rounded-xl p-1">
+            <span
+              aria-hidden
+              className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+                activeTab === 'files' ? 'translate-x-full' : 'translate-x-0'
+              }`}
+            />
             <button
               onClick={() => switchTab('chats')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'chats'
-                  ? 'bg-white text-[#222] shadow-sm'
-                  : 'text-gray-500 hover:text-[#222]'
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-colors duration-300 ${
+                activeTab === 'chats' ? 'text-[#222]' : 'text-gray-500 hover:text-[#222]'
               }`}
             >
               <FiMessageSquare className="w-3.5 h-3.5" />
@@ -283,10 +287,8 @@ export const ChatSidebar = ({
             </button>
             <button
               onClick={() => switchTab('files')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'files'
-                  ? 'bg-white text-[#222] shadow-sm'
-                  : 'text-gray-500 hover:text-[#222]'
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-colors duration-300 ${
+                activeTab === 'files' ? 'text-[#222]' : 'text-gray-500 hover:text-[#222]'
               }`}
             >
               <FiFolder className="w-3.5 h-3.5" />
