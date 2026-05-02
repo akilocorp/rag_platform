@@ -234,8 +234,8 @@ Answer:"""
         # --- 7. Save Configuration to MongoDB ---
         mongo_collection = Config
 
-        # Get the filenames of uploaded files
-        uploaded_filenames = [secure_filename(file.filename) for file in uploaded_files if file and allowed_file(file.filename)]
+        # Get the filenames of uploaded files (original name for display; secure name used for disk path above)
+        uploaded_filenames = [file.filename for file in uploaded_files if file and allowed_file(file.filename)]
         
         config_document = {
             "user_id": user_id,

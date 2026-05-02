@@ -52,14 +52,16 @@ def update_existing_config(config_id):
         current_documents = [doc for doc in existing_documents if doc not in files_to_delete]
 
         for filename in files_to_delete:
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    # --- LOGGING FOR EACH FILE DELETED ---
-                    current_app.logger.info(f"SUCCESS: Physically deleted file '{file_path}' for config_id '{config_id}'.")
-            except OSError as e:
-                current_app.logger.error(f"Error deleting file {file_path}: {e}", exc_info=True)
+            safe_name = secure_filename(filename)
+            if safe_name:
+                file_path = os.path.join(UPLOAD_FOLDER, safe_name)
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        # --- LOGGING FOR EACH FILE DELETED ---
+                        current_app.logger.info(f"SUCCESS: Physically deleted file '{file_path}' for config_id '{config_id}'.")
+                except OSError as e:
+                    current_app.logger.error(f"Error deleting file {file_path}: {e}", exc_info=True)
 
         # Handle file uploads
         newly_uploaded_filenames = []
@@ -72,7 +74,7 @@ def update_existing_config(config_id):
                     temp_file_path = os.path.join(UPLOAD_FOLDER, filename)
                     file.save(temp_file_path)
                     temp_file_paths.append(temp_file_path)
-                    newly_uploaded_filenames.append(filename)
+                    newly_uploaded_filenames.append(file.filename)
 
             if temp_file_paths:
                 process_files_and_create_vector_store(
