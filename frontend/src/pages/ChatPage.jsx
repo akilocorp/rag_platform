@@ -897,7 +897,7 @@ const ChatPage = () => {
                             const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
                             if (matches.length === 0) return null;
                             return (
-                                <div className="flex flex-wrap items-center gap-2 mb-3">
+                                <div className="flex flex-wrap items-center gap-2 mb-4">
                                     {matches.map((url) => {
                                         let host = url;
                                         try { host = new URL(url).hostname; } catch { /* ignore */ }
@@ -925,7 +925,7 @@ const ChatPage = () => {
                                 .filter((f) => f.vector_ingested === true);
                             if (librarySelected.length === 0) return null;
                             return (
-                                <div className="flex flex-wrap items-center gap-2 mb-3">
+                                <div className="flex flex-wrap items-center gap-2 mb-4">
                                     {librarySelected.map((f) => (
                                         <div
                                             key={f._id}
@@ -969,7 +969,7 @@ const ChatPage = () => {
                             const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true);
                             if (ingestedSessionUploads.length === 0) return null;
                             return (
-                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                            <div className="flex flex-wrap items-center gap-2 mb-4">
                                 {ingestedSessionUploads.map((f) => (
                                     <div
                                         key={f._id}
