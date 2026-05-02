@@ -350,7 +350,7 @@ export const ChatSidebar = ({
                     </div>
                   ) : sessions.length > 0 ? (
                     sessions.map((session, index) => (
-                      <div key={session.session_id} className="relative">
+                      <div key={session.session_id} className={`relative ${openDropdown === session.session_id ? 'z-[100]' : 'z-0'}`}>
                         {session.pending ? (
                           <div className="px-4 py-3 rounded-xl bg-[#F9D0C4]/20">
                             <div className="h-3.5 bg-gray-200 rounded-md animate-pulse mb-2" style={{ width: '68%' }} />
@@ -457,7 +457,7 @@ export const ChatSidebar = ({
         <div className="p-4">
           {userInfoLoaded &&
             (userInfo ? (
-              <div className="space-x-4">
+              <div className="flex flex-col gap-2">
                 <div
                   className={`flex items-center ${
                     isCollapsed ? 'justify-center' : 'space-x-3 px-2'
@@ -476,7 +476,7 @@ export const ChatSidebar = ({
                 {!isCollapsed && (
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors border-0"
+                    className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-lg bg-white text-gray-600 hover:bg-red-50 hover:text-red-500 transition-colors border-0"
                   >
                     <FiLogOut className="text-sm" />
                     <span className="text-sm">Logout</span>
