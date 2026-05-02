@@ -85,14 +85,17 @@
     border-top-color: rgba(255, 255, 255, 0.25);
   }
 
-  /* KaTeX: display math — centered, no chip/background, just breathing room */
+  /* KaTeX: display math — centered, larger than body, no chip/background */
   .chat-message-md .katex-display {
-    margin: 1.25rem 0;
+    display: block;
+    margin: 1.5rem 0;
     overflow-x: auto;
     overflow-y: hidden;
     text-align: center;
+    font-size: 1.35em;
   }
   .chat-message-md .katex-display > .katex {
+    display: inline-block;
     margin: 0 auto;
     text-align: center;
   }
