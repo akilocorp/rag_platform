@@ -454,13 +454,17 @@ const ChatPage = () => {
   }, [currentFolder, variant, configId]);
 
   const deleteLibraryFile = useCallback(async (fileId) => {
+    let prevLibrary, prevSession, prevSelected;
+    setLibraryFiles((prev) => { prevLibrary = prev; return prev.filter((f) => f._id !== fileId); });
+    setSessionUploads((prev) => { prevSession = prev; return prev.filter((f) => f._id !== fileId); });
+    setSelectedFileIds((prev) => { prevSelected = prev; return prev.filter((id) => id !== fileId); });
     try {
       await apiClient.delete(`/files/${fileId}`);
-      setLibraryFiles((prev) => prev.filter((f) => f._id !== fileId));
-      setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
-      setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
     } catch (e) {
-      console.error('Delete file failed', e);
+      console.error('Delete file failed, restoring row', e);
+      setLibraryFiles(prevLibrary);
+      setSessionUploads(prevSession);
+      setSelectedFileIds(prevSelected);
       throw e;
     }
   }, []);
