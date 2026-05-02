@@ -43,6 +43,7 @@ const TypewriterText = ({ text, speed = 22, delay = 0 }) => {
 
 export const ChatSidebar = ({
   sessions = [],
+  newlyCreatedSessionId = null,
   sessionsLoading = false,
   userInfo = null,
   userInfoLoaded = false,
@@ -396,7 +397,9 @@ export const ChatSidebar = ({
                                       : 'text-gray-600'
                                   }`}
                                 >
-                                  <TypewriterText text={session.title || 'New Chat'} />
+                                  {session.session_id === newlyCreatedSessionId
+                                    ? <TypewriterText text={session.title || 'New Chat'} />
+                                    : (session.title || 'New Chat')}
                                 </p>
                                 <p className="text-xs text-gray-500 mt-1">
                                   {new Date(session.timestamp).toLocaleString('default', {

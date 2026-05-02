@@ -215,6 +215,7 @@ const ChatPage = () => {
 
   // Sidebar/User State
   const [sessions, setSessions] = useState([]);
+  const [newlyCreatedSessionId, setNewlyCreatedSessionId] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
@@ -597,6 +598,7 @@ const ChatPage = () => {
         currentChatIdRef.current = workingChatId; // Set immediately so next send uses it
         navigate(`/chat/${configId}/${workingChatId}`, { replace: true });
         setSessions(prev => [{ session_id: workingChatId, pending: true, title: null, timestamp: new Date().toISOString() }, ...prev]);
+        setNewlyCreatedSessionId(workingChatId);
     }
 
     try {
@@ -777,6 +779,7 @@ const ChatPage = () => {
       {isAuthenticated && (
           <ChatSidebar
               sessions={sessions}
+              newlyCreatedSessionId={newlyCreatedSessionId}
               userInfo={userInfo}
               userInfoLoaded={!!userInfo}
               configId={configId}
