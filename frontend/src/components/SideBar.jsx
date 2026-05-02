@@ -12,6 +12,7 @@ import {
   FiLogOut,
   FiMoreHorizontal,
   FiDownload,
+  FiTrash2,
   FiFolder,
   FiMessageSquare,
 } from 'react-icons/fi';
@@ -77,6 +78,7 @@ export const ChatSidebar = ({
   // URL ingestion
   onFetchUrl,
   isFetchingUrl = false,
+  onDeleteSession = () => {},
 }) => {
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
@@ -136,6 +138,17 @@ export const ChatSidebar = ({
       setOpenDropdown(null);
     } catch (error) {
       console.error('Error downloading chat:', error);
+    }
+  };
+
+  const handleDeleteChat = async (sessionId) => {
+    try {
+      await apiClient.delete(`/chat/${configId}/${sessionId}`);
+      setOpenDropdown(null);
+      onDeleteSession(sessionId);
+      if (activeChatId === sessionId) navigate(`/chat/${configId}`);
+    } catch (error) {
+      console.error('Error deleting chat:', error);
     }
   };
 
@@ -341,7 +354,7 @@ export const ChatSidebar = ({
                         <Link
                           to={`/chat/${configId}/${session.session_id}`}
                           onClick={() => onClose && onClose()}
-                          className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+                          className={`flex items-center px-4 pr-9 py-3 rounded-xl transition-all ${
                             activeChatId === session.session_id
                               ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
                               : 'hover:bg-[#F0F6FB]'
@@ -395,6 +408,17 @@ export const ChatSidebar = ({
                               >
                                 <FiDownload className="w-4 h-4 flex-shrink-0" />
                                 <span>Download Chat</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteChat(session.session_id);
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
+                              >
+                                <FiTrash2 className="w-4 h-4 flex-shrink-0" />
+                                <span>Delete Chat</span>
                               </button>
                             </div>
                           )}

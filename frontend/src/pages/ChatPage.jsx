@@ -798,6 +798,7 @@ const ChatPage = () => {
               selectedFileIds={selectedFileIds}
               onToggleFile={toggleFileSelection}
               libraryLabel={variant === 'B' ? `${config?.bot_name || 'Bot'} Files` : 'My Library'}
+              onDeleteSession={(id) => setSessions(prev => prev.filter(s => s.session_id !== id))}
           />
       )}
 

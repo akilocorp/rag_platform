@@ -260,6 +260,28 @@ def get_chat_list(config_id):
         logger.error(f"Error fetching chat list for config {config_id}: {e}", exc_info=True)
         return jsonify({"message": "An internal server error occurred."}), 500
 
+
+@chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['DELETE'])
+@jwt_required()
+def delete_chat(config_id, chat_id):
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+        meta = db["chat_session_metadata"].find_one({
+            "session_id": chat_id,
+            "config_id": config_id,
+            "user_id": user_id
+        })
+        if not meta:
+            return jsonify({"message": "Not found"}), 404
+        db["chat_session_metadata"].delete_one({"session_id": chat_id})
+        db["chat_histories"].delete_many({"SessionId": chat_id})
+        return jsonify({"message": "Deleted"}), 200
+    except Exception as e:
+        logger.error(f"Error deleting chat {chat_id}: {e}", exc_info=True)
+        return jsonify({"message": "An internal server error occurred."}), 500
+
+
 # --- FACTORY & HELPERS ---
 
 class _AttachedFilesMongoHistory(MongoDBChatMessageHistory):
