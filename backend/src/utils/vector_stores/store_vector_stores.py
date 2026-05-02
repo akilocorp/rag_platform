@@ -233,7 +233,8 @@ def get_document_loader(file_path):
         '.md': TextLoader,
         '.pptx': SimplePPTXLoader,
     }
-    
+
+
     loader_class = loader_map.get(file_extension)
     if loader_class:
         return loader_class(file_path=file_path)
@@ -274,7 +275,7 @@ def process_files_and_create_vector_store(temp_file_paths, user_id, collection_n
         for temp_file_path in temp_file_paths:
             loader = get_document_loader(temp_file_path)
             if not loader:
-                continue  # Skip unsupported file types
+                continue
 
             current_app.logger.info(f"Loading document: {temp_file_path}")
             try:

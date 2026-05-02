@@ -517,6 +517,87 @@ def delete_file(file_id):
 
 
 # ---------------------------------------------------------------------------
+# URL ingestion
+# ---------------------------------------------------------------------------
+
+@user_files_bp.route('/files/url', methods=['POST'])
+@jwt_required()
+def ingest_url():
+    """Fetch a public URL, extract text, and ingest into the user's vector library."""
+    from src.utils.web.fetch import fetch_url
+    from langchain_core.documents import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
+
+    user_id = get_jwt_identity()
+    body = request.get_json(silent=True) or {}
+    url = (body.get('url') or '').strip()
+    folder_path = _normalize_path(body.get('folder_path', ''))
+    config_id = body.get('config_id') or None
+
+    if not url:
+        return jsonify({"message": "url is required"}), 400
+
+    text = fetch_url(url)
+    if not text:
+        return jsonify({"message": "Could not fetch or extract content from that URL"}), 422
+
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    display_name = (parsed.netloc + parsed.path).strip('/') or url
+
+    db = current_app.config['MONGO_DB']
+    files_col = db['user_files']
+
+    doc_meta = {
+        "user_id": user_id,
+        "folder_path": folder_path,
+        "filename": display_name,
+        "content_type": "text/html",
+        "size_bytes": len(text.encode()),
+        "uploaded_at": time.time(),
+        "vector_ingested": False,
+        "storage_key": None,
+        "source_url": url,
+    }
+    if config_id:
+        doc_meta["config_id"] = config_id
+    file_id = files_col.insert_one(doc_meta).inserted_id
+
+    try:
+        effective_config_id = config_id if config_id else f"user:{user_id}"
+        doc = Document(page_content=text, metadata={
+            "user_id": user_id,
+            "config_id": effective_config_id,
+            "owner_user_id": user_id,
+            "scope": "config" if config_id else "user",
+            "source_file_id": str(file_id),
+            "folder_path": folder_path or '',
+            "original_file": display_name,
+            "source": url,
+        })
+        splits = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_documents([doc])
+        if not splits:
+            files_col.delete_one({"_id": file_id})
+            return jsonify({"message": "No content extracted"}), 422
+
+        MongoDBAtlasVectorSearch.from_documents(
+            documents=splits,
+            embedding=current_app.config['EMBEDDINGS'],
+            collection=db['vector_collection'],
+            index_name="vector",
+        )
+        files_col.update_one({"_id": file_id}, {"$set": {"vector_ingested": True}})
+        doc_meta["_id"] = str(file_id)
+        doc_meta["vector_ingested"] = True
+        return jsonify({"file": doc_meta}), 201
+    except Exception as e:
+        files_col.delete_one({"_id": file_id})
+        current_app.logger.error(f"URL ingest failed for {url}: {e}")
+        return jsonify({"message": "Failed to ingest URL"}), 500
+
+
+# ---------------------------------------------------------------------------
 # Folders
 # ---------------------------------------------------------------------------
 

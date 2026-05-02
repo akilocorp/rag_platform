@@ -49,13 +49,16 @@ const FilesPanel = ({
   onToggleFile,
   // Variant B: custom label
   libraryLabel = 'My Library',
+  // URL ingestion
+  onFetchUrl,
+  isFetchingUrl = false,
 }) => {
   const fileInputRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [showUrlInput, setShowUrlInput] = useState(false);
-  const [urlValue, setUrlValue] = useState('');
+  const [uploadTab, setUploadTab] = useState('file'); // 'file' | 'url'
+  const [urlInput, setUrlInput] = useState('');
   const [deletingIds, setDeletingIds] = useState(() => new Set());
   const [deletedToast, setDeletedToast] = useState(null);
   const toastTimerRef = useRef(null);
@@ -116,17 +119,33 @@ const FilesPanel = ({
     setShowNewFolder(false);
   };
 
-  const submitUrl = () => {
-    const trimmed = urlValue.trim();
-    if (!trimmed || !onUploadUrl) return;
-    onUploadUrl(trimmed, currentFolder);
-    setUrlValue('');
-    setShowUrlInput(false);
+  const handleUrlSubmit = () => {
+    const trimmed = urlInput.trim();
+    if (!trimmed || !onFetchUrl) return;
+    onFetchUrl(trimmed, currentFolder);
+    setUrlInput('');
   };
 
   return (
     <div className="flex flex-col gap-3 pr-1">
-      {/* Upload zone */}
+      {/* Tab: File / URL */}
+      <div className="flex items-center gap-1 bg-[#F0F6FB] rounded-xl p-1">
+        <button
+          onClick={() => setUploadTab('file')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${uploadTab === 'file' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
+        >
+          <FiUpload className="w-3 h-3" /> File
+        </button>
+        <button
+          onClick={() => setUploadTab('url')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${uploadTab === 'url' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
+        >
+          <FiLink className="w-3 h-3" /> URL
+        </button>
+      </div>
+
+      {/* Upload zone — File tab */}
+      {uploadTab === 'file' && (
       <div
         onClick={handlePickClick}
         onDragOver={(e) => {
@@ -158,43 +177,27 @@ const FilesPanel = ({
           accept=".pdf,.txt,.md,.docx,.pptx"
         />
       </div>
+      )}
 
-      {onUploadUrl && (
-        <div>
-          {showUrlInput ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="url"
-                autoFocus
-                placeholder="https://example.com/article"
-                value={urlValue}
-                onChange={(e) => setUrlValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitUrl();
-                  if (e.key === 'Escape') {
-                    setShowUrlInput(false);
-                    setUrlValue('');
-                  }
-                }}
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#FA6C43]"
-              />
-              <button
-                onClick={submitUrl}
-                disabled={isUploading}
-                className="px-3 py-2 text-xs font-semibold bg-[#FA6C43] text-white rounded-xl hover:bg-[#E55B34] transition-colors disabled:opacity-50"
-              >
-                Add
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowUrlInput(true)}
-              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-gray-500 hover:text-[#FA6C43] hover:bg-[#F0F6FB] rounded-xl transition-colors"
-            >
-              <FiLink className="w-3.5 h-3.5" />
-              Paste a URL
-            </button>
-          )}
+      {/* URL ingestion — URL tab */}
+      {uploadTab === 'url' && (
+        <div className="flex flex-col gap-2">
+          <input
+            type="url"
+            placeholder="https://example.com/article"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#FA6C43]"
+          />
+          <button
+            onClick={handleUrlSubmit}
+            disabled={!urlInput.trim() || isFetchingUrl}
+            className="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold bg-[#FA6C43] text-white rounded-xl hover:bg-[#E55B34] disabled:opacity-50 transition-colors"
+          >
+            {isFetchingUrl ? <FiLoader className="w-3.5 h-3.5 animate-spin" /> : <FiLink className="w-3.5 h-3.5" />}
+            {isFetchingUrl ? 'Fetching…' : 'Fetch & Ingest'}
+          </button>
         </div>
       )}
 

@@ -53,6 +53,9 @@ export const ChatSidebar = ({
   selectedFileIds = [],
   onToggleFile,
   libraryLabel = 'My Library',
+  // URL ingestion
+  onFetchUrl,
+  isFetchingUrl = false,
 }) => {
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
@@ -285,6 +288,8 @@ export const ChatSidebar = ({
                 selectedFileIds={selectedFileIds}
                 onToggleFile={onToggleFile}
                 libraryLabel={libraryLabel}
+                onFetchUrl={onFetchUrl}
+                isFetchingUrl={isFetchingUrl}
               />
               </>
             ) : (

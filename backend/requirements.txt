@@ -28,4 +28,6 @@ tavily-python
 anthropic
 pymupdf
 Flask-SocketIO
+python-pptx
+trafilatura
 

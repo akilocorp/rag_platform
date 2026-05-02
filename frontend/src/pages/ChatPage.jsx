@@ -231,6 +231,7 @@ const ChatPage = () => {
   const [sessionUploads, setSessionUploads] = useState([]);
   // Variant A: tracks which library files are selected for this chat session
   const [selectedFileIds, setSelectedFileIds] = useState([]);
+  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const libraryLoadedRef = useRef(false);
 
   // --- REFS (The "Brain" of the component) ---
@@ -491,6 +492,25 @@ const ChatPage = () => {
     setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
     setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
   };
+
+  const fetchUrl = useCallback(async (url, folderPath = currentFolder) => {
+    setIsFetchingUrl(true);
+    setUploadError(null);
+    try {
+      const body = { url, folder_path: folderPath || '' };
+      if (variant === 'B') body.config_id = configId;
+      const res = await apiClient.post('/files/url', body);
+      if (res.data?.file) {
+        setLibraryFiles((prev) => [res.data.file, ...prev]);
+        setSessionUploads((prev) => [...prev, res.data.file]);
+        if (variant === 'A') setSelectedFileIds((prev) => [...prev, res.data.file._id]);
+      }
+    } catch (err) {
+      setUploadError(err.response?.data?.message || 'Failed to fetch URL');
+    } finally {
+      setIsFetchingUrl(false);
+    }
+  }, [currentFolder, variant, configId]);
 
   const toggleFileSelection = (fileId) => {
     setSelectedFileIds((prev) =>
