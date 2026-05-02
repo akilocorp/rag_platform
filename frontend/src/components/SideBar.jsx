@@ -83,6 +83,7 @@ export const ChatSidebar = ({
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
+  const [removingChatIds, setRemovingChatIds] = useState(() => new Set());
   const { variant, setVariant } = useVariant();
 
   useEffect(() => {
@@ -141,15 +142,28 @@ export const ChatSidebar = ({
     }
   };
 
-  const handleDeleteChat = async (sessionId) => {
-    try {
-      await apiClient.delete(`/chat/${configId}/${sessionId}`);
-      setOpenDropdown(null);
-      onDeleteSession(sessionId);
-      if (activeChatId === sessionId) navigate(`/chat/${configId}`);
-    } catch (error) {
-      console.error('Error deleting chat:', error);
-    }
+  const handleDeleteChat = (sessionId) => {
+    if (removingChatIds.has(sessionId)) return;
+    setOpenDropdown(null);
+    setRemovingChatIds((prev) => {
+      const next = new Set(prev);
+      next.add(sessionId);
+      return next;
+    });
+    setTimeout(async () => {
+      try {
+        await apiClient.delete(`/chat/${configId}/${sessionId}`);
+        onDeleteSession(sessionId);
+        if (activeChatId === sessionId) navigate(`/chat/${configId}`);
+      } catch (error) {
+        console.error('Error deleting chat:', error);
+        setRemovingChatIds((prev) => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
+      }
+    }, 220);
   };
 
   const goConfigList = () => navigate('/config_list');
@@ -349,8 +363,16 @@ export const ChatSidebar = ({
                       ))}
                     </div>
                   ) : sessions.length > 0 ? (
-                    sessions.map((session, index) => (
-                      <div key={session.session_id} className={`relative ${openDropdown === session.session_id ? 'z-[100]' : 'z-0'}`}>
+                    sessions.map((session, index) => {
+                      const isRemoving = removingChatIds.has(session.session_id);
+                      return (
+                      <div
+                        key={session.session_id}
+                        className={`transition-all duration-200 ease-out ${
+                          isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
+                        }`}
+                      >
+                      <div className={`relative ${openDropdown === session.session_id ? 'z-[100]' : 'z-0'}`}>
                         {session.pending ? (
                           <div className="px-4 py-3 rounded-xl bg-[#F9D0C4]/20">
                             <div className="h-3.5 bg-gray-200 rounded-md animate-pulse mb-2" style={{ width: '68%' }} />
@@ -433,7 +455,9 @@ export const ChatSidebar = ({
                           </>
                         )}
                       </div>
-                    ))
+                      </div>
+                      );
+                    })
                   ) : (
                     <div className="text-center p-4">
                       <p className="text-gray-500 text-sm">No recent conversations</p>

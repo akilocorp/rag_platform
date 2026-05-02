@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   FiUpload,
   FiChevronLeft,
@@ -9,7 +9,6 @@ import {
   FiPlus,
   FiLoader,
   FiLink,
-  FiCheckCircle,
 } from 'react-icons/fi';
 
 const formatSize = (bytes) => {
@@ -59,36 +58,27 @@ const FilesPanel = ({
   const [newFolderName, setNewFolderName] = useState('');
   const [uploadTab, setUploadTab] = useState('file'); // 'file' | 'url'
   const [urlInput, setUrlInput] = useState('');
-  const [deletingIds, setDeletingIds] = useState(() => new Set());
-  const [deletedToast, setDeletedToast] = useState(null);
-  const toastTimerRef = useRef(null);
+  const [removingIds, setRemovingIds] = useState(() => new Set());
 
-  useEffect(() => () => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-  }, []);
-
-  const handleDeleteClick = async (e, file) => {
+  const handleDeleteClick = (e, file) => {
     e.stopPropagation();
-    if (deletingIds.has(file._id)) return;
-    setDeletingIds((prev) => {
+    if (removingIds.has(file._id)) return;
+    setRemovingIds((prev) => {
       const next = new Set(prev);
       next.add(file._id);
       return next;
     });
-    try {
-      await onDeleteFile(file._id);
-      setDeletedToast({ id: file._id, name: file.filename });
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = setTimeout(() => setDeletedToast(null), 2500);
-    } catch {
-      // Parent already logs; row stays so user can retry.
-    } finally {
-      setDeletingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(file._id);
-        return next;
-      });
-    }
+    setTimeout(async () => {
+      try {
+        await onDeleteFile(file._id);
+      } catch {
+        setRemovingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(file._id);
+          return next;
+        });
+      }
+    }, 220);
   };
 
   const visibleFiles = files.filter((f) => (f.folder_path || '') === currentFolder);
@@ -261,14 +251,6 @@ const FilesPanel = ({
         </div>
       )}
 
-      {/* Deletion confirmation */}
-      {deletedToast && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200 text-xs text-green-700">
-          <FiCheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-          <span className="truncate">Deleted: {deletedToast.name}</span>
-        </div>
-      )}
-
       {/* List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
@@ -303,10 +285,16 @@ const FilesPanel = ({
                 : isIngesting
                   ? 'Indexing extracted text'
                   : 'Preparing your file';
+            const isRemoving = removingIds.has(f._id);
             return (
               <div
                 key={f._id}
-                onClick={selectable && onToggleFile && !isPending ? () => onToggleFile(f._id) : undefined}
+                className={`transition-all duration-200 ease-out ${
+                  isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
+                }`}
+              >
+              <div
+                onClick={selectable && onToggleFile && !isPending && !isRemoving ? () => onToggleFile(f._id) : undefined}
                 title={isPending ? pendingLabel : undefined}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
                   selectable && !isPending ? 'cursor-pointer' : ''
@@ -363,20 +351,13 @@ const FilesPanel = ({
                 </div>
                 <button
                   onClick={(e) => handleDeleteClick(e, f)}
-                  disabled={deletingIds.has(f._id)}
-                  title={deletingIds.has(f._id) ? 'Deleting…' : 'Delete file'}
-                  className={`transition-opacity p-1.5 rounded-lg ${
-                    deletingIds.has(f._id)
-                      ? 'opacity-100 text-[#FA6C43]'
-                      : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50'
-                  }`}
+                  disabled={isRemoving}
+                  title="Delete file"
+                  className="transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
                 >
-                  {deletingIds.has(f._id) ? (
-                    <FiLoader className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <FiTrash2 className="w-3.5 h-3.5" />
-                  )}
+                  <FiTrash2 className="w-3.5 h-3.5" />
                 </button>
+              </div>
               </div>
             );
           })}
