@@ -56,7 +56,7 @@ def send_password_reset_email(user_email, token):
             frontend_url = 'https://app.bitterlylab.com'
         reset_url = f"{frontend_url}/reset-password?token={token}"
         logo_url = f"{frontend_url}/Logo.svg"
-        illustration_url = f"{frontend_url}/email-forgot.jpg"
+        illustration_url = f"{frontend_url}/email-question.jpg"
         body = f"Reset your Actr Lab password by clicking this link:\n\n{reset_url}\n\nThis link expires in 1 hour.\n\nIf you did not request this, ignore this email."
         html_content = render_template(
             'email/reset_password.html',
