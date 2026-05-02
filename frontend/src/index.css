@@ -129,6 +129,15 @@
   .chat-message-md h4 { font-size: 1.0em; text-transform: uppercase; letter-spacing: 0.04em; }
   .chat-message-md h5,
   .chat-message-md h6 { font-size: 0.95em; }
+  /* Section headers carry a thin brand-colored rule under them so they
+     read as a clear divider between header and body. */
+  .chat-message-md h1,
+  .chat-message-md h2,
+  .chat-message-md h3 {
+    padding-bottom: 0.35em;
+    border-bottom: 1px solid rgba(250, 108, 67, 0.22);
+    margin-bottom: 0.65em;
+  }
   .chat-message-md h1:first-child,
   .chat-message-md h2:first-child,
   .chat-message-md h3:first-child,
@@ -138,13 +147,8 @@
     margin-top: 0;
   }
   .chat-message-md--light h1,
-  .chat-message-md--light h2 {
-    color: #111827;
-  }
+  .chat-message-md--light h2,
   .chat-message-md--light h3,
-  .chat-message-md--light h4 {
-    color: #1f2937;
-  }
   .chat-message-md--light h4 {
     color: #FA6C43;
   }
@@ -159,6 +163,13 @@
   .chat-message-md--invert h5,
   .chat-message-md--invert h6 {
     color: inherit;
+  }
+  /* On the orange user bubble, the brand-orange rule disappears — use a
+     soft white divider instead. */
+  .chat-message-md--invert h1,
+  .chat-message-md--invert h2,
+  .chat-message-md--invert h3 {
+    border-bottom-color: rgba(255, 255, 255, 0.35);
   }
 
   /* Strong / emphasis */
