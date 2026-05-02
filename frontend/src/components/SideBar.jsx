@@ -332,7 +332,7 @@ export const ChatSidebar = ({
                                   : 'text-gray-600'
                               }`}
                             >
-                              {session.session_id ? `${session.session_id} - ${session.title}` : 'New Chat'}
+                              {session.title || 'New Chat'}
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
                               {new Date(session.timestamp).toLocaleString('default', {
@@ -423,7 +423,7 @@ export const ChatSidebar = ({
                 {!isCollapsed && (
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center space-x-3 px-2 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors border-0"
+                    className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors border-0"
                   >
                     <FiLogOut className="text-sm" />
                     <span className="text-sm">Logout</span>

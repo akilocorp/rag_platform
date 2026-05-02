@@ -209,6 +209,7 @@ def get_chat_list(config_id):
                     '_id': 1,
                     'session_id': '$session_id',
                     'user_id': '$user_id',
+                    'title': 1,
                     'timestamp': {'$dateToString': {'format': '%Y-%m-%dT%H:%M:%S.%LZ', 'date': '$_id'}},
                     'first_message_history': {'$arrayElemAt': ['$first_message_info.History', 0]}
                 }
@@ -227,21 +228,30 @@ def get_chat_list(config_id):
                     {"$set": {"user_id": user_id}}
                 )
 
-            title = "New Chat"
-            try:
-                if session.get('first_message_history'):
-                    history_data = json.loads(session['first_message_history'])
-                    # Check common locations for content
-                    if history_data.get("data", {}).get("content"):
-                        title = history_data["data"]["content"]
-                    elif history_data.get("content"):
-                        title = history_data["content"]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            title = session.get('title') or None
+
+            if not title:
+                # Old session — generate from first message and cache it
+                try:
+                    if session.get('first_message_history'):
+                        history_data = json.loads(session['first_message_history'])
+                        raw = (history_data.get("data", {}).get("content")
+                               or history_data.get("content", ""))
+                        if raw:
+                            title = _generate_chat_title(raw)
+                            metadata_collection.update_one(
+                                {"_id": session["_id"]},
+                                {"$set": {"title": title}}
+                            )
+                except (json.JSONDecodeError, TypeError, Exception):
+                    pass
+
+            if not title:
+                title = "New Chat"
 
             sessions_list.append({
                 'session_id': session['session_id'],
-                'title': title[:100],
+                'title': title,
                 'timestamp': session['timestamp']
             })
 
@@ -280,18 +290,43 @@ class _AttachedFilesMongoHistory(MongoDBChatMessageHistory):
         super().add_messages([self._maybe_inject(m) for m in messages])
 
 
-def get_session_history(session_id: str, user_id: str, config_id: str) -> _AttachedFilesMongoHistory:
+def _generate_chat_title(text: str) -> str:
+    """Return a 4-6 word summary title for the given user message."""
+    try:
+        llm = ChatOpenAI(model="gpt-4o-mini", max_tokens=20, temperature=0.3)
+        result = llm.invoke([
+            HumanMessage(content=(
+                "Generate a concise 4-6 word title that summarises this chat opening message. "
+                "Return only the title, no quotes, no trailing punctuation.\n\n" + text[:300]
+            ))
+        ])
+        return result.content.strip()
+    except Exception:
+        words = text.split()
+        title, length = "", 0
+        for w in words:
+            if length + len(w) + 1 > 55:
+                break
+            title = (title + " " + w).strip()
+            length += len(w) + 1
+        return title or text[:55]
+
+
+def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None) -> _AttachedFilesMongoHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
 
     # Only write to metadata if this is truly the FIRST message
     if metadata_collection.count_documents({"session_id": session_id}, limit=1) == 0:
-        metadata_collection.insert_one({
+        doc = {
             "session_id": session_id,
             "user_id": user_id,
             "config_id": config_id,
             "timestamp": time.time()
-        })
+        }
+        if user_input:
+            doc["title"] = _generate_chat_title(user_input)
+        metadata_collection.insert_one(doc)
 
     return _AttachedFilesMongoHistory(
         session_id=session_id,
@@ -384,6 +419,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             session_id=chat_id,
             user_id=user_id_for_history,
             config_id=config_id,
+            user_input=user_input,
         )
         history_messages = _load_anthropic_history(history_obj)
 
@@ -664,7 +700,8 @@ def chat(config_id, chat_id):
                 h = get_session_history(
                     session_id=session_id,
                     user_id=user_id_for_history,
-                    config_id=config_id
+                    config_id=config_id,
+                    user_input=user_input,
                 )
                 if attached_files:
                     h.pending_attached_files = attached_files
