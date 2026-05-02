@@ -7,6 +7,7 @@ import { marked } from 'marked';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
+import ChatSidebar from '../components/SideBar.jsx';
 
 marked.use({ gfm: true, breaks: true });
 
@@ -58,7 +59,10 @@ const GroupChatPage = () => {
   const [phase, setPhase] = useState('loading'); // 'loading' | 'waiting' | 'chat'
   const [queuePosition, setQueuePosition] = useState(null);
   const [roomId, setRoomId] = useState(null);
-  
+  const [userInfo, setUserInfo] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -72,6 +76,7 @@ const GroupChatPage = () => {
     if (token) {
       try {
         const res = await axios.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        setUserInfo(res.data);
         const id = res.data?.user_id || res.data?.id || res.data?.email;
         if (id) {
           localStorage.setItem('group_chat_uid', String(id));
@@ -256,7 +261,48 @@ const GroupChatPage = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      <div className="relative flex-1 flex flex-col w-full h-full transition-all duration-300">
+
+      {/* Mobile overlay backdrop */}
+      {userInfo && isMobileSidebarOpen && (
+        <button className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      {userInfo && (
+        <ChatSidebar
+          sessions={[]}
+          sessionsLoading={false}
+          userInfo={userInfo}
+          userInfoLoaded={!!userInfo}
+          configId={configId}
+          isCollapsed={isSidebarCollapsed}
+          isMobileOpen={isMobileSidebarOpen}
+          onClose={() => setIsMobileSidebarOpen(false)}
+          onToggle={() => setIsSidebarCollapsed(v => !v)}
+          onNewChat={() => { navigate('/config_list'); setIsMobileSidebarOpen(false); }}
+          onNavigateWithAutoSave={(cb) => cb()}
+          isPublic={false}
+          activeTab="chats"
+          onSetTab={() => {}}
+          currentFolder=""
+          onSetFolder={() => {}}
+          libraryFiles={[]}
+          libraryFolders={[]}
+          filesLoading={false}
+          isUploading={false}
+          uploadError={null}
+          onUpload={() => {}}
+          onUploadUrl={() => {}}
+          onDeleteFile={() => {}}
+          onCreateFolder={() => {}}
+          onDeleteFolder={() => {}}
+          selectable={false}
+          selectedFileIds={[]}
+          onToggleFile={() => {}}
+        />
+      )}
+
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${userInfo ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72') : ''}`}>
         
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
