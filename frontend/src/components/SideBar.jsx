@@ -351,78 +351,87 @@ export const ChatSidebar = ({
                   ) : sessions.length > 0 ? (
                     sessions.map((session, index) => (
                       <div key={session.session_id} className="relative">
-                        <Link
-                          to={`/chat/${configId}/${session.session_id}`}
-                          onClick={() => onClose && onClose()}
-                          className={`flex items-center px-4 pr-9 py-3 rounded-xl transition-all ${
-                            activeChatId === session.session_id
-                              ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
-                              : 'hover:bg-[#F0F6FB]'
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-sm truncate ${
+                        {session.pending ? (
+                          <div className="px-4 py-3 rounded-xl bg-[#F9D0C4]/20">
+                            <div className="h-3.5 bg-gray-200 rounded-md animate-pulse mb-2" style={{ width: '68%' }} />
+                            <div className="h-2.5 bg-gray-100 rounded-md animate-pulse" style={{ width: '38%' }} />
+                          </div>
+                        ) : (
+                          <>
+                            <Link
+                              to={`/chat/${configId}/${session.session_id}`}
+                              onClick={() => onClose && onClose()}
+                              className={`flex items-center px-4 pr-9 py-3 rounded-xl transition-all ${
                                 activeChatId === session.session_id
-                                  ? 'text-[#222] font-medium'
-                                  : 'text-gray-600'
+                                  ? 'bg-[#F9D0C4]/40 border border-[#FA6C43]/30'
+                                  : 'hover:bg-[#F0F6FB]'
                               }`}
                             >
-                              <TypewriterText text={session.title || 'New Chat'} delay={index * 80} />
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {new Date(session.timestamp).toLocaleString('default', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          </div>
-                        </Link>
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className={`text-sm truncate ${
+                                    activeChatId === session.session_id
+                                      ? 'text-[#222] font-medium'
+                                      : 'text-gray-600'
+                                  }`}
+                                >
+                                  <TypewriterText text={session.title || 'New Chat'} />
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {new Date(session.timestamp).toLocaleString('default', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </p>
+                              </div>
+                            </Link>
 
-                        {/* Three-dot menu */}
-                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setOpenDropdown(
-                                openDropdown === session.session_id ? null : session.session_id,
-                              );
-                            }}
-                            className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
-                          >
-                            <FiMoreHorizontal className="w-4 h-4" />
-                          </button>
-
-                          {openDropdown === session.session_id && (
-                            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
+                            {/* Three-dot menu */}
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
                               <button
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  handleDownloadChat(session.session_id, session.title);
+                                  setOpenDropdown(
+                                    openDropdown === session.session_id ? null : session.session_id,
+                                  );
                                 }}
-                                className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+                                className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
                               >
-                                <FiDownload className="w-4 h-4 flex-shrink-0" />
-                                <span>Download Chat</span>
+                                <FiMoreHorizontal className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteChat(session.session_id);
-                                }}
-                                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
-                              >
-                                <FiTrash2 className="w-4 h-4 flex-shrink-0" />
-                                <span>Delete Chat</span>
-                              </button>
+
+                              {openDropdown === session.session_id && (
+                                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleDownloadChat(session.session_id, session.title);
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+                                  >
+                                    <FiDownload className="w-4 h-4 flex-shrink-0" />
+                                    <span>Download Chat</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleDeleteChat(session.session_id);
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
+                                  >
+                                    <FiTrash2 className="w-4 h-4 flex-shrink-0" />
+                                    <span>Delete Chat</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
+                          </>
+                        )}
                       </div>
                     ))
                   ) : (

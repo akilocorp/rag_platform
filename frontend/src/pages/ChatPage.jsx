@@ -591,6 +591,7 @@ const ChatPage = () => {
     if (isNewChat) {
         currentChatIdRef.current = workingChatId; // Set immediately so next send uses it
         navigate(`/chat/${configId}/${workingChatId}`, { replace: true });
+        setSessions(prev => [{ session_id: workingChatId, pending: true, title: null, timestamp: new Date().toISOString() }, ...prev]);
     }
 
     try {
