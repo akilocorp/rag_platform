@@ -343,7 +343,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
           <FaTimes className="text-xl" />
         </button>
 
-        <div className="p-8 sm:p-10 flex-1 flex flex-col pt-12 min-h-0 min-w-0">
+        <div className="p-8 sm:p-10 flex-1 flex flex-col pt-16 min-h-0 min-w-0">
           {/* Progress Bar — group chat skips step 2 (model picker), so its
               progress bar has 4 segments instead of 5. A segment lights up
               when its step number is <= current step. */}
