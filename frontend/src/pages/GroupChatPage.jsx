@@ -267,9 +267,9 @@ const GroupChatPage = () => {
             <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
               {LobbyIcon ? <LobbyIcon className="text-xl" /> : <FaUsers className="text-xl" />}
             </div>
-            <div className="min-w-0 flex items-center gap-3">
+            <div className="min-w-0 flex flex-col justify-center">
               <h1 className="font-semibold text-[#222] text-base truncate">{config?.bot_name || "Drop-In Space"}</h1>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 px-3 py-1 shadow-sm ring-1 ring-[#FA6C43]/10 flex-shrink-0">
+              <div className="mt-1 inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 px-3 py-1 shadow-sm ring-1 ring-[#FA6C43]/10 self-start">
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#FA6C43] opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-[#FA6C43]" />
