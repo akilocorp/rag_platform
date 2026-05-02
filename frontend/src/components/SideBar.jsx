@@ -20,6 +20,27 @@ import { FaSpinner } from 'react-icons/fa';
 import logo from '../assets/logo.png';
 import FilesPanel from './FilesPanel.jsx';
 
+const TypewriterText = ({ text, speed = 22, delay = 0 }) => {
+  const [displayed, setDisplayed] = useState('');
+  useEffect(() => {
+    setDisplayed('');
+    if (!text) return;
+    let cancelled = false;
+    const startTimer = setTimeout(() => {
+      let i = 0;
+      const tick = setInterval(() => {
+        if (cancelled) { clearInterval(tick); return; }
+        i++;
+        setDisplayed(text.slice(0, i));
+        if (i >= text.length) clearInterval(tick);
+      }, speed);
+      return () => clearInterval(tick);
+    }, delay);
+    return () => { cancelled = true; clearTimeout(startTimer); };
+  }, [text, speed, delay]);
+  return <>{displayed}</>;
+};
+
 export const ChatSidebar = ({
   sessions = [],
   sessionsLoading = false,
@@ -306,14 +327,16 @@ export const ChatSidebar = ({
 
                 <div className="space-y-1">
                   {sessionsLoading ? (
-                    <div className="flex items-center justify-center p-6">
-                      <div className="flex flex-col items-center">
-                        <FaSpinner className="animate-spin text-2xl text-[#FA6C43] mb-4" />
-                        <p className="text-gray-400 text-sm">Loading recent chats...</p>
-                      </div>
+                    <div className="space-y-1">
+                      {[72, 58, 65].map((w, i) => (
+                        <div key={i} className="px-4 py-3 rounded-xl">
+                          <div className="h-3.5 bg-gray-200 rounded-md animate-pulse mb-2" style={{ width: `${w}%` }} />
+                          <div className="h-2.5 bg-gray-100 rounded-md animate-pulse" style={{ width: '35%' }} />
+                        </div>
+                      ))}
                     </div>
                   ) : sessions.length > 0 ? (
-                    sessions.map((session) => (
+                    sessions.map((session, index) => (
                       <div key={session.session_id} className="relative">
                         <Link
                           to={`/chat/${configId}/${session.session_id}`}
@@ -332,7 +355,7 @@ export const ChatSidebar = ({
                                   : 'text-gray-600'
                               }`}
                             >
-                              {session.title || 'New Chat'}
+                              <TypewriterText text={session.title || 'New Chat'} delay={index * 80} />
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
                               {new Date(session.timestamp).toLocaleString('default', {
@@ -342,9 +365,6 @@ export const ChatSidebar = ({
                                 minute: '2-digit',
                               })}
                             </p>
-                          </div>
-                          <div className="flex items-center space-x-2 pr-8">
-                            <FiChevronRight className="text-gray-500" />
                           </div>
                         </Link>
 
