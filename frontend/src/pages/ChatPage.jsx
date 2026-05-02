@@ -8,6 +8,7 @@ import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
+import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -832,7 +833,7 @@ const ChatPage = () => {
                 })()}
                 <div>
                     <h1 className="font-semibold text-[#222] text-base">{config?.bot_name || "AI Assistant"}</h1>
-                    {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{config.model_name}</p>}
+                    {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{getModelDisplayName(config.model_name)}</p>}
                 </div>
             </div>
         </header>

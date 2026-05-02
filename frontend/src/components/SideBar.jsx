@@ -5,7 +5,6 @@ import { useVariant } from '../context/VariantContext';
 import {
   FiPlus,
   FiClock,
-  FiChevronRight,
   FiChevronLeft,
   FiHome,
   FiUser,
@@ -222,11 +221,11 @@ export const ChatSidebar = ({
           </Link>
           <button
             type="button"
-            className="p-2.5 rounded-full bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-gray-500 hover:text-[#FA6C43] transition-colors hidden md:block shrink-0"
+            className="p-3 rounded-full border border-gray-200 hover:bg-[#F9D0C4]/30 hover:border-[#FA6C43]/30 text-gray-700 hover:text-[#FA6C43] transition-all duration-150 hidden md:block shrink-0"
             onClick={onToggle}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {isCollapsed ? <FiChevronRight className="w-6 h-6" /> : <FiChevronLeft className="w-6 h-6" />}
+            <FiChevronLeft className={`w-5 h-5 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
           </button>
         </div>
 

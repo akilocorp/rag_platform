@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
+import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import logo from '../assets/logo.png';
 // Import your modal components here (adjust paths as needed)
@@ -42,7 +43,7 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
           <div className="flex items-center space-x-2">
             <h3 className="text-lg font-bold text-[#222] truncate">{config.bot_name}</h3>
           </div>
-          <p className="text-sm text-gray-500 mt-1">Model: {config.model_name}</p>
+          <p className="text-sm text-gray-500 mt-1">Model: {getModelDisplayName(config.model_name)}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             
             {/* Hover Overlay */}
