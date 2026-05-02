@@ -452,12 +452,6 @@ const EditConfigPage = () => {
               </>
             )}
 
-            {/* Collection Name & File Management (Same for all types) */}
-            <div>
-              <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">RAG Collection Name</label>
-              <input type="text" name="collection_name" value={config.collection_name || ''} onChange={handleChange} className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" />
-            </div>
-
             <div className="border-t border-gray-100 pt-8 mt-8">
               <label className="block text-[13px] font-semibold text-gray-700 mb-2">Knowledge Base Files</label>
               

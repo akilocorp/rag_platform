@@ -144,7 +144,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
     temperature: 0.7,
     response_timeout: 3,
     rag_files: [],
-    collection_name: '',
     is_public: false,
     web_access: true,
     bot_avatar: 'robot',
