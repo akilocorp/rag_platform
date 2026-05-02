@@ -55,8 +55,15 @@ def send_password_reset_email(user_email, token):
         except UnicodeEncodeError:
             frontend_url = 'https://app.bitterlylab.com'
         reset_url = f"{frontend_url}/reset-password?token={token}"
+        logo_url = f"{frontend_url}/Logo.svg"
+        illustration_url = f"{frontend_url}/email-forgot.jpg"
         body = f"Reset your Actr Lab password by clicking this link:\n\n{reset_url}\n\nThis link expires in 1 hour.\n\nIf you did not request this, ignore this email."
-        html_content = render_template('email/reset_password.html', reset_url=reset_url)
+        html_content = render_template(
+            'email/reset_password.html',
+            reset_url=reset_url,
+            logo_url=logo_url,
+            illustration_url=illustration_url,
+        )
         sender = current_app.config.get('MAIL_USERNAME')
         if not sender:
             default_sender = current_app.config.get('MAIL_DEFAULT_SENDER')
