@@ -800,6 +800,8 @@ const ChatPage = () => {
               uploadError={uploadError}
               onUpload={uploadFiles}
               onUploadUrl={uploadUrl}
+              onFetchUrl={uploadUrl}
+              isFetchingUrl={isFetchingUrl}
               onDeleteFile={deleteLibraryFile}
               onCreateFolder={createFolder}
               onDeleteFolder={deleteFolder}
