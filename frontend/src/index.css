@@ -394,9 +394,21 @@ button {
   transition: border-color 0.25s;
 }
 
+/* Suppress the browser default outline on mouse-click focus.
+   Keep an outline for keyboard navigation only via :focus-visible,
+   styled in the brand orange so it's an a11y win, not an eyesore. */
 button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+[role="button"]:focus,
+[role="tab"]:focus,
+a:focus {
+  outline: none;
+}
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+a:focus-visible {
+  outline: 2px solid #FA6C43;
+  outline-offset: 2px;
 }
 
 @media (prefers-color-scheme: light) {
