@@ -469,7 +469,7 @@ const LandingV2 = () => {
           ))}
           <div
             ref={(el) => (ctaIconRefs.current[3] = el)}
-            className="w-14 h-14 rounded-2xl overflow-hidden landing-icon-float"
+            className="w-14 h-14 landing-icon-float"
             style={{ opacity: 0 }}
           >
             <img
