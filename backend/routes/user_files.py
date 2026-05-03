@@ -607,13 +607,19 @@ def create_folder():
     user_id = get_jwt_identity()
     body = request.get_json(silent=True) or {}
     path = _normalize_path(body.get('path', ''))
+    config_id = body.get('config_id') or None
     if not path:
         return jsonify({"message": "Path is required"}), 400
 
     db = current_app.config['MONGO_DB']
     folders_col = db['user_folders']
 
-    if folders_col.find_one({"user_id": user_id, "path": path}):
+    dup_query = {"user_id": user_id, "path": path}
+    if config_id:
+        dup_query['config_id'] = config_id
+    else:
+        dup_query['config_id'] = {'$exists': False}
+    if folders_col.find_one(dup_query):
         return jsonify({"message": "Folder already exists"}), 409
 
     doc = {
@@ -621,6 +627,8 @@ def create_folder():
         "path": path,
         "created_at": time.time(),
     }
+    if config_id:
+        doc['config_id'] = config_id
     doc['_id'] = str(folders_col.insert_one(doc).inserted_id)
     return jsonify({"folder": doc}), 201
 
@@ -639,6 +647,8 @@ def list_folders():
         folder_query['config_id'] = config_id
         file_query['config_id'] = config_id
     else:
+        # Variant A (Global Library): exclude bot-scoped rows from both lists.
+        folder_query['config_id'] = {'$exists': False}
         file_query['config_id'] = {'$exists': False}
 
     explicit = {
@@ -663,34 +673,40 @@ def list_folders():
 def delete_folder():
     """Deletes an empty folder by path. Refuses if it has files (caller must remove them first).
 
-    Frontend only ever knows folder paths (the GET /folders endpoint returns
-    a sorted union of explicit + implicit folder paths, no _ids), so this
-    route accepts ?path=... rather than an _id.
+    Scoped by config_id (or its absence): deleting a bot's folder must not
+    affect a same-named folder in the user's global library, and vice versa.
     """
     user_id = get_jwt_identity()
     path = _normalize_path(request.args.get('path', ''))
+    config_id = request.args.get('config_id') or None
     if not path:
         return jsonify({"message": "path is required"}), 400
 
     db = current_app.config['MONGO_DB']
     prefix = re.escape(path)
-    has_contents = db['user_files'].find_one({
+    file_query = {
         "user_id": user_id,
         "$or": [
             {"folder_path": path},
             {"folder_path": {"$regex": f"^{prefix}/"}},
         ],
-    })
-    if has_contents:
-        return jsonify({"message": "Folder is not empty"}), 409
-
-    # Remove the explicit folder record at this path plus any nested
-    # subfolder records (now empty too since their files are gone).
-    db['user_folders'].delete_many({
+    }
+    folder_query = {
         "user_id": user_id,
         "$or": [
             {"path": path},
             {"path": {"$regex": f"^{prefix}/"}},
         ],
-    })
+    }
+    if config_id:
+        file_query['config_id'] = config_id
+        folder_query['config_id'] = config_id
+    else:
+        file_query['config_id'] = {'$exists': False}
+        folder_query['config_id'] = {'$exists': False}
+
+    if db['user_files'].find_one(file_query):
+        return jsonify({"message": "Folder is not empty"}), 409
+
+    db['user_folders'].delete_many(folder_query)
     return jsonify({"deleted": True}), 200

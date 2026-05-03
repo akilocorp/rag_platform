@@ -473,24 +473,28 @@ const ChatPage = () => {
 
   const createFolder = useCallback(async (path) => {
     try {
-      await apiClient.post('/folders', { path });
+      const body = { path };
+      if (variant === 'B') body.config_id = configId;
+      await apiClient.post('/folders', body);
       setLibraryFolders((prev) => (prev.includes(path) ? prev : [...prev, path].sort()));
     } catch (e) {
       console.error('Create folder failed', e);
     }
-  }, []);
+  }, [variant, configId]);
 
   const deleteFolder = useCallback(async (path) => {
     let prevFolders;
     setLibraryFolders((prev) => { prevFolders = prev; return prev.filter((p) => p !== path && !p.startsWith(`${path}/`)); });
     try {
-      await apiClient.delete('/folders', { params: { path } });
+      const params = { path };
+      if (variant === 'B') params.config_id = configId;
+      await apiClient.delete('/folders', { params });
     } catch (e) {
       console.error('Delete folder failed, restoring', e);
       setLibraryFolders(prevFolders);
       throw e;
     }
-  }, []);
+  }, [variant, configId]);
 
   const handleAttachPick = () => attachInputRef.current?.click();
 
