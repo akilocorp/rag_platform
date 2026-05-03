@@ -307,7 +307,7 @@ const FilesPanel = ({
                   onClick={(e) => handleDeleteFolderClick(e, path)}
                   disabled={isRemovingFolder}
                   title="Delete folder"
-                  className="absolute right-2.5 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
                 >
                   <FiTrash2 className="w-3.5 h-3.5" />
                 </button>
