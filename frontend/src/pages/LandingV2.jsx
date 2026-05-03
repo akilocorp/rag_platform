@@ -9,7 +9,7 @@ gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
 const UVPS = [
   {
     id: 'syllabus',
-    icon: '/illustrations/icon-question.jpg',
+    icon: '/illustrations/icon-question.png',
     iconAlt: 'Question mark',
     headline: 'Trained on your syllabus, not the internet.',
     body:
@@ -18,7 +18,7 @@ const UVPS = [
   },
   {
     id: 'models',
-    icon: '/illustrations/icon-pencil.jpg',
+    icon: '/illustrations/icon-pencil.png',
     iconAlt: 'Pencil',
     headline: 'Pick the AI for the lesson, not the lesson for the AI.',
     body:
@@ -27,7 +27,7 @@ const UVPS = [
   },
   {
     id: 'research',
-    icon: '/illustrations/icon-glasses.jpg',
+    icon: '/illustrations/icon-glasses.png',
     iconAlt: 'Glasses',
     headline: 'Built for research, not just for class.',
     body:
@@ -396,7 +396,7 @@ const LandingV2 = () => {
                   src={UVPS[i].icon}
                   alt={UVPS[i].iconAlt}
                   className="w-full h-full object-contain"
-                  style={{ mixBlendMode: 'multiply' }}
+                  style={{}}
                 />
               </button>
             );
@@ -463,7 +463,7 @@ const LandingV2 = () => {
                 src={uvp.icon}
                 alt=""
                 className="w-full h-full object-contain"
-                style={{ mixBlendMode: 'multiply', animationDelay: `${i * 0.4}s` }}
+                style={{ animationDelay: `${i * 0.4}s` }}
               />
             </div>
           ))}
@@ -473,10 +473,10 @@ const LandingV2 = () => {
             style={{ opacity: 0 }}
           >
             <img
-              src="/illustrations/icon-hand.jpg"
+              src="/illustrations/icon-hand.png"
               alt=""
               className="w-full h-full object-contain"
-              style={{ mixBlendMode: 'multiply', animationDelay: '1.2s' }}
+              style={{ animationDelay: '1.2s' }}
             />
           </div>
         </div>
