@@ -4,6 +4,7 @@ import './App.css'; // Assuming you still have some base CSS or will use Tailwin
 
 // Import your page components
 import HomePage from './pages/HomePage';
+import LandingV2 from './pages/LandingV2';
 import AboutPage from './pages/AboutPage';
 import RegisterPage from './pages/RegistrationPage';
 import LoginPage from './pages/LoginPage';
@@ -34,6 +35,7 @@ function App() {
 
           {/* Public Static Pages */}
           <Route path="/home" element={<HomePage />} />
+          <Route path="/v2" element={<LandingV2 />} />
           <Route path="/about" element={<AboutPage />} />
 
           {/* Public Auth Routes */}
