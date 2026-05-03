@@ -480,14 +480,17 @@ const ChatPage = () => {
     }
   }, []);
 
-  const deleteFolder = useCallback(async (folderId) => {
+  const deleteFolder = useCallback(async (path) => {
+    let prevFolders;
+    setLibraryFolders((prev) => { prevFolders = prev; return prev.filter((p) => p !== path && !p.startsWith(`${path}/`)); });
     try {
-      await apiClient.delete(`/folders/${folderId}`);
-      await loadLibrary();
+      await apiClient.delete('/folders', { params: { path } });
     } catch (e) {
-      console.error('Delete folder failed', e);
+      console.error('Delete folder failed, restoring', e);
+      setLibraryFolders(prevFolders);
+      throw e;
     }
-  }, [loadLibrary]);
+  }, []);
 
   const handleAttachPick = () => attachInputRef.current?.click();
 

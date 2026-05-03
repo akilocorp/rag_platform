@@ -59,6 +59,7 @@ const FilesPanel = ({
   const [uploadTab, setUploadTab] = useState('file'); // 'file' | 'url'
   const [urlInput, setUrlInput] = useState('');
   const [removingIds, setRemovingIds] = useState(() => new Set());
+  const [removingFolderPaths, setRemovingFolderPaths] = useState(() => new Set());
 
   const handleDeleteClick = (e, file) => {
     e.stopPropagation();
@@ -75,6 +76,31 @@ const FilesPanel = ({
         setRemovingIds((prev) => {
           const next = new Set(prev);
           next.delete(file._id);
+          return next;
+        });
+      }
+    }, 220);
+  };
+
+  const handleDeleteFolderClick = (e, path) => {
+    e.stopPropagation();
+    if (removingFolderPaths.has(path)) return;
+    setRemovingFolderPaths((prev) => {
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
+    setTimeout(async () => {
+      try {
+        await onDeleteFolder(path);
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status === 409) {
+          alert('Folder is not empty — delete the files inside first.');
+        }
+        setRemovingFolderPaths((prev) => {
+          const next = new Set(prev);
+          next.delete(path);
           return next;
         });
       }
@@ -258,18 +284,37 @@ const FilesPanel = ({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {visibleFolders.map((path) => (
-            <div key={path} className="group relative">
-              <button
-                onClick={() => onSetFolder(path)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all"
-              >
-                <FiFolder className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
-                <span className="flex-1 text-left truncate">{folderDisplayName(path)}</span>
-                <FiChevronRight className="w-4 h-4 text-gray-400" />
-              </button>
+          {visibleFolders.map((path) => {
+            const isRemovingFolder = removingFolderPaths.has(path);
+            return (
+            <div
+              key={path}
+              className={`transition-all duration-200 ease-out ${
+                isRemovingFolder ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
+              }`}
+            >
+              <div className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all">
+                <button
+                  onClick={() => onSetFolder(path)}
+                  disabled={isRemovingFolder}
+                  className="flex-1 flex items-center gap-3 text-left min-w-0"
+                >
+                  <FiFolder className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
+                  <span className="flex-1 truncate">{folderDisplayName(path)}</span>
+                </button>
+                <FiChevronRight className="w-4 h-4 text-gray-400 transition-opacity group-hover:opacity-0" />
+                <button
+                  onClick={(e) => handleDeleteFolderClick(e, path)}
+                  disabled={isRemovingFolder}
+                  title="Delete folder"
+                  className="absolute right-2.5 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                >
+                  <FiTrash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          ))}
+            );
+          })}
 
           {visibleFiles.map((f) => {
             const isSelected = selectedFileIds.includes(f._id);

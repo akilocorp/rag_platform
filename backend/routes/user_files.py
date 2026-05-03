@@ -658,22 +658,21 @@ def list_folders():
     return jsonify({"folders": [{"path": p} for p in paths]}), 200
 
 
-@user_files_bp.route('/folders/<string:folder_id>', methods=['DELETE'])
+@user_files_bp.route('/folders', methods=['DELETE'])
 @jwt_required()
-def delete_folder(folder_id):
-    """Deletes an empty folder. Caller must remove contained files first."""
+def delete_folder():
+    """Deletes an empty folder by path. Refuses if it has files (caller must remove them first).
+
+    Frontend only ever knows folder paths (the GET /folders endpoint returns
+    a sorted union of explicit + implicit folder paths, no _ids), so this
+    route accepts ?path=... rather than an _id.
+    """
     user_id = get_jwt_identity()
-    try:
-        oid = ObjectId(folder_id)
-    except InvalidId:
-        return jsonify({"message": "Invalid folder id"}), 400
+    path = _normalize_path(request.args.get('path', ''))
+    if not path:
+        return jsonify({"message": "path is required"}), 400
 
     db = current_app.config['MONGO_DB']
-    folder = db['user_folders'].find_one({"_id": oid, "user_id": user_id})
-    if not folder:
-        return jsonify({"message": "Folder not found"}), 404
-
-    path = folder['path']
     prefix = re.escape(path)
     has_contents = db['user_files'].find_one({
         "user_id": user_id,
@@ -685,5 +684,13 @@ def delete_folder(folder_id):
     if has_contents:
         return jsonify({"message": "Folder is not empty"}), 409
 
-    db['user_folders'].delete_one({"_id": oid})
+    # Remove the explicit folder record at this path plus any nested
+    # subfolder records (now empty too since their files are gone).
+    db['user_folders'].delete_many({
+        "user_id": user_id,
+        "$or": [
+            {"path": path},
+            {"path": {"$regex": f"^{prefix}/"}},
+        ],
+    })
     return jsonify({"deleted": True}), 200
