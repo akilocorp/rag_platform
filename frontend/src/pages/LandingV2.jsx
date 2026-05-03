@@ -456,27 +456,27 @@ const LandingV2 = () => {
             <div
               key={uvp.id}
               ref={(el) => (ctaIconRefs.current[i] = el)}
-              className="w-14 h-14 rounded-2xl overflow-hidden"
+              className="w-14 h-14 rounded-2xl overflow-hidden landing-icon-float"
               style={{ opacity: 0 }}
             >
               <img
                 src={uvp.icon}
                 alt=""
                 className="w-full h-full object-contain"
-                style={{ mixBlendMode: 'multiply' }}
+                style={{ mixBlendMode: 'multiply', animationDelay: `${i * 0.4}s` }}
               />
             </div>
           ))}
           <div
             ref={(el) => (ctaIconRefs.current[3] = el)}
-            className="w-14 h-14 rounded-2xl overflow-hidden landing-hand"
+            className="w-14 h-14 rounded-2xl overflow-hidden landing-icon-float"
             style={{ opacity: 0 }}
           >
             <img
               src="/illustrations/icon-hand.jpg"
-              alt="Wave hello"
+              alt=""
               className="w-full h-full object-contain"
-              style={{ mixBlendMode: 'multiply' }}
+              style={{ mixBlendMode: 'multiply', animationDelay: '1.2s' }}
             />
           </div>
         </div>
@@ -516,20 +516,18 @@ const LandingV2 = () => {
         </div>
       </footer>
 
-      {/* Scoped CSS — hover wave + reduced-motion fallback */}
+      {/* Scoped CSS — gentle in-place float on the closer icons */}
       <style>{`
-        @keyframes landing-wave {
-          0%, 100% { transform: rotate(-15deg); }
-          50% { transform: rotate(15deg); }
+        @keyframes landing-icon-float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
         }
-        .landing-hand img {
-          transform-origin: 50% 90%;
-        }
-        .landing-hand:hover img {
-          animation: landing-wave 1.2s ease-in-out infinite;
+        .landing-icon-float img {
+          animation: landing-icon-float 3.2s ease-in-out infinite;
+          will-change: transform;
         }
         @media (prefers-reduced-motion: reduce) {
-          .landing-hand:hover img { animation: none; }
+          .landing-icon-float img { animation: none; }
         }
       `}</style>
     </div>
