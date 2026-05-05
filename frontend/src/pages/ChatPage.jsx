@@ -1075,12 +1075,12 @@ const ChatPage = () => {
                             </div>
                             );
                         })()}
-                        <div className="relative flex items-center gap-2">
+                        <div className="relative flex items-center gap-1.5 sm:gap-2">
                             <button
                                 onClick={handleAttachPick}
                                 disabled={isUploading}
                                 title="Attach files"
-                                className="min-h-[52px] px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
+                                className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
                             >
                                 {isUploading ? (
                                     <FaSpinner className="animate-spin text-base" />
@@ -1100,7 +1100,7 @@ const ChatPage = () => {
                                 <button
                                     onClick={() => setShowOptions(v => !v)}
                                     title="More options"
-                                    className="min-h-[52px] px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors flex items-center justify-center"
+                                    className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors flex items-center justify-center"
                                 >
                                     <FiMoreVertical className="text-base" />
                                 </button>
@@ -1135,7 +1135,7 @@ const ChatPage = () => {
                                 }}
                                 placeholder="Type a message..."
                                 rows={1}
-                                className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
+                                className="flex-1 min-w-0 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
                                 disabled={isLoading}
                             />
                             {config?.audio_enabled && (config?.model_name || '').toLowerCase().startsWith('claude') && config?.hume_config_id && (
@@ -1149,7 +1149,7 @@ const ChatPage = () => {
                             <button
                                 onClick={handleSendWithAnimation}
                                 disabled={isLoading || !input.trim()}
-                                className="min-h-[52px] px-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center shrink-0"
+                                className="min-h-[52px] px-3 sm:px-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center shrink-0"
                             >
                                 {isSending ? (
                                     <FaPaperPlane
