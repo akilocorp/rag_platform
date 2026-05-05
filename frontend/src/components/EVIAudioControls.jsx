@@ -134,6 +134,23 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
     isPlayingAudio,
   } = voice;
   const seenTurnsRef = useRef(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (status?.value === 'disconnected' || status?.value === 'error') {
+      setDismissed(false);
+    }
+  }, [status]);
+
+  const handleClose = () => {
+    setDismissed(true);
+    try {
+      const r = disconnect?.();
+      if (r && typeof r.then === 'function') r.catch(err => console.error('disconnect error', err));
+    } catch (err) {
+      console.error('disconnect threw', err);
+    }
+  };
 
   useEffect(() => {
     if (!Array.isArray(messages)) return;
@@ -172,7 +189,7 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
     }
   };
 
-  const isActive = status?.value === 'connecting' || status?.value === 'connected';
+  const isActive = !dismissed && (status?.value === 'connecting' || status?.value === 'connected');
 
   return (
     <>
@@ -197,7 +214,7 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
           isMuted={isMuted}
           onMute={mute}
           onUnmute={unmute}
-          onClose={disconnect}
+          onClose={handleClose}
         />
       )}
     </>
