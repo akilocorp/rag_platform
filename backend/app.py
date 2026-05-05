@@ -9,7 +9,7 @@ from flask_jwt_extended import JWTManager, get_jwt_identity, jwt_required, creat
 from flask_mail import Mail
 from langchain_openai.embeddings import OpenAIEmbeddings
 
-# --- NO MORE EVENTLET MONKEY PATCHING ---
+# --- NO MORE EVENTLET MONKEY PATCHINGg ---
 from flask_socketio import SocketIO
 
 # --- Import your modules ---
