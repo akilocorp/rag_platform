@@ -18,7 +18,7 @@ import apiClient from '../api/apiClient';
  *   disabled
  */
 
-const InnerControls = ({ onTurn, onError }) => {
+const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError }) => {
   const { status, messages, connect, disconnect, mute, unmute, isMuted } = useVoice();
   const seenTurnsRef = useRef(0);
 
@@ -48,8 +48,13 @@ const InnerControls = ({ onTurn, onError }) => {
 
   const handleConnect = async () => {
     try {
-      await connect();
+      await connect({
+        auth: { type: 'accessToken', value: accessToken },
+        configId: humeConfigId,
+        sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
+      });
     } catch (e) {
+      console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
     }
   };
@@ -106,11 +111,18 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
 
   return (
     <VoiceProvider
-      auth={{ type: 'accessToken', value: accessToken }}
-      configId={humeConfigId}
-      sessionSettings={sessionId ? { customSessionId: sessionId } : undefined}
+      onError={(err) => {
+        console.error('EVI VoiceProvider error', err);
+        onError?.(err?.message || err?.reason || 'Voice session error');
+      }}
     >
-      <InnerControls onTurn={onTurn} onError={onError} />
+      <InnerControls
+        accessToken={accessToken}
+        humeConfigId={humeConfigId}
+        sessionId={sessionId}
+        onTurn={onTurn}
+        onError={onError}
+      />
     </VoiceProvider>
   );
 };
