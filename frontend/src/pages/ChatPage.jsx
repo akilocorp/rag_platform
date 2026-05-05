@@ -8,6 +8,7 @@ import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
+import EVIAudioControls from '../components/EVIAudioControls';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
@@ -719,6 +720,56 @@ const ChatPage = () => {
     handleTextSend();
   };
 
+  // --- EVI (Hume) audio turn handler ---
+  // Each finalized user/assistant turn from EVI: render a bubble, persist to
+  // audio_sessions, and notify the Qualtrics parent.
+  const handleEVITurn = useCallback(async ({ role, transcript, prosody }) => {
+    if (!transcript) return;
+
+    let workingChatId = currentChatIdRef.current;
+    if (!workingChatId) {
+      workingChatId = `chat_${Date.now()}`;
+      currentChatIdRef.current = workingChatId;
+      navigate(`/chat/${configId}/${workingChatId}`, { replace: true });
+    }
+
+    setMessages(prev => [
+      ...prev,
+      {
+        sender: role === 'assistant' ? 'ai' : 'user',
+        text: transcript,
+        audio: { prosody: prosody || null },
+      },
+    ]);
+
+    try {
+      window.parent.postMessage({
+        type: 'AUDIO_MESSAGE',
+        sender: role === 'assistant' ? 'ai' : 'user',
+        content: transcript,
+        prosody: prosody || null,
+        timestamp: new Date().toISOString(),
+      }, '*');
+    } catch (_) { /* iframe-less context */ }
+
+    try {
+      await apiClient.post('/audio/session/turn', {
+        session_id: workingChatId,
+        config_id: configId,
+        chat_type: '1on1',
+        role,
+        transcript,
+        prosody_scores: prosody || null,
+      });
+    } catch (e) {
+      console.warn('Failed to persist audio turn', e);
+    }
+  }, [configId, navigate]);
+
+  const handleEVIError = useCallback((msg) => {
+    console.warn('EVI error:', msg);
+  }, []);
+
   useEffect(() => {
     const handler = (e) => {
       if (optionsRef.current && !optionsRef.current.contains(e.target)) {
@@ -1087,6 +1138,14 @@ const ChatPage = () => {
                                 className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
                                 disabled={isLoading}
                             />
+                            {config?.audio_enabled && (config?.model_name || '').toLowerCase().startsWith('claude') && config?.hume_config_id && (
+                                <EVIAudioControls
+                                    humeConfigId={config.hume_config_id}
+                                    sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
+                                    onTurn={handleEVITurn}
+                                    onError={handleEVIError}
+                                />
+                            )}
                             <button
                                 onClick={handleSendWithAnimation}
                                 disabled={isLoading || !input.trim()}

@@ -26,6 +26,7 @@ python-pptx
 trafilatura
 tavily-python
 anthropic
+hume
 pymupdf
 Flask-SocketIO
 python-pptx

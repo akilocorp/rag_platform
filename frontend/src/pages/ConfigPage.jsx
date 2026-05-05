@@ -146,6 +146,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     rag_files: [],
     is_public: false,
     web_access: true,
+    audio_enabled: false,
+    hume_config_id: '',
     bot_avatar: 'robot',
     introduction: '',
     // Group Chat Specifics
@@ -564,6 +566,39 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
                         </span>
                       </label>
+                    </div>
+
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center justify-between cursor-pointer gap-4">
+                        <div>
+                          <p className="text-[13px] font-semibold text-gray-700">Enable voice mode (Hume EVI)</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Adds a mic button next to the text input. Requires a Claude model.</p>
+                        </div>
+                        <span className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            name="audio_enabled"
+                            className="sr-only peer"
+                            checked={!!config.audio_enabled}
+                            onChange={handleChange}
+                          />
+                          <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
+                        </span>
+                      </label>
+                      {config.audio_enabled && (
+                        <div className="mt-3">
+                          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Hume EVI Config ID</label>
+                          <input
+                            type="text"
+                            name="hume_config_id"
+                            value={config.hume_config_id || ''}
+                            onChange={handleChange}
+                            placeholder="e.g. 1a2b3c4d-..."
+                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">From your Hume dashboard. Points its custom_language_model_url at this server.</p>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}

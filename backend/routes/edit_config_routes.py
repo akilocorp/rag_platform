@@ -107,6 +107,8 @@ def update_existing_config(config_id):
             "response_timeout": int(data.get('response_timeout', 3)),
             "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],
+            "audio_enabled": str(data.get('audio_enabled', 'false')).lower() in ['true', '1'],
+            "hume_config_id": (data.get('hume_config_id') or '').strip(),
             "instructions": data.get('instructions'),
             "prompt_template": data.get('prompt_template'),
             "collection_name": data.get('collection_name'),

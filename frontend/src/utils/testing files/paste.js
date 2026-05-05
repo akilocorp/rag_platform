@@ -1,6 +1,14 @@
 Qualtrics.SurveyEngine.addOnReady(function() {
         // Hide this question UI automatically (so respondents don't see the storage field)
-        try { this.hide(); } catch (e) {}
+          const qEl = document.getElementById(this.questionId);
+  if (qEl) {
+    qEl.style.display = "none";
+    qEl.style.visibility = "hidden";
+    qEl.style.height = "0";
+    qEl.style.margin = "0";
+    qEl.style.padding = "0";
+    qEl.style.overflow = "hidden";
+  }
         // Initialize once, do not wipe existing history
         window.ragChatHistory = window.ragChatHistory || [];
         window.ragChatConfig = window.ragChatConfig || {
@@ -33,7 +41,8 @@ Qualtrics.SurveyEngine.addOnReady(function() {
 
         // Allowlist for origins — ES5 array
        var allowedOrigins = [
-           'https://ust.az1.qualtrics.com'
+           'https://ust.az1.qualtrics.com',
+		   'https://actrlab.com'
        ];
 
         // Basic telemetry
@@ -87,6 +96,26 @@ Qualtrics.SurveyEngine.addOnReady(function() {
                 });
             }
 
+            if (event && event.data && event.data.type === 'AUDIO_MESSAGE') {
+                var audioMessage = {
+                    kind: 'audio',
+                    sender: event.data.sender,
+                    content: event.data.content,
+                    prosody: event.data.prosody || null,
+                    timestamp: (event.data && event.data.timestamp) ? event.data.timestamp : new Date().toISOString(),
+                    messageIndex: window.ragChatHistory.length + 1
+                };
+                window.ragChatHistory.push(audioMessage);
+                window.ragChatConfig.messageCount = window.ragChatHistory.length;
+                window.ragDebugStats.messages++;
+                console.log('🎙️ Captured audio message', {
+                  index: audioMessage.messageIndex,
+                  sender: audioMessage.sender,
+                  preview: (audioMessage.content || '').substring(0, 120),
+                  hasProsody: !!audioMessage.prosody
+                });
+            }
+
             if (event && event.data && event.data.type === 'INIT_RAG_CONFIG') {
                 // Allow iframe to set/override config safely (manual merge, ES5)
                 var current = window.ragChatConfig || {};
@@ -120,11 +149,13 @@ Qualtrics.SurveyEngine.addOnReady(function() {
 
      // Helper function to write to hidden question using DOM
      function writeToHiddenQuestion(qid, value) {
-       var hiddenInput = document.querySelector('input[id^="' + qid + '"]');
+	   const inputId = "QR~" + qid;
+       const hiddenInput = document.getElementById(inputId);
+	   console.log(value);
        if (hiddenInput) {
          hiddenInput.value = value;
        } else {
-         console.error('❌ Could not find hidden input for question ID:', qid);
+         console.error('❌ Could not find hidden input for question ID:', inputId);
        }
      }
 
@@ -153,15 +184,13 @@ Qualtrics.SurveyEngine.addOnReady(function() {
              var transcript = [
                  '=== RAG CHAT CONVERSATION TRANSCRIPT ===',
                  'Survey Response ID: ' + window.ragChatConfig.responseId,
-                 'Chat Configuration ID: ' + window.ragChatConfig.configId,
-                 'Total Messages: ' + window.ragChatHistory.length,
+                 'Total Messages: ' + window.ragChatHistory.length, + " " + 
                  'Conversation Started: ' + new Date(window.ragChatHistory[0].timestamp).toLocaleString(),
                  'Transcript Generated: ' + new Date().toLocaleString(),
-                 '',
                  '=== CONVERSATION MESSAGES ===',
                  formattedMessages.join('\n'),
                  '',
-                 '=== END OF TRANSCRIPT ==='
+                
              ].join('\n');
              
              // Save to multiple locations for reliability

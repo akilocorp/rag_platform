@@ -23,6 +23,8 @@ from routes.chat_routes import chat_bp
 from routes.edit_config_routes import edit_config_bp
 from routes.user_files import user_files_bp
 from routes.group_chat_sockets import register_socket_events
+from routes.audio import audio_bp
+from routes.audio_clm import audio_clm_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -80,6 +82,8 @@ def create_app():
     app.register_blueprint(edit_config_bp, url_prefix='/api')
     app.register_blueprint(user_files_bp, url_prefix='/api')
     app.register_blueprint(bug_bp, url_prefix='/api/bugs')
+    app.register_blueprint(audio_bp, url_prefix='/api')
+    app.register_blueprint(audio_clm_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 

@@ -256,6 +256,8 @@ Answer:"""
             "group_duration": group_duration,
             "bots": bots_list,
             "web_access": bool(config_data.get('web_access', True)),
+            "audio_enabled": bool(config_data.get('audio_enabled', False)),
+            "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
         }
         
         result = mongo_collection.get_collection().insert_one(config_document)
