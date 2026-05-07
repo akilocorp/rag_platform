@@ -165,6 +165,10 @@ const LandingV2 = () => {
       });
 
       // ---- CLOSER STAGGER -----------------------------------------------
+      // The 4 icons stagger in. The CTA button's pulse is owned by the
+      // landing-cta-pulse CSS animation (continuous when idle, paused on
+      // hover) — no GSAP box-shadow tween here, since GSAP's inline
+      // styles would override the keyframe loop.
       ScrollTrigger.create({
         trigger: ctaRef.current,
         start: 'top 75%',
@@ -177,19 +181,6 @@ const LandingV2 = () => {
               { opacity: 1, y: 0, duration: 0.55, delay: i * 0.16, ease: 'power3.out' }
             );
           });
-          const btn = ctaRef.current?.querySelector('[data-cta]');
-          if (btn) {
-            gsap.fromTo(
-              btn,
-              { boxShadow: '0 0 0 0 rgba(250,108,67,0.55)' },
-              {
-                boxShadow: '0 0 0 22px rgba(250,108,67,0)',
-                duration: 1.4,
-                delay: 0.95,
-                ease: 'expo.out',
-              }
-            );
-          }
         },
         once: true,
       });
@@ -405,7 +396,7 @@ const LandingV2 = () => {
         </span>
 
         <div
-          className="relative w-full max-w-xl aspect-square flex items-center justify-center"
+          className="relative w-[70vw] max-w-[70vw] aspect-[5/3] flex items-center justify-center"
           onMouseEnter={() => setTestimonialPaused(true)}
           onMouseLeave={() => setTestimonialPaused(false)}
         >
@@ -526,7 +517,7 @@ const LandingV2 = () => {
         <button
           data-cta
           onClick={() => navigate('/register')}
-          className="px-10 py-4 text-lg font-bold text-white shadow-lg active:scale-95 transition-all hover:opacity-95"
+          className="landing-cta-pulse px-10 py-4 text-lg font-bold text-white shadow-lg active:scale-95 transition-all hover:opacity-95"
           style={{
             backgroundColor: '#FA6C43',
             fontFamily: FONT_BODY,
@@ -552,7 +543,7 @@ const LandingV2 = () => {
         </div>
       </footer>
 
-      {/* Closer-icon idle float + reduced-motion fallback */}
+      {/* Closer-icon idle float + CTA pulse + reduced-motion fallback */}
       <style>{`
         @keyframes landing-icon-float {
           0%, 100% { transform: translateY(0); }
@@ -562,8 +553,30 @@ const LandingV2 = () => {
           animation: landing-icon-float 3.2s ease-in-out infinite;
           will-change: transform;
         }
+        @keyframes landing-cta-pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(250,108,67,0.55), 0 8px 24px rgba(250,108,67,0.25);
+            transform: scale(1);
+          }
+          70% {
+            box-shadow: 0 0 0 22px rgba(250,108,67,0), 0 8px 24px rgba(250,108,67,0.25);
+            transform: scale(1.03);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(250,108,67,0), 0 8px 24px rgba(250,108,67,0.25);
+            transform: scale(1);
+          }
+        }
+        .landing-cta-pulse {
+          animation: landing-cta-pulse 2.2s ease-out infinite;
+          will-change: transform, box-shadow;
+        }
+        .landing-cta-pulse:hover {
+          animation: none;
+        }
         @media (prefers-reduced-motion: reduce) {
           .landing-icon-float img { animation: none; }
+          .landing-cta-pulse { animation: none; }
         }
       `}</style>
     </div>
