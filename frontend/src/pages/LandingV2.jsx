@@ -1,10 +1,12 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 
-gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
+gsap.registerPlugin(ScrollTrigger);
+
+const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
+const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 
 const UVPS = [
   {
@@ -13,7 +15,7 @@ const UVPS = [
     iconAlt: 'Question mark',
     headline: 'Trained on your syllabus, not the internet.',
     body:
-      'Upload your slides, readings, and PDFs. Your bot answers from your files — not from generic training data. Students stop getting Wikipedia-grade replies and start getting answers grounded in what you actually teach.',
+      'Upload your slides, readings, and PDFs. Your bot answers from your files — not from generic training data. Your students get answers grounded in what you actually teach.',
     side: 'left',
   },
   {
@@ -22,7 +24,7 @@ const UVPS = [
     iconAlt: 'Pencil',
     headline: 'Pick the AI for the lesson, not the lesson for the AI.',
     body:
-      'Claude for long-form analysis. GPT for code. Gemini for math. Haiku for quick tutoring. One platform, six models, swap any time. No lock-in to a single vendor.',
+      'Claude for analysis. GPT for code. Gemini for math. Haiku for quick tutoring. One platform, six models — pick the right one per bot, swap any time.',
     side: 'right',
   },
   {
@@ -31,8 +33,29 @@ const UVPS = [
     iconAlt: 'Glasses',
     headline: 'Built for research, not just for class.',
     body:
-      'Embed in Qualtrics surveys. Capture full transcripts. Run A/B variants on the same bot. Group-chat matching for cohort studies. ACTR Lab is a research instrument, not just a tutoring tool.',
+      'Embed in Qualtrics surveys. Capture full transcripts. Run A/B variants on the same bot. Group-chat matching for cohort studies. We built this to be a research instrument, not just a tutoring tool.',
     side: 'left',
+  },
+];
+
+const TESTIMONIALS = [
+  {
+    quote:
+      "My students stopped fishing on the open web for half-baked answers. They go to our class bot, get an answer grounded in my notes, and bring sharper questions to office hours.",
+    author: "Dr. Reema Patel",
+    role: "Lecturer in Mechanical Engineering",
+  },
+  {
+    quote:
+      "Setting up A/B variants in five minutes is what sold me. We're running a real cohort study without writing a single line of infrastructure code.",
+    author: "Prof. Marcus Chen",
+    role: "Education Researcher",
+  },
+  {
+    quote:
+      "It feels like the bot was built for our class, because in a sense it was. The Qualtrics integration captured every transcript I needed for my IRB submission.",
+    author: "Dr. Sara Lindqvist",
+    role: "Cognitive Science",
   },
 ];
 
@@ -54,21 +77,31 @@ const LandingV2 = () => {
   const ctaRef = useRef(null);
   const featureRefs = useRef([]);
 
+  // Testimonial carousel state
+  const [activeTestimonial, setActiveTestimonial] = useState(0);
+  const [testimonialPaused, setTestimonialPaused] = useState(false);
+  useEffect(() => {
+    if (testimonialPaused) return;
+    const id = setInterval(() => {
+      setActiveTestimonial((i) => (i + 1) % TESTIMONIALS.length);
+    }, 6000);
+    return () => clearInterval(id);
+  }, [testimonialPaused]);
+
   useLayoutEffect(() => {
     if (reducedMotion()) return;
 
     const ctx = gsap.context(() => {
       // ---- HERO TRANSITION ----------------------------------------------
-      // Scroll-tied. Giant orange dot (with question inside) shrinks to
-      // nothing while the real logo fades in behind it. Bg eases dark →
-      // off-white. Logo then migrates to the top-left nav slot. Nav
-      // contrast flips simultaneously via CSS variables.
+      // Smoother dot-shrink + logo-grow + bg-ease + nav-migrate.
+      // expo.inOut on the dot for premium feel; staggered timeline so
+      // each phase has breathing room.
       const heroTl = gsap.timeline({
         scrollTrigger: {
           trigger: heroRef.current,
           start: 'top top',
           end: 'bottom top',
-          scrub: 0.6,
+          scrub: 0.8,
           onUpdate: (self) => {
             const isLight = self.progress > 0.55;
             navRef.current?.style.setProperty('--nav-fg', isLight ? '#1F1F1F' : '#FFFFFF');
@@ -81,111 +114,101 @@ const LandingV2 = () => {
       });
 
       heroTl
-        // 1. Question text fades fast
-        .to(dotTextRef.current, { opacity: 0, duration: 0.12, ease: 'power2.out' }, 0)
-        // 2. Giant dot shrinks + fades
+        .to(dotTextRef.current, { opacity: 0, duration: 0.1, ease: 'power2.out' }, 0)
         .to(
           dotRef.current,
-          { scale: 0.04, opacity: 0, duration: 0.55, ease: 'power3.inOut' },
+          { scale: 0.04, opacity: 0, duration: 0.55, ease: 'expo.inOut' },
           0.05
         )
-        // 3. Logo fades in + grows from small to natural
         .fromTo(
           logoRef.current,
-          { opacity: 0, scale: 0.55 },
-          { opacity: 1, scale: 1, duration: 0.45, ease: 'power3.out' },
-          0.25
+          { opacity: 0, scale: 0.6 },
+          { opacity: 1, scale: 1, duration: 0.5, ease: 'expo.out' },
+          0.3
         )
-        // 4. Bg eases dark → warm off-white
-        .to(rootRef.current, { backgroundColor: '#FAFAF7', duration: 0.4 }, 0.5)
-        // 5. Logo migrates into the top-left nav slot
+        .to(rootRef.current, { backgroundColor: '#FAFAF7', duration: 0.45, ease: 'sine.inOut' }, 0.5)
         .to(
           logoRef.current,
           {
-            top: 18,
-            left: 24,
+            top: 22,
+            left: 28,
             xPercent: 0,
             yPercent: 0,
-            scale: 0.18,
-            duration: 0.5,
+            scale: 0.16,
+            duration: 0.55,
             ease: 'power3.inOut',
           },
-          0.6
+          0.62
         );
 
       // ---- ORBIT REVEAL --------------------------------------------------
-      // After the hero finishes, fade the icons in as a cluster around the
-      // logo's nav position and start a slow rotation.
+      // Continuous rotation; appears once the wordmark settles into nav.
+      // Bigger, slower, more confident.
       gsap.set(orbitWrapRef.current, { opacity: 0, scale: 0.7 });
       ScrollTrigger.create({
         trigger: heroRef.current,
-        start: 'bottom 80%',
+        start: 'bottom 75%',
         onEnter: () => {
           gsap.to(orbitWrapRef.current, {
             opacity: 1,
             scale: 1,
-            duration: 0.7,
-            ease: 'power2.out',
+            duration: 0.8,
+            ease: 'expo.out',
           });
           gsap.to(orbitRef.current, {
             rotation: 360,
-            duration: 25,
+            duration: 30,
             repeat: -1,
             ease: 'none',
           });
         },
       });
 
-      // ---- FEATURE PEEL-OFFS --------------------------------------------
-      // Each feature section pulls its icon along a unique bezier curve
-      // from the orbit to a fixed landing zone in that section.
+      // ---- FEATURE ENTER PULSE ------------------------------------------
+      // No more bezier peel-off. Instead, when a feature section enters,
+      // the matching orbit icon does a subtle scale-up pulse + glow as a
+      // "this section corresponds to this icon" cue.
       featureRefs.current.forEach((section, i) => {
         if (!section) return;
-        const icon = iconRefs.current[i];
-        if (!icon) return;
-
-        // Each curve has 3 control points relative to the icon's start
-        // (i.e. its position in the orbit). Different shapes = each
-        // peel-off feels choreographed, not on rails.
-        const curves = [
-          // UVP 1: right-down arc, lands left of section center
-          [
-            { x: 0, y: 0 },
-            { x: 240, y: 280 },
-            { x: -260, y: 540 },
-          ],
-          // UVP 2: left-down arc, lands right of section center
-          [
-            { x: 0, y: 0 },
-            { x: -260, y: 320 },
-            { x: 280, y: 580 },
-          ],
-          // UVP 3: down-right arc, lands lower-left
-          [
-            { x: 0, y: 0 },
-            { x: 180, y: 360 },
-            { x: -240, y: 620 },
-          ],
-        ];
-
         ScrollTrigger.create({
           trigger: section,
           start: 'top 65%',
           onEnter: () => {
-            gsap.set(icon, { rotation: 0 });
-            gsap.to(icon, {
-              motionPath: { path: curves[i], curviness: 1.5 },
-              duration: 1.4,
-              ease: 'power2.inOut',
-            });
+            const icon = iconRefs.current[i];
+            if (!icon) return;
+            gsap.fromTo(
+              icon,
+              { scale: 1, filter: 'drop-shadow(0 0 0 rgba(250,108,67,0))' },
+              {
+                scale: 1.45,
+                filter: 'drop-shadow(0 0 18px rgba(250,108,67,0.55))',
+                duration: 0.45,
+                ease: 'power3.out',
+                yoyo: true,
+                repeat: 1,
+              }
+            );
           },
-          once: true,
         });
+
+        // Smooth fade-up for the feature copy as it enters viewport.
+        const copy = section.querySelector('[data-feature-copy]');
+        if (copy) {
+          gsap.fromTo(
+            copy,
+            { opacity: 0, y: 36 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.9,
+              ease: 'power3.out',
+              scrollTrigger: { trigger: section, start: 'top 75%' },
+            }
+          );
+        }
       });
 
       // ---- CLOSER STAGGER -----------------------------------------------
-      // The 3 orbit icons + the hand stagger in around the CTA. The CTA
-      // button gets one soft glow pulse the moment everything settles.
       ScrollTrigger.create({
         trigger: ctaRef.current,
         start: 'top 75%',
@@ -194,8 +217,8 @@ const LandingV2 = () => {
             if (!el) return;
             gsap.fromTo(
               el,
-              { opacity: 0, y: 20 },
-              { opacity: 1, y: 0, duration: 0.5, delay: i * 0.18, ease: 'power2.out' }
+              { opacity: 0, y: 24 },
+              { opacity: 1, y: 0, duration: 0.55, delay: i * 0.16, ease: 'power3.out' }
             );
           });
           const btn = ctaRef.current?.querySelector('[data-cta]');
@@ -204,10 +227,10 @@ const LandingV2 = () => {
               btn,
               { boxShadow: '0 0 0 0 rgba(250,108,67,0.55)' },
               {
-                boxShadow: '0 0 0 18px rgba(250,108,67,0)',
+                boxShadow: '0 0 0 22px rgba(250,108,67,0)',
                 duration: 1.4,
-                delay: 1.0,
-                ease: 'power2.out',
+                delay: 0.95,
+                ease: 'expo.out',
               }
             );
           }
@@ -219,7 +242,6 @@ const LandingV2 = () => {
     return () => ctx.revert();
   }, []);
 
-  // Click-to-jump from the orbit (TOC affordance)
   const jumpTo = (id) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -231,9 +253,21 @@ const LandingV2 = () => {
       className="relative min-h-screen overflow-x-hidden"
       style={{
         backgroundColor: '#1F1F1F',
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        fontFamily: FONT_BODY,
       }}
     >
+      {/* === NOTEBOOK PAPER GRID === */}
+      {/* Fixed-position so it doesn't scroll. Very faint horizontal rules
+          + a soft margin line on the left. Only visible on light bg. */}
+      <div
+        aria-hidden
+        className="fixed inset-0 pointer-events-none z-[1]"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(to bottom, transparent 0 27px, rgba(31,31,31,0.05) 27px, rgba(31,31,31,0.05) 28px), linear-gradient(to right, transparent 0 64px, rgba(250,108,67,0.16) 64px, rgba(250,108,67,0.16) 66px, transparent 66px)',
+        }}
+      />
+
       {/* === PERSISTENT TOP NAV === */}
       <nav
         ref={navRef}
@@ -242,37 +276,38 @@ const LandingV2 = () => {
       >
         <Link
           to="/login"
-          className="text-sm font-medium transition-opacity hover:opacity-80"
-          style={{ color: 'var(--nav-fg-soft)' }}
+          className="text-sm font-semibold transition-opacity hover:opacity-80"
+          style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
         >
           Sign in
         </Link>
         <Link
           to="/register"
-          className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
-          style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+          className="px-4 py-2 text-sm font-semibold transition-all hover:scale-105"
+          style={{
+            backgroundColor: '#FA6C43',
+            color: '#FFFFFF',
+            fontFamily: FONT_BODY,
+            borderRadius: '12px',
+          }}
         >
           Get started
         </Link>
       </nav>
 
-      {/* === LOGO LAYER ===
-          Lives outside the hero so it can survive the migration to the nav.
-          Starts centered + faded, fades in as the giant dot shrinks. */}
+      {/* === LOGO LAYER === */}
       <img
         ref={logoRef}
-        src="/logo-A-color.jpg"
-        alt="ACTR Lab"
-        className="fixed pointer-events-none select-none"
+        src="/logo-A.svg"
+        alt="ACTRLabs"
+        className="fixed pointer-events-none select-none z-40"
         style={{
           top: '50%',
           left: '50%',
-          width: '180px',
+          width: '240px',
           height: 'auto',
           transform: 'translate(-50%, -50%)',
           opacity: 0,
-          zIndex: 40,
-          mixBlendMode: 'multiply',
         }}
       />
 
@@ -281,9 +316,6 @@ const LandingV2 = () => {
         ref={heroRef}
         className="relative h-screen flex items-center justify-center"
       >
-        {/* Giant orange dot — the seed of the idea, with the whispered
-            question inside. Shrinks on scroll, ceding the spotlight to
-            the real logo behind it. */}
         <div
           ref={dotRef}
           className="absolute"
@@ -298,31 +330,29 @@ const LandingV2 = () => {
             borderRadius: '50%',
             backgroundColor: '#FA6C43',
             zIndex: 30,
-            boxShadow: '0 30px 80px rgba(250,108,67,0.25)',
+            boxShadow: '0 30px 80px rgba(250,108,67,0.3)',
           }}
         >
           <div
             ref={dotTextRef}
             className="absolute inset-0 flex items-center justify-center text-center px-8"
             style={{
-              fontFamily: "'Newsreader', Georgia, serif",
-              fontWeight: 400,
-              fontStyle: 'italic',
+              fontFamily: FONT_DISPLAY,
+              fontWeight: 800,
               color: '#FFFFFF',
-              fontSize: 'clamp(20px, 2.4vw, 30px)',
-              lineHeight: 1.3,
-              letterSpacing: '0.005em',
+              fontSize: 'clamp(22px, 2.6vw, 34px)',
+              lineHeight: 1.2,
+              letterSpacing: '-0.01em',
             }}
           >
             Are you ready to redefine learning?
           </div>
         </div>
 
-        {/* SCROLL CUE */}
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-20">
           <span
             className="text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: 'rgba(255,255,255,0.55)' }}
+            style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
           >
             scroll
           </span>
@@ -344,25 +374,22 @@ const LandingV2 = () => {
           </svg>
         </div>
 
-        {/* SKIP INTRO */}
         <button
           onClick={() => document.getElementById('cta')?.scrollIntoView({ behavior: 'smooth' })}
-          className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity"
-          style={{ color: 'rgba(255,255,255,0.55)' }}
+          className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity z-20"
+          style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
         >
           Skip intro →
         </button>
       </section>
 
-      {/* === ORBIT (sticky) ===
-          Sits in the upper-left, anchored slightly to the right of where
-          the logo lands in the nav. Each icon fans out to its UVP. */}
+      {/* === ORBIT (fixed, sticks while you scroll) === */}
       <div
         ref={orbitWrapRef}
         className="fixed pointer-events-none z-30"
         style={{
-          top: '110px',
-          left: '90px',
+          top: '120px',
+          left: '110px',
           width: '320px',
           height: '320px',
           opacity: 0,
@@ -374,7 +401,7 @@ const LandingV2 = () => {
           style={{ transformOrigin: 'center center' }}
         >
           {[0, 120, 240].map((angle, i) => {
-            const r = 130;
+            const r = 138;
             const cx = 160 + Math.cos((angle * Math.PI) / 180) * r;
             const cy = 160 + Math.sin((angle * Math.PI) / 180) * r;
             return (
@@ -382,13 +409,14 @@ const LandingV2 = () => {
                 key={i}
                 ref={(el) => (iconRefs.current[i] = el)}
                 onClick={() => jumpTo(UVPS[i].id)}
-                className="absolute pointer-events-auto rounded-2xl overflow-hidden bg-transparent border-0 cursor-pointer hover:scale-110 transition-transform"
+                className="absolute pointer-events-auto bg-transparent border-0 cursor-pointer hover:scale-110 transition-transform"
                 style={{
                   top: cy,
                   left: cx,
-                  width: 56,
-                  height: 56,
+                  width: 60,
+                  height: 60,
                   transform: 'translate(-50%, -50%)',
+                  transformOrigin: 'center center',
                 }}
                 title={UVPS[i].headline}
               >
@@ -396,7 +424,6 @@ const LandingV2 = () => {
                   src={UVPS[i].icon}
                   alt={UVPS[i].iconAlt}
                   className="w-full h-full object-contain"
-                  style={{}}
                 />
               </button>
             );
@@ -410,45 +437,133 @@ const LandingV2 = () => {
           key={uvp.id}
           id={uvp.id}
           ref={(el) => (featureRefs.current[i] = el)}
-          className="relative min-h-screen flex items-center px-6 lg:px-24 py-24"
+          className="relative min-h-screen flex items-center px-6 lg:px-24 py-24 z-10"
           style={{ backgroundColor: '#FAFAF7' }}
         >
           <div
+            data-feature-copy
             className={`max-w-3xl w-full ${
               uvp.side === 'right' ? 'ml-auto text-right' : 'mr-auto text-left'
             }`}
           >
             <span
-              className="inline-block text-xs font-semibold uppercase tracking-[0.2em] mb-4"
-              style={{ color: '#FA6C43' }}
+              className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
+              style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
             >
               {`0${i + 1} / 03`}
             </span>
             <h2
-              className="font-bold text-3xl lg:text-5xl tracking-tight leading-[1.1] mb-6"
-              style={{ color: '#1F1F1F' }}
+              className="text-4xl lg:text-6xl tracking-tight leading-[1.05] mb-6"
+              style={{
+                color: '#1F1F1F',
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                letterSpacing: '-0.02em',
+              }}
             >
               {uvp.headline}
             </h2>
             <div
               className="h-px w-20 mb-6"
               style={{
-                backgroundColor: 'rgba(250,108,67,0.4)',
+                backgroundColor: 'rgba(250,108,67,0.5)',
                 marginLeft: uvp.side === 'right' ? 'auto' : 0,
               }}
             />
-            <p className="text-lg lg:text-xl leading-relaxed text-gray-700 max-w-2xl ml-auto mr-auto">
+            <p
+              className="text-lg lg:text-xl leading-relaxed text-gray-700 max-w-2xl"
+              style={{
+                fontFamily: FONT_BODY,
+                marginLeft: uvp.side === 'right' ? 'auto' : 0,
+              }}
+            >
               {uvp.body}
             </p>
           </div>
         </section>
       ))}
 
+      {/* === TESTIMONIALS === */}
+      <section
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 py-24 z-10"
+        style={{ backgroundColor: '#FAFAF7' }}
+      >
+        <span
+          className="text-xs font-bold uppercase tracking-[0.22em] mb-12"
+          style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+        >
+          What educators say
+        </span>
+
+        <div
+          className="relative w-full max-w-xl aspect-square flex items-center justify-center"
+          onMouseEnter={() => setTestimonialPaused(true)}
+          onMouseLeave={() => setTestimonialPaused(false)}
+        >
+          <div
+            className="absolute inset-0 bg-white shadow-xl border border-gray-100"
+            style={{ borderRadius: '24px' }}
+          />
+          {TESTIMONIALS.map((t, i) => (
+            <div
+              key={i}
+              className="absolute inset-0 flex flex-col items-center justify-center px-10 lg:px-16 text-center transition-opacity duration-700"
+              style={{
+                opacity: i === activeTestimonial ? 1 : 0,
+                pointerEvents: i === activeTestimonial ? 'auto' : 'none',
+              }}
+            >
+              <span
+                className="text-5xl mb-2 leading-none"
+                style={{ color: 'rgba(250,108,67,0.4)', fontFamily: FONT_DISPLAY }}
+                aria-hidden
+              >
+                &ldquo;
+              </span>
+              <p
+                className="text-lg lg:text-xl leading-relaxed mb-8"
+                style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+              >
+                {t.quote}
+              </p>
+              <p
+                className="text-sm font-bold mb-1"
+                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+              >
+                {t.author}
+              </p>
+              <p
+                className="text-xs uppercase tracking-[0.18em] text-gray-500"
+                style={{ fontFamily: FONT_BODY }}
+              >
+                {t.role}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Animated dots indicator */}
+        <div className="flex items-center justify-center gap-2.5 mt-10">
+          {TESTIMONIALS.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveTestimonial(i)}
+              aria-label={`Go to testimonial ${i + 1}`}
+              className="h-2.5 rounded-full transition-all duration-500 ease-out"
+              style={{
+                width: i === activeTestimonial ? 32 : 10,
+                backgroundColor: i === activeTestimonial ? '#FA6C43' : 'rgba(31,31,31,0.18)',
+              }}
+            />
+          ))}
+        </div>
+      </section>
+
       {/* === CLOSER === */}
       <section
         id="cta"
         ref={ctaRef}
-        className="relative min-h-screen flex flex-col items-center justify-center px-6 py-24"
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
         <div className="flex items-center justify-center gap-6 mb-12">
@@ -482,20 +597,32 @@ const LandingV2 = () => {
         </div>
 
         <h2
-          className="text-4xl lg:text-6xl font-bold tracking-tight text-center mb-4"
-          style={{ color: '#1F1F1F' }}
+          className="text-5xl lg:text-7xl tracking-tight text-center mb-4"
+          style={{
+            color: '#1F1F1F',
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+          }}
         >
           Don&rsquo;t miss out.
         </h2>
-        <p className="text-lg text-gray-600 text-center mb-10 max-w-xl">
-          Build a custom AI tutor for your class in minutes. No engineering, no lock-in.
+        <p
+          className="text-lg text-gray-600 text-center mb-10 max-w-xl"
+          style={{ fontFamily: FONT_BODY }}
+        >
+          Build a custom AI tutor for your class in minutes. No engineering, no lock-in. We'll be right here.
         </p>
 
         <button
           data-cta
           onClick={() => navigate('/register')}
-          className="px-10 py-4 rounded-2xl text-lg font-bold text-white shadow-lg active:scale-95 transition-all hover:opacity-95"
-          style={{ backgroundColor: '#FA6C43' }}
+          className="px-10 py-4 text-lg font-bold text-white shadow-lg active:scale-95 transition-all hover:opacity-95"
+          style={{
+            backgroundColor: '#FA6C43',
+            fontFamily: FONT_BODY,
+            borderRadius: '12px',
+          }}
         >
           Build your own bot
         </button>
@@ -503,11 +630,11 @@ const LandingV2 = () => {
 
       {/* === FOOTER === */}
       <footer
-        className="px-6 lg:px-12 py-8 text-sm"
-        style={{ backgroundColor: '#FAFAF7', color: '#888' }}
+        className="px-6 lg:px-12 py-8 text-sm relative z-10"
+        style={{ backgroundColor: '#FAFAF7', color: '#888', fontFamily: FONT_BODY }}
       >
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto">
-          <span>&copy; 2026 ACTR Lab</span>
+          <span>&copy; 2026 ACTRLabs</span>
           <div className="flex items-center gap-5">
             <Link to="/about" className="hover:opacity-80">About</Link>
             <a href="mailto:hello@actrlab.com" className="hover:opacity-80">Contact</a>
@@ -516,7 +643,7 @@ const LandingV2 = () => {
         </div>
       </footer>
 
-      {/* Scoped CSS — gentle in-place float on the closer icons */}
+      {/* Closer-icon idle float + reduced-motion fallback */}
       <style>{`
         @keyframes landing-icon-float {
           0%, 100% { transform: translateY(0); }
