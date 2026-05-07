@@ -67,8 +67,8 @@ const LandingV2 = () => {
   const rootRef = useRef(null);
   const navRef = useRef(null);
   const heroRef = useRef(null);
-  const dotRef = useRef(null);
-  const dotTextRef = useRef(null);
+  const darkOverlayRef = useRef(null);
+  const headlineRef = useRef(null);
   const logoRef = useRef(null);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
@@ -90,9 +90,17 @@ const LandingV2 = () => {
 
     const ctx = gsap.context(() => {
       // ---- HERO TRANSITION ----------------------------------------------
-      // Smoother dot-shrink + logo-grow + bg-ease + nav-migrate.
-      // expo.inOut on the dot for premium feel; staggered timeline so
-      // each phase has breathing room.
+      // The whole screen starts as a dark mass. As the user scrolls, that
+      // mass shrinks via a circular clip-path until it's small enough to
+      // BE the natural dark dot inside the A. The white page behind +
+      // the dark A logo are revealed in negative space.
+      //
+      // Phases:
+      //   0   – 0.55 : clip-path circle shrinks from 150% to ~14px
+      //   0.4 – 0.55 : headline text fades out (was inside the dark mass)
+      //   0.65 – 0.78 : dark overlay fades to 0 (the logo's natural dot
+      //                  takes over visually)
+      //   0.7 – 1.0 : logo migrates into the top-left nav slot
       const heroTl = gsap.timeline({
         scrollTrigger: {
           trigger: heroRef.current,
@@ -111,25 +119,14 @@ const LandingV2 = () => {
       });
 
       heroTl
-        .to(dotTextRef.current, { opacity: 0, duration: 0.1, ease: 'power2.out' }, 0)
-        .to(
-          dotRef.current,
-          { scale: 0.04, opacity: 0, duration: 0.55, ease: 'expo.inOut' },
-          0.05
-        )
         .fromTo(
-          logoRef.current,
-          { opacity: 0, scale: 0.6 },
-          { opacity: 1, scale: 1, duration: 0.5, ease: 'expo.out' },
-          0.3
+          darkOverlayRef.current,
+          { '--clip-radius': '2400px' },
+          { '--clip-radius': '14px', duration: 0.55, ease: 'expo.inOut' },
+          0
         )
-        .to(rootRef.current, { backgroundColor: '#FAFAF7', duration: 0.45, ease: 'sine.inOut' }, 0.5)
-        // Logo migrates to top-left to sit *vertically centered* with the
-        // Sign in / Get started buttons in the nav row. Nav has py-4 (16px)
-        // top padding; the buttons are roughly 36px tall — so the row's
-        // vertical center sits at y ≈ 16 + 18 = 34px from the top. The
-        // logo is positioned with translate(-50%, -50%), so we set its
-        // CENTER to (left: 64px, top: 34px) to align.
+        .to(headlineRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.4)
+        .to(darkOverlayRef.current, { opacity: 0, duration: 0.13, ease: 'sine.out' }, 0.65)
         .to(
           logoRef.current,
           {
@@ -141,7 +138,7 @@ const LandingV2 = () => {
             duration: 0.55,
             ease: 'power3.inOut',
           },
-          0.62
+          0.7
         );
 
       // ---- FEATURE COPY FADE-UP ----------------------------------------
@@ -194,7 +191,10 @@ const LandingV2 = () => {
       ref={rootRef}
       className="relative min-h-screen overflow-x-hidden"
       style={{
-        backgroundColor: '#1F1F1F',
+        // Page bg is always the warm off-white; the dark overlay above
+        // handles the "dark hero" feel. Once the overlay shrinks/fades,
+        // the page already looks light without a separate bg transition.
+        backgroundColor: '#FAFAF7',
         fontFamily: FONT_BODY,
       }}
     >
@@ -213,7 +213,7 @@ const LandingV2 = () => {
       {/* === PERSISTENT TOP NAV === */}
       <nav
         ref={navRef}
-        className="fixed top-0 left-0 right-0 z-50 flex items-center justify-end gap-3 px-6 lg:px-12 py-4"
+        className="fixed top-0 left-0 right-0 z-40 flex items-center justify-end gap-3 px-6 lg:px-12 py-4"
         style={{
           '--nav-fg': '#FFFFFF',
           '--nav-fg-soft': 'rgba(255,255,255,0.85)',
@@ -244,19 +244,43 @@ const LandingV2 = () => {
         </Link>
       </nav>
 
-      {/* === LOGO LAYER === */}
+      {/* === LOGO LAYER ===
+          Positioned with the SVG's natural dot (at ~53.6% / 75.7% inside
+          the viewBox 615.88×475.73) sitting at viewport center, so when
+          the dark overlay's clip-path shrinks to a tiny circle at that
+          same point, it merges seamlessly with the logo's real dot. */}
       <img
         ref={logoRef}
         src="/logo-A.svg"
         alt="ACTRLabs"
-        className="fixed pointer-events-none select-none z-40"
+        className="fixed pointer-events-none select-none"
         style={{
           top: '50%',
           left: '50%',
-          width: '240px',
+          width: '260px',
           height: 'auto',
-          transform: 'translate(-50%, -50%)',
-          opacity: 0,
+          // Shift so the dot's coords (53.6%, 75.7%) land at viewport center.
+          transform: 'translate(-53.6%, -75.7%)',
+          opacity: 1,
+          zIndex: 50,
+        }}
+      />
+
+      {/* === DARK OVERLAY ===
+          Covers the entire viewport with a dark fill, but is clipped to a
+          circle whose radius shrinks on scroll. As it shrinks, the white
+          page bg + the dark A logo behind become visible — and when the
+          radius is small enough, the dark circle seamlessly *becomes* the
+          dot of the A. */}
+      <div
+        ref={darkOverlayRef}
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          backgroundColor: '#1F1F1F',
+          clipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
+          WebkitClipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
+          zIndex: 60,
+          willChange: 'clip-path',
         }}
       />
 
@@ -265,38 +289,30 @@ const LandingV2 = () => {
         ref={heroRef}
         className="relative h-screen flex items-center justify-center"
       >
+        {/* Headline sits in front of the dark overlay (z=70) so it's
+            readable while the dark mass covers the screen. White words +
+            "Learning" in brand orange. Fades out before the overlay
+            shrinks below the headline's bounds. */}
         <div
-          ref={dotRef}
-          className="absolute"
+          ref={headlineRef}
+          className="absolute inset-0 flex items-center justify-center text-center px-10"
           style={{
-            top: '50%',
-            left: '50%',
-            width: '70vmin',
-            height: '70vmin',
-            transform: 'translate(-50%, -50%)',
-            borderRadius: '50%',
-            backgroundColor: '#FA6C43',
-            zIndex: 30,
-            boxShadow: '0 40px 120px rgba(250,108,67,0.35)',
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 800,
+            color: '#FFFFFF',
+            fontSize: 'clamp(40px, 7vmin, 84px)',
+            lineHeight: 1.05,
+            letterSpacing: '-0.02em',
+            zIndex: 70,
           }}
         >
-          <div
-            ref={dotTextRef}
-            className="absolute inset-0 flex items-center justify-center text-center px-10"
-            style={{
-              fontFamily: FONT_DISPLAY,
-              fontWeight: 800,
-              color: '#FFFFFF',
-              fontSize: 'clamp(28px, 4.5vmin, 64px)',
-              lineHeight: 1.1,
-              letterSpacing: '-0.015em',
-            }}
-          >
-            Are you ready to redefine learning?
-          </div>
+          <span>
+            Are you ready to redefine{' '}
+            <span style={{ color: '#FA6C43' }}>Learning</span>?
+          </span>
         </div>
 
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-20">
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none" style={{ zIndex: 70 }}>
           <span
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
@@ -323,8 +339,8 @@ const LandingV2 = () => {
 
         <button
           onClick={() => document.getElementById('cta')?.scrollIntoView({ behavior: 'smooth' })}
-          className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity z-20"
-          style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
+          className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity"
+          style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY, zIndex: 70 }}
         >
           Skip intro →
         </button>
