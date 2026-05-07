@@ -70,9 +70,6 @@ const LandingV2 = () => {
   const dotRef = useRef(null);
   const dotTextRef = useRef(null);
   const logoRef = useRef(null);
-  const orbitRef = useRef(null);
-  const orbitWrapRef = useRef(null);
-  const iconRefs = useRef([]);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureRefs = useRef([]);
@@ -127,85 +124,44 @@ const LandingV2 = () => {
           0.3
         )
         .to(rootRef.current, { backgroundColor: '#FAFAF7', duration: 0.45, ease: 'sine.inOut' }, 0.5)
+        // Logo migrates to top-left to sit *vertically centered* with the
+        // Sign in / Get started buttons in the nav row. Nav has py-4 (16px)
+        // top padding; the buttons are roughly 36px tall — so the row's
+        // vertical center sits at y ≈ 16 + 18 = 34px from the top. The
+        // logo is positioned with translate(-50%, -50%), so we set its
+        // CENTER to (left: 64px, top: 34px) to align.
         .to(
           logoRef.current,
           {
-            top: 22,
-            left: 28,
-            xPercent: 0,
-            yPercent: 0,
-            scale: 0.16,
+            top: 34,
+            left: 64,
+            xPercent: -50,
+            yPercent: -50,
+            scale: 0.21,
             duration: 0.55,
             ease: 'power3.inOut',
           },
           0.62
         );
 
-      // ---- ORBIT REVEAL --------------------------------------------------
-      // Continuous rotation; appears once the wordmark settles into nav.
-      // Bigger, slower, more confident.
-      gsap.set(orbitWrapRef.current, { opacity: 0, scale: 0.7 });
-      ScrollTrigger.create({
-        trigger: heroRef.current,
-        start: 'bottom 75%',
-        onEnter: () => {
-          gsap.to(orbitWrapRef.current, {
-            opacity: 1,
-            scale: 1,
-            duration: 0.8,
-            ease: 'expo.out',
-          });
-          gsap.to(orbitRef.current, {
-            rotation: 360,
-            duration: 30,
-            repeat: -1,
-            ease: 'none',
-          });
-        },
-      });
-
-      // ---- FEATURE ENTER PULSE ------------------------------------------
-      // No more bezier peel-off. Instead, when a feature section enters,
-      // the matching orbit icon does a subtle scale-up pulse + glow as a
-      // "this section corresponds to this icon" cue.
-      featureRefs.current.forEach((section, i) => {
+      // ---- FEATURE COPY FADE-UP ----------------------------------------
+      // Each feature section fades its copy up smoothly on enter — no
+      // orbit, no peel-offs; the copy itself is the moment.
+      featureRefs.current.forEach((section) => {
         if (!section) return;
-        ScrollTrigger.create({
-          trigger: section,
-          start: 'top 65%',
-          onEnter: () => {
-            const icon = iconRefs.current[i];
-            if (!icon) return;
-            gsap.fromTo(
-              icon,
-              { scale: 1, filter: 'drop-shadow(0 0 0 rgba(250,108,67,0))' },
-              {
-                scale: 1.45,
-                filter: 'drop-shadow(0 0 18px rgba(250,108,67,0.55))',
-                duration: 0.45,
-                ease: 'power3.out',
-                yoyo: true,
-                repeat: 1,
-              }
-            );
-          },
-        });
-
-        // Smooth fade-up for the feature copy as it enters viewport.
         const copy = section.querySelector('[data-feature-copy]');
-        if (copy) {
-          gsap.fromTo(
-            copy,
-            { opacity: 0, y: 36 },
-            {
-              opacity: 1,
-              y: 0,
-              duration: 0.9,
-              ease: 'power3.out',
-              scrollTrigger: { trigger: section, start: 'top 75%' },
-            }
-          );
-        }
+        if (!copy) return;
+        gsap.fromTo(
+          copy,
+          { opacity: 0, y: 36 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.9,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: section, start: 'top 75%' },
+          }
+        );
       });
 
       // ---- CLOSER STAGGER -----------------------------------------------
@@ -242,11 +198,6 @@ const LandingV2 = () => {
     return () => ctx.revert();
   }, []);
 
-  const jumpTo = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
-  };
-
   return (
     <div
       ref={rootRef}
@@ -272,7 +223,14 @@ const LandingV2 = () => {
       <nav
         ref={navRef}
         className="fixed top-0 left-0 right-0 z-50 flex items-center justify-end gap-3 px-6 lg:px-12 py-4"
-        style={{ '--nav-fg': '#FFFFFF', '--nav-fg-soft': 'rgba(255,255,255,0.85)' }}
+        style={{
+          '--nav-fg': '#FFFFFF',
+          '--nav-fg-soft': 'rgba(255,255,255,0.85)',
+          backgroundColor: 'rgba(255,255,255,0.06)',
+          backdropFilter: 'blur(14px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(14px) saturate(140%)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+        }}
       >
         <Link
           to="/login"
@@ -322,27 +280,25 @@ const LandingV2 = () => {
           style={{
             top: '50%',
             left: '50%',
-            width: '46vh',
-            height: '46vh',
-            maxWidth: '520px',
-            maxHeight: '520px',
+            width: '70vmin',
+            height: '70vmin',
             transform: 'translate(-50%, -50%)',
             borderRadius: '50%',
             backgroundColor: '#FA6C43',
             zIndex: 30,
-            boxShadow: '0 30px 80px rgba(250,108,67,0.3)',
+            boxShadow: '0 40px 120px rgba(250,108,67,0.35)',
           }}
         >
           <div
             ref={dotTextRef}
-            className="absolute inset-0 flex items-center justify-center text-center px-8"
+            className="absolute inset-0 flex items-center justify-center text-center px-10"
             style={{
               fontFamily: FONT_DISPLAY,
               fontWeight: 800,
               color: '#FFFFFF',
-              fontSize: 'clamp(22px, 2.6vw, 34px)',
-              lineHeight: 1.2,
-              letterSpacing: '-0.01em',
+              fontSize: 'clamp(28px, 4.5vmin, 64px)',
+              lineHeight: 1.1,
+              letterSpacing: '-0.015em',
             }}
           >
             Are you ready to redefine learning?
@@ -383,53 +339,6 @@ const LandingV2 = () => {
         </button>
       </section>
 
-      {/* === ORBIT (fixed, sticks while you scroll) === */}
-      <div
-        ref={orbitWrapRef}
-        className="fixed pointer-events-none z-30"
-        style={{
-          top: '120px',
-          left: '110px',
-          width: '320px',
-          height: '320px',
-          opacity: 0,
-        }}
-      >
-        <div
-          ref={orbitRef}
-          className="relative w-full h-full"
-          style={{ transformOrigin: 'center center' }}
-        >
-          {[0, 120, 240].map((angle, i) => {
-            const r = 138;
-            const cx = 160 + Math.cos((angle * Math.PI) / 180) * r;
-            const cy = 160 + Math.sin((angle * Math.PI) / 180) * r;
-            return (
-              <button
-                key={i}
-                ref={(el) => (iconRefs.current[i] = el)}
-                onClick={() => jumpTo(UVPS[i].id)}
-                className="absolute pointer-events-auto bg-transparent border-0 cursor-pointer hover:scale-110 transition-transform"
-                style={{
-                  top: cy,
-                  left: cx,
-                  width: 60,
-                  height: 60,
-                  transform: 'translate(-50%, -50%)',
-                  transformOrigin: 'center center',
-                }}
-                title={UVPS[i].headline}
-              >
-                <img
-                  src={UVPS[i].icon}
-                  alt={UVPS[i].iconAlt}
-                  className="w-full h-full object-contain"
-                />
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {/* === FEATURE SECTIONS === */}
       {UVPS.map((uvp, i) => (
