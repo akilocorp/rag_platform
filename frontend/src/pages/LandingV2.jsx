@@ -59,23 +59,34 @@ const TESTIMONIALS = [
   },
 ];
 
-// Philosophy paragraph as a sequence of tokens — text chunks + inline
-// brand icons. The text is later split word-by-word at render time so
-// each word can scrub from light to dark on its own beat.
-const PHILOSOPHY_TOKENS = [
-  { text: 'Every class moves at the speed of small things — the' },
-  { icon: 'hand', alt: 'hand' },
-  { text: 'raised in the back row, the question scribbled in' },
-  { icon: 'pencil', alt: 'pencil' },
-  { text: ', the' },
-  { icon: 'calculator', alt: 'calculator' },
-  { text: 'tap that solves a problem two minutes before the bell. We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link. Whether your students are on' },
-  { icon: 'laptop', alt: 'laptop' },
-  { text: 'in lecture halls or chasing' },
-  { icon: 'hashtag', alt: 'hashtag' },
-  { text: 'between classes — your bot meets them with what you actually teach, not the open internet.' },
-  { icon: 'glasses', alt: 'glasses' },
-  { text: 'on, notebooks open, every question gets a real answer.' },
+// Philosophy paragraph as an ARRAY of paragraphs, each a sequence of
+// tokens (text chunks + inline brand icons). Splitting into separate
+// paragraphs gives breathing room between thoughts and lets the
+// cinematic word-by-word scrub feel less like a wall of text.
+const PHILOSOPHY_PARAGRAPHS = [
+  [
+    { text: 'Every class moves at the speed of small things — the' },
+    { icon: 'hand', alt: 'hand' },
+    { text: 'raised in the back row, the question scribbled in' },
+    { icon: 'pencil', alt: 'pencil' },
+    { text: ', the' },
+    { icon: 'calculator', alt: 'calculator' },
+    { text: 'tap that solves a problem two minutes before the bell.' },
+  ],
+  [
+    { text: 'We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link.' },
+  ],
+  [
+    { text: 'Whether your students are on' },
+    { icon: 'laptop', alt: 'laptop' },
+    { text: 'in lecture halls or chasing' },
+    { icon: 'hashtag', alt: 'hashtag' },
+    { text: 'between classes — your bot meets them with what you actually teach, not the open internet.' },
+  ],
+  [
+    { icon: 'glasses', alt: 'glasses' },
+    { text: 'on, notebooks open, every question gets a real answer.' },
+  ],
 ];
 
 const reducedMotion = () =>
@@ -92,6 +103,8 @@ const LandingV2 = () => {
   const philosophyRef = useRef(null);
   const philosophyTextRef = useRef(null);
   const wordRefs = useRef([]);
+  const scrollCueRef = useRef(null);
+  const skipIntroRef = useRef(null);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureRefs = useRef([]);
@@ -158,6 +171,10 @@ const LandingV2 = () => {
 
       heroTl
         .to(headlineRef.current, { opacity: 0, duration: 0.17, ease: 'power2.out' }, 0.05)
+        // Scroll cue + skip-intro lose their reason to exist the moment
+        // the user has scrolled. Fade them along with the headline.
+        .to(scrollCueRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
+        .to(skipIntroRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
         .fromTo(
           darkOverlayRef.current,
           { '--clip-radius': '2400px' },
@@ -374,7 +391,7 @@ const LandingV2 = () => {
           </span>
         </div>
 
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none" style={{ zIndex: 70 }}>
+        <div ref={scrollCueRef} className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none" style={{ zIndex: 70 }}>
           <span
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
@@ -400,6 +417,7 @@ const LandingV2 = () => {
         </div>
 
         <button
+          ref={skipIntroRef}
           onClick={() => document.getElementById('cta')?.scrollIntoView({ behavior: 'smooth' })}
           className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity"
           style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY, zIndex: 70 }}
@@ -417,12 +435,12 @@ const LandingV2 = () => {
           following along with the scroll. */}
       <section
         ref={philosophyRef}
-        className="relative min-h-screen flex items-center justify-center px-6 lg:px-24 py-32"
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32"
         style={{ backgroundColor: '#FAFAF7' }}
       >
-        <p
+        <div
           ref={philosophyTextRef}
-          className="max-w-4xl text-2xl lg:text-4xl leading-[1.5]"
+          className="max-w-4xl text-2xl lg:text-4xl leading-[1.45] space-y-10"
           style={{
             fontFamily: FONT_DISPLAY,
             fontWeight: 700,
@@ -431,48 +449,53 @@ const LandingV2 = () => {
         >
           {(() => {
             // Reset the ref array on each render so spans get re-bound
-            // to fresh refs (avoids stale closures after HMR).
+            // to fresh refs (avoids stale closures after HMR). Word
+            // index is global across paragraphs so the wave continues
+            // through the whole section.
             wordRefs.current = [];
-            const out = [];
-            PHILOSOPHY_TOKENS.forEach((tok, ti) => {
-              if (tok.icon) {
-                out.push(
-                  <img
-                    key={`icon-${ti}`}
-                    src={`/illustrations/icon-${tok.icon}.png`}
-                    alt={tok.alt}
-                    className="inline-block align-middle mx-2"
-                    style={{
-                      height: '1em',
-                      width: 'auto',
-                      verticalAlign: '-0.15em',
-                    }}
-                  />
-                );
-              } else if (tok.text) {
-                const parts = tok.text.split(/(\s+)/);
-                parts.forEach((p, pi) => {
-                  if (!p) return;
-                  if (/^\s+$/.test(p)) {
-                    out.push(<span key={`t${ti}-s${pi}`}>{p}</span>);
-                  } else {
-                    const idx = wordRefs.current.length;
-                    out.push(
-                      <span
-                        key={`t${ti}-w${pi}`}
-                        ref={(el) => (wordRefs.current[idx] = el)}
-                        style={{ color: '#E8E5DD', transition: 'color 0s' }}
-                      >
-                        {p}
-                      </span>
+            return PHILOSOPHY_PARAGRAPHS.map((tokens, pi) => (
+              <p key={`p-${pi}`}>
+                {tokens.map((tok, ti) => {
+                  if (tok.icon) {
+                    return (
+                      <img
+                        key={`p${pi}-i${ti}`}
+                        src={`/illustrations/icon-${tok.icon}.png`}
+                        alt={tok.alt}
+                        className="inline-block align-middle mx-2"
+                        style={{
+                          height: '1em',
+                          width: 'auto',
+                          verticalAlign: '-0.15em',
+                        }}
+                      />
                     );
                   }
-                });
-              }
-            });
-            return out;
+                  if (tok.text) {
+                    const parts = tok.text.split(/(\s+)/);
+                    return parts.map((p, ppi) => {
+                      if (!p) return null;
+                      if (/^\s+$/.test(p)) {
+                        return <span key={`p${pi}-t${ti}-s${ppi}`}>{p}</span>;
+                      }
+                      const idx = wordRefs.current.length;
+                      return (
+                        <span
+                          key={`p${pi}-t${ti}-w${ppi}`}
+                          ref={(el) => (wordRefs.current[idx] = el)}
+                          style={{ color: '#E8E5DD' }}
+                        >
+                          {p}
+                        </span>
+                      );
+                    });
+                  }
+                  return null;
+                })}
+              </p>
+            ));
           })()}
-        </p>
+        </div>
       </section>
 
       {/* === FEATURE SECTIONS === */}
