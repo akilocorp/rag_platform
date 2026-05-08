@@ -341,9 +341,9 @@ const LandingV2 = () => {
             fontFamily: FONT_DISPLAY,
             fontWeight: 800,
             color: '#FFFFFF',
-            fontSize: 'clamp(40px, 7vmin, 84px)',
-            lineHeight: 1.05,
-            letterSpacing: '-0.02em',
+            fontSize: 'clamp(56px, 9vmin, 124px)',
+            lineHeight: 0.98,
+            letterSpacing: '-0.045em',
             zIndex: 70,
           }}
         >
