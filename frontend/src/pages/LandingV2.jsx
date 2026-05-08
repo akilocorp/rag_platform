@@ -70,6 +70,8 @@ const LandingV2 = () => {
   const darkOverlayRef = useRef(null);
   const headlineRef = useRef(null);
   const logoRef = useRef(null);
+  const philosophyRef = useRef(null);
+  const philosophyTextRef = useRef(null);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureRefs = useRef([]);
@@ -92,15 +94,31 @@ const LandingV2 = () => {
       // ---- HERO TRANSITION ----------------------------------------------
       // The whole screen starts as a dark mass. As the user scrolls, that
       // mass shrinks via a circular clip-path until it's small enough to
-      // BE the natural dark dot inside the A. The white page behind +
-      // the dark A logo are revealed in negative space.
+      // BE the natural dark dot inside the A.
       //
-      // Phases:
-      //   0   – 0.55 : clip-path circle shrinks from 150% to ~14px
-      //   0.4 – 0.55 : headline text fades out (was inside the dark mass)
-      //   0.65 – 0.78 : dark overlay fades to 0 (the logo's natural dot
-      //                  takes over visually)
-      //   0.7 – 1.0 : logo migrates into the top-left nav slot
+      // Phases (all on a 0..1 timeline driven by hero scroll):
+      //   0.05 – 0.22 : headline text fades out FAST — gone well before
+      //                  the dark mass shrinks anywhere near it.
+      //   0    – 0.55 : clip-path circle shrinks 2400px → 14px.
+      //   0.55 – 0.65 : dark overlay opacity 1 → 0 — the logo's natural
+      //                  dot takes over visually with no break.
+      //   0.65 – 1.0  : logo scales down + slides to its nav-aligned
+      //                  position (center of logo box at left:48 top:30).
+      //
+      // Easing is power2.inOut throughout — uniform deceleration, no
+      // expo "spring" feel.
+
+      // Seed the initial logo position via GSAP so the migration tween
+      // can interpolate cleanly. Initial state: dot of logo at viewport
+      // center; logo's natural top-left at (50% - 55.25%×W, 50% - 71.11%×H).
+      gsap.set(logoRef.current, {
+        top: '50%',
+        left: '50%',
+        xPercent: -55.25,
+        yPercent: -71.11,
+        scale: 1,
+      });
+
       const heroTl = gsap.timeline({
         scrollTrigger: {
           trigger: heroRef.current,
@@ -119,27 +137,48 @@ const LandingV2 = () => {
       });
 
       heroTl
+        .to(headlineRef.current, { opacity: 0, duration: 0.17, ease: 'power2.out' }, 0.05)
         .fromTo(
           darkOverlayRef.current,
           { '--clip-radius': '2400px' },
-          { '--clip-radius': '14px', duration: 0.55, ease: 'expo.inOut' },
+          { '--clip-radius': '14px', duration: 0.55, ease: 'power2.inOut' },
           0
         )
-        .to(headlineRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.4)
-        .to(darkOverlayRef.current, { opacity: 0, duration: 0.13, ease: 'sine.out' }, 0.65)
+        .to(darkOverlayRef.current, { opacity: 0, duration: 0.1, ease: 'sine.out' }, 0.55)
         .to(
           logoRef.current,
           {
-            top: 34,
-            left: 64,
+            top: '30px',
+            left: '48px',
             xPercent: -50,
             yPercent: -50,
             scale: 0.21,
-            duration: 0.55,
-            ease: 'power3.inOut',
+            duration: 0.35,
+            ease: 'power2.inOut',
           },
-          0.7
+          0.65
         );
+
+      // ---- PHILOSOPHY TEXT SCRUB ----------------------------------------
+      // White section after the cinematic. As the user scrolls through
+      // the section, the paragraph color scrubs from a soft near-white
+      // to the brand's deep #1F1F1F.
+      if (philosophyTextRef.current) {
+        gsap.fromTo(
+          philosophyTextRef.current,
+          { color: '#E8E5DD' },
+          {
+            color: '#1F1F1F',
+            ease: 'none',
+            scrollTrigger: {
+              trigger: philosophyRef.current,
+              start: 'top 75%',
+              end: 'bottom 60%',
+              scrub: true,
+            },
+          }
+        );
+      }
 
       // ---- FEATURE COPY FADE-UP ----------------------------------------
       // Each feature section fades its copy up smoothly on enter — no
@@ -245,22 +284,24 @@ const LandingV2 = () => {
       </nav>
 
       {/* === LOGO LAYER ===
-          Positioned with the SVG's natural dot (at ~53.6% / 75.7% inside
-          the viewBox 615.88×475.73) sitting at viewport center, so when
-          the dark overlay's clip-path shrinks to a tiny circle at that
-          same point, it merges seamlessly with the logo's real dot. */}
+          Positioned with the SVG's natural dot (measured at 55.25% /
+          71.11% in logo-A-color.jpg by sampling the orange pixels)
+          sitting at viewport center. When the dark overlay's clip-path
+          shrinks to ~14px at viewport center, it merges seamlessly
+          with the logo's real dark dot.
+
+          Initial transform is set via gsap.set() in useLayoutEffect so
+          the migration tween can interpolate cleanly to its end state
+          (xPercent: -50, yPercent: -50, top: 30px, left: 48px, scale:
+          0.21) without unit mismatches. */}
       <img
         ref={logoRef}
         src="/logo-A.svg"
         alt="ACTRLabs"
         className="fixed pointer-events-none select-none"
         style={{
-          top: '50%',
-          left: '50%',
           width: '260px',
           height: 'auto',
-          // Shift so the dot's coords (53.6%, 75.7%) land at viewport center.
-          transform: 'translate(-53.6%, -75.7%)',
           opacity: 1,
           zIndex: 50,
         }}
@@ -346,6 +387,29 @@ const LandingV2 = () => {
         </button>
       </section>
 
+      {/* === PHILOSOPHY (text darken on scroll) ===
+          Sits between the cinematic and the UVPs. As the user scrolls
+          through this section, the paragraph color scrubs from a near-
+          white #E8E5DD to deep brand #1F1F1F. White page bg keeps the
+          eye rested between the dramatic hero and the feature blocks. */}
+      <section
+        ref={philosophyRef}
+        className="relative min-h-screen flex items-center justify-center px-6 lg:px-24 py-32"
+        style={{ backgroundColor: '#FAFAF7' }}
+      >
+        <p
+          ref={philosophyTextRef}
+          className="max-w-4xl text-2xl lg:text-4xl leading-[1.4] text-center"
+          style={{
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 700,
+            letterSpacing: '-0.015em',
+            color: '#E8E5DD',
+          }}
+        >
+          Every class moves at the speed of small things — the hand raised in the back row, the question scribbled in pencil, the calculator tap that solves a problem two minutes before the bell. We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link. Whether your students are on laptops in lecture halls, iPads in the library, or chasing hashtags between classes — your bot meets them with what you actually teach, not the open internet. Glasses on, notebooks open, every question gets a real answer.
+        </p>
+      </section>
 
       {/* === FEATURE SECTIONS === */}
       {UVPS.map((uvp, i) => (
