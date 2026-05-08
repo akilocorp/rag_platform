@@ -59,6 +59,25 @@ const TESTIMONIALS = [
   },
 ];
 
+// Philosophy paragraph as a sequence of tokens — text chunks + inline
+// brand icons. The text is later split word-by-word at render time so
+// each word can scrub from light to dark on its own beat.
+const PHILOSOPHY_TOKENS = [
+  { text: 'Every class moves at the speed of small things — the' },
+  { icon: 'hand', alt: 'hand' },
+  { text: 'raised in the back row, the question scribbled in' },
+  { icon: 'pencil', alt: 'pencil' },
+  { text: ', the' },
+  { icon: 'calculator', alt: 'calculator' },
+  { text: 'tap that solves a problem two minutes before the bell. We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link. Whether your students are on' },
+  { icon: 'laptop', alt: 'laptop' },
+  { text: 'in lecture halls or chasing' },
+  { icon: 'hashtag', alt: 'hashtag' },
+  { text: 'between classes — your bot meets them with what you actually teach, not the open internet.' },
+  { icon: 'glasses', alt: 'glasses' },
+  { text: 'on, notebooks open, every question gets a real answer.' },
+];
+
 const reducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -72,6 +91,7 @@ const LandingV2 = () => {
   const logoRef = useRef(null);
   const philosophyRef = useRef(null);
   const philosophyTextRef = useRef(null);
+  const wordRefs = useRef([]);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureRefs = useRef([]);
@@ -159,25 +179,26 @@ const LandingV2 = () => {
           0.65
         );
 
-      // ---- PHILOSOPHY TEXT SCRUB ----------------------------------------
-      // White section after the cinematic. As the user scrolls through
-      // the section, the paragraph color scrubs from a soft near-white
-      // to the brand's deep #1F1F1F.
-      if (philosophyTextRef.current) {
-        gsap.fromTo(
-          philosophyTextRef.current,
-          { color: '#E8E5DD' },
-          {
-            color: '#1F1F1F',
-            ease: 'none',
-            scrollTrigger: {
-              trigger: philosophyRef.current,
-              start: 'top 75%',
-              end: 'bottom 60%',
-              scrub: true,
-            },
-          }
-        );
+      // ---- PHILOSOPHY TEXT SCRUB (word-by-word) -------------------------
+      // Each word is a separate <span> with its own initial near-white
+      // color. As the user scrolls, the words darken to #1F1F1F in a
+      // staggered wave — each word's color tween starts a beat after
+      // the previous one, and the whole stagger maps to the section's
+      // scroll progress. Reads like the user is "reading along" with
+      // the scroll.
+      const wordEls = wordRefs.current.filter(Boolean);
+      if (wordEls.length > 0) {
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: philosophyRef.current,
+            start: 'top 70%',
+            end: 'bottom 55%',
+            scrub: 0.6,
+          },
+        });
+        wordEls.forEach((el, i) => {
+          tl.to(el, { color: '#1F1F1F', duration: 0.4, ease: 'none' }, i * 0.12);
+        });
       }
 
       // ---- FEATURE COPY FADE-UP ----------------------------------------
@@ -387,11 +408,13 @@ const LandingV2 = () => {
         </button>
       </section>
 
-      {/* === PHILOSOPHY (text darken on scroll) ===
-          Sits between the cinematic and the UVPs. As the user scrolls
-          through this section, the paragraph color scrubs from a near-
-          white #E8E5DD to deep brand #1F1F1F. White page bg keeps the
-          eye rested between the dramatic hero and the feature blocks. */}
+      {/* === PHILOSOPHY (icons-as-language + word-by-word scrub) ===
+          Sits between the cinematic and the UVPs. The paragraph
+          replaces "hand", "pencil", "calculator", "laptop", "hashtag",
+          "glasses" with their hand-drawn brand icons inline. Every
+          word starts at a near-white tone and darkens to #1F1F1F as
+          the user scrolls — staggered, so it reads like the user is
+          following along with the scroll. */}
       <section
         ref={philosophyRef}
         className="relative min-h-screen flex items-center justify-center px-6 lg:px-24 py-32"
@@ -399,15 +422,56 @@ const LandingV2 = () => {
       >
         <p
           ref={philosophyTextRef}
-          className="max-w-4xl text-2xl lg:text-4xl leading-[1.4] text-center"
+          className="max-w-4xl text-2xl lg:text-4xl leading-[1.5]"
           style={{
             fontFamily: FONT_DISPLAY,
             fontWeight: 700,
             letterSpacing: '-0.015em',
-            color: '#E8E5DD',
           }}
         >
-          Every class moves at the speed of small things — the hand raised in the back row, the question scribbled in pencil, the calculator tap that solves a problem two minutes before the bell. We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link. Whether your students are on laptops in lecture halls, iPads in the library, or chasing hashtags between classes — your bot meets them with what you actually teach, not the open internet. Glasses on, notebooks open, every question gets a real answer.
+          {(() => {
+            // Reset the ref array on each render so spans get re-bound
+            // to fresh refs (avoids stale closures after HMR).
+            wordRefs.current = [];
+            const out = [];
+            PHILOSOPHY_TOKENS.forEach((tok, ti) => {
+              if (tok.icon) {
+                out.push(
+                  <img
+                    key={`icon-${ti}`}
+                    src={`/illustrations/icon-${tok.icon}.png`}
+                    alt={tok.alt}
+                    className="inline-block align-middle mx-2"
+                    style={{
+                      height: '1em',
+                      width: 'auto',
+                      verticalAlign: '-0.15em',
+                    }}
+                  />
+                );
+              } else if (tok.text) {
+                const parts = tok.text.split(/(\s+)/);
+                parts.forEach((p, pi) => {
+                  if (!p) return;
+                  if (/^\s+$/.test(p)) {
+                    out.push(<span key={`t${ti}-s${pi}`}>{p}</span>);
+                  } else {
+                    const idx = wordRefs.current.length;
+                    out.push(
+                      <span
+                        key={`t${ti}-w${pi}`}
+                        ref={(el) => (wordRefs.current[idx] = el)}
+                        style={{ color: '#E8E5DD', transition: 'color 0s' }}
+                      >
+                        {p}
+                      </span>
+                    );
+                  }
+                });
+              }
+            });
+            return out;
+          })()}
         </p>
       </section>
 
