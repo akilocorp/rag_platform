@@ -182,15 +182,17 @@ const LandingV2 = () => {
           0
         )
         .to(darkOverlayRef.current, { opacity: 0, duration: 0.1, ease: 'sine.out' }, 0.55)
+        // Different pull-back: instead of migrating the logo into the
+        // top-left corner (where it overlapped the philosophy column),
+        // it gently lifts and fades after the dot→A reveal completes.
+        // Keeps the screen clear for the word-by-word scrub below.
         .to(
           logoRef.current,
           {
-            top: '30px',
-            left: '48px',
-            xPercent: -50,
-            yPercent: -50,
-            scale: 0.21,
-            duration: 0.35,
+            yPercent: -85,
+            scale: 0.9,
+            opacity: 0,
+            duration: 0.3,
             ease: 'power2.inOut',
           },
           0.65
@@ -208,13 +210,16 @@ const LandingV2 = () => {
         const tl = gsap.timeline({
           scrollTrigger: {
             trigger: philosophyRef.current,
-            start: 'top 70%',
-            end: 'bottom 55%',
-            scrub: 0.6,
+            start: 'top 75%',
+            end: 'bottom 40%',
+            scrub: 0.4,
           },
         });
+        // Each word pops over its own slice of the timeline with almost
+        // no overlap, so adjacent words don't blur into a gradient
+        // wash — the reader sees one word ignite at a time.
         wordEls.forEach((el, i) => {
-          tl.to(el, { color: '#1F1F1F', duration: 0.4, ease: 'none' }, i * 0.12);
+          tl.to(el, { color: '#1F1F1F', duration: 0.08, ease: 'none' }, i * 0.1);
         });
       }
 
@@ -478,11 +483,18 @@ const LandingV2 = () => {
                       if (/^\s+$/.test(p)) {
                         return <span key={`p${pi}-t${ti}-s${ppi}`}>{p}</span>;
                       }
-                      const idx = wordRefs.current.length;
+                      // Push in the ref callback rather than capturing
+                      // `wordRefs.current.length` at JSX-creation time —
+                      // the array isn't populated until React commits the
+                      // refs, so reading length during render gave every
+                      // word the same index (0) and only the last word
+                      // ended up in the array.
                       return (
                         <span
                           key={`p${pi}-t${ti}-w${ppi}`}
-                          ref={(el) => (wordRefs.current[idx] = el)}
+                          ref={(el) => {
+                            if (el) wordRefs.current.push(el);
+                          }}
                           style={{ color: '#E8E5DD' }}
                         >
                           {p}
