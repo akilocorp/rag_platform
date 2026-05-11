@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
@@ -184,7 +184,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     const val = type === 'checkbox' ? checked : value;
-    setConfig(prev => ({ ...prev, [name]: val }));
+    setConfig(prev => {
+      const next = { ...prev, [name]: val };
+      if (name === 'bot_type' && val === 'audio_call') {
+        next.audio_enabled = true;
+        if (!(next.model_name || '').toLowerCase().startsWith('claude')) {
+          next.model_name = 'claude-sonnet-4-6';
+        }
+      }
+      return next;
+    });
     if (errors[name]) setErrors(prev => ({ ...prev, [name]: null }));
   };
 
@@ -270,6 +279,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
       setErrors({ form: 'Please select a video avatar on step 5.' });
       setIsLoading(false);
       return;
+    }
+
+    if (config.bot_type === 'audio_call') {
+      if (!(config.model_name || '').toLowerCase().startsWith('claude')) {
+        setErrors({ form: 'Audio Call mode requires a Claude model. Pick one on step 2.' });
+        setIsLoading(false);
+        return;
+      }
+      if (!config.hume_config_id || !config.hume_config_id.trim()) {
+        setErrors({ form: 'Audio Call mode requires a Hume EVI Config ID on step 4.' });
+        setIsLoading(false);
+        return;
+      }
     }
 
     const formData = new FormData();
@@ -376,7 +398,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space Type</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="chat" checked={config.bot_type === 'chat'} onChange={handleChange} className="hidden" />
                       <FaComments className={`text-2xl mb-2 ${config.bot_type === 'chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
@@ -389,6 +411,13 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <FaVideo className={`text-2xl mb-2 ${config.bot_type === 'avatar' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Avatar Bot</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Video</p>
+                    </label>
+
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="audio_call" checked={config.bot_type === 'audio_call'} onChange={handleChange} className="hidden" />
+                      <FaPhoneAlt className={`text-2xl mb-2 ${config.bot_type === 'audio_call' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Audio Call</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Voice + Transcript</p>
                     </label>
 
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
@@ -610,7 +639,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                {config.bot_type !== 'group_chat' && (
+                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && (
                   <div>
                     <label className="block text-[13px] font-semibold text-gray-700 mb-2">
                       {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}

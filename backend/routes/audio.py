@@ -11,6 +11,7 @@ credentials so the browser-side @humeai/voice-react SDK can open a WebSocket
 without ever seeing the raw API key.
 """
 import base64
+import io
 import logging
 import os
 import time
@@ -129,3 +130,38 @@ def hume_access_token():
         "expires_in": data.get("expires_in"),
         "token_type": data.get("token_type", "Bearer"),
     })
+
+
+@audio_bp.route('/audio/transcribe', methods=['POST'])
+def transcribe_audio():
+    """Transcribe a single audio blob via OpenAI Whisper.
+
+    Body: multipart/form-data with field `audio` (the recorded blob).
+    Returns: {"text": "..."}
+    """
+    if 'audio' not in request.files:
+        return jsonify({"error": "audio file is required"}), 400
+
+    audio_file = request.files['audio']
+    raw = audio_file.read()
+    if not raw:
+        return jsonify({"error": "empty audio"}), 400
+
+    api_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Transcription is not configured on this server"}), 503
+
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        buf = io.BytesIO(raw)
+        buf.name = audio_file.filename or "recording.webm"
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=buf,
+        )
+        text = (getattr(result, "text", "") or "").strip()
+        return jsonify({"text": text})
+    except Exception as e:
+        logger.error("Whisper transcription failed: %s", e, exc_info=True)
+        return jsonify({"error": "Transcription failed"}), 502

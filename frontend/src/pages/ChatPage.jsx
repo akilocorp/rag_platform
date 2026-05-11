@@ -9,6 +9,7 @@ import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
 import EVIAudioControls from '../components/EVIAudioControls';
+import VoiceRecordButton from '../components/VoiceRecordButton';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
@@ -720,6 +721,15 @@ const ChatPage = () => {
     handleTextSend();
   };
 
+  const handleVoiceTranscribed = useCallback((text) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed || isLoading) return;
+    setInput(trimmed);
+    setIsSending(true);
+    handleMessageProcess(trimmed);
+    setInput('');
+  }, [isLoading, handleMessageProcess]);
+
   // --- EVI (Hume) audio turn handler ---
   // Each finalized user/assistant turn from EVI: render a bubble, persist to
   // audio_sessions, and notify the Qualtrics parent.
@@ -822,6 +832,7 @@ const ChatPage = () => {
 
   const isAvatarMode = config?.bot_type === 'avatar';
   const showAvatar = isAvatarMode && !avatarError;
+  const isCallMode = config?.bot_type === 'audio_call';
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -909,16 +920,60 @@ const ChatPage = () => {
            </div>
         )}
 
-        {showAvatar ? (
+        {isCallMode ? (
+            <div className="flex-1 flex overflow-hidden bg-gradient-to-b from-[#0f1729] via-[#1a1230] to-[#0f1729]">
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-6 relative">
+                    {(() => {
+                      const HeroIcon = getBotAvatarIconComponent(config?.bot_avatar);
+                      return (
+                        <div className="w-24 h-24 rounded-full bg-white/10 flex items-center justify-center mb-6">
+                          {HeroIcon ? <HeroIcon className="text-5xl text-white/90" /> : <FaPaperPlane className="text-4xl text-white/90" />}
+                        </div>
+                      );
+                    })()}
+                    <h2 className="text-2xl font-bold text-white mb-2">{config?.bot_name || 'AI Assistant'}</h2>
+                    <p className="text-white/60 text-sm max-w-md mb-10">
+                      {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears on the right.'}
+                    </p>
+                    {config?.hume_config_id ? (
+                      <EVIAudioControls
+                        humeConfigId={config.hume_config_id}
+                        sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
+                        onTurn={handleEVITurn}
+                        onError={handleEVIError}
+                      />
+                    ) : (
+                      <div className="text-red-300 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+                        Voice unavailable — this config is missing a Hume EVI Config ID.
+                      </div>
+                    )}
+                </div>
+
+                <aside className="hidden lg:flex w-96 border-l border-white/10 flex-col bg-black/20">
+                    <div className="px-5 py-4 border-b border-white/10 text-white/80 text-xs uppercase tracking-[0.2em] font-semibold">Transcript</div>
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 scrollbar-thin">
+                        {messages.length === 0 ? (
+                            <p className="text-white/40 text-sm italic">No turns yet. Start the call to begin.</p>
+                        ) : messages.map((m, i) => (
+                            <div key={i} className={`text-sm leading-relaxed ${m.sender === 'user' ? 'text-white/70' : 'text-white'}`}>
+                                <span className="font-bold mr-1 text-[#FA6C43]">{m.sender === 'user' ? 'You' : config?.bot_name || 'AI'}:</span>
+                                {m.text}
+                            </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </div>
+                </aside>
+            </div>
+        ) : showAvatar ? (
             <div className="flex-1 relative flex flex-col overflow-hidden">
-                <AvatarView 
+                <AvatarView
                     config={config}
                     onAvatarReady={(data) => setAvatarSession(data)}
-                    onUserVoiceInput={handleMessageProcess} 
+                    onUserVoiceInput={handleMessageProcess}
                     isProcessing={isLoading}
                     onEndSession={() => setAvatarSession(null)}
                 />
-                
+
                 {messages.length > 0 && (
                     <div className="absolute bottom-6 right-6 w-80 max-h-60 overflow-y-auto bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-3 z-10 scrollbar-hide">
                         {messages.slice(-3).map((m, i) => (
@@ -1096,6 +1151,9 @@ const ChatPage = () => {
                                 onChange={handleAttachChange}
                                 accept=".pdf,.txt,.md,.docx,.pptx"
                             />
+                            {(!config?.bot_type || config?.bot_type === 'chat') && (
+                                <VoiceRecordButton onTranscribed={handleVoiceTranscribed} disabled={isLoading} />
+                            )}
                             <div className="relative shrink-0" ref={optionsRef}>
                                 <button
                                     onClick={() => setShowOptions(v => !v)}

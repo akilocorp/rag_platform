@@ -191,6 +191,14 @@ const EditConfigPage = () => {
         newErrors.form = 'Please select a video avatar.';
     }
 
+    if (config.bot_type === 'audio_call') {
+        if (!(config.model_name || '').toLowerCase().startsWith('claude')) {
+            newErrors.form = 'Audio Call mode requires a Claude model.';
+        } else if (!config.hume_config_id || !String(config.hume_config_id).trim()) {
+            newErrors.form = 'Audio Call mode requires a Hume EVI Config ID.';
+        }
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
@@ -266,7 +274,7 @@ const EditConfigPage = () => {
         
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
-            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : 'AI Assistant'}
+            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : 'AI Assistant'}
           </h1>
         </div>
 
@@ -309,7 +317,7 @@ const EditConfigPage = () => {
             </div>
 
             {/* Avatar Selection Based on Type */}
-            <div className="pt-2">
+            <div className={`pt-2 ${config.bot_type === 'audio_call' ? 'hidden' : ''}`}>
                 {config.bot_type === 'avatar' ? (
                     <>
                       <label className="block text-[13px] font-semibold text-gray-700 mb-2">Video Avatar</label>
