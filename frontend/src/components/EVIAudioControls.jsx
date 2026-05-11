@@ -223,6 +223,7 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
 
 const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }) => {
   const [accessToken, setAccessToken] = useState(null);
+  const [serverConfigId, setServerConfigId] = useState(null);
   const [tokenError, setTokenError] = useState(null);
 
   useEffect(() => {
@@ -232,6 +233,7 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
         const res = await apiClient.get('/audio/hume/access_token');
         if (cancelled) return;
         setAccessToken(res.data?.access_token || null);
+        setServerConfigId(res.data?.config_id || null);
       } catch (e) {
         if (cancelled) return;
         setTokenError(e?.response?.data?.error || 'Voice unavailable');
@@ -240,6 +242,8 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
     fetchToken();
     return () => { cancelled = true; };
   }, []);
+
+  const effectiveConfigId = humeConfigId || serverConfigId;
 
   if (tokenError) {
     return (
@@ -254,7 +258,7 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
     );
   }
 
-  if (!accessToken || !humeConfigId) {
+  if (!accessToken || !effectiveConfigId) {
     return null;
   }
 
@@ -267,7 +271,7 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
     >
       <InnerControls
         accessToken={accessToken}
-        humeConfigId={humeConfigId}
+        humeConfigId={effectiveConfigId}
         sessionId={sessionId}
         onTurn={onTurn}
         onError={onError}

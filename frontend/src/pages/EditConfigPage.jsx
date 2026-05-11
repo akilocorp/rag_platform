@@ -194,8 +194,6 @@ const EditConfigPage = () => {
     if (config.bot_type === 'audio_call') {
         if (!(config.model_name || '').toLowerCase().startsWith('claude')) {
             newErrors.form = 'Audio Call mode requires a Claude model.';
-        } else if (!config.hume_config_id || !String(config.hume_config_id).trim()) {
-            newErrors.form = 'Audio Call mode requires a Hume EVI Config ID.';
         }
     }
 
@@ -460,32 +458,6 @@ const EditConfigPage = () => {
                   </div>
                 </div>
 
-                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Enable voice mode (Hume EVI)</label>
-                      <p className="text-xs text-gray-500 font-medium">Adds a mic button next to the text input. Requires a Claude model.</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input type="checkbox" name="audio_enabled" className="sr-only peer" checked={!!config.audio_enabled} onChange={handleChange} />
-                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
-                    </label>
-                  </div>
-                  {config.audio_enabled && (
-                    <div className="mt-4">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">Hume EVI Config ID</label>
-                      <input
-                        type="text"
-                        name="hume_config_id"
-                        value={config.hume_config_id || ''}
-                        onChange={handleChange}
-                        placeholder="e.g. 1a2b3c4d-..."
-                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
-                      />
-                      <p className="text-xs text-gray-400 mt-1">From your Hume dashboard. Points its custom_language_model_url at this server.</p>
-                    </div>
-                  )}
-                </div>
               </>
             )}
 

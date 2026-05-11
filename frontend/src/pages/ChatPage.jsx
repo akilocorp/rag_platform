@@ -935,18 +935,11 @@ const ChatPage = () => {
                     <p className="text-white/60 text-sm max-w-md mb-10">
                       {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears on the right.'}
                     </p>
-                    {config?.hume_config_id ? (
-                      <EVIAudioControls
-                        humeConfigId={config.hume_config_id}
-                        sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
-                        onTurn={handleEVITurn}
-                        onError={handleEVIError}
-                      />
-                    ) : (
-                      <div className="text-red-300 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
-                        Voice unavailable — this config is missing a Hume EVI Config ID.
-                      </div>
-                    )}
+                    <EVIAudioControls
+                      sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
+                      onTurn={handleEVITurn}
+                      onError={handleEVIError}
+                    />
                 </div>
 
                 <aside className="hidden lg:flex w-96 border-l border-white/10 flex-col bg-black/20">
@@ -1196,14 +1189,6 @@ const ChatPage = () => {
                                 className="flex-1 min-w-0 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
                                 disabled={isLoading}
                             />
-                            {config?.audio_enabled && (config?.model_name || '').toLowerCase().startsWith('claude') && config?.hume_config_id && (
-                                <EVIAudioControls
-                                    humeConfigId={config.hume_config_id}
-                                    sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
-                                    onTurn={handleEVITurn}
-                                    onError={handleEVIError}
-                                />
-                            )}
                             <button
                                 onClick={handleSendWithAnimation}
                                 disabled={isLoading || !input.trim()}

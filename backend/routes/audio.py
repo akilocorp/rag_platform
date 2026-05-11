@@ -129,6 +129,7 @@ def hume_access_token():
         "access_token": data.get("access_token"),
         "expires_in": data.get("expires_in"),
         "token_type": data.get("token_type", "Bearer"),
+        "config_id": os.getenv("HUME_CONFIG_ID"),
     })
 
 
