@@ -38,6 +38,35 @@ const UVPS = [
   },
 ];
 
+// Per-feature visual identity. Each feature gets its own pastel "copy"
+// squircle + a deeper-toned image tile beside it composed from existing
+// brand icons (so the visual hits today; real photography can drop into
+// the same slot later by swapping the icon stack for an <img />).
+const FEATURE_VISUALS = {
+  syllabus: {
+    copyBg: '#FDE3D8',
+    tileBg: '#F6CDB8',
+    accentColor: '#C8472A',
+    primaryIcon: 'question',
+    secondaryIcon: 'pencil',
+  },
+  models: {
+    copyBg: '#F4ECD8',
+    tileBg: '#E7D9B0',
+    accentColor: '#A8832D',
+    primaryIcon: 'pencil',
+    secondaryIcon: 'calculator',
+    tertiaryIcon: 'hashtag',
+  },
+  research: {
+    copyBg: '#D9E5F2',
+    tileBg: '#B9CDE3',
+    accentColor: '#3E6493',
+    primaryIcon: 'glasses',
+    secondaryIcon: 'hashtag',
+  },
+};
+
 const TESTIMONIALS = [
   {
     quote:
@@ -158,14 +187,6 @@ const LandingV2 = () => {
           start: 'top top',
           end: 'bottom top',
           scrub: 0.8,
-          onUpdate: (self) => {
-            const isLight = self.progress > 0.55;
-            navRef.current?.style.setProperty('--nav-fg', isLight ? '#1F1F1F' : '#FFFFFF');
-            navRef.current?.style.setProperty(
-              '--nav-fg-soft',
-              isLight ? '#1F1F1F' : 'rgba(255,255,255,0.85)'
-            );
-          },
         },
       });
 
@@ -198,49 +219,49 @@ const LandingV2 = () => {
           0.65
         );
 
-      // ---- PHILOSOPHY TEXT SCRUB (word-by-word) -------------------------
-      // Each word is a separate <span> with its own initial near-white
-      // color. As the user scrolls, the words darken to #1F1F1F in a
-      // staggered wave — each word's color tween starts a beat after
-      // the previous one, and the whole stagger maps to the section's
-      // scroll progress. Reads like the user is "reading along" with
-      // the scroll.
-      const wordEls = wordRefs.current.filter(Boolean);
-      if (wordEls.length > 0) {
-        const tl = gsap.timeline({
-          scrollTrigger: {
-            trigger: philosophyRef.current,
-            start: 'top 75%',
-            end: 'bottom 40%',
-            scrub: 0.4,
-          },
-        });
-        // Each word pops over its own slice of the timeline with almost
-        // no overlap, so adjacent words don't blur into a gradient
-        // wash — the reader sees one word ignite at a time.
-        wordEls.forEach((el, i) => {
-          tl.to(el, { color: '#1F1F1F', duration: 0.08, ease: 'none' }, i * 0.1);
-        });
-      }
+      // (Focal-point word scrub for the philosophy section is handled
+      // by a scroll-tied rAF loop in a separate useEffect below — it
+      // tracks each word's signed distance from viewport center so the
+      // spotlight follows the user's eye AND words stay dark once
+      // they've passed above the focal line.)
 
-      // ---- FEATURE COPY FADE-UP ----------------------------------------
-      // Each feature section fades its copy up smoothly on enter — no
-      // orbit, no peel-offs; the copy itself is the moment.
+      // ---- FEATURE COPY + TILE FADE-UP ---------------------------------
+      // Each feature section fades both its copy and its paired image
+      // tile up on enter. The tile starts slightly to the side (parallax
+      // hint) and shifts in with a 120ms delay so the eye lands on copy
+      // first, tile second.
       featureRefs.current.forEach((section) => {
         if (!section) return;
         const copy = section.querySelector('[data-feature-copy]');
-        if (!copy) return;
-        gsap.fromTo(
-          copy,
-          { opacity: 0, y: 36 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: 0.9,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: section, start: 'top 75%' },
-          }
-        );
+        const tile = section.querySelector('[data-feature-tile]');
+        const tileOffset = section.getAttribute('data-tile-side') === 'left' ? -36 : 36;
+        if (copy) {
+          gsap.fromTo(
+            copy,
+            { opacity: 0, y: 36 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.9,
+              ease: 'power3.out',
+              scrollTrigger: { trigger: section, start: 'top 75%' },
+            }
+          );
+        }
+        if (tile) {
+          gsap.fromTo(
+            tile,
+            { opacity: 0, x: tileOffset },
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.9,
+              delay: 0.12,
+              ease: 'power3.out',
+              scrollTrigger: { trigger: section, start: 'top 75%' },
+            }
+          );
+        }
       });
 
       // ---- CLOSER STAGGER -----------------------------------------------
@@ -266,6 +287,80 @@ const LandingV2 = () => {
     }, rootRef);
 
     return () => ctx.revert();
+  }, []);
+
+  // ---- PHILOSOPHY WORD SCRUB (highlight-as-you-read) -------------------
+  // Each word darkens as it approaches the vertical middle of the
+  // viewport and STAYS dark after it passes. The reader's eye sees a
+  // "highlighter" sweep down the paragraphs — words ahead are light,
+  // the focal line is being scrubbed in, words already read are locked
+  // dark. No fade-back as text moves up past the focal point.
+  //
+  // Why a rAF loop instead of a GSAP scrub: a scrub timeline reverses
+  // when the user scrolls back, un-darkening previously-read words. A
+  // per-frame signed-distance check keeps the persistence we want and
+  // is cheap (one getBoundingClientRect + one style write per word per
+  // scroll frame). Writing directly to el.style.color survives React
+  // re-renders (e.g. when the testimonial carousel ticks).
+  useEffect(() => {
+    if (reducedMotion()) {
+      for (const el of wordRefs.current) {
+        if (el) el.style.color = '#1F1F1F';
+      }
+      return;
+    }
+
+    const LIGHT = { r: 232, g: 229, b: 221 }; // #E8E5DD
+    const DARK = { r: 31, g: 31, b: 31 };     // #1F1F1F
+    const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+
+    let rafId = null;
+    let scheduled = false;
+
+    const update = () => {
+      scheduled = false;
+      const section = philosophyRef.current;
+      if (!section) return;
+      const sRect = section.getBoundingClientRect();
+      const vh = window.innerHeight;
+      if (sRect.bottom < 0 || sRect.top > vh) return;
+
+      const viewportCenter = vh / 2;
+      // fade = distance below focal line over which a word darkens from
+      //        light → dark as it approaches. Once a word's center reaches
+      //        the focal line (or rises above it), it locks dark.
+      const fade = vh * 0.32;
+
+      for (const el of wordRefs.current) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        const wordCenter = r.top + r.height / 2;
+        const signed = wordCenter - viewportCenter;
+        let t;
+        if (signed <= 0) t = 1;
+        else if (signed >= fade) t = 0;
+        else {
+          const x = 1 - signed / fade;
+          t = x * x * (3 - 2 * x);
+        }
+        el.style.color = `rgb(${lerp(LIGHT.r, DARK.r, t)}, ${lerp(LIGHT.g, DARK.g, t)}, ${lerp(LIGHT.b, DARK.b, t)})`;
+      }
+    };
+
+    const onScroll = () => {
+      if (scheduled) return;
+      scheduled = true;
+      rafId = requestAnimationFrame(update);
+    };
+
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   return (
@@ -297,8 +392,12 @@ const LandingV2 = () => {
         ref={navRef}
         className="fixed top-0 left-0 right-0 z-40 flex items-center justify-end gap-3 px-6 lg:px-12 py-4"
         style={{
-          '--nav-fg': '#FFFFFF',
-          '--nav-fg-soft': 'rgba(255,255,255,0.85)',
+          // Nav text is always dark: the nav sits at z=40 behind the
+          // dark overlay (z=60), so it's only ever visible against the
+          // off-white page bg. The earlier white-on-dark state was dead
+          // code that desynced Sign in's reveal from Get started's.
+          '--nav-fg': '#1F1F1F',
+          '--nav-fg-soft': '#1F1F1F',
           backgroundColor: 'rgba(255,255,255,0.06)',
           backdropFilter: 'blur(14px) saturate(140%)',
           WebkitBackdropFilter: 'blur(14px) saturate(140%)',
@@ -450,6 +549,11 @@ const LandingV2 = () => {
             fontFamily: FONT_DISPLAY,
             fontWeight: 700,
             letterSpacing: '-0.015em',
+            // Initial near-white color lives on the PARENT so words inherit
+            // it. Putting it on each span as inline style would let React's
+            // reconciliation clobber the rAF runtime color values on every
+            // re-render (e.g. when the testimonial carousel auto-rotates).
+            color: '#E8E5DD',
           }}
         >
           {(() => {
@@ -495,7 +599,6 @@ const LandingV2 = () => {
                           ref={(el) => {
                             if (el) wordRefs.current.push(el);
                           }}
-                          style={{ color: '#E8E5DD' }}
                         >
                           {p}
                         </span>
@@ -510,57 +613,156 @@ const LandingV2 = () => {
         </div>
       </section>
 
-      {/* === FEATURE SECTIONS === */}
-      {UVPS.map((uvp, i) => (
-        <section
-          key={uvp.id}
-          id={uvp.id}
-          ref={(el) => (featureRefs.current[i] = el)}
-          className="relative min-h-screen flex items-center px-6 lg:px-24 py-24 z-10"
-          style={{ backgroundColor: '#FAFAF7' }}
-        >
-          <div
-            data-feature-copy
-            className={`max-w-3xl w-full ${
-              uvp.side === 'right' ? 'ml-auto text-right' : 'mr-auto text-left'
-            }`}
+      {/* === FEATURE SECTIONS ===
+          Two-column layout per feature: a pastel squircle holding the
+          copy on one side, a paired image tile on the other. The tile
+          is composed from existing brand icons (primary + secondary,
+          optional tertiary for "many models") so the visual reads on
+          brand and ships today; replacing it with real photography
+          later is a single <img /> swap inside the tile. */}
+      {UVPS.map((uvp, i) => {
+        const visual = FEATURE_VISUALS[uvp.id];
+        // side='right' means copy ALIGNS right → tile sits on the left.
+        const tileOnLeft = uvp.side === 'right';
+        return (
+          <section
+            key={uvp.id}
+            id={uvp.id}
+            ref={(el) => (featureRefs.current[i] = el)}
+            data-tile-side={tileOnLeft ? 'left' : 'right'}
+            className="relative min-h-screen flex items-center px-6 lg:px-16 py-24 z-10"
+            style={{ backgroundColor: '#FAFAF7' }}
           >
-            <span
-              className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
-              style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-            >
-              {`0${i + 1} / 03`}
-            </span>
-            <h2
-              className="text-4xl lg:text-6xl tracking-tight leading-[1.05] mb-6"
-              style={{
-                color: '#1F1F1F',
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {uvp.headline}
-            </h2>
-            <div
-              className="h-px w-20 mb-6"
-              style={{
-                backgroundColor: 'rgba(250,108,67,0.5)',
-                marginLeft: uvp.side === 'right' ? 'auto' : 0,
-              }}
-            />
-            <p
-              className="text-lg lg:text-xl leading-relaxed text-gray-700 max-w-2xl"
-              style={{
-                fontFamily: FONT_BODY,
-                marginLeft: uvp.side === 'right' ? 'auto' : 0,
-              }}
-            >
-              {uvp.body}
-            </p>
-          </div>
-        </section>
-      ))}
+            <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+              {/* Image tile */}
+              <div
+                data-feature-tile
+                className={`flex justify-center ${tileOnLeft ? 'lg:order-1' : 'lg:order-2'}`}
+              >
+                <div
+                  className="relative w-full max-w-[460px] aspect-square flex items-center justify-center"
+                  style={{
+                    backgroundColor: visual.tileBg,
+                    borderRadius: '40px',
+                    boxShadow: '0 18px 48px rgba(31,31,31,0.10)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Soft decorative blob in a slightly deeper tone for depth */}
+                  <div
+                    aria-hidden
+                    className="absolute"
+                    style={{
+                      width: '70%',
+                      height: '70%',
+                      bottom: '-12%',
+                      right: '-12%',
+                      borderRadius: '50%',
+                      backgroundColor: visual.accentColor,
+                      opacity: 0.08,
+                    }}
+                  />
+                  {/* Primary icon (the hero icon for this feature) */}
+                  <img
+                    src={`/illustrations/icon-${visual.primaryIcon}.png`}
+                    alt=""
+                    className="relative z-10"
+                    style={{ width: '52%', height: 'auto' }}
+                  />
+                  {/* Secondary icon — bottom-right, slight tilt */}
+                  <img
+                    src={`/illustrations/icon-${visual.secondaryIcon}.png`}
+                    alt=""
+                    className="absolute z-10"
+                    style={{
+                      width: '22%',
+                      bottom: '13%',
+                      right: '12%',
+                      opacity: 0.9,
+                      transform: 'rotate(8deg)',
+                    }}
+                  />
+                  {/* Optional tertiary icon — top-left, counter-tilt */}
+                  {visual.tertiaryIcon && (
+                    <img
+                      src={`/illustrations/icon-${visual.tertiaryIcon}.png`}
+                      alt=""
+                      className="absolute z-10"
+                      style={{
+                        width: '20%',
+                        top: '14%',
+                        left: '13%',
+                        opacity: 0.88,
+                        transform: 'rotate(-10deg)',
+                      }}
+                    />
+                  )}
+                  {/* Hand-drawn underline accent in the feature's color */}
+                  <svg
+                    aria-hidden
+                    className="absolute z-10"
+                    style={{ bottom: '8%', left: '18%', width: '64%', height: '22px' }}
+                    viewBox="0 0 200 22"
+                    fill="none"
+                    preserveAspectRatio="none"
+                  >
+                    <path
+                      d="M4 14 Q 56 4 102 11 T 196 12"
+                      stroke={visual.accentColor}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      opacity="0.55"
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Copy squircle */}
+              <div
+                data-feature-copy
+                className={`${tileOnLeft ? 'lg:order-2' : 'lg:order-1'}`}
+              >
+                <div
+                  className="relative p-8 lg:p-12"
+                  style={{
+                    backgroundColor: visual.copyBg,
+                    borderRadius: '36px',
+                    boxShadow: '0 10px 36px rgba(31,31,31,0.06)',
+                  }}
+                >
+                  <span
+                    className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
+                    style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
+                  >
+                    {`0${i + 1} / 03`}
+                  </span>
+                  <h2
+                    className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-6"
+                    style={{
+                      color: '#1F1F1F',
+                      fontFamily: FONT_DISPLAY,
+                      fontWeight: 800,
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {uvp.headline}
+                  </h2>
+                  <div
+                    className="h-px w-20 mb-6"
+                    style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
+                  />
+                  <p
+                    className="text-base lg:text-lg leading-relaxed"
+                    style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+                  >
+                    {uvp.body}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        );
+      })}
 
       {/* === TESTIMONIALS === */}
       <section
