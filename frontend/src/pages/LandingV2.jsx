@@ -600,41 +600,26 @@ const LandingV2 = () => {
           below). */}
       {UVPS.map((uvp, i) => {
         const visual = FEATURE_VISUALS[uvp.id];
-        // side='right' means copy ALIGNS right → image sits on the left.
-        const imageOnLeft = uvp.side === 'right';
         return (
           <section
             key={uvp.id}
             id={uvp.id}
             ref={(el) => (featureRefs.current[i] = el)}
-            className="relative flex items-center px-5 py-[10px] z-10"
+            className="relative flex items-center px-10 py-[20px] z-10"
             style={{ backgroundColor: '#FAFAF7' }}
           >
             <div className="w-full">
               <div
                 data-feature-tile
-                className="relative grid grid-cols-1 lg:grid-cols-2 overflow-hidden"
+                className="relative overflow-hidden"
                 style={{
                   backgroundColor: visual.copyBg,
                   borderRadius: '40px',
                   boxShadow: '0 18px 48px rgba(31,31,31,0.10)',
                 }}
               >
-                {/* Image half — fills edge-to-edge, no padding */}
                 <div
-                  className={`relative min-h-[280px] lg:min-h-[520px] ${imageOnLeft ? 'lg:order-1' : 'lg:order-2'}`}
-                >
-                  <img
-                    src={visual.image}
-                    alt={visual.imageAlt}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-
-                {/* Copy half — padded, vertically centered */}
-                <div
-                  className={`p-8 lg:p-14 flex flex-col justify-center ${imageOnLeft ? 'lg:order-2' : 'lg:order-1'}`}
+                  className="p-8 lg:p-14 flex flex-col justify-center"
                 >
                   <span
                     className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
