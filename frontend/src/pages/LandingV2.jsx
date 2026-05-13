@@ -607,10 +607,10 @@ const LandingV2 = () => {
             key={uvp.id}
             id={uvp.id}
             ref={(el) => (featureRefs.current[i] = el)}
-            className="relative min-h-screen flex items-center px-6 lg:px-16 py-24 z-10"
+            className="relative flex items-center px-5 py-[10px] z-10"
             style={{ backgroundColor: '#FAFAF7' }}
           >
-            <div className="w-full max-w-7xl mx-auto">
+            <div className="w-full">
               <div
                 data-feature-tile
                 className="relative grid grid-cols-1 lg:grid-cols-2 overflow-hidden"
