@@ -518,7 +518,7 @@ const LandingV2 = () => {
           following along with the scroll. */}
       <section
         ref={philosophyRef}
-        className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32"
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32 mt-32"
         style={{ backgroundColor: '#FAFAF7' }}
       >
         <div
