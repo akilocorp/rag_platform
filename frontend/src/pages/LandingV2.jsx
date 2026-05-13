@@ -38,32 +38,31 @@ const UVPS = [
   },
 ];
 
-// Per-feature visual identity. Each feature gets its own pastel "copy"
-// squircle + a deeper-toned image tile beside it composed from existing
-// brand icons (so the visual hits today; real photography can drop into
-// the same slot later by swapping the icon stack for an <img />).
+// Per-feature visual identity. Each feature renders as ONE wide tile;
+// half is a relevant stock photo bleeding edge-to-edge, half is the
+// copy on the pastel background. Sections alternate which side the
+// image lands on (controlled by `side` in UVPS).
 const FEATURE_VISUALS = {
   syllabus: {
     copyBg: '#FDE3D8',
-    tileBg: '#F6CDB8',
     accentColor: '#C8472A',
-    primaryIcon: 'question',
-    secondaryIcon: 'pencil',
+    image:
+      'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=1400&q=80&auto=format&fit=crop',
+    imageAlt: 'Stack of open books and notes',
   },
   models: {
     copyBg: '#F4ECD8',
-    tileBg: '#E7D9B0',
     accentColor: '#A8832D',
-    primaryIcon: 'pencil',
-    secondaryIcon: 'calculator',
-    tertiaryIcon: 'hashtag',
+    image:
+      'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1400&q=80&auto=format&fit=crop',
+    imageAlt: 'Abstract AI / neural network visualization',
   },
   research: {
     copyBg: '#D9E5F2',
-    tileBg: '#B9CDE3',
     accentColor: '#3E6493',
-    primaryIcon: 'glasses',
-    secondaryIcon: 'hashtag',
+    image:
+      'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=1400&q=80&auto=format&fit=crop',
+    imageAlt: 'Researcher reviewing data and notes',
   },
 };
 
@@ -225,43 +224,23 @@ const LandingV2 = () => {
       // spotlight follows the user's eye AND words stay dark once
       // they've passed above the focal line.)
 
-      // ---- FEATURE COPY + TILE FADE-UP ---------------------------------
-      // Each feature section fades both its copy and its paired image
-      // tile up on enter. The tile starts slightly to the side (parallax
-      // hint) and shifts in with a 120ms delay so the eye lands on copy
-      // first, tile second.
+      // ---- FEATURE TILE FADE-UP ----------------------------------------
+      // Each feature is one unified tile; fade it up on enter.
       featureRefs.current.forEach((section) => {
         if (!section) return;
-        const copy = section.querySelector('[data-feature-copy]');
         const tile = section.querySelector('[data-feature-tile]');
-        const tileOffset = section.getAttribute('data-tile-side') === 'left' ? -36 : 36;
-        if (copy) {
-          gsap.fromTo(
-            copy,
-            { opacity: 0, y: 36 },
-            {
-              opacity: 1,
-              y: 0,
-              duration: 0.9,
-              ease: 'power3.out',
-              scrollTrigger: { trigger: section, start: 'top 75%' },
-            }
-          );
-        }
-        if (tile) {
-          gsap.fromTo(
-            tile,
-            { opacity: 0, x: tileOffset },
-            {
-              opacity: 1,
-              x: 0,
-              duration: 0.9,
-              delay: 0.12,
-              ease: 'power3.out',
-              scrollTrigger: { trigger: section, start: 'top 75%' },
-            }
-          );
-        }
+        if (!tile) return;
+        gsap.fromTo(
+          tile,
+          { opacity: 0, y: 40 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.9,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: section, start: 'top 75%' },
+          }
+        );
       });
 
       // ---- CLOSER STAGGER -----------------------------------------------
@@ -614,121 +593,48 @@ const LandingV2 = () => {
       </section>
 
       {/* === FEATURE SECTIONS ===
-          Two-column layout per feature: a pastel squircle holding the
-          copy on one side, a paired image tile on the other. The tile
-          is composed from existing brand icons (primary + secondary,
-          optional tertiary for "many models") so the visual reads on
-          brand and ships today; replacing it with real photography
-          later is a single <img /> swap inside the tile. */}
+          One unified wide tile per feature. Split internally 50/50 on
+          lg+: stock photo on one half (edge-to-edge, no inner padding),
+          copy on the other half. Sections alternate which side the
+          image lands on. On mobile the tile stacks (image on top, copy
+          below). */}
       {UVPS.map((uvp, i) => {
         const visual = FEATURE_VISUALS[uvp.id];
-        // side='right' means copy ALIGNS right → tile sits on the left.
-        const tileOnLeft = uvp.side === 'right';
+        // side='right' means copy ALIGNS right → image sits on the left.
+        const imageOnLeft = uvp.side === 'right';
         return (
           <section
             key={uvp.id}
             id={uvp.id}
             ref={(el) => (featureRefs.current[i] = el)}
-            data-tile-side={tileOnLeft ? 'left' : 'right'}
             className="relative min-h-screen flex items-center px-6 lg:px-16 py-24 z-10"
             style={{ backgroundColor: '#FAFAF7' }}
           >
-            <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-              {/* Image tile */}
+            <div className="w-full max-w-7xl mx-auto">
               <div
                 data-feature-tile
-                className={`flex justify-center ${tileOnLeft ? 'lg:order-1' : 'lg:order-2'}`}
+                className="relative grid grid-cols-1 lg:grid-cols-2 overflow-hidden"
+                style={{
+                  backgroundColor: visual.copyBg,
+                  borderRadius: '40px',
+                  boxShadow: '0 18px 48px rgba(31,31,31,0.10)',
+                }}
               >
+                {/* Image half — fills edge-to-edge, no padding */}
                 <div
-                  className="relative w-full max-w-[460px] aspect-square flex items-center justify-center"
-                  style={{
-                    backgroundColor: visual.tileBg,
-                    borderRadius: '40px',
-                    boxShadow: '0 18px 48px rgba(31,31,31,0.10)',
-                    overflow: 'hidden',
-                  }}
+                  className={`relative min-h-[280px] lg:min-h-[520px] ${imageOnLeft ? 'lg:order-1' : 'lg:order-2'}`}
                 >
-                  {/* Soft decorative blob in a slightly deeper tone for depth */}
-                  <div
-                    aria-hidden
-                    className="absolute"
-                    style={{
-                      width: '70%',
-                      height: '70%',
-                      bottom: '-12%',
-                      right: '-12%',
-                      borderRadius: '50%',
-                      backgroundColor: visual.accentColor,
-                      opacity: 0.08,
-                    }}
-                  />
-                  {/* Primary icon (the hero icon for this feature) */}
                   <img
-                    src={`/illustrations/icon-${visual.primaryIcon}.png`}
-                    alt=""
-                    className="relative z-10"
-                    style={{ width: '52%', height: 'auto' }}
+                    src={visual.image}
+                    alt={visual.imageAlt}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    loading="lazy"
                   />
-                  {/* Secondary icon — bottom-right, slight tilt */}
-                  <img
-                    src={`/illustrations/icon-${visual.secondaryIcon}.png`}
-                    alt=""
-                    className="absolute z-10"
-                    style={{
-                      width: '22%',
-                      bottom: '13%',
-                      right: '12%',
-                      opacity: 0.9,
-                      transform: 'rotate(8deg)',
-                    }}
-                  />
-                  {/* Optional tertiary icon — top-left, counter-tilt */}
-                  {visual.tertiaryIcon && (
-                    <img
-                      src={`/illustrations/icon-${visual.tertiaryIcon}.png`}
-                      alt=""
-                      className="absolute z-10"
-                      style={{
-                        width: '20%',
-                        top: '14%',
-                        left: '13%',
-                        opacity: 0.88,
-                        transform: 'rotate(-10deg)',
-                      }}
-                    />
-                  )}
-                  {/* Hand-drawn underline accent in the feature's color */}
-                  <svg
-                    aria-hidden
-                    className="absolute z-10"
-                    style={{ bottom: '8%', left: '18%', width: '64%', height: '22px' }}
-                    viewBox="0 0 200 22"
-                    fill="none"
-                    preserveAspectRatio="none"
-                  >
-                    <path
-                      d="M4 14 Q 56 4 102 11 T 196 12"
-                      stroke={visual.accentColor}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      opacity="0.55"
-                    />
-                  </svg>
                 </div>
-              </div>
 
-              {/* Copy squircle */}
-              <div
-                data-feature-copy
-                className={`${tileOnLeft ? 'lg:order-2' : 'lg:order-1'}`}
-              >
+                {/* Copy half — padded, vertically centered */}
                 <div
-                  className="relative p-8 lg:p-12"
-                  style={{
-                    backgroundColor: visual.copyBg,
-                    borderRadius: '36px',
-                    boxShadow: '0 10px 36px rgba(31,31,31,0.06)',
-                  }}
+                  className={`p-8 lg:p-14 flex flex-col justify-center ${imageOnLeft ? 'lg:order-2' : 'lg:order-1'}`}
                 >
                   <span
                     className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
