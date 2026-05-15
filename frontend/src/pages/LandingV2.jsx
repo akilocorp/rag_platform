@@ -49,64 +49,109 @@ const FEATURE_VISUALS = {
 };
 
 // --- BENTO COMPONENTS ----------------------------------------------------
-// A single tile: copy in the top-left, mockup positioned by the child.
-// Hovering bumps zIndex to 50 so the tile sits ABOVE the page-wide blur
-// overlay (rendered at z=45 in the main tree), keeping the hovered tile
-// crisp while everything else softens.
-const BentoTile = ({ id, index, uvp, visual, hoveredFeature, setHoveredFeature, className = '', children }) => (
-  <div
-    onMouseEnter={() => setHoveredFeature(id)}
-    onMouseLeave={() => setHoveredFeature(null)}
-    className={`relative overflow-hidden p-8 lg:p-10 transition-transform duration-300 ${className}`}
-    style={{
-      backgroundColor: visual.copyBg,
-      borderRadius: '40px',
-      boxShadow: hoveredFeature === id
-        ? '0 28px 64px rgba(31,31,31,0.18)'
-        : '0 18px 48px rgba(31,31,31,0.10)',
-      position: 'relative',
-      zIndex: hoveredFeature === id ? 50 : 'auto',
-      transform: hoveredFeature === id ? 'scale(1.012)' : 'scale(1)',
-    }}
-  >
-    <div className="relative z-10 max-w-[88%] lg:max-w-[68%]">
-      <span
-        className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
-        style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
-      >
-        {`0${index + 1} / 03`}
-      </span>
-      <h2
-        className="text-2xl lg:text-[2.1rem] tracking-tight leading-[1.08] mb-5"
-        style={{
-          color: '#1F1F1F',
-          fontFamily: FONT_DISPLAY,
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-        }}
-      >
-        {uvp.headline}
-      </h2>
-      <div
-        className="h-px w-16 mb-5"
-        style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
-      />
-      <p
-        className="text-sm lg:text-[15px] leading-relaxed"
-        style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
-      >
-        {uvp.body}
-      </p>
-    </div>
-    {children}
-  </div>
-);
+// A single tile split into two NON-OVERLAPPING absolute zones inside the
+// tile's overflow:hidden box: a copy zone (~40%) and a mockup zone (~60%).
+// `mockupSide` picks the split axis:
+//   'bottom' → vertical split (copy on top, mockup on bottom) — used by
+//              the tall Syllabus hero.
+//   'right'  → horizontal split (copy on left, mockup on right) — used
+//              by the short Models + Research tiles.
+// Hovering bumps zIndex to 50 so the tile escapes above the page-wide
+// blur overlay (z=45). Requires the parent grid to have NO stacking
+// context — see clearProps:'transform' on the GSAP grid fade-up.
+const BentoTile = ({
+  id,
+  index,
+  uvp,
+  visual,
+  hoveredFeature,
+  setHoveredFeature,
+  className = '',
+  mockupSide = 'right',
+  children,
+}) => {
+  const isVertical = mockupSide === 'bottom';
+  const copyZoneStyle = isVertical
+    ? { top: 0, left: 0, right: 0, bottom: '60%' }
+    : { top: 0, left: 0, right: '58%', bottom: 0 };
+  const mockupZoneStyle = isVertical
+    ? { top: '40%', left: 0, right: 0, bottom: 0 }
+    : { top: 0, left: '42%', right: 0, bottom: 0 };
 
-const SyllabusMockup = () => (
-  <div className="absolute inset-x-0 bottom-0 pointer-events-none" aria-hidden>
+  return (
     <div
-      className="absolute bottom-[88px] right-[180px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2"
+      onMouseEnter={() => setHoveredFeature(id)}
+      onMouseLeave={() => setHoveredFeature(null)}
+      className={`relative overflow-hidden transition-all duration-300 ${className}`}
+      style={{
+        backgroundColor: visual.copyBg,
+        borderRadius: '40px',
+        boxShadow: hoveredFeature === id
+          ? '0 28px 64px rgba(31,31,31,0.18)'
+          : '0 18px 48px rgba(31,31,31,0.10)',
+        position: 'relative',
+        zIndex: hoveredFeature === id ? 50 : 'auto',
+        transform: hoveredFeature === id ? 'scale(1.012)' : 'scale(1)',
+      }}
+    >
+      {/* Copy zone — fixed 40% of tile, hard-bounded so body text can
+          never wrap into the mockup zone. */}
+      <div className="absolute z-10 p-7 lg:p-8 overflow-hidden" style={copyZoneStyle}>
+        <span
+          className="inline-block text-[11px] font-bold uppercase tracking-[0.22em] mb-3"
+          style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
+        >
+          {`0${index + 1} / 03`}
+        </span>
+        <h2
+          className={`tracking-tight leading-[1.1] mb-3 ${
+            isVertical ? 'text-2xl lg:text-[1.9rem]' : 'text-base lg:text-[1.15rem]'
+          }`}
+          style={{
+            color: '#1F1F1F',
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {uvp.headline}
+        </h2>
+        <div
+          className="h-px w-12 mb-3"
+          style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
+        />
+        <p
+          className={`leading-relaxed ${
+            isVertical ? 'text-sm lg:text-[14.5px]' : 'text-[11.5px] lg:text-[12.5px]'
+          }`}
+          style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+        >
+          {uvp.body}
+        </p>
+      </div>
+      {/* Mockup zone — 60% of tile, positioned context for the mockup's
+          absolute children. Mockups bleed past the *tile* right/bottom
+          edges (clipped by tile overflow-hidden) but never past the zone
+          edge that abuts the copy zone. */}
+      <div className="absolute" style={mockupZoneStyle}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// Mockups receive an already-positioned mockup zone as their parent
+// (via BentoTile), so coordinates here are RELATIVE TO THAT ZONE.
+// Negative offsets bleed past the tile's outer edges (right/bottom) and
+// get clipped by the tile's overflow:hidden — that's the "tilted card
+// peeking off the corner" effect. They never cross the zone edge that
+// borders the copy zone.
+const SyllabusMockup = () => (
+  <>
+    <div
+      className="absolute bottom-[150px] right-[200px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2 pointer-events-none"
       style={{ transform: 'rotate(-16deg)' }}
+      aria-hidden
     >
       <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
       <div className="h-1 bg-gray-300 rounded mb-1"></div>
@@ -114,8 +159,9 @@ const SyllabusMockup = () => (
       <div className="h-1 bg-gray-200 rounded w-1/2"></div>
     </div>
     <div
-      className="absolute bottom-[40px] right-[60px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2"
+      className="absolute bottom-[110px] right-[80px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2 pointer-events-none"
       style={{ transform: 'rotate(11deg)' }}
+      aria-hidden
     >
       <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
       <div className="h-1 bg-gray-300 rounded mb-1"></div>
@@ -123,11 +169,12 @@ const SyllabusMockup = () => (
       <div className="h-1 bg-gray-200 rounded w-1/2"></div>
     </div>
     <div
-      className="absolute bottom-[-30px] right-[-20px] w-[340px] bg-white rounded-2xl p-3.5 shadow-2xl space-y-2 border border-gray-100"
+      className="absolute bottom-[20px] right-[-10px] w-[320px] bg-white rounded-2xl p-3.5 shadow-2xl space-y-2 border border-gray-100 pointer-events-none"
       style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
+      aria-hidden
     >
       <div
-        className="ml-10 px-3 py-2 rounded-2xl text-sm"
+        className="ml-8 px-3 py-2 rounded-2xl text-sm"
         style={{ backgroundColor: '#FA6C43', color: '#fff' }}
       >
         What&rsquo;s the difference between Type I and Type II error?
@@ -139,7 +186,7 @@ const SyllabusMockup = () => (
         </div>
       </div>
     </div>
-  </div>
+  </>
 );
 
 const ModelPill = ({ color, label, selected }) => (
@@ -160,8 +207,12 @@ const ModelPill = ({ color, label, selected }) => (
 
 const ModelsMockup = () => (
   <div
-    className="absolute right-[-40px] top-1/2 pointer-events-none flex flex-col gap-2.5"
-    style={{ transform: 'translateY(-50%) rotate(-5deg)' }}
+    className="absolute pointer-events-none flex flex-col gap-2"
+    style={{
+      right: '-30px',
+      top: '50%',
+      transform: 'translateY(-50%) rotate(-5deg)',
+    }}
     aria-hidden
   >
     <ModelPill color="#D97757" label="Claude" selected={false} />
@@ -173,8 +224,12 @@ const ModelsMockup = () => (
 
 const ResearchMockup = () => (
   <div
-    className="absolute right-[-24px] bottom-[-24px] w-[280px] pointer-events-none"
-    style={{ transform: 'rotate(3deg)' }}
+    className="absolute pointer-events-none w-[260px]"
+    style={{
+      right: '-20px',
+      top: '50%',
+      transform: 'translateY(-50%) rotate(3deg)',
+    }}
     aria-hidden
   >
     <div
@@ -372,6 +427,13 @@ const LandingV2 = () => {
 
       // ---- BENTO FADE-UP -----------------------------------------------
       // The whole 3-tile bento fades up as one cohesive block on enter.
+      // clearProps: 'transform' is CRITICAL — without it, GSAP leaves an
+      // inline `transform: translate(...)` on the grid after the tween,
+      // which creates a stacking context. That stacking context would
+      // trap the hovered tile's z-index:50 inside the grid's painting,
+      // putting it BELOW the blur overlay (z=45) — so the hovered tile
+      // itself would blur. Clearing the transform on completion lets the
+      // tile's z=50 escape globally and stay sharp above the overlay.
       if (featureGridRef.current) {
         gsap.fromTo(
           featureGridRef.current,
@@ -381,6 +443,7 @@ const LandingV2 = () => {
             y: 0,
             duration: 0.9,
             ease: 'power3.out',
+            clearProps: 'transform',
             scrollTrigger: { trigger: featureGridRef.current, start: 'top 80%' },
           }
         );
@@ -599,9 +662,9 @@ const LandingV2 = () => {
         aria-hidden
         className="fixed inset-0 pointer-events-none transition-opacity duration-300"
         style={{
-          backdropFilter: 'blur(4px) saturate(105%)',
-          WebkitBackdropFilter: 'blur(4px) saturate(105%)',
-          backgroundColor: 'rgba(250,250,247,0.18)',
+          backdropFilter: 'blur(2px)',
+          WebkitBackdropFilter: 'blur(2px)',
+          backgroundColor: 'rgba(250,250,247,0.10)',
           zIndex: 45,
           opacity: hoveredFeature ? 1 : 0,
         }}
@@ -776,7 +839,8 @@ const LandingV2 = () => {
             visual={FEATURE_VISUALS['syllabus']}
             hoveredFeature={hoveredFeature}
             setHoveredFeature={setHoveredFeature}
-            className="lg:row-span-2 lg:min-h-[704px]"
+            mockupSide="bottom"
+            className="min-h-[520px] lg:row-span-2 lg:min-h-[704px]"
           >
             <SyllabusMockup />
           </BentoTile>
@@ -788,6 +852,8 @@ const LandingV2 = () => {
             visual={FEATURE_VISUALS['models']}
             hoveredFeature={hoveredFeature}
             setHoveredFeature={setHoveredFeature}
+            mockupSide="right"
+            className="min-h-[320px]"
           >
             <ModelsMockup />
           </BentoTile>
@@ -799,6 +865,8 @@ const LandingV2 = () => {
             visual={FEATURE_VISUALS['research']}
             hoveredFeature={hoveredFeature}
             setHoveredFeature={setHoveredFeature}
+            mockupSide="right"
+            className="min-h-[320px]"
           >
             <ResearchMockup />
           </BentoTile>
