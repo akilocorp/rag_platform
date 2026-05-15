@@ -103,7 +103,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = marked.parse(text || '');
+    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : marked.parse(text || '');
     try {
       renderMathInElement(el, {
         delimiters: KATEX_DELIMITERS,
