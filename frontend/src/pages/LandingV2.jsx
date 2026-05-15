@@ -38,33 +38,176 @@ const UVPS = [
   },
 ];
 
-// Per-feature visual identity. Each feature renders as ONE wide tile;
-// half is a relevant stock photo bleeding edge-to-edge, half is the
-// copy on the pastel background. Sections alternate which side the
-// image lands on (controlled by `side` in UVPS).
+// Per-feature visual identity for the bento. Each tile gets its own
+// pastel `copyBg` and an `accentColor` for the eyebrow + divider.
+// Mockups (SyllabusMockup / ModelsMockup / ResearchMockup) are built
+// inline per tile and bleed off one edge with a slight tilt.
 const FEATURE_VISUALS = {
-  syllabus: {
-    copyBg: '#FDE3D8',
-    accentColor: '#C8472A',
-    image:
-      'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=1400&q=80&auto=format&fit=crop',
-    imageAlt: 'Stack of open books and notes',
-  },
-  models: {
-    copyBg: '#F4ECD8',
-    accentColor: '#A8832D',
-    image:
-      'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1400&q=80&auto=format&fit=crop',
-    imageAlt: 'Abstract AI / neural network visualization',
-  },
-  research: {
-    copyBg: '#D9E5F2',
-    accentColor: '#3E6493',
-    image:
-      'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=1400&q=80&auto=format&fit=crop',
-    imageAlt: 'Researcher reviewing data and notes',
-  },
+  syllabus: { copyBg: '#FDE3D8', accentColor: '#C8472A' },
+  models:   { copyBg: '#F4ECD8', accentColor: '#A8832D' },
+  research: { copyBg: '#D9E5F2', accentColor: '#3E6493' },
 };
+
+// --- BENTO COMPONENTS ----------------------------------------------------
+// A single tile: copy in the top-left, mockup positioned by the child.
+// Hovering bumps zIndex to 50 so the tile sits ABOVE the page-wide blur
+// overlay (rendered at z=45 in the main tree), keeping the hovered tile
+// crisp while everything else softens.
+const BentoTile = ({ id, index, uvp, visual, hoveredFeature, setHoveredFeature, className = '', children }) => (
+  <div
+    onMouseEnter={() => setHoveredFeature(id)}
+    onMouseLeave={() => setHoveredFeature(null)}
+    className={`relative overflow-hidden p-8 lg:p-10 transition-transform duration-300 ${className}`}
+    style={{
+      backgroundColor: visual.copyBg,
+      borderRadius: '40px',
+      boxShadow: hoveredFeature === id
+        ? '0 28px 64px rgba(31,31,31,0.18)'
+        : '0 18px 48px rgba(31,31,31,0.10)',
+      position: 'relative',
+      zIndex: hoveredFeature === id ? 50 : 'auto',
+      transform: hoveredFeature === id ? 'scale(1.012)' : 'scale(1)',
+    }}
+  >
+    <div className="relative z-10 max-w-[88%] lg:max-w-[68%]">
+      <span
+        className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
+        style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
+      >
+        {`0${index + 1} / 03`}
+      </span>
+      <h2
+        className="text-2xl lg:text-[2.1rem] tracking-tight leading-[1.08] mb-5"
+        style={{
+          color: '#1F1F1F',
+          fontFamily: FONT_DISPLAY,
+          fontWeight: 800,
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {uvp.headline}
+      </h2>
+      <div
+        className="h-px w-16 mb-5"
+        style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
+      />
+      <p
+        className="text-sm lg:text-[15px] leading-relaxed"
+        style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+      >
+        {uvp.body}
+      </p>
+    </div>
+    {children}
+  </div>
+);
+
+const SyllabusMockup = () => (
+  <div className="absolute inset-x-0 bottom-0 pointer-events-none" aria-hidden>
+    <div
+      className="absolute bottom-[88px] right-[180px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2"
+      style={{ transform: 'rotate(-16deg)' }}
+    >
+      <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
+      <div className="h-1 bg-gray-300 rounded mb-1"></div>
+      <div className="h-1 bg-gray-200 rounded mb-1 w-3/4"></div>
+      <div className="h-1 bg-gray-200 rounded w-1/2"></div>
+    </div>
+    <div
+      className="absolute bottom-[40px] right-[60px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2"
+      style={{ transform: 'rotate(11deg)' }}
+    >
+      <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
+      <div className="h-1 bg-gray-300 rounded mb-1"></div>
+      <div className="h-1 bg-gray-200 rounded mb-1 w-2/3"></div>
+      <div className="h-1 bg-gray-200 rounded w-1/2"></div>
+    </div>
+    <div
+      className="absolute bottom-[-30px] right-[-20px] w-[340px] bg-white rounded-2xl p-3.5 shadow-2xl space-y-2 border border-gray-100"
+      style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
+    >
+      <div
+        className="ml-10 px-3 py-2 rounded-2xl text-sm"
+        style={{ backgroundColor: '#FA6C43', color: '#fff' }}
+      >
+        What&rsquo;s the difference between Type I and Type II error?
+      </div>
+      <div className="mr-6 px-3 py-2 rounded-2xl bg-gray-100 text-sm text-gray-800">
+        Per your Week 3 lecture (slide 14): Type I rejects a true null hypothesis&hellip;
+        <div className="mt-2 inline-flex items-center gap-1 bg-white rounded-full px-2 py-0.5 text-[10px] border border-gray-200 text-gray-600">
+          <span>&#128196;</span> lecture-3.pdf
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const ModelPill = ({ color, label, selected }) => (
+  <div
+    className="bg-white rounded-full pl-3 pr-4 py-2 shadow-md flex items-center gap-2 text-sm min-w-[160px]"
+    style={{
+      borderColor: selected ? '#FA6C43' : 'rgba(0,0,0,0.05)',
+      borderWidth: selected ? '2px' : '1px',
+      borderStyle: 'solid',
+      fontFamily: FONT_BODY,
+    }}
+  >
+    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }}></div>
+    <span className="font-semibold text-gray-800">{label}</span>
+    {selected && <span className="ml-auto text-[14px] font-bold" style={{ color: '#FA6C43' }}>&#10003;</span>}
+  </div>
+);
+
+const ModelsMockup = () => (
+  <div
+    className="absolute right-[-40px] top-1/2 pointer-events-none flex flex-col gap-2.5"
+    style={{ transform: 'translateY(-50%) rotate(-5deg)' }}
+    aria-hidden
+  >
+    <ModelPill color="#D97757" label="Claude" selected={false} />
+    <ModelPill color="#10A37F" label="GPT-4o"  selected={true}  />
+    <ModelPill color="#4285F4" label="Gemini"  selected={false} />
+    <ModelPill color="#A855F7" label="Haiku"   selected={false} />
+  </div>
+);
+
+const ResearchMockup = () => (
+  <div
+    className="absolute right-[-24px] bottom-[-24px] w-[280px] pointer-events-none"
+    style={{ transform: 'rotate(3deg)' }}
+    aria-hidden
+  >
+    <div
+      className="bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
+      style={{ fontFamily: FONT_BODY }}
+    >
+      <div className="bg-slate-50 px-3 py-2 border-b border-gray-200 flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Cognitive Load Study</span>
+        <span className="text-[9px] text-slate-500">Q4/12</span>
+      </div>
+      <div className="p-3.5 space-y-2.5">
+        <div className="text-[11px] font-semibold text-gray-800 leading-snug">How clear was the bot&rsquo;s response?</div>
+        <div className="flex gap-1.5">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <span
+              key={n}
+              className={`w-6 h-6 rounded text-[10px] flex items-center justify-center font-semibold ${
+                n === 3 ? 'text-white' : 'bg-gray-100 text-gray-500'
+              }`}
+              style={n === 3 ? { backgroundColor: '#3E6493' } : {}}
+            >
+              {n}
+            </span>
+          ))}
+        </div>
+        <div className="bg-gray-50 rounded-md p-2 mt-1 border border-gray-100">
+          <div className="text-[8px] uppercase tracking-wider text-gray-400 mb-1">Embedded chat</div>
+          <div className="text-[10px] text-gray-700">&ldquo;Per slide 14, Type I error is&hellip;&rdquo;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 const TESTIMONIALS = [
   {
@@ -135,11 +278,14 @@ const LandingV2 = () => {
   const skipIntroRef = useRef(null);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
-  const featureRefs = useRef([]);
+  const featureGridRef = useRef(null);
 
   // Testimonial carousel state
   const [activeTestimonial, setActiveTestimonial] = useState(0);
   const [testimonialPaused, setTestimonialPaused] = useState(false);
+  // Bento hover state — drives the page-wide blur overlay (z=45) and
+  // the per-tile zIndex elevation that keeps the hovered tile crisp.
+  const [hoveredFeature, setHoveredFeature] = useState(null);
   useEffect(() => {
     if (testimonialPaused) return;
     const id = setInterval(() => {
@@ -224,24 +370,21 @@ const LandingV2 = () => {
       // spotlight follows the user's eye AND words stay dark once
       // they've passed above the focal line.)
 
-      // ---- FEATURE TILE FADE-UP ----------------------------------------
-      // Each feature is one unified tile; fade it up on enter.
-      featureRefs.current.forEach((section) => {
-        if (!section) return;
-        const tile = section.querySelector('[data-feature-tile]');
-        if (!tile) return;
+      // ---- BENTO FADE-UP -----------------------------------------------
+      // The whole 3-tile bento fades up as one cohesive block on enter.
+      if (featureGridRef.current) {
         gsap.fromTo(
-          tile,
+          featureGridRef.current,
           { opacity: 0, y: 40 },
           {
             opacity: 1,
             y: 0,
             duration: 0.9,
             ease: 'power3.out',
-            scrollTrigger: { trigger: section, start: 'top 75%' },
+            scrollTrigger: { trigger: featureGridRef.current, start: 'top 80%' },
           }
         );
-      });
+      }
 
       // ---- CLOSER STAGGER -----------------------------------------------
       // The 4 icons stagger in. The CTA button's pulse is owned by the
@@ -446,6 +589,24 @@ const LandingV2 = () => {
         }}
       />
 
+      {/* === BENTO HOVER BLUR ===
+          Fades in over the entire viewport when any feature tile is
+          hovered. Sits at z=45 — above nav (z=40), the notebook grid
+          (z=1), and other sections (z=auto) — so they all blur. The
+          hovered tile is bumped to z=50 in BentoTile, keeping it sharp.
+          pointer-events:none so the hover never gets interrupted. */}
+      <div
+        aria-hidden
+        className="fixed inset-0 pointer-events-none transition-opacity duration-300"
+        style={{
+          backdropFilter: 'blur(4px) saturate(105%)',
+          WebkitBackdropFilter: 'blur(4px) saturate(105%)',
+          backgroundColor: 'rgba(250,250,247,0.18)',
+          zIndex: 45,
+          opacity: hoveredFeature ? 1 : 0,
+        }}
+      />
+
       {/* === HERO === */}
       <section
         ref={heroRef}
@@ -592,68 +753,57 @@ const LandingV2 = () => {
         </div>
       </section>
 
-      {/* === FEATURE SECTIONS ===
-          One unified wide tile per feature. Split internally 50/50 on
-          lg+: stock photo on one half (edge-to-edge, no inner padding),
-          copy on the other half. Sections alternate which side the
-          image lands on. On mobile the tile stacks (image on top, copy
-          below). */}
-      {UVPS.map((uvp, i) => {
-        const visual = FEATURE_VISUALS[uvp.id];
-        return (
-          <section
-            key={uvp.id}
-            id={uvp.id}
-            ref={(el) => (featureRefs.current[i] = el)}
-            className="relative flex items-center px-10 py-[20px] z-10"
-            style={{ backgroundColor: '#FAFAF7' }}
+      {/* === FEATURES (BENTO) ===
+          Asymmetric two-column bento on lg+: Syllabus is the tall hero
+          on the left (spans 2 rows), Models + Research stack on the
+          right. Each tile owns a product mockup that bleeds off one
+          edge with a slight tilt. Hovering any tile bumps its zIndex
+          above the page-wide blur overlay (z=45), so the hovered tile
+          stays sharp while the nav, grid, and other tiles blur. */}
+      <section
+        id="features"
+        className="relative px-6 lg:px-10 py-16 lg:py-24"
+        style={{ backgroundColor: '#FAFAF7' }}
+      >
+        <div
+          ref={featureGridRef}
+          className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-6 lg:auto-rows-[340px]"
+        >
+          <BentoTile
+            id="syllabus"
+            index={0}
+            uvp={UVPS[0]}
+            visual={FEATURE_VISUALS['syllabus']}
+            hoveredFeature={hoveredFeature}
+            setHoveredFeature={setHoveredFeature}
+            className="lg:row-span-2 lg:min-h-[704px]"
           >
-            <div className="w-full">
-              <div
-                data-feature-tile
-                className="relative overflow-hidden"
-                style={{
-                  backgroundColor: visual.copyBg,
-                  borderRadius: '40px',
-                  boxShadow: '0 18px 48px rgba(31,31,31,0.10)',
-                }}
-              >
-                <div
-                  className="p-8 lg:p-14 flex flex-col justify-center"
-                >
-                  <span
-                    className="inline-block text-xs font-bold uppercase tracking-[0.22em] mb-4"
-                    style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
-                  >
-                    {`0${i + 1} / 03`}
-                  </span>
-                  <h2
-                    className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-6"
-                    style={{
-                      color: '#1F1F1F',
-                      fontFamily: FONT_DISPLAY,
-                      fontWeight: 800,
-                      letterSpacing: '-0.02em',
-                    }}
-                  >
-                    {uvp.headline}
-                  </h2>
-                  <div
-                    className="h-px w-20 mb-6"
-                    style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
-                  />
-                  <p
-                    className="text-base lg:text-lg leading-relaxed"
-                    style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
-                  >
-                    {uvp.body}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-        );
-      })}
+            <SyllabusMockup />
+          </BentoTile>
+
+          <BentoTile
+            id="models"
+            index={1}
+            uvp={UVPS[1]}
+            visual={FEATURE_VISUALS['models']}
+            hoveredFeature={hoveredFeature}
+            setHoveredFeature={setHoveredFeature}
+          >
+            <ModelsMockup />
+          </BentoTile>
+
+          <BentoTile
+            id="research"
+            index={2}
+            uvp={UVPS[2]}
+            visual={FEATURE_VISUALS['research']}
+            hoveredFeature={hoveredFeature}
+            setHoveredFeature={setHoveredFeature}
+          >
+            <ResearchMockup />
+          </BentoTile>
+        </div>
+      </section>
 
       {/* === TESTIMONIALS === */}
       <section
