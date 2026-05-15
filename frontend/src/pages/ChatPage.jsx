@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiMoreVertical } from 'react-icons/fi';
+import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiMoreVertical, FiImage } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -91,9 +91,11 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
   const attachedFiles = message.attachedFiles || [];
+  const attachedImages = message.attachedImages || [];
   const isUser = sender === 'user';
   const hasToolCalls = toolCalls.length > 0;
   const hasAttachedFiles = isUser && attachedFiles.length > 0;
+  const hasAttachedImages = isUser && attachedImages.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
@@ -131,6 +133,18 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl rounded-br-none px-4 py-3 sm:px-5 shadow-sm'
           : 'text-[#222] mt-1'
       }`}>
+          {hasAttachedImages && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {attachedImages.map((img) => (
+                <img
+                  key={img.id}
+                  src={img.dataUrl}
+                  alt="attached"
+                  className="max-h-48 max-w-xs rounded-xl object-cover border border-white/20"
+                />
+              ))}
+            </div>
+          )}
           {hasAttachedFiles && (
             <div className="flex flex-wrap gap-1.5 mb-2 -mx-1">
               {attachedFiles.map((f) => (
@@ -260,6 +274,7 @@ const ChatPage = () => {
   // Variant A: tracks which library files are selected for this chat session
   const [selectedFileIds, setSelectedFileIds] = useState([]);
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
+  const [pendingImages, setPendingImages] = useState([]);
   const libraryLoadedRef = useRef(false);
 
   // --- REFS (The "Brain" of the component) ---
@@ -270,6 +285,7 @@ const ChatPage = () => {
   const isStreamingRef = useRef(false); // New: specifically tracks if we are in the middle of a fetch
   const inputRef = useRef(null);
   const attachInputRef = useRef(null);
+  const imageInputRef = useRef(null);
   const optionsRef = useRef(null);
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
@@ -528,6 +544,39 @@ const ChatPage = () => {
     e.target.value = '';
   };
 
+  const handleImageChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPendingImages((prev) => [
+          ...prev,
+          { id: `img_${Date.now()}_${Math.random()}`, dataUrl: ev.target.result, mimeType: file.type },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const handlePaste = (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter((item) => item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    imageItems.forEach((item) => {
+      const file = item.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPendingImages((prev) => [
+          ...prev,
+          { id: `img_${Date.now()}_${Math.random()}`, dataUrl: ev.target.result, mimeType: item.type },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const removeFromSession = (fileId) => {
     setSessionUploads((prev) => prev.filter((f) => f._id !== fileId));
     setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
@@ -610,11 +659,12 @@ const ChatPage = () => {
         folder_path: f.folder_path,
         is_url: f.is_url,
     }));
+    const snapshotImages = [...pendingImages];
 
     // C. Optimistic UI Update
     setMessages(prev => [
         ...prev,
-        { sender: 'user', text: textInput, attachedFiles },
+        { sender: 'user', text: textInput, attachedFiles, attachedImages: snapshotImages },
         { sender: 'ai', text: '', isTyping: true }
     ]);
 
@@ -622,6 +672,9 @@ const ChatPage = () => {
     if (attachedFiles.length > 0) {
         setSelectedFileIds([]);
         setSessionUploads([]);
+    }
+    if (snapshotImages.length > 0) {
+        setPendingImages([]);
     }
 
     // D. Navigation (Non-blocking)
@@ -642,6 +695,7 @@ const ChatPage = () => {
           variant,
           selected_file_ids: variant === 'A' ? selectedFileIds : [],
           attached_files: attachedFiles,
+          images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
         })
       });
 
@@ -733,7 +787,7 @@ const ChatPage = () => {
       setIsLoading(false);
       isStreamingRef.current = false; // "Unlock" the history loader
     }
-  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles]);
+  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles, pendingImages]);
 
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
 
@@ -1145,6 +1199,25 @@ const ChatPage = () => {
                             </div>
                             );
                         })()}
+                        {pendingImages.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {pendingImages.map((img) => (
+                                    <div key={img.id} className="relative group">
+                                        <img
+                                            src={img.dataUrl}
+                                            alt="pending"
+                                            className="h-16 w-16 object-cover rounded-xl border border-gray-200"
+                                        />
+                                        <button
+                                            onClick={() => setPendingImages((prev) => prev.filter((i) => i.id !== img.id))}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            <FiX className="w-2.5 h-2.5" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <div className="relative flex items-center gap-1.5 sm:gap-2">
                             <button
                                 onClick={handleAttachPick}
@@ -1165,6 +1238,22 @@ const ChatPage = () => {
                                 className="hidden"
                                 onChange={handleAttachChange}
                                 accept=".pdf,.txt,.md,.docx,.pptx"
+                            />
+                            <button
+                                onClick={() => imageInputRef.current?.click()}
+                                disabled={isUploading}
+                                title="Attach image"
+                                className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
+                            >
+                                <FiImage className="text-base" />
+                            </button>
+                            <input
+                                ref={imageInputRef}
+                                type="file"
+                                multiple
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageChange}
                             />
                             {(!config?.bot_type || config?.bot_type === 'chat') && (
                                 <VoiceRecordButton onTranscribed={handleVoiceTranscribed} disabled={isLoading} />
@@ -1206,6 +1295,7 @@ const ChatPage = () => {
                                     handleSendWithAnimation();
                                   }
                                 }}
+                                onPaste={handlePaste}
                                 placeholder="Type a message..."
                                 rows={1}
                                 className="flex-1 min-w-0 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"

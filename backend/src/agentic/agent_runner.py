@@ -125,6 +125,7 @@ def stream_agentic_response(
     user_input: str,
     history_messages: List[Dict[str, Any]],
     ctx: ToolContext,
+    images: List[Dict[str, Any]] = None,
 ) -> Iterator[Dict[str, Any]]:
     """
     Run a single agentic turn.
@@ -183,7 +184,11 @@ def stream_agentic_response(
         tools_param[-1] = {**tools_param[-1], "cache_control": {"type": "ephemeral"}}
 
     messages = list(history_messages)
-    messages.append({"role": "user", "content": user_input})
+    if images:
+        user_content = list(images) + [{"type": "text", "text": user_input}]
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": user_input})
 
     full_trace: List[Dict[str, Any]] = []
     final_stop_reason = "end_turn"

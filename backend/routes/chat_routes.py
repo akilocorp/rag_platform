@@ -427,9 +427,30 @@ def _selected_files_context_note(selected_file_ids, user_id_for_history):
         return ""
 
 
+def _parse_image_blocks(images):
+    """Convert frontend dataUrl list to Anthropic image content blocks."""
+    blocks = []
+    for img in (images or []):
+        data_url = img.get('dataUrl', '')
+        if not data_url.startswith('data:'):
+            continue
+        try:
+            header, b64data = data_url.split(',', 1)
+            media_type = header.split(':')[1].split(';')[0]
+            if media_type not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+                continue
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64data},
+            })
+        except Exception:
+            continue
+    return blocks
+
+
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
-                     attached_files):
+                     attached_files, images=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -450,6 +471,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         # below stays clean — the note is model-only.
         note = _selected_files_context_note(selected_file_ids, user_id_for_history)
         agent_input = note + user_input if note else user_input
+        image_blocks = _parse_image_blocks(images)
 
         ctx = ToolContext(
             user_id=user_id_for_history if user_id_for_history != "anonymous" else None,
@@ -468,6 +490,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             user_input=agent_input,
             history_messages=history_messages,
             ctx=ctx,
+            images=image_blocks,
         ):
             etype = event.get("type")
             if etype == "token":
@@ -520,6 +543,7 @@ def chat(config_id, chat_id):
     # Snapshot of file metadata the frontend showed as chips at send time;
     # persisted on the user message so the chips survive a history reload.
     attached_files = data.get('attached_files', []) or []
+    images = data.get('images', []) or []
 
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
@@ -561,6 +585,7 @@ def chat(config_id, chat_id):
                 file_variant=file_variant,
                 selected_file_ids=selected_file_ids,
                 attached_files=attached_files,
+                images=images,
             )),
             mimetype='application/x-ndjson',
         )
