@@ -104,7 +104,7 @@ const BentoTile = ({
           {`0${index + 1} / 03`}
         </span>
         <h2
-          className={`tracking-tight leading-[1.1] mb-3 ${
+          className={`tracking-tight leading-[1.1] mb-2.5 ${
             isVertical ? 'text-2xl lg:text-[1.9rem]' : 'text-base lg:text-[1.15rem]'
           }`}
           style={{
@@ -117,12 +117,12 @@ const BentoTile = ({
           {uvp.headline}
         </h2>
         <div
-          className="h-px w-12 mb-3"
+          className="h-px w-12 mb-2.5"
           style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
         />
         <p
-          className={`leading-relaxed ${
-            isVertical ? 'text-sm lg:text-[14.5px]' : 'text-[11.5px] lg:text-[12.5px]'
+          className={`leading-snug ${
+            isVertical ? 'text-[12.5px] lg:text-[13px]' : 'text-[10.5px] lg:text-[11px]'
           }`}
           style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
         >
