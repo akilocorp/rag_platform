@@ -20,7 +20,6 @@ Werkzeug
 gunicorn
 dashscope
 docx2txt
-PyPDF2
 pypdf
 python-pptx
 trafilatura
@@ -29,6 +28,3 @@ anthropic
 hume
 pymupdf
 Flask-SocketIO
-python-pptx
-trafilatura
-
