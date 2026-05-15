@@ -98,6 +98,8 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
   const sources = !isUser ? extractSources(toolCalls) : [];
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const hasThinking = !isUser && (hasToolCalls || sources.length > 0);
 
   useLayoutEffect(() => {
     if (showThinking) return;
@@ -150,11 +152,52 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
             </div>
           )}
 
-          {!isUser && hasToolCalls && (
-            <div className="mb-1">
-              {toolCalls.map((tc) => (
-                <ToolStatusPill key={tc.id} toolCall={tc} />
-              ))}
+          {hasThinking && (
+            <div className="mb-3">
+              <button
+                onClick={() => setThinkingOpen(o => !o)}
+                className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-[#FA6C43] transition-colors select-none"
+              >
+                <svg
+                  className={`w-3 h-3 transition-transform duration-200 ${thinkingOpen ? 'rotate-90' : ''}`}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span>{thinkingOpen ? 'Hide thinking' : 'Show thinking'}</span>
+              </button>
+
+              {thinkingOpen && (
+                <div className="mt-2 pl-2 border-l-2 border-gray-100">
+                  {hasToolCalls && (
+                    <div className="mb-1">
+                      {toolCalls.map((tc) => (
+                        <ToolStatusPill key={tc.id} toolCall={tc} />
+                      ))}
+                    </div>
+                  )}
+                  {sources.length > 0 && (
+                    <div className={hasToolCalls ? 'mt-2' : ''}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Sources</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sources.map((s, i) => (
+                          <a
+                            key={s.url}
+                            href={s.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
+                            title={s.title ? `${s.title} — ${s.url}` : s.url}
+                          >
+                            <span className="text-[#FA6C43] font-semibold">[{i + 1}]</span>
+                            <span className="truncate">{s.title}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -167,27 +210,6 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
                 isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
               }`}
             />
-          )}
-
-          {!isUser && sources.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Sources</p>
-              <div className="flex flex-wrap gap-1.5">
-                {sources.map((s, i) => (
-                  <a
-                    key={s.url}
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
-                    title={s.title ? `${s.title} — ${s.url}` : s.url}
-                  >
-                    <span className="text-[#FA6C43] font-semibold">[{i + 1}]</span>
-                    <span className="truncate">{s.title}</span>
-                  </a>
-                ))}
-              </div>
-            </div>
           )}
       </div>
 
