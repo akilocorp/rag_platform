@@ -123,12 +123,12 @@
     margin-bottom: 0.4em;
     display: block;
   }
-  .chat-message-md h1 { font-size: 1.4em; letter-spacing: -0.01em; }
-  .chat-message-md h2 { font-size: 1.3em; letter-spacing: -0.005em; }
-  .chat-message-md h3 { font-size: 1.15em; }
-  .chat-message-md h4 { font-size: 1.0em; text-transform: uppercase; letter-spacing: 0.04em; }
+  .chat-message-md h1 { font-size: 1.75em; letter-spacing: -0.02em; }
+  .chat-message-md h2 { font-size: 1.45em; letter-spacing: -0.01em; }
+  .chat-message-md h3 { font-size: 1.2em; }
+  .chat-message-md h4 { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.04em; }
   .chat-message-md h5,
-  .chat-message-md h6 { font-size: 0.95em; }
+  .chat-message-md h6 { font-size: 1.0em; }
   /* Section headers carry a thin brand-colored rule under them so they
      read as a clear divider between header and body. */
   .chat-message-md h1,
@@ -149,12 +149,10 @@
   .chat-message-md--light h1,
   .chat-message-md--light h2,
   .chat-message-md--light h3,
-  .chat-message-md--light h4 {
-    color: #FA6C43;
-  }
+  .chat-message-md--light h4,
   .chat-message-md--light h5,
   .chat-message-md--light h6 {
-    color: #374151;
+    color: #111827;
   }
   .chat-message-md--invert h1,
   .chat-message-md--invert h2,
