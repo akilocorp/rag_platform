@@ -19,6 +19,7 @@ import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
+import StudentChatPage from './pages/StudentChatPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -45,6 +46,7 @@ function App() {
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/student-register" element={<StudentRegistrationPage />} />
+          <Route path="/student-chat" element={<StudentChatPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />

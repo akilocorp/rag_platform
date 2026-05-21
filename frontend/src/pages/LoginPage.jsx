@@ -74,10 +74,11 @@ const LoginPage = () => {
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
-        localStorage.setItem('userRole', response.data.user?.role || 'professor');
+        const userRole = response.data.user?.role || 'professor';
+        localStorage.setItem('userRole', userRole);
         setErrors({});
         setFormError(null);
-        navigate('/config_list', { replace: true });
+        navigate(userRole === 'student' ? '/student-chat' : '/config_list', { replace: true });
       } else {
         setFormError('Login failed: No authentication token received.');
       }
