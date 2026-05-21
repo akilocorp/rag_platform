@@ -755,7 +755,12 @@ const LandingV2 = () => {
                   type="text"
                   placeholder="Ask anything…"
                   className="flex-1 bg-transparent outline-none text-base placeholder:text-white/40"
-                  style={{ color: '#FFF', fontFamily: FONT_BODY }}
+                  style={{
+                    color: '#FFF',
+                    fontFamily: FONT_BODY,
+                    border: 'none',
+                    boxShadow: 'none',
+                  }}
                 />
                 <button
                   type="button"
