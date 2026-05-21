@@ -36,9 +36,22 @@ def _get_transcript(chat_histories, session_id):
         return ''
     lines = []
     for entry in (doc.get('History') or []):
+        # History entries may be dicts or JSON strings depending on langchain version
+        if isinstance(entry, str):
+            try:
+                entry = json.loads(entry)
+            except Exception:
+                continue
+        if not isinstance(entry, dict):
+            continue
         role = 'Student' if entry.get('type') == 'human' else 'AI'
         data = entry.get('data') or {}
-        content = data.get('content', '')
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = {}
+        content = data.get('content', '') if isinstance(data, dict) else ''
         if isinstance(content, list):
             content = ' '.join(b.get('text', '') for b in content if isinstance(b, dict))
         if content:
@@ -76,6 +89,8 @@ Base the score on: relevance and depth of responses, quality of reasoning, and h
 
     try:
         result = _llm_json(api_key, prompt)
+        if not isinstance(result, dict):
+            raise ValueError(f'LLM returned non-dict: {type(result)}')
         result.setdefault('score', 0)
         result.setdefault('summary', '')
         result.setdefault('strengths', [])
@@ -161,9 +176,17 @@ def analyze_config(config_id):
 
         analyses = []
         for item in labeled:
-            transcript = _get_transcript(chat_histories, item['session_id'])
-            analyses.append(_analyze_one(api_key, system_prompt, transcript,
-                                         item['display_name'], item['session_id'], item['message_count']))
+            try:
+                transcript = _get_transcript(chat_histories, item['session_id'])
+                analyses.append(_analyze_one(api_key, system_prompt, transcript,
+                                             item['display_name'], item['session_id'], item['message_count']))
+            except Exception as e:
+                logger.error(f'Failed to analyze session {item["session_id"]}: {e}')
+                analyses.append({
+                    'session_id': item['session_id'], 'display_name': item['display_name'],
+                    'score': 0, 'message_count': item['message_count'],
+                    'summary': 'Could not analyze this session.', 'strengths': [], 'improvements': [],
+                })
 
         scored = [a for a in analyses if a.get('score', 0) > 0]
         avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
