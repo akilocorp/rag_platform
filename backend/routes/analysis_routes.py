@@ -3,7 +3,7 @@ import logging
 import re
 
 from bson import ObjectId
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -33,9 +33,12 @@ def _llm_json(api_key, prompt):
 def _get_transcript(chat_histories, session_id):
     doc = chat_histories.find_one({'SessionId': session_id})
     if not doc:
+        logger.warning(f'_get_transcript: no doc found for SessionId={session_id!r}')
         return ''
+    history_raw = doc.get('History') or []
+    logger.info(f'_get_transcript: SessionId={session_id!r} history_len={len(history_raw)} first_type={type(history_raw[0]).__name__ if history_raw else "empty"}')
     lines = []
-    for entry in (doc.get('History') or []):
+    for entry in history_raw:
         # History entries may be dicts or JSON strings depending on langchain version
         if isinstance(entry, str):
             try:
@@ -59,7 +62,7 @@ def _get_transcript(chat_histories, session_id):
     return '\n'.join(lines)
 
 
-def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, message_count):
+def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, message_count, grading_criteria=''):
     if not transcript.strip():
         return {
             'session_id': session_id, 'display_name': display_name,
@@ -69,11 +72,12 @@ def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, m
         }
 
     context = system_prompt.strip() or 'a general AI assistant conversation'
+    criteria_block = f"\nGrading criteria from professor:\n{grading_criteria.strip()}\n" if grading_criteria and grading_criteria.strip() else ''
     prompt = f"""You are an academic performance evaluator assessing a student's participation in an AI-assisted simulation.
 
 The AI assistant's role and instructions were:
 {context}
-
+{criteria_block}
 Student conversation transcript:
 {transcript}
 
@@ -85,7 +89,7 @@ Evaluate this student and return a JSON object with exactly these fields:
   "improvements": ["<specific area to improve>", "<another area>"]
 }}
 
-Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals. Return only the JSON object."""
+Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals.{' Follow the professor\'s grading criteria above.' if criteria_block else ''} Return only the JSON object."""
 
     try:
         result = _llm_json(api_key, prompt)
@@ -131,6 +135,43 @@ Return only the JSON object."""
         return {'overall_insight': 'Unable to generate class summary.', 'common_strengths': [], 'common_weaknesses': []}
 
 
+@analysis_bp.route('/config/<string:config_id>/analyze-debug', methods=['GET'])
+@jwt_required()
+def analyze_debug(config_id):
+    """Diagnostic: show raw session/history data for a config."""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+        config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
+        if not config_doc or str(config_doc.get('user_id', '')) != user_id:
+            return jsonify({'error': 'Not found or forbidden'}), 403
+
+        sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
+        result = []
+        for s in sessions[:5]:  # first 5 only
+            sid = s.get('session_id', str(s['_id']))
+            hist_doc = db['chat_histories'].find_one({'SessionId': sid})
+            history_sample = None
+            if hist_doc:
+                raw = hist_doc.get('History') or []
+                history_sample = {
+                    'count': len(raw),
+                    'first_entry_type': type(raw[0]).__name__ if raw else None,
+                    'first_entry_preview': str(raw[0])[:300] if raw else None,
+                }
+            result.append({
+                'session_id': sid,
+                'user_id': s.get('user_id'),
+                'history_doc_found': hist_doc is not None,
+                'history_keys': list(hist_doc.keys()) if hist_doc else None,
+                'history_sample': history_sample,
+            })
+        return jsonify({'sessions': result, 'total': len(sessions)})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'tb': traceback.format_exc()}), 500
+
+
 @analysis_bp.route('/config/<string:config_id>/analyze', methods=['POST'])
 @jwt_required()
 def analyze_config(config_id):
@@ -146,6 +187,7 @@ def analyze_config(config_id):
             return jsonify({'error': 'Forbidden'}), 403
 
         system_prompt = config_doc.get('instructions', '') or ''
+        grading_criteria = (request.get_json(silent=True) or {}).get('grading_criteria', '')
         sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
         if not sessions:
             return jsonify({'error': 'No sessions found for this config'}), 400
@@ -179,7 +221,8 @@ def analyze_config(config_id):
             try:
                 transcript = _get_transcript(chat_histories, item['session_id'])
                 analyses.append(_analyze_one(api_key, system_prompt, transcript,
-                                             item['display_name'], item['session_id'], item['message_count']))
+                                             item['display_name'], item['session_id'], item['message_count'],
+                                             grading_criteria))
             except Exception as e:
                 logger.error(f'Failed to analyze session {item["session_id"]}: {e}')
                 analyses.append({

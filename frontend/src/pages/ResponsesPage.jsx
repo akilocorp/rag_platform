@@ -186,16 +186,62 @@ const StudentRow = ({ student, rank, expanded, onToggle }) => {
   );
 };
 
+const GRADING_TEMPLATES = [
+  {
+    id: 'hr_interview',
+    label: 'HR Interview',
+    emoji: '💼',
+    criteria: 'Score based on: (1) Use of STAR method (Situation, Task, Action, Result) in behavioral answers, (2) Professional tone and clarity, (3) Relevance of examples to the role, (4) Confidence and composure in handling tough questions.',
+  },
+  {
+    id: 'participation',
+    label: 'Participation',
+    emoji: '🙋',
+    criteria: 'Score based on: (1) Active engagement with the AI — asking follow-up questions, clarifying, responding fully, (2) Number and depth of messages, (3) Staying on-topic, (4) Demonstrating curiosity and initiative.',
+  },
+  {
+    id: 'critical_thinking',
+    label: 'Critical Thinking',
+    emoji: '🧠',
+    criteria: 'Score based on: (1) Quality of reasoning and logical arguments, (2) Ability to challenge assumptions or explore multiple perspectives, (3) Use of evidence or examples to support claims, (4) Depth of analysis beyond surface-level answers.',
+  },
+  {
+    id: 'sales_negotiation',
+    label: 'Sales & Negotiation',
+    emoji: '🤝',
+    criteria: 'Score based on: (1) Ability to identify customer pain points and tailor the pitch, (2) Handling objections with concrete, value-focused responses, (3) Persistence and adaptability, (4) Moving toward a close or agreement.',
+  },
+  {
+    id: 'presentation',
+    label: 'Presentation Skills',
+    emoji: '🎤',
+    criteria: 'Score based on: (1) Clear structure (intro, body, conclusion), (2) Concise and confident language, (3) Ability to explain complex ideas simply, (4) Responsiveness to questions from the audience (AI).',
+  },
+  {
+    id: 'socratic',
+    label: 'Socratic Dialogue',
+    emoji: '🏛️',
+    criteria: 'Score based on: (1) Depth of engagement with guiding questions, (2) Evidence of conceptual understanding developed through dialogue, (3) Intellectual honesty — acknowledging gaps and building on them, (4) Quality of questions the student asks back.',
+  },
+];
+
 const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [expandedStudent, setExpandedStudent] = useState(null);
+  const [gradingCriteria, setGradingCriteria] = useState('');
+  const [activeTemplate, setActiveTemplate] = useState(null);
+
+  const applyTemplate = (t) => {
+    setGradingCriteria(t.criteria);
+    setActiveTemplate(t.id);
+  };
 
   const handleAnalyze = async () => {
     setAnalyzing(true); setError('');
     try {
-      const res = await apiClient.post(`/config/${configId}/analyze`);
+      const res = await apiClient.post(`/config/${configId}/analyze`, { grading_criteria: gradingCriteria });
       setAnalysis(res.data);
     } catch (e) {
       setError(e.response?.data?.error || 'Analysis failed. Please try again.');
@@ -213,19 +259,54 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   );
 
   if (!analysis && !analyzing) return (
-    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-10 flex flex-col items-center text-center gap-6">
-      <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center">
-        <FaBrain className="text-4xl text-[#FA6C43]" />
+    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8 flex flex-col gap-7 max-w-2xl mx-auto">
+      <div className="flex flex-col items-center text-center gap-3">
+        <div className="w-16 h-16 bg-[#F9D0C4]/40 rounded-2xl flex items-center justify-center">
+          <FaBrain className="text-3xl text-[#FA6C43]" />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-[#222] mb-1">AI-Powered Class Insights</h3>
+          <p className="text-gray-500 text-sm">Score each student and get a full class summary — tailored to your simulation.</p>
+        </div>
+        <div className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · est. {Math.ceil(sessions.length * 1.5)}–{sessions.length * 3}s</div>
       </div>
+
+      {/* Grading templates */}
       <div>
-        <h3 className="text-xl font-bold text-[#222] mb-2">AI-Powered Class Insights</h3>
-        <p className="text-gray-500 text-sm max-w-md">
-          Automatically score each student's performance, identify top performers, and get a full class summary — tailored to your simulation prompt.
-        </p>
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Quick Templates</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {GRADING_TEMPLATES.map(t => (
+            <button
+              key={t.id}
+              onClick={() => activeTemplate === t.id ? (setActiveTemplate(null), setGradingCriteria('')) : applyTemplate(t)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all text-left ${
+                activeTemplate === t.id
+                  ? 'bg-[#FA6C43]/10 border-[#FA6C43]/40 text-[#FA6C43]'
+                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white'
+              }`}
+            >
+              <span>{t.emoji}</span> {t.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · est. {Math.ceil(sessions.length * 1.5)}–{sessions.length * 3}s</div>
-      {error && <p className="text-sm text-red-500">{error}</p>}
-      <button onClick={handleAnalyze} className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm active:scale-[0.98] flex items-center gap-2">
+
+      {/* Custom criteria textarea */}
+      <div>
+        <label className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 block">
+          Grading Criteria <span className="normal-case font-normal text-gray-400">(optional — or customize a template)</span>
+        </label>
+        <textarea
+          value={gradingCriteria}
+          onChange={e => { setGradingCriteria(e.target.value); setActiveTemplate(null); }}
+          placeholder="Describe how you want the AI to evaluate students. E.g. 'Focus on whether students used evidence to support their claims and asked clarifying questions.'"
+          rows={4}
+          className="w-full text-sm border border-gray-200 rounded-xl px-4 py-3 text-gray-700 placeholder-gray-300 focus:outline-none focus:border-[#FA6C43] focus:ring-1 focus:ring-[#FA6C43]/30 resize-none transition-colors"
+        />
+      </div>
+
+      {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+      <button onClick={handleAnalyze} className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 w-full">
         <FaBrain className="text-sm" /> Generate Analysis
       </button>
     </div>
@@ -320,7 +401,7 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-[#222]">All Students</h2>
           <button
-            onClick={handleAnalyze}
+            onClick={() => { setAnalysis(null); }}
             disabled={analyzing}
             className="text-xs font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors flex items-center gap-1"
           >
