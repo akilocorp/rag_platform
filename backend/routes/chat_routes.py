@@ -329,7 +329,9 @@ def get_config_sessions(config_id):
                         }
                     },
                     "user_email": {"$ifNull": [{"$arrayElemAt": ["$user_info.email", 0]}, None]},
-                    "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]}
+                    "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]},
+                    "qualtrics_id": 1,
+                    "student_label": 1
                 }
             },
             {"$sort": {"timestamp": -1}}
@@ -416,7 +418,8 @@ def _generate_chat_title(text: str) -> str:
         return title or text[:55]
 
 
-def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None) -> _AttachedFilesMongoHistory:
+def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None,
+                        qualtrics_id: str = None, student_label: str = None) -> _AttachedFilesMongoHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
 
@@ -430,7 +433,22 @@ def get_session_history(session_id: str, user_id: str, config_id: str, user_inpu
         }
         if user_input:
             doc["title"] = _generate_chat_title(user_input)
+        if qualtrics_id:
+            doc["qualtrics_id"] = qualtrics_id
+        if student_label:
+            doc["student_label"] = student_label
         metadata_collection.insert_one(doc)
+    elif qualtrics_id or student_label:
+        # Update existing session if we now have identity info we didn't before
+        update = {}
+        if qualtrics_id:
+            update["qualtrics_id"] = qualtrics_id
+        if student_label:
+            update["student_label"] = student_label
+        metadata_collection.update_one(
+            {"session_id": session_id, "qualtrics_id": {"$exists": False}},
+            {"$set": update}
+        )
 
     return _AttachedFilesMongoHistory(
         session_id=session_id,
@@ -532,7 +550,7 @@ def _parse_image_blocks(images):
 
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
-                     attached_files, images=None):
+                     attached_files, images=None, qualtrics_id=None, student_label=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -545,6 +563,8 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             user_id=user_id_for_history,
             config_id=config_id,
             user_input=user_input,
+            qualtrics_id=qualtrics_id,
+            student_label=student_label,
         )
         history_messages = _load_anthropic_history(history_obj)
 
@@ -626,6 +646,8 @@ def chat(config_id, chat_id):
     # persisted on the user message so the chips survive a history reload.
     attached_files = data.get('attached_files', []) or []
     images = data.get('images', []) or []
+    qualtrics_id = data.get('qualtrics_id') or None
+    student_label = data.get('student_label') or None
 
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
@@ -668,6 +690,8 @@ def chat(config_id, chat_id):
                 selected_file_ids=selected_file_ids,
                 attached_files=attached_files,
                 images=images,
+                qualtrics_id=qualtrics_id,
+                student_label=student_label,
             )),
             mimetype='application/x-ndjson',
         )
@@ -831,6 +855,8 @@ def chat(config_id, chat_id):
                     user_id=user_id_for_history,
                     config_id=config_id,
                     user_input=user_input,
+                    qualtrics_id=qualtrics_id,
+                    student_label=student_label,
                 )
                 if attached_files:
                     h.pending_attached_files = attached_files

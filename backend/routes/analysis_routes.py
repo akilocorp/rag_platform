@@ -339,21 +339,25 @@ def analyze_config(config_id):
                 'session_id': 1,
                 'message_count': {'$ifNull': [{'$arrayElemAt': ['$msg_count.n', 0]}, 0]},
                 'user_email': {'$ifNull': [{'$arrayElemAt': ['$user_info.email', 0]}, None]},
+                'qualtrics_id': 1,
+                'student_label': 1,
             }},
         ]
         sessions = list(db['chat_session_metadata'].aggregate(pipeline))
         if not sessions:
             return jsonify({'error': 'No sessions found for this config'}), 400
 
-        anon_count = 0
         labeled = []
         for s in sessions:
-            display = s.get('user_email')
-            if not display:
-                anon_count += 1
-                display = f'Anonymous #{anon_count}'
+            sid = s.get('session_id', str(s['_id']))
+            display = (
+                s.get('student_label')
+                or s.get('user_email')
+                or (f"Q:{s['qualtrics_id']}" if s.get('qualtrics_id') else None)
+                or f"Session {sid[:8]}"
+            )
             labeled.append({
-                'session_id': s.get('session_id', str(s['_id'])),
+                'session_id': sid,
                 'display_name': display,
                 'message_count': s.get('message_count', 0),
             })

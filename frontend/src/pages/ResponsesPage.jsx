@@ -442,7 +442,7 @@ const SessionsTab = ({ sessions }) => {
   const [expandedId, setExpandedId] = useState(null);
   const labeled = (() => {
     let c = 1;
-    return sessions.map(s => ({ ...s, displayName: s.user_email || `Anonymous #${c++}` }));
+    return sessions.map(s => ({ ...s, displayName: s.student_label || s.user_email || (s.qualtrics_id ? `Q:${s.qualtrics_id}` : null) || `Session ${s.session_id?.slice(0,8)}` }));
   })();
 
   if (!sessions.length) return (
@@ -507,7 +507,7 @@ const ResponsesPage = () => {
   }, [configId, navigate]);
 
   const handleExportCsv = async () => {
-    const labeled = (() => { let c = 1; return sessions.map(s => ({ ...s, displayName: s.user_email || `Anonymous #${c++}` })); })();
+    const labeled = (() => { let c = 1; return sessions.map(s => ({ ...s, displayName: s.student_label || s.user_email || (s.qualtrics_id ? `Q:${s.qualtrics_id}` : null) || `Session ${s.session_id?.slice(0,8)}` })); })();
     setCsvLoading(true); setCsvProgress('Fetching transcripts…');
     try {
       const chunks = chunkArray(labeled, 10);
@@ -537,7 +537,7 @@ const ResponsesPage = () => {
 
   const configName = config?.bot_name || 'Assistant';
   const systemPrompt = config?.instructions || '';
-  const uniqueStudents = new Set(sessions.filter(s => s.user_email).map(s => s.user_email)).size;
+  const uniqueStudents = new Set(sessions.map(s => s.student_label || s.user_email || s.qualtrics_id || s.session_id)).size;
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB]">

@@ -239,6 +239,9 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
 const ChatPage = () => {
   const { configId, chatId } = useParams();
   const navigate = useNavigate();
+  const _qp = new URLSearchParams(window.location.search);
+  const qualtricsIdRef = useRef(_qp.get('qualtricsId') || null);
+  const studentLabelRef = useRef(_qp.get('studentEmail') || _qp.get('studentName') || null);
   const { variant } = useVariant();
   
   // --- STATE ---
@@ -724,6 +727,8 @@ const ChatPage = () => {
           selected_file_ids: variant === 'A' ? selectedFileIds : [],
           attached_files: attachedFiles,
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
+          ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
+          ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
         })
       });
 
