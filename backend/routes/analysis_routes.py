@@ -1,14 +1,34 @@
 import concurrent.futures
 import json
 import logging
+import re
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 analysis_bp = Blueprint('analysis', __name__)
+
+
+def _parse_json(text):
+    """Extract first {...} block from LLM output and parse it."""
+    text = text.strip()
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except Exception:
+            pass
+    return json.loads(text)
+
+
+def _llm_json(api_key, prompt):
+    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, temperature=0.2, max_tokens=500)
+    response = llm.invoke([HumanMessage(content=prompt)])
+    return _parse_json(response.content)
 
 
 def _get_transcript(chat_histories, session_id):
@@ -27,7 +47,7 @@ def _get_transcript(chat_histories, session_id):
     return '\n'.join(lines)
 
 
-def _analyze_one(client, system_prompt, transcript, display_name, session_id, message_count):
+def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, message_count):
     if not transcript.strip():
         return {
             'session_id': session_id, 'display_name': display_name,
@@ -53,24 +73,17 @@ Evaluate this student and return a JSON object with exactly these fields:
   "improvements": ["<specific area to improve>", "<another area>"]
 }}
 
-Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals."""
+Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals. Return only the JSON object."""
 
     try:
-        resp = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[{'role': 'user', 'content': prompt}],
-            response_format={'type': 'json_object'},
-            temperature=0.2,
-            max_tokens=400,
-        )
-        result = json.loads(resp.choices[0].message.content)
+        result = _llm_json(api_key, prompt)
         result.setdefault('score', 0)
         result.setdefault('summary', '')
         result.setdefault('strengths', [])
         result.setdefault('improvements', [])
     except Exception as e:
         logger.error(f'Per-session analysis failed for {session_id}: {e}')
-        result = {'score': 0, 'summary': 'Analysis failed.', 'strengths': [], 'improvements': []}
+        result = {'score': 0, 'summary': 'Analysis failed for this session.', 'strengths': [], 'improvements': []}
 
     result['session_id'] = session_id
     result['display_name'] = display_name
@@ -78,7 +91,7 @@ Base the score on: relevance and depth of responses, quality of reasoning, and h
     return result
 
 
-def _class_summary(client, system_prompt, analyses):
+def _build_class_summary(api_key, system_prompt, analyses):
     context = system_prompt.strip() or 'a general AI assistant conversation'
     lines = '\n'.join(f'- Score {a["score"]}/100: {a["summary"]}' for a in analyses)
     prompt = f"""You are summarizing class-wide performance for a professor.
@@ -90,20 +103,15 @@ Individual student results:
 
 Return a JSON object with exactly these fields:
 {{
-  "overall_insight": "<3-4 sentence paragraph about how the class performed, key trends, and notable observations>",
+  "overall_insight": "<3-4 sentence paragraph about how the class performed overall, key trends, and notable observations>",
   "common_strengths": ["<pattern across multiple students>", "<another common strength>"],
-  "common_weaknesses": ["<common gap>", "<another weakness>"]
-}}"""
+  "common_weaknesses": ["<common gap>", "<another common weakness>"]
+}}
+
+Return only the JSON object."""
 
     try:
-        resp = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[{'role': 'user', 'content': prompt}],
-            response_format={'type': 'json_object'},
-            temperature=0.2,
-            max_tokens=400,
-        )
-        return json.loads(resp.choices[0].message.content)
+        return _llm_json(api_key, prompt)
     except Exception as e:
         logger.error(f'Class summary failed: {e}')
         return {'overall_insight': 'Unable to generate class summary.', 'common_strengths': [], 'common_weaknesses': []}
@@ -115,6 +123,7 @@ def analyze_config(config_id):
     try:
         user_id = get_jwt_identity()
         db = current_app.config['MONGO_DB']
+        api_key = current_app.config['OPENAI_API_KEY']
 
         config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
         if not config_doc:
@@ -151,11 +160,9 @@ def analyze_config(config_id):
                 'message_count': s.get('message_count', 0),
             })
 
-        client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
-
         def analyze_one(item):
             transcript = _get_transcript(chat_histories, item['session_id'])
-            return _analyze_one(client, system_prompt, transcript,
+            return _analyze_one(api_key, system_prompt, transcript,
                                 item['display_name'], item['session_id'], item['message_count'])
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -163,7 +170,7 @@ def analyze_config(config_id):
 
         scored = [a for a in analyses if a.get('score', 0) > 0]
         avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
-        summary = _class_summary(client, system_prompt, scored) if scored else {
+        summary = _build_class_summary(api_key, system_prompt, scored) if scored else {
             'overall_insight': 'No completed sessions to analyze.',
             'common_strengths': [], 'common_weaknesses': [],
         }
