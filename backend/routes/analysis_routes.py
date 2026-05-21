@@ -1,4 +1,3 @@
-import concurrent.futures
 import json
 import logging
 import re
@@ -160,13 +159,11 @@ def analyze_config(config_id):
                 'message_count': s.get('message_count', 0),
             })
 
-        def analyze_one(item):
+        analyses = []
+        for item in labeled:
             transcript = _get_transcript(chat_histories, item['session_id'])
-            return _analyze_one(api_key, system_prompt, transcript,
-                                item['display_name'], item['session_id'], item['message_count'])
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            analyses = list(executor.map(analyze_one, labeled))
+            analyses.append(_analyze_one(api_key, system_prompt, transcript,
+                                         item['display_name'], item['session_id'], item['message_count']))
 
         scored = [a for a in analyses if a.get('score', 0) > 0]
         avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
@@ -190,5 +187,7 @@ def analyze_config(config_id):
         })
 
     except Exception as e:
-        logger.error(f'analyze_config error for {config_id}: {e}', exc_info=True)
-        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f'analyze_config error for {config_id}: {tb}')
+        return jsonify({'error': f'{type(e).__name__}: {str(e)}'}), 500
