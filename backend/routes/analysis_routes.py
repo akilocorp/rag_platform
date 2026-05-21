@@ -68,24 +68,30 @@ def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, m
 
     context = system_prompt.strip() or 'a general AI assistant conversation'
     criteria_block = f"\nGrading criteria from professor:\n{grading_criteria.strip()}\n" if grading_criteria and grading_criteria.strip() else ''
-    criteria_suffix = ' Follow the professor\'s grading criteria above.' if criteria_block else ''
-    prompt = f"""You are an academic performance evaluator assessing a student's participation in an AI-assisted simulation.
+    criteria_suffix = f' Prioritize the professor\'s grading criteria above when scoring.' if criteria_block else ''
+    prompt = f"""You are a strict academic evaluator grading a student's participation in an AI-assisted simulation.
 
-The AI assistant's role and instructions were:
+The AI played this role:
 {context}
 {criteria_block}
-Student conversation transcript:
+Conversation transcript (lines marked [Student] are the student, lines marked [AI] are the bot):
 {transcript}
 
-Evaluate this student and return a JSON object with exactly these fields:
+CRITICAL RULES:
+- Grade ONLY the [Student] lines. The [AI] lines are the bot, not the student — ignore them entirely when scoring.
+- If the student's messages are just greetings, one-word replies, or generic filler ("hi", "hello", "ok", "that's a bad prompt"), score 0-15. Do not reward the bot's rich responses.
+- A score above 50 requires the student to have written substantive, relevant responses that engage meaningfully with the simulation goal.
+- A score above 70 requires depth, specificity, and clear understanding of the task.{criteria_suffix}
+
+Return a JSON object with exactly these fields:
 {{
   "score": <integer 0-100>,
-  "summary": "<2-3 sentence summary of overall performance>",
-  "strengths": ["<specific strength>", "<another strength>"],
-  "improvements": ["<specific area to improve>", "<another area>"]
+  "summary": "<2-3 sentence summary based only on what the student actually wrote>",
+  "strengths": ["<specific strength shown in student messages>"],
+  "improvements": ["<specific gap in student messages>"]
 }}
 
-Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals.{criteria_suffix} Return only the JSON object."""
+Return only the JSON object."""
 
     try:
         result = _llm_json(api_key, prompt)
