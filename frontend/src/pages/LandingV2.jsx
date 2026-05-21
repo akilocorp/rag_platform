@@ -332,7 +332,7 @@ const LandingV2 = () => {
   const navRef = useRef(null);
   const heroRef = useRef(null);
   const darkOverlayRef = useRef(null);
-  const headlineRef = useRef(null);
+  const heroContentRef = useRef(null);
   const logoRef = useRef(null);
   const philosophyRef = useRef(null);
   const philosophyTextRef = useRef(null);
@@ -397,9 +397,12 @@ const LandingV2 = () => {
       });
 
       heroTl
-        .to(headlineRef.current, { opacity: 0, duration: 0.17, ease: 'power2.out' }, 0.05)
+        // The full hero content stack — pill, headline, subhead, chat
+        // input — fades together as one unit. Same timing as the old
+        // headline fade so the dot→A reveal still feels uninterrupted.
+        .to(heroContentRef.current, { opacity: 0, duration: 0.17, ease: 'power2.out' }, 0.05)
         // Scroll cue + skip-intro lose their reason to exist the moment
-        // the user has scrolled. Fade them along with the headline.
+        // the user has scrolled. Fade them along with the hero content.
         .to(scrollCueRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
         .to(skipIntroRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
         .fromTo(
@@ -424,6 +427,18 @@ const LandingV2 = () => {
           },
           0.65
         );
+
+      // ---- NAV HIDE-UNTIL-PAST-HERO ------------------------------------
+      // Nav starts invisible and fades in once the bottom of the hero
+      // section has scrolled past the top of the viewport. Reverses on
+      // scroll-up so the nav disappears again when re-entering the hero.
+      gsap.set(navRef.current, { opacity: 0 });
+      ScrollTrigger.create({
+        trigger: heroRef.current,
+        start: 'bottom top',
+        onEnter: () => gsap.to(navRef.current, { opacity: 1, duration: 0.35, ease: 'power2.out' }),
+        onLeaveBack: () => gsap.to(navRef.current, { opacity: 0, duration: 0.35, ease: 'power2.out' }),
+      });
 
       // (Focal-point word scrub for the philosophy section is handled
       // by a scroll-tied rAF loop in a separate useEffect below — it
@@ -656,27 +671,170 @@ const LandingV2 = () => {
         ref={heroRef}
         className="relative h-screen flex items-center justify-center"
       >
-        {/* Headline sits in front of the dark overlay (z=70) so it's
-            readable while the dark mass covers the screen. White words +
-            "Learning" in brand orange. Fades out before the overlay
-            shrinks below the headline's bounds. */}
+        {/* Hero content stack — pill, headline, subhead, chat input —
+            sits in front of the dark overlay (z=70) so it's readable
+            while the dark mass covers the screen. The whole stack
+            fades out at the start of scroll (see heroTl above) so the
+            dot→A reveal can play unobstructed. */}
         <div
-          ref={headlineRef}
-          className="absolute inset-0 flex items-center justify-center text-center px-10"
-          style={{
-            fontFamily: FONT_DISPLAY,
-            fontWeight: 800,
-            color: '#FFFFFF',
-            fontSize: 'clamp(56px, 9vmin, 124px)',
-            lineHeight: 0.98,
-            letterSpacing: '-0.045em',
-            zIndex: 70,
-          }}
+          ref={heroContentRef}
+          className="absolute inset-0 flex flex-col items-center justify-center text-center px-6"
+          style={{ zIndex: 70 }}
         >
-          <span>
+          {/* "New" pill — left empty for now, just a small accent dot +
+              the word "New". Real announcement copy slots in next to it
+              when there's something to announce. */}
+          <div
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-8"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.10)',
+            }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#FA6C43' }} />
+            <span
+              className="text-xs font-medium"
+              style={{ color: 'rgba(255,255,255,0.7)', fontFamily: FONT_BODY }}
+            >
+              New
+            </span>
+          </div>
+
+          {/* Headline */}
+          <h1
+            className="mb-6 max-w-4xl"
+            style={{
+              fontFamily: FONT_DISPLAY,
+              fontWeight: 800,
+              color: '#FFFFFF',
+              fontSize: 'clamp(44px, 7.5vmin, 96px)',
+              lineHeight: 0.98,
+              letterSpacing: '-0.045em',
+            }}
+          >
             Are you ready to redefine{' '}
             <span style={{ color: '#FA6C43' }}>Learning</span>?
-          </span>
+          </h1>
+
+          {/* Subhead */}
+          <p
+            className="max-w-xl mb-10"
+            style={{
+              color: 'rgba(255,255,255,0.6)',
+              fontFamily: FONT_BODY,
+              fontSize: 'clamp(15px, 1.6vmin, 18px)',
+              lineHeight: 1.55,
+            }}
+          >
+            Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust — trained on what you actually teach.
+          </p>
+
+          {/* Glass chat-input card — visual only for now. Typing works
+              (it's a real <input>) but the send button + actions are
+              wired to nothing. Redirect-to-register hookup lands later. */}
+          <div
+            className="w-full max-w-2xl rounded-3xl p-1.5"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              backdropFilter: 'blur(24px) saturate(140%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
+            }}
+          >
+            <div
+              className="rounded-[20px] p-5"
+              style={{ backgroundColor: 'rgba(255,255,255,0.025)' }}
+            >
+              {/* Input + send button */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Ask anything…"
+                  className="flex-1 bg-transparent outline-none text-base placeholder:text-white/40"
+                  style={{ color: '#FFF', fontFamily: FONT_BODY }}
+                />
+                <button
+                  type="button"
+                  aria-label="Send"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: '#FFF', color: '#1F1F1F' }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M8 14V2M8 2l-5 5M8 2l5 5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Divider */}
+              <div
+                className="h-px my-4"
+                style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              />
+
+              {/* Action row + provider label */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-5">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
+                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M10.5 2.5L4.2 8.8a3 3 0 104.24 4.24l6.3-6.3a5 5 0 10-7.07-7.07L1.5 6.04"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    Attach
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
+                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M8 1.5a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0V4A2.5 2.5 0 008 1.5zM3 8a5 5 0 0010 0M8 13v2"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    Voice
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
+                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M2 4h12M2 8h12M2 12h8"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    Prompts
+                  </button>
+                </div>
+                <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: FONT_BODY }}>
+                  Powered by Claude
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div ref={scrollCueRef} className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none" style={{ zIndex: 70 }}>
