@@ -1,5 +1,6 @@
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
@@ -247,30 +248,32 @@ def analyze_config(config_id):
                 'message_count': s.get('message_count', 0),
             })
 
-        analyses = []
-        for item in labeled:
+        def _analyze_item(item):
+            if item['message_count'] == 0:
+                return {
+                    'session_id': item['session_id'], 'display_name': item['display_name'],
+                    'score': 0, 'message_count': 0,
+                    'summary': 'No interaction recorded for this session.',
+                    'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
+                }
             try:
-                if item['message_count'] == 0:
-                    analyses.append({
-                        'session_id': item['session_id'], 'display_name': item['display_name'],
-                        'score': 0, 'message_count': 0,
-                        'summary': 'No interaction recorded for this session.',
-                        'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
-                    })
-                    continue
-                logger.info(f'  fetching transcript for session={item["session_id"]!r}')
                 transcript = _get_transcript(mongo_client, db_name, item['session_id'])
-                logger.info(f'  transcript lines={len(transcript.splitlines())} for session={item["session_id"]!r}')
-                analyses.append(_analyze_one(api_key, system_prompt, transcript,
-                                             item['display_name'], item['session_id'], item['message_count'],
-                                             grading_criteria))
+                return _analyze_one(api_key, system_prompt, transcript,
+                                    item['display_name'], item['session_id'], item['message_count'],
+                                    grading_criteria)
             except Exception as e:
                 logger.error(f'Failed to analyze session {item["session_id"]}: {e}')
-                analyses.append({
+                return {
                     'session_id': item['session_id'], 'display_name': item['display_name'],
                     'score': 0, 'message_count': item['message_count'],
                     'summary': 'Could not analyze this session.', 'strengths': [], 'improvements': [],
-                })
+                }
+
+        analyses = [None] * len(labeled)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(_analyze_item, item): i for i, item in enumerate(labeled)}
+            for future in as_completed(futures):
+                analyses[futures[future]] = future.result()
 
         scored = [a for a in analyses if a.get('score', 0) > 0]
         avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
