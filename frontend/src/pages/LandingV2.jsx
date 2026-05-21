@@ -257,6 +257,9 @@ const ResearchMockup = () => (
 // a time; the others collapse to a narrow vertical-label rail. Body copy
 // is intentionally placeholder (lorem ipsum) — to be replaced with real
 // audience pitches.
+// Panel bg colors use rgba with 0.55 alpha so the backdrop-filter blur
+// on each panel actually has something to do — the cream page bg + the
+// notebook grid behind get a soft frosted-glass look through the tint.
 const TESTIMONIAL_PANELS = [
   {
     id: 'students',
@@ -265,7 +268,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
     icon: '/illustrations/icon-question.png',
     iconAlt: 'Question mark',
-    bg: '#FDE3D8',
+    bg: 'rgba(253, 227, 216, 0.55)',
     accent: '#C8472A',
     metric: '1,420 ACTIVE',
   },
@@ -276,7 +279,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.',
     icon: '/illustrations/icon-pencil.png',
     iconAlt: 'Pencil',
-    bg: '#F4ECD8',
+    bg: 'rgba(244, 236, 216, 0.55)',
     accent: '#A8832D',
     metric: '84 BOTS BUILT',
   },
@@ -287,7 +290,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Sunt in culpa qui officia deserunt mollit anim id est laborum.',
     icon: '/illustrations/icon-glasses.png',
     iconAlt: 'Glasses',
-    bg: '#D9E5F2',
+    bg: 'rgba(217, 229, 242, 0.55)',
     accent: '#3E6493',
     metric: '27 STUDIES',
   },
@@ -964,12 +967,12 @@ const LandingV2 = () => {
           stays sharp while the nav, grid, and other tiles blur. */}
       <section
         id="features"
-        className="relative px-6 lg:px-10 py-16 lg:py-24"
+        className="relative px-6 lg:px-10 py-12 lg:py-16"
         style={{ backgroundColor: '#FAFAF7' }}
       >
         <div
           ref={featureGridRef}
-          className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-6 lg:auto-rows-[340px]"
+          className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-6 lg:auto-rows-[300px]"
         >
           <BentoTile
             id="syllabus"
@@ -977,7 +980,7 @@ const LandingV2 = () => {
             uvp={UVPS[0]}
             visual={FEATURE_VISUALS['syllabus']}
             mockupSide="bottom"
-            className="min-h-[520px] lg:row-span-2 lg:min-h-[704px]"
+            className="min-h-[520px] lg:row-span-2 lg:min-h-[624px]"
           >
             <SyllabusMockup />
           </BentoTile>
@@ -1050,12 +1053,15 @@ const LandingV2 = () => {
                     width: isActive ? 'calc(100% - 212px)' : '90px',
                     flexShrink: 0,
                     backgroundColor: p.bg,
+                    backdropFilter: 'blur(20px) saturate(160%)',
+                    WebkitBackdropFilter: 'blur(20px) saturate(160%)',
+                    border: '1px solid rgba(255,255,255,0.4)',
                     minHeight: '480px',
                     transition:
                       'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease',
                     boxShadow: isActive
-                      ? '0 24px 56px rgba(31,31,31,0.15)'
-                      : '0 12px 32px rgba(31,31,31,0.08)',
+                      ? '0 24px 56px rgba(31,31,31,0.15), inset 0 1px 0 rgba(255,255,255,0.5)'
+                      : '0 12px 32px rgba(31,31,31,0.08), inset 0 1px 0 rgba(255,255,255,0.5)',
                   }}
                 >
                   {/* Collapsed rail label — visible when not active. */}
@@ -1070,7 +1076,7 @@ const LandingV2 = () => {
                       style={{
                         writingMode: 'vertical-rl',
                         transform: 'rotate(180deg)',
-                        color: p.accent,
+                        color: '#1F1F1F',
                         fontFamily: FONT_DISPLAY,
                         fontSize: '1.4rem',
                         fontWeight: 800,
@@ -1102,7 +1108,7 @@ const LandingV2 = () => {
                     </h3>
                     <p
                       className="text-base lg:text-lg leading-relaxed max-w-xl"
-                      style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+                      style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
                     >
                       {p.body}
                     </p>
@@ -1110,8 +1116,9 @@ const LandingV2 = () => {
                       <span
                         className="inline-block px-3 py-1.5 rounded-full text-[10px] font-bold uppercase"
                         style={{
-                          backgroundColor: p.accent,
-                          color: '#FFF',
+                          backgroundColor: 'rgba(31,31,31,0.06)',
+                          border: '1px solid rgba(31,31,31,0.10)',
+                          color: '#1F1F1F',
                           letterSpacing: '0.18em',
                           fontFamily: FONT_BODY,
                         }}
