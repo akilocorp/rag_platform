@@ -228,6 +228,7 @@ const GRADING_TEMPLATES = [
 const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState('');
   const [error, setError] = useState('');
   const [expandedStudent, setExpandedStudent] = useState(null);
   const [gradingCriteria, setGradingCriteria] = useState('');
@@ -239,14 +240,22 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   };
 
   const handleAnalyze = async () => {
-    setAnalyzing(true); setError('');
+    setAnalyzing(true); setError(''); setAnalysisProgress('Starting…');
     try {
-      const res = await apiClient.post(`/config/${configId}/analyze`, { grading_criteria: gradingCriteria });
-      setAnalysis(res.data);
+      const startRes = await apiClient.post(`/config/${configId}/analyze`, { grading_criteria: gradingCriteria });
+      const { job_id } = startRes.data;
+      while (true) {
+        await new Promise(r => setTimeout(r, 3000));
+        const pollRes = await apiClient.get(`/config/${configId}/analyze/${job_id}`);
+        const job = pollRes.data;
+        if (job.progress) setAnalysisProgress(job.progress);
+        if (job.status === 'done') { setAnalysis(job.result); break; }
+        if (job.status === 'error') { setError(job.error || 'Analysis failed. Please try again.'); break; }
+      }
     } catch (e) {
       setError(e.response?.data?.error || 'Analysis failed. Please try again.');
     } finally {
-      setAnalyzing(false);
+      setAnalyzing(false); setAnalysisProgress('');
     }
   };
 
@@ -316,7 +325,7 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
     <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-16 flex flex-col items-center gap-4">
       <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
       <p className="font-semibold text-[#222]">Analyzing {sessions.length} sessions…</p>
-      <p className="text-sm text-gray-400">Scoring each student with GPT-4o Mini based on your simulation prompt</p>
+      <p className="text-sm text-gray-400">{analysisProgress || 'Scoring each student with GPT-4o Mini based on your simulation prompt'}</p>
     </div>
   );
 
