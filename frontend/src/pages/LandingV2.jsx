@@ -56,16 +56,13 @@ const FEATURE_VISUALS = {
 //              the tall Syllabus hero.
 //   'right'  → horizontal split (copy on left, mockup on right) — used
 //              by the short Models + Research tiles.
-// Hovering bumps zIndex to 50 so the tile escapes above the page-wide
-// blur overlay (z=45). Requires the parent grid to have NO stacking
-// context — see clearProps:'transform' on the GSAP grid fade-up.
+// Hover lift (scale + deeper shadow) runs on pure CSS :hover — no React
+// state, no z-index dance, no page-wide blur overlay.
 const BentoTile = ({
   id,
   index,
   uvp,
   visual,
-  hoveredFeature,
-  setHoveredFeature,
   className = '',
   mockupSide = 'right',
   children,
@@ -80,18 +77,10 @@ const BentoTile = ({
 
   return (
     <div
-      onMouseEnter={() => setHoveredFeature(id)}
-      onMouseLeave={() => setHoveredFeature(null)}
-      className={`relative overflow-hidden transition-all duration-300 ${className}`}
+      className={`relative overflow-hidden transition-all duration-300 shadow-[0_18px_48px_rgba(31,31,31,0.10)] hover:scale-[1.012] hover:shadow-[0_28px_64px_rgba(31,31,31,0.18)] ${className}`}
       style={{
         backgroundColor: visual.copyBg,
         borderRadius: '40px',
-        boxShadow: hoveredFeature === id
-          ? '0 28px 64px rgba(31,31,31,0.18)'
-          : '0 18px 48px rgba(31,31,31,0.10)',
-        position: 'relative',
-        zIndex: hoveredFeature === id ? 50 : 'auto',
-        transform: hoveredFeature === id ? 'scale(1.012)' : 'scale(1)',
       }}
     >
       {/* Copy zone — fixed 40% of tile, hard-bounded so body text can
@@ -338,9 +327,6 @@ const LandingV2 = () => {
   // Testimonial carousel state
   const [activeTestimonial, setActiveTestimonial] = useState(0);
   const [testimonialPaused, setTestimonialPaused] = useState(false);
-  // Bento hover state — drives the page-wide blur overlay (z=45) and
-  // the per-tile zIndex elevation that keeps the hovered tile crisp.
-  const [hoveredFeature, setHoveredFeature] = useState(null);
   useEffect(() => {
     if (testimonialPaused) return;
     const id = setInterval(() => {
@@ -427,13 +413,6 @@ const LandingV2 = () => {
 
       // ---- BENTO FADE-UP -----------------------------------------------
       // The whole 3-tile bento fades up as one cohesive block on enter.
-      // clearProps: 'transform' is CRITICAL — without it, GSAP leaves an
-      // inline `transform: translate(...)` on the grid after the tween,
-      // which creates a stacking context. That stacking context would
-      // trap the hovered tile's z-index:50 inside the grid's painting,
-      // putting it BELOW the blur overlay (z=45) — so the hovered tile
-      // itself would blur. Clearing the transform on completion lets the
-      // tile's z=50 escape globally and stay sharp above the overlay.
       if (featureGridRef.current) {
         gsap.fromTo(
           featureGridRef.current,
@@ -443,7 +422,6 @@ const LandingV2 = () => {
             y: 0,
             duration: 0.9,
             ease: 'power3.out',
-            clearProps: 'transform',
             scrollTrigger: { trigger: featureGridRef.current, start: 'top 80%' },
           }
         );
@@ -652,23 +630,6 @@ const LandingV2 = () => {
         }}
       />
 
-      {/* === BENTO HOVER BLUR ===
-          Fades in over the entire viewport when any feature tile is
-          hovered. Sits at z=45 — above nav (z=40), the notebook grid
-          (z=1), and other sections (z=auto) — so they all blur. The
-          hovered tile is bumped to z=50 in BentoTile, keeping it sharp.
-          pointer-events:none so the hover never gets interrupted. */}
-      <div
-        aria-hidden
-        className="fixed inset-0 pointer-events-none transition-opacity duration-300"
-        style={{
-          backdropFilter: 'blur(2px)',
-          WebkitBackdropFilter: 'blur(2px)',
-          backgroundColor: 'rgba(250,250,247,0.10)',
-          zIndex: 45,
-          opacity: hoveredFeature ? 1 : 0,
-        }}
-      />
 
       {/* === HERO === */}
       <section
@@ -837,8 +798,6 @@ const LandingV2 = () => {
             index={0}
             uvp={UVPS[0]}
             visual={FEATURE_VISUALS['syllabus']}
-            hoveredFeature={hoveredFeature}
-            setHoveredFeature={setHoveredFeature}
             mockupSide="bottom"
             className="min-h-[520px] lg:row-span-2 lg:min-h-[704px]"
           >
@@ -850,8 +809,6 @@ const LandingV2 = () => {
             index={1}
             uvp={UVPS[1]}
             visual={FEATURE_VISUALS['models']}
-            hoveredFeature={hoveredFeature}
-            setHoveredFeature={setHoveredFeature}
             mockupSide="right"
             className="min-h-[320px]"
           >
@@ -863,8 +820,6 @@ const LandingV2 = () => {
             index={2}
             uvp={UVPS[2]}
             visual={FEATURE_VISUALS['research']}
-            hoveredFeature={hoveredFeature}
-            setHoveredFeature={setHoveredFeature}
             mockupSide="right"
             className="min-h-[320px]"
           >
