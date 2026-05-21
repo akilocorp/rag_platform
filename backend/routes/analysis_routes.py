@@ -31,12 +31,16 @@ def _llm_json(api_key, prompt):
     return _parse_json(response.content)
 
 
-def _get_transcript(mongo_uri, db_name, session_id):
+def _get_transcript(mongo_client, db_name, session_id):
+    # Reuse the existing MongoClient — do NOT pass connection_string or each call
+    # creates a new client, exhausting the Atlas connection pool across 100s of sessions.
     history = MongoDBChatMessageHistory(
-        connection_string=mongo_uri,
+        connection_string=None,
+        client=mongo_client,
         session_id=session_id,
         database_name=db_name,
         collection_name='chat_histories',
+        create_index=False,
     )
     lines = []
     for msg in history.messages:
@@ -216,10 +220,18 @@ def analyze_config(config_id):
             },
         ]
         sessions = list(db['chat_session_metadata'].aggregate(pipeline))
+        logger.info(f'analyze_config: config={config_id} total_sessions={len(sessions)} users_col={users_col.name}')
         if not sessions:
             return jsonify({'error': 'No sessions found for this config'}), 400
 
-        mongo_uri = current_app.config['MONGO_URI']
+        sessions_with_msgs = sum(1 for s in sessions if s.get('message_count', 0) > 0)
+        logger.info(f'analyze_config: sessions_with_messages={sessions_with_msgs}')
+
+        # Sample first 3 sessions for diagnostics
+        for s in sessions[:3]:
+            logger.info(f'  session sample: session_id={s.get("session_id")!r} msg_count={s.get("message_count")} email={s.get("user_email")!r}')
+
+        mongo_client = db.client
         db_name = db.name
 
         labeled = []
@@ -238,7 +250,17 @@ def analyze_config(config_id):
         analyses = []
         for item in labeled:
             try:
-                transcript = _get_transcript(mongo_uri, db_name, item['session_id'])
+                if item['message_count'] == 0:
+                    analyses.append({
+                        'session_id': item['session_id'], 'display_name': item['display_name'],
+                        'score': 0, 'message_count': 0,
+                        'summary': 'No interaction recorded for this session.',
+                        'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
+                    })
+                    continue
+                logger.info(f'  fetching transcript for session={item["session_id"]!r}')
+                transcript = _get_transcript(mongo_client, db_name, item['session_id'])
+                logger.info(f'  transcript lines={len(transcript.splitlines())} for session={item["session_id"]!r}')
                 analyses.append(_analyze_one(api_key, system_prompt, transcript,
                                              item['display_name'], item['session_id'], item['message_count'],
                                              grading_criteria))
@@ -275,4 +297,4 @@ def analyze_config(config_id):
         import traceback
         tb = traceback.format_exc()
         logger.error(f'analyze_config error for {config_id}: {tb}')
-        return jsonify({'error': f'{type(e).__name__}: {str(e)}'}), 500
+        return jsonify({'error': f'{type(e).__name__}: {str(e)}', 'traceback': tb}), 500
