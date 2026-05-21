@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 
@@ -6,7 +5,8 @@ from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, message_to_dict
+from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 
 logger = logging.getLogger(__name__)
 analysis_bp = Blueprint('analysis', __name__)
@@ -14,6 +14,7 @@ analysis_bp = Blueprint('analysis', __name__)
 
 def _parse_json(text):
     """Extract first {...} block from LLM output and parse it."""
+    import json
     text = text.strip()
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
@@ -30,35 +31,24 @@ def _llm_json(api_key, prompt):
     return _parse_json(response.content)
 
 
-def _get_transcript(chat_histories, session_id):
-    doc = chat_histories.find_one({'SessionId': session_id})
-    if not doc:
-        logger.warning(f'_get_transcript: no doc found for SessionId={session_id!r}')
-        return ''
-    history_raw = doc.get('History') or []
-    logger.info(f'_get_transcript: SessionId={session_id!r} history_len={len(history_raw)} first_type={type(history_raw[0]).__name__ if history_raw else "empty"}')
+def _get_transcript(mongo_uri, db_name, session_id):
+    history = MongoDBChatMessageHistory(
+        connection_string=mongo_uri,
+        session_id=session_id,
+        database_name=db_name,
+        collection_name='chat_histories',
+    )
     lines = []
-    for entry in history_raw:
-        # History entries may be dicts or JSON strings depending on langchain version
-        if isinstance(entry, str):
-            try:
-                entry = json.loads(entry)
-            except Exception:
-                continue
-        if not isinstance(entry, dict):
-            continue
-        role = 'Student' if entry.get('type') == 'human' else 'AI'
-        data = entry.get('data') or {}
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except Exception:
-                data = {}
-        content = data.get('content', '') if isinstance(data, dict) else ''
+    for msg in history.messages:
+        d = message_to_dict(msg)
+        role = 'Student' if d.get('type') == 'human' else 'AI'
+        content = (d.get('data') or {}).get('content', '')
         if isinstance(content, list):
             content = ' '.join(b.get('text', '') for b in content if isinstance(b, dict))
         if content:
             lines.append(f'[{role}]: {content}')
+    if not lines:
+        logger.warning(f'_get_transcript: no messages for SessionId={session_id!r}')
     return '\n'.join(lines)
 
 
@@ -189,25 +179,53 @@ def analyze_config(config_id):
 
         system_prompt = config_doc.get('instructions', '') or ''
         grading_criteria = (request.get_json(silent=True) or {}).get('grading_criteria', '')
-        sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
+        users_col = current_app.config['MONGO_COLLECTION']
+        pipeline = [
+            {'$match': {'config_id': config_id}},
+            {
+                '$lookup': {
+                    'from': 'chat_histories',
+                    'let': {'sid': '$session_id'},
+                    'pipeline': [
+                        {'$match': {'$expr': {'$eq': ['$SessionId', '$$sid']}}},
+                        {'$count': 'n'},
+                    ],
+                    'as': 'msg_count',
+                }
+            },
+            {
+                '$lookup': {
+                    'from': users_col.name,
+                    'let': {'uid': '$user_id'},
+                    'pipeline': [
+                        {'$match': {'$expr': {'$and': [
+                            {'$ne': ['$$uid', 'anonymous']},
+                            {'$eq': [{'$toString': '$_id'}, '$$uid']},
+                        ]}}},
+                        {'$project': {'email': 1, '_id': 0}},
+                    ],
+                    'as': 'user_info',
+                }
+            },
+            {
+                '$project': {
+                    'session_id': 1,
+                    'message_count': {'$ifNull': [{'$arrayElemAt': ['$msg_count.n', 0]}, 0]},
+                    'user_email': {'$ifNull': [{'$arrayElemAt': ['$user_info.email', 0]}, None]},
+                }
+            },
+        ]
+        sessions = list(db['chat_session_metadata'].aggregate(pipeline))
         if not sessions:
             return jsonify({'error': 'No sessions found for this config'}), 400
 
-        users_col = current_app.config['MONGO_COLLECTION']
-        chat_histories = db['chat_histories']
+        mongo_uri = current_app.config['MONGO_URI']
+        db_name = db.name
 
         labeled = []
         anon_count = 0
         for s in sessions:
-            uid = s.get('user_id', '')
-            display = None
-            if uid and uid != 'anonymous':
-                try:
-                    user = users_col.find_one({'_id': ObjectId(uid)})
-                    if user:
-                        display = user.get('email')
-                except Exception:
-                    pass
+            display = s.get('user_email')
             if not display:
                 anon_count += 1
                 display = f'Anonymous #{anon_count}'
@@ -220,7 +238,7 @@ def analyze_config(config_id):
         analyses = []
         for item in labeled:
             try:
-                transcript = _get_transcript(chat_histories, item['session_id'])
+                transcript = _get_transcript(mongo_uri, db_name, item['session_id'])
                 analyses.append(_analyze_one(api_key, system_prompt, transcript,
                                              item['display_name'], item['session_id'], item['message_count'],
                                              grading_criteria))
