@@ -111,3 +111,16 @@ class User:
             {"$set": {"password": password_hash}}
         )
         return result.modified_count > 0
+
+    @staticmethod
+    def update_role(email, role):
+        """Updates the user's role. Returns True if updated, False if user not found."""
+        user = User.find_by_email(email)
+        if not user:
+            return False
+        collection = User.get_collection()
+        result = collection.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"role": role}}
+        )
+        return result.modified_count > 0

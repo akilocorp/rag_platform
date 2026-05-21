@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage';
 import LandingV2 from './pages/LandingV2';
 import AboutPage from './pages/AboutPage';
 import RegisterPage from './pages/RegistrationPage';
+import StudentRegistrationPage from './pages/StudentRegistrationPage';
 import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
 import ChatPage from './pages/ChatPage';
@@ -16,9 +17,12 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
+import ResponsesPage from './pages/ResponsesPage';
+import AdminPage from './pages/AdminPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
+import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
 import { VariantProvider } from './context/VariantContext';
 
@@ -40,6 +44,7 @@ function App() {
 
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/student-register" element={<StudentRegistrationPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -52,11 +57,13 @@ function App() {
             <Route path="/chat/:configId/:chatId/:qualtricsId" element={<ChatPage />} />
           </Route>
 
-          {/* Protected Routes - Requires authentication */}
-          <Route element={<ProtectedRoute />}>
+          {/* Protected Routes - Professor only */}
+          <Route element={<ProfessorRoute />}>
             <Route path="/config_list" element={<ConfigList />} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
+            <Route path="/responses/:configId" element={<ResponsesPage />} />
+            <Route path="/admin" element={<AdminPage />} />
           </Route>
 
         </Routes>

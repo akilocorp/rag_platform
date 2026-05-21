@@ -1,4 +1,4 @@
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaChartBar, FaBug } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaChartBar, FaBug, FaListAlt } from 'react-icons/fa';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -14,6 +14,7 @@ import ReportBugModal from './ReportBugModal';
 const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
   const [isHovered, setIsHovered] = useState(false);
   const ListIcon = getBotAvatarIconComponent(config.bot_avatar);
+  const navigate = useNavigate();
 
   return (
     <div
@@ -62,7 +63,17 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
         </div>
       </div>
       
-      <div className="mt-4 flex justify-end relative z-20">
+      <div className="mt-4 flex justify-end gap-2 relative z-20">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/responses/${config.config_id}`);
+          }}
+          className="px-3 py-1.5 text-xs font-bold bg-gray-50 border border-gray-200 text-gray-600 rounded-lg hover:bg-[#F9D0C4]/30 hover:text-[#FA6C43] hover:border-[#FA6C43]/30 transition-colors flex items-center space-x-1.5"
+        >
+          <FaListAlt className="text-sm" />
+          <span>Responses</span>
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();

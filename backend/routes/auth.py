@@ -135,7 +135,8 @@ def register():
             "email": email,
             "username": username,
             "password": password_hash,
-            "is_verified": False  # <--- User cannot login until this is True
+            "is_verified": False,  # <--- User cannot login until this is True
+            "role": "professor"
         }
         User.create(new_user)
 
@@ -150,6 +151,44 @@ def register():
 
     except Exception as e:
         current_app.logger.error(f"Error in /register: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@auth_bp.route('/student-register', methods=['POST'])
+def student_register():
+    """Registers a new student account (role forced to 'student')."""
+    try:
+        data = request.get_json()
+        email = (data.get('email') or '').strip()
+        password = data.get('password')
+        username = (data.get('username') or '').strip()
+
+        if not email or not password or not username:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        if User.find_by_email(email):
+            return jsonify({"error": "That email is already registered."}), 409
+        if User.find_by_username(username):
+            return jsonify({"error": "That username is already taken."}), 409
+
+        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        new_user = {
+            "email": email,
+            "username": username,
+            "password": password_hash,
+            "is_verified": False,
+            "role": "student"
+        }
+        User.create(new_user)
+
+        serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+        token = serializer.dumps(email, salt='email-confirm-salt')
+        send_verification_email(email, token)
+
+        return jsonify({"message": f"Student account '{username}' registered! Please check your email to verify."}), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error in /student-register: {e}")
         return jsonify({"error": "An internal server error occurred"}), 500
 
 
@@ -259,11 +298,12 @@ def login():
             refresh_token = create_refresh_token(identity=user_id)
 
             return jsonify({
-                "access_token": access_token, 
+                "access_token": access_token,
                 "refresh_token": refresh_token,
                 "user": {
                     "username": user['username'],
-                    "email": user['email']
+                    "email": user['email'],
+                    "role": user.get('role', 'professor')
                 }
             })
 
@@ -407,7 +447,7 @@ def get_user_info():
         return jsonify({
             "username": user['username'],
             "email": user['email'],
-            # "is_verified": user.get('is_verified', False) 
+            "role": user.get('role', 'professor'),
         })
     except Exception as e:
         current_app.logger.error(f"Error in /me: {e}")

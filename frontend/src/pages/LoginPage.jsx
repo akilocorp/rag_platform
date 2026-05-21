@@ -74,6 +74,7 @@ const LoginPage = () => {
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
+        localStorage.setItem('userRole', response.data.user?.role || 'professor');
         setErrors({});
         setFormError(null);
         navigate('/config_list', { replace: true });

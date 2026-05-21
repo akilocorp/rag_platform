@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
+import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -163,6 +164,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const [fileUploadKey, setFileUploadKey] = useState(Date.now());
   const [heygenAvatars, setHeygenAvatars] = useState([]);
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(null);
+
+  const applyTemplate = (template) => {
+    setConfig(prev => ({
+      ...prev,
+      bot_name: prev.bot_name.trim() ? prev.bot_name : template.bot_name,
+      instructions: template.instructions,
+      temperature: template.temperature,
+      introduction: prev.introduction.trim() ? prev.introduction : template.introduction,
+    }));
+    setPromptMode('instructions');
+    setSelectedTemplateId(template.id);
+  };
 
   useEffect(() => {
     if (config.bot_type === 'avatar' && heygenAvatars.length === 0) {
@@ -548,7 +562,34 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   // ==============================
                   <>
                     <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Customize AI Behavior</h2>
-                    
+
+                    {/* Template Gallery */}
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[13px] font-semibold text-gray-700">Start from a template <span className="font-normal text-gray-400">(optional)</span></p>
+                        {selectedTemplateId && (
+                          <button type="button" onClick={() => setSelectedTemplateId(null)} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {SIMULATION_TEMPLATES.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => applyTemplate(t)}
+                            className={`text-left p-3 rounded-xl border-2 transition-all ${selectedTemplateId === t.id ? 'border-[#FA6C43] bg-[#F9D0C4]/20' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">{t.icon}</span>
+                              <span className="text-sm font-bold text-[#222]">{t.title}</span>
+                              {selectedTemplateId === t.id && <span className="ml-auto text-[10px] font-bold text-[#FA6C43] bg-[#F9D0C4]/50 px-1.5 py-0.5 rounded-full">Active</span>}
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-snug">{t.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="space-y-4">
                       <div className="flex space-x-3 w-fit mb-4">
                         <button type="button" onClick={() => setPromptMode('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Simple Instructions</button>

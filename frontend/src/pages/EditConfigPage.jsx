@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt } from 'react-icons/fa';
+import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const EditConfigPage = () => {
   const [errors, setErrors] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [promptMode, setPromptMode] = useState('instructions');
+  const [showTemplates, setShowTemplates] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
   
@@ -426,6 +428,35 @@ const EditConfigPage = () => {
               // Standard AI Settings
               <>
                 <div className="space-y-4 border-t border-gray-100 pt-8 mt-8">
+                  {/* Template Gallery (collapsible) */}
+                  <div className="mb-2">
+                    <button type="button" onClick={() => setShowTemplates(v => !v)} className="flex items-center gap-2 text-sm font-semibold text-[#FA6C43] hover:underline">
+                      {showTemplates ? '▾' : '▸'} Apply a simulation template
+                    </button>
+                    {showTemplates && (
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        {SIMULATION_TEMPLATES.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              setConfig(prev => ({ ...prev, instructions: t.instructions, temperature: t.temperature }));
+                              handlePromptModeChange('instructions');
+                              setShowTemplates(false);
+                            }}
+                            className="text-left p-3 rounded-xl border-2 border-gray-200 hover:border-[#FA6C43] hover:bg-[#F9D0C4]/20 bg-white transition-all"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">{t.icon}</span>
+                              <span className="text-sm font-bold text-[#222]">{t.title}</span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-snug">{t.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex space-x-3 w-fit">
                     <button type="button" onClick={() => handlePromptModeChange('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Simple Instructions</button>
                     <button type="button" onClick={() => handlePromptModeChange('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Advanced Template</button>
@@ -506,7 +537,10 @@ const EditConfigPage = () => {
               <button type="button" onClick={handleDelete} disabled={isDeleting || isLoading} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200">
                 {isDeleting ? 'Deleting...' : 'Delete Space'}
               </button>
-              <div className="flex gap-3 w-full sm:w-auto">
+              <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-end">
+                <button type="button" onClick={() => navigate(`/responses/${config.config_id}`)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
+                  <FaListAlt className="text-sm text-gray-500" /><span>View Responses</span>
+                </button>
                 <button type="button" onClick={navigateToThisAgentChat} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
                 <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">
                   {isLoading ? 'Saving...' : 'Save Changes'}

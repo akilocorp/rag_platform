@@ -261,6 +261,88 @@ def get_chat_list(config_id):
         return jsonify({"message": "An internal server error occurred."}), 500
 
 
+@chat_bp.route('/config/<string:config_id>/sessions', methods=['GET'])
+@jwt_required()
+def get_config_sessions(config_id):
+    """Returns all chat sessions for a config. Only accessible by the config owner."""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+
+        config_doc = db["config_collections"].find_one({"_id": ObjectId(config_id)})
+        if not config_doc:
+            return jsonify({"message": "Config not found"}), 404
+        if str(config_doc.get("user_id", "")) != user_id:
+            return jsonify({"message": "Forbidden"}), 403
+
+        metadata_collection = db["chat_session_metadata"]
+        users_collection = current_app.config['MONGO_COLLECTION']
+
+        pipeline = [
+            {"$match": {"config_id": config_id}},
+            {
+                "$lookup": {
+                    "from": users_collection.name,
+                    "let": {"uid": "$user_id"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        {"$ne": ["$$uid", "anonymous"]},
+                                        {"$eq": [{"$toString": "$_id"}, "$$uid"]}
+                                    ]
+                                }
+                            }
+                        },
+                        {"$project": {"email": 1, "_id": 0}}
+                    ],
+                    "as": "user_info"
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "chat_histories",
+                    "let": {"sid": "$session_id"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$SessionId", "$$sid"]}}},
+                        {"$count": "n"}
+                    ],
+                    "as": "msg_count"
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "session_id": 1,
+                    "title": 1,
+                    "timestamp": {
+                        "$cond": {
+                            "if": "$timestamp",
+                            "then": {
+                                "$dateToString": {
+                                    "format": "%Y-%m-%dT%H:%M:%SZ",
+                                    "date": {"$toDate": {"$multiply": ["$timestamp", 1000]}}
+                                }
+                            },
+                            "else": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:%SZ", "date": "$_id"}}
+                        }
+                    },
+                    "user_email": {"$ifNull": [{"$arrayElemAt": ["$user_info.email", 0]}, None]},
+                    "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]}
+                }
+            },
+            {"$sort": {"timestamp": -1}}
+        ]
+
+        sessions = list(metadata_collection.aggregate(pipeline))
+        return jsonify({"sessions": sessions, "total": len(sessions)}), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching sessions for config {config_id}: {e}", exc_info=True)
+        return jsonify({"message": "An internal server error occurred."}), 500
+
+
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['DELETE'])
 @jwt_required()
 def delete_chat(config_id, chat_id):
