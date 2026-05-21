@@ -73,6 +73,7 @@ def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, m
 
     context = system_prompt.strip() or 'a general AI assistant conversation'
     criteria_block = f"\nGrading criteria from professor:\n{grading_criteria.strip()}\n" if grading_criteria and grading_criteria.strip() else ''
+    criteria_suffix = ' Follow the professor\'s grading criteria above.' if criteria_block else ''
     prompt = f"""You are an academic performance evaluator assessing a student's participation in an AI-assisted simulation.
 
 The AI assistant's role and instructions were:
@@ -89,7 +90,7 @@ Evaluate this student and return a JSON object with exactly these fields:
   "improvements": ["<specific area to improve>", "<another area>"]
 }}
 
-Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals.{' Follow the professor\'s grading criteria above.' if criteria_block else ''} Return only the JSON object."""
+Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals.{criteria_suffix} Return only the JSON object."""
 
     try:
         result = _llm_json(api_key, prompt)
