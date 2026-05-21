@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,24 +13,29 @@ from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 logger = logging.getLogger(__name__)
 analysis_bp = Blueprint('analysis', __name__)
 
+BATCH_SIZE = 20          # sessions per LLM call
+BATCH_CONCURRENCY = 5    # parallel batch calls
+MAX_STUDENT_WORDS = 600  # cap per session to stay within context limits
+
 
 def _parse_json(text):
-    """Extract first {...} block from LLM output and parse it."""
-    import json
+    """Extract first {...} or [...] block from LLM output and parse it."""
     text = text.strip()
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except Exception:
-            pass
+    # Try array first, then object
+    for pattern in (r'\[.*\]', r'\{.*\}'):
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except Exception:
+                pass
     return json.loads(text)
 
 
-def _llm_json(api_key, prompt):
-    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, temperature=0.2, max_tokens=500)
+def _llm(api_key, prompt, max_tokens=600):
+    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, temperature=0.2, max_tokens=max_tokens)
     response = llm.invoke([HumanMessage(content=prompt)])
-    return _parse_json(response.content)
+    return response.content
 
 
 def _get_transcript(mongo_client, db_name, session_id):
@@ -52,63 +58,59 @@ def _get_transcript(mongo_client, db_name, session_id):
             content = ' '.join(b.get('text', '') for b in content if isinstance(b, dict))
         if content:
             lines.append(f'[{role}]: {content}')
-    if not lines:
-        logger.warning(f'_get_transcript: no messages for SessionId={session_id!r}')
     return '\n'.join(lines)
 
 
-def _analyze_one(api_key, system_prompt, transcript, display_name, session_id, message_count, grading_criteria=''):
-    if not transcript.strip():
-        return {
-            'session_id': session_id, 'display_name': display_name,
-            'score': 0, 'message_count': message_count,
-            'summary': 'No interaction recorded for this session.',
-            'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
-        }
+def _student_only(transcript):
+    """Return only the student lines, truncated to MAX_STUDENT_WORDS words."""
+    lines = [l for l in transcript.splitlines() if l.startswith('[Student]:')]
+    text = '\n'.join(lines)
+    words = text.split()
+    if len(words) > MAX_STUDENT_WORDS:
+        text = ' '.join(words[:MAX_STUDENT_WORDS]) + ' [truncated]'
+    return text
 
+
+def _analyze_batch(api_key, system_prompt, batch, grading_criteria=''):
+    """
+    Analyze a list of session dicts [{session_id, display_name, message_count, student_text}]
+    in a SINGLE LLM call. Returns a list of result dicts in the same order.
+    """
     context = system_prompt.strip() or 'a general AI assistant conversation'
     criteria_block = f"\nGrading criteria from professor:\n{grading_criteria.strip()}\n" if grading_criteria and grading_criteria.strip() else ''
-    criteria_suffix = f' Prioritize the professor\'s grading criteria above when scoring.' if criteria_block else ''
-    prompt = f"""You are a strict academic evaluator grading a student's participation in an AI-assisted simulation.
+    criteria_note = ' Prioritize the professor\'s grading criteria when scoring.' if criteria_block else ''
+
+    sections = []
+    for i, item in enumerate(batch, 1):
+        student_text = item['student_text'].strip() or '[no messages]'
+        sections.append(f"=== Session {i} | session_id: {item['session_id']} ===\n{student_text}")
+
+    combined = '\n\n'.join(sections)
+
+    prompt = f"""You are a strict academic evaluator grading students' participation in an AI-assisted simulation.
 
 The AI played this role:
 {context}
 {criteria_block}
-Conversation transcript (lines marked [Student] are the student, lines marked [AI] are the bot):
-{transcript}
+Below are student messages ONLY (AI responses are excluded). Grade each student purely on what they wrote.
 
-CRITICAL RULES:
-- Grade ONLY the [Student] lines. The [AI] lines are the bot, not the student — ignore them entirely when scoring.
-- If the student's messages are just greetings, one-word replies, or generic filler ("hi", "hello", "ok", "that's a bad prompt"), score 0-15. Do not reward the bot's rich responses.
-- A score above 50 requires the student to have written substantive, relevant responses that engage meaningfully with the simulation goal.
-- A score above 70 requires depth, specificity, and clear understanding of the task.{criteria_suffix}
+SCORING RULES:
+- Greetings, one-word replies, or filler ("hi", "hello", "ok") → score 0-15.
+- Substantive, relevant responses needed for score > 50.
+- Depth and specificity needed for score > 70.{criteria_note}
 
-Return a JSON object with exactly these fields:
-{{
-  "score": <integer 0-100>,
-  "summary": "<2-3 sentence summary based only on what the student actually wrote>",
-  "strengths": ["<specific strength shown in student messages>"],
-  "improvements": ["<specific gap in student messages>"]
-}}
+{combined}
 
-Return only the JSON object."""
+Return a JSON array with exactly {len(batch)} objects, one per session IN THE SAME ORDER, each with:
+{{"session_id": "<the session_id shown above>", "score": <0-100>, "summary": "<2-3 sentences on student messages only>", "strengths": ["..."], "improvements": ["..."]}}
 
-    try:
-        result = _llm_json(api_key, prompt)
-        if not isinstance(result, dict):
-            raise ValueError(f'LLM returned non-dict: {type(result)}')
-        result.setdefault('score', 0)
-        result.setdefault('summary', '')
-        result.setdefault('strengths', [])
-        result.setdefault('improvements', [])
-    except Exception as e:
-        logger.error(f'Per-session analysis failed for {session_id}: {e}')
-        result = {'score': 0, 'summary': 'Analysis failed for this session.', 'strengths': [], 'improvements': []}
+Return ONLY the JSON array, no other text."""
 
-    result['session_id'] = session_id
-    result['display_name'] = display_name
-    result['message_count'] = message_count
-    return result
+    raw = _llm(api_key, prompt, max_tokens=250 * len(batch))
+    results = _parse_json(raw)
+    if not isinstance(results, list):
+        raise ValueError(f'Expected list, got {type(results).__name__}: {raw[:200]}')
+    return results
 
 
 def _build_class_summary(api_key, system_prompt, analyses):
@@ -131,7 +133,8 @@ Return a JSON object with exactly these fields:
 Return only the JSON object."""
 
     try:
-        return _llm_json(api_key, prompt)
+        raw = _llm(api_key, prompt, max_tokens=600)
+        return _parse_json(raw)
     except Exception as e:
         logger.error(f'Class summary failed: {e}')
         return {'overall_insight': 'Unable to generate class summary.', 'common_strengths': [], 'common_weaknesses': []}
@@ -150,7 +153,7 @@ def analyze_debug(config_id):
 
         sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
         result = []
-        for s in sessions[:5]:  # first 5 only
+        for s in sessions[:5]:
             sid = s.get('session_id', str(s['_id']))
             hist_doc = db['chat_histories'].find_one({'SessionId': sid})
             history_sample = None
@@ -190,6 +193,8 @@ def analyze_config(config_id):
 
         system_prompt = config_doc.get('instructions', '') or ''
         grading_criteria = (request.get_json(silent=True) or {}).get('grading_criteria', '')
+
+        # --- Step 1: fetch sessions with live message counts ---
         users_col = current_app.config['MONGO_COLLECTION']
         pipeline = [
             {'$match': {'config_id': config_id}},
@@ -227,22 +232,17 @@ def analyze_config(config_id):
             },
         ]
         sessions = list(db['chat_session_metadata'].aggregate(pipeline))
-        logger.info(f'analyze_config: config={config_id} total_sessions={len(sessions)} users_col={users_col.name}')
+        total = len(sessions)
+        sessions_with_msgs = sum(1 for s in sessions if s.get('message_count', 0) > 0)
+        print(f'[analyze] config={config_id} total_sessions={total} with_messages={sessions_with_msgs}', flush=True)
+
         if not sessions:
             return jsonify({'error': 'No sessions found for this config'}), 400
 
-        sessions_with_msgs = sum(1 for s in sessions if s.get('message_count', 0) > 0)
-        logger.info(f'analyze_config: sessions_with_messages={sessions_with_msgs}')
-
-        # Sample first 3 sessions for diagnostics
-        for s in sessions[:3]:
-            logger.info(f'  session sample: session_id={s.get("session_id")!r} msg_count={s.get("message_count")} email={s.get("user_email")!r}')
-
         mongo_client = db.client
         db_name = db.name
-
-        labeled = []
         anon_count = 0
+        labeled = []
         for s in sessions:
             display = s.get('user_email')
             if not display:
@@ -254,35 +254,107 @@ def analyze_config(config_id):
                 'message_count': s.get('message_count', 0),
             })
 
-        def _analyze_item(item):
+        # --- Step 2: fetch transcripts in parallel (fast DB queries) ---
+        print(f'[analyze] fetching transcripts for {sessions_with_msgs} sessions with messages...', flush=True)
+
+        def _fetch_transcript(item):
             if item['message_count'] == 0:
-                return {
-                    'session_id': item['session_id'], 'display_name': item['display_name'],
-                    'score': 0, 'message_count': 0,
-                    'summary': 'No interaction recorded for this session.',
-                    'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
-                }
+                return item['session_id'], ''
             try:
                 transcript = _get_transcript(mongo_client, db_name, item['session_id'])
-                return _analyze_one(api_key, system_prompt, transcript,
-                                    item['display_name'], item['session_id'], item['message_count'],
-                                    grading_criteria)
+                student_text = _student_only(transcript)
+                return item['session_id'], student_text
             except Exception as e:
-                logger.error(f'Failed to analyze session {item["session_id"]}: {e}')
-                return {
+                print(f'[analyze] ERROR fetching transcript for {item["session_id"]}: {e}', flush=True)
+                return item['session_id'], ''
+
+        transcript_map = {}
+        with ThreadPoolExecutor(max_workers=25) as executor:
+            for sid, text in executor.map(_fetch_transcript, labeled):
+                transcript_map[sid] = text
+
+        print(f'[analyze] transcripts fetched. non-empty={sum(1 for t in transcript_map.values() if t)}', flush=True)
+
+        # Build batch input, skip sessions with no student text (score 0 immediately)
+        to_analyze = []
+        zero_results = []
+        for item in labeled:
+            student_text = transcript_map.get(item['session_id'], '')
+            if not student_text:
+                zero_results.append({
                     'session_id': item['session_id'], 'display_name': item['display_name'],
                     'score': 0, 'message_count': item['message_count'],
-                    'summary': 'Could not analyze this session.', 'strengths': [], 'improvements': [],
+                    'summary': 'No interaction recorded for this session.',
+                    'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
+                })
+            else:
+                to_analyze.append({**item, 'student_text': student_text})
+
+        # --- Step 3: batch LLM calls ---
+        batches = [to_analyze[i:i + BATCH_SIZE] for i in range(0, len(to_analyze), BATCH_SIZE)]
+        print(f'[analyze] {len(to_analyze)} sessions to grade → {len(batches)} batches of {BATCH_SIZE}', flush=True)
+
+        llm_results = {}  # session_id → result dict
+
+        def _run_batch(batch_index, batch):
+            print(f'[analyze] batch {batch_index+1}/{len(batches)} starting ({len(batch)} sessions)', flush=True)
+            try:
+                results = _analyze_batch(api_key, system_prompt, batch, grading_criteria)
+                # Map back by session_id (LLM should return them in order)
+                out = {}
+                for i, item in enumerate(batch):
+                    if i < len(results):
+                        r = results[i]
+                        r['session_id'] = item['session_id']   # enforce correct id
+                        r['display_name'] = item['display_name']
+                        r['message_count'] = item['message_count']
+                        r.setdefault('score', 0)
+                        r.setdefault('summary', '')
+                        r.setdefault('strengths', [])
+                        r.setdefault('improvements', [])
+                        out[item['session_id']] = r
+                    else:
+                        out[item['session_id']] = {
+                            'session_id': item['session_id'], 'display_name': item['display_name'],
+                            'score': 0, 'message_count': item['message_count'],
+                            'summary': 'Could not analyze this session.', 'strengths': [], 'improvements': [],
+                        }
+                print(f'[analyze] batch {batch_index+1}/{len(batches)} done', flush=True)
+                return out
+            except Exception as e:
+                print(f'[analyze] batch {batch_index+1} FAILED: {type(e).__name__}: {e}', flush=True)
+                return {
+                    item['session_id']: {
+                        'session_id': item['session_id'], 'display_name': item['display_name'],
+                        'score': 0, 'message_count': item['message_count'],
+                        'summary': 'Analysis failed for this session.', 'strengths': [], 'improvements': [],
+                    }
+                    for item in batch
                 }
 
-        analyses = [None] * len(labeled)
-        with ThreadPoolExecutor(max_workers=25) as executor:
-            futures = {executor.submit(_analyze_item, item): i for i, item in enumerate(labeled)}
+        with ThreadPoolExecutor(max_workers=BATCH_CONCURRENCY) as executor:
+            futures = {executor.submit(_run_batch, i, b): i for i, b in enumerate(batches)}
             for future in as_completed(futures):
-                analyses[futures[future]] = future.result()
+                llm_results.update(future.result())
+
+        # Merge: zero_results + llm_results, preserving original order
+        analyses = []
+        for item in labeled:
+            sid = item['session_id']
+            if sid in llm_results:
+                analyses.append(llm_results[sid])
+            else:
+                analyses.append(next((r for r in zero_results if r['session_id'] == sid), {
+                    'session_id': sid, 'display_name': item['display_name'],
+                    'score': 0, 'message_count': item['message_count'],
+                    'summary': 'No interaction recorded for this session.',
+                    'strengths': [], 'improvements': [],
+                }))
 
         scored = [a for a in analyses if a.get('score', 0) > 0]
         avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
+        print(f'[analyze] scored={len(scored)} avg={avg_score}', flush=True)
+
         summary = _build_class_summary(api_key, system_prompt, scored) if scored else {
             'overall_insight': 'No completed sessions to analyze.',
             'common_strengths': [], 'common_weaknesses': [],
@@ -290,10 +362,11 @@ def analyze_config(config_id):
 
         analyses.sort(key=lambda a: a.get('score', 0), reverse=True)
 
+        print(f'[analyze] done. returning results.', flush=True)
         return jsonify({
             'class_summary': {
                 'avg_score': avg_score,
-                'total_sessions': len(sessions),
+                'total_sessions': total,
                 'overall_insight': summary.get('overall_insight', ''),
                 'common_strengths': summary.get('common_strengths', []),
                 'common_weaknesses': summary.get('common_weaknesses', []),
@@ -305,5 +378,6 @@ def analyze_config(config_id):
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
+        print(f'[analyze] FATAL ERROR: {tb}', flush=True)
         logger.error(f'analyze_config error for {config_id}: {tb}')
         return jsonify({'error': f'{type(e).__name__}: {str(e)}', 'traceback': tb}), 500
