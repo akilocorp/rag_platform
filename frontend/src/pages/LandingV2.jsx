@@ -253,24 +253,43 @@ const ResearchMockup = () => (
   </div>
 );
 
-const TESTIMONIALS = [
+// Three audience panels for the horizontal accordion. One is expanded at
+// a time; the others collapse to a narrow vertical-label rail. Body copy
+// is intentionally placeholder (lorem ipsum) — to be replaced with real
+// audience pitches.
+const TESTIMONIAL_PANELS = [
   {
-    quote:
-      "My students stopped fishing on the open web for half-baked answers. They go to our class bot, get an answer grounded in my notes, and bring sharper questions to office hours.",
-    author: "Dr. Reema Patel",
-    role: "Lecturer in Mechanical Engineering",
+    id: 'students',
+    title: 'Students',
+    body:
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+    icon: '/illustrations/icon-question.png',
+    iconAlt: 'Question mark',
+    bg: '#FDE3D8',
+    accent: '#C8472A',
+    metric: '1,420 ACTIVE',
   },
   {
-    quote:
-      "Setting up A/B variants in five minutes is what sold me. We're running a real cohort study without writing a single line of infrastructure code.",
-    author: "Prof. Marcus Chen",
-    role: "Education Researcher",
+    id: 'teachers',
+    title: 'Teachers',
+    body:
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.',
+    icon: '/illustrations/icon-pencil.png',
+    iconAlt: 'Pencil',
+    bg: '#F4ECD8',
+    accent: '#A8832D',
+    metric: '84 BOTS BUILT',
   },
   {
-    quote:
-      "It feels like the bot was built for our class, because in a sense it was. The Qualtrics integration captured every transcript I needed for my IRB submission.",
-    author: "Dr. Sara Lindqvist",
-    role: "Cognitive Science",
+    id: 'researchers',
+    title: 'Researchers',
+    body:
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Sunt in culpa qui officia deserunt mollit anim id est laborum.',
+    icon: '/illustrations/icon-glasses.png',
+    iconAlt: 'Glasses',
+    bg: '#D9E5F2',
+    accent: '#3E6493',
+    metric: '27 STUDIES',
   },
 ];
 
@@ -324,16 +343,17 @@ const LandingV2 = () => {
   const ctaRef = useRef(null);
   const featureGridRef = useRef(null);
 
-  // Testimonial carousel state
-  const [activeTestimonial, setActiveTestimonial] = useState(0);
-  const [testimonialPaused, setTestimonialPaused] = useState(false);
+  // Audience accordion state. The 7s interval restarts whenever
+  // `activePanel` changes — clicking a collapsed pane resets the timer
+  // so the user gets the full 7s on their chosen panel before
+  // auto-rotation moves on.
+  const [activePanel, setActivePanel] = useState(0);
   useEffect(() => {
-    if (testimonialPaused) return;
     const id = setInterval(() => {
-      setActiveTestimonial((i) => (i + 1) % TESTIMONIALS.length);
-    }, 6000);
+      setActivePanel((i) => (i + 1) % TESTIMONIAL_PANELS.length);
+    }, 7000);
     return () => clearInterval(id);
-  }, [testimonialPaused]);
+  }, [activePanel]);
 
   useLayoutEffect(() => {
     if (reducedMotion()) return;
@@ -828,79 +848,151 @@ const LandingV2 = () => {
         </div>
       </section>
 
-      {/* === TESTIMONIALS === */}
+      {/* === AUDIENCE ACCORDION ===
+          Horizontal 3-panel accordion. One panel is expanded
+          (`calc(100% - 212px)` wide); the other two collapse to a 90px
+          rail showing a vertical-text label. Auto-rotates every 7s; the
+          interval restarts on click via the activePanel dep on the
+          useEffect. Width transitions are pure CSS — no layout libs. */}
       <section
-        className="relative min-h-screen flex flex-col items-center justify-center px-6 py-24 z-10"
+        className="relative px-6 lg:px-10 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
-        <span
-          className="text-xs font-bold uppercase tracking-[0.22em] mb-12"
-          style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-        >
-          What educators say
-        </span>
+        <div className="max-w-7xl mx-auto">
+          <span
+            className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
+            style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+          >
+            Who it&rsquo;s for
+          </span>
+          <h2
+            className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-12 max-w-3xl"
+            style={{
+              color: '#1F1F1F',
+              fontFamily: FONT_DISPLAY,
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Built for the people who actually use it.
+          </h2>
 
-        <div
-          className="relative w-[70vw] max-w-[70vw] aspect-[5/3] flex items-center justify-center"
-          onMouseEnter={() => setTestimonialPaused(true)}
-          onMouseLeave={() => setTestimonialPaused(false)}
-        >
-          <div
-            className="absolute inset-0 bg-white shadow-xl border border-gray-100"
-            style={{ borderRadius: '24px' }}
-          />
-          {TESTIMONIALS.map((t, i) => (
-            <div
-              key={i}
-              className="absolute inset-0 flex flex-col items-center justify-center px-10 lg:px-16 text-center transition-opacity duration-700"
-              style={{
-                opacity: i === activeTestimonial ? 1 : 0,
-                pointerEvents: i === activeTestimonial ? 'auto' : 'none',
-              }}
-            >
-              <span
-                className="text-5xl mb-2 leading-none"
-                style={{ color: 'rgba(250,108,67,0.4)', fontFamily: FONT_DISPLAY }}
-                aria-hidden
-              >
-                &ldquo;
-              </span>
-              <p
-                className="text-lg lg:text-xl leading-relaxed mb-8"
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-              >
-                {t.quote}
-              </p>
-              <p
-                className="text-sm font-bold mb-1"
-                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-              >
-                {t.author}
-              </p>
-              <p
-                className="text-xs uppercase tracking-[0.18em] text-gray-500"
-                style={{ fontFamily: FONT_BODY }}
-              >
-                {t.role}
-              </p>
-            </div>
-          ))}
-        </div>
+          <div className="flex gap-4 w-full">
+            {TESTIMONIAL_PANELS.map((p, i) => {
+              const isActive = i === activePanel;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setActivePanel(i)}
+                  aria-expanded={isActive}
+                  aria-label={p.title}
+                  className="relative overflow-hidden rounded-3xl text-left cursor-pointer"
+                  style={{
+                    width: isActive ? 'calc(100% - 212px)' : '90px',
+                    flexShrink: 0,
+                    backgroundColor: p.bg,
+                    minHeight: '480px',
+                    transition:
+                      'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease',
+                    boxShadow: isActive
+                      ? '0 24px 56px rgba(31,31,31,0.15)'
+                      : '0 12px 32px rgba(31,31,31,0.08)',
+                  }}
+                >
+                  {/* Collapsed rail label — visible when not active. */}
+                  <div
+                    className="absolute inset-0 flex items-center justify-center transition-opacity duration-500"
+                    style={{
+                      opacity: isActive ? 0 : 1,
+                      pointerEvents: isActive ? 'none' : 'auto',
+                    }}
+                  >
+                    <span
+                      style={{
+                        writingMode: 'vertical-rl',
+                        transform: 'rotate(180deg)',
+                        color: p.accent,
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: '1.4rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      {p.title}
+                    </span>
+                  </div>
 
-        {/* Animated dots indicator */}
-        <div className="flex items-center justify-center gap-2.5 mt-10">
-          {TESTIMONIALS.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setActiveTestimonial(i)}
-              aria-label={`Go to testimonial ${i + 1}`}
-              className="h-2.5 rounded-full transition-all duration-500 ease-out"
-              style={{
-                width: i === activeTestimonial ? 32 : 10,
-                backgroundColor: i === activeTestimonial ? '#FA6C43' : 'rgba(31,31,31,0.18)',
-              }}
-            />
-          ))}
+                  {/* Expanded view — visible when active. */}
+                  <div
+                    className="absolute inset-0 p-10 lg:p-12 flex flex-col transition-opacity duration-500"
+                    style={{
+                      opacity: isActive ? 1 : 0,
+                      pointerEvents: isActive ? 'auto' : 'none',
+                    }}
+                  >
+                    <h3
+                      className="text-4xl lg:text-5xl tracking-tight leading-[1.05] mb-6"
+                      style={{
+                        color: '#1F1F1F',
+                        fontFamily: FONT_DISPLAY,
+                        fontWeight: 800,
+                        letterSpacing: '-0.02em',
+                      }}
+                    >
+                      {p.title}
+                    </h3>
+                    <p
+                      className="text-base lg:text-lg leading-relaxed max-w-xl"
+                      style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+                    >
+                      {p.body}
+                    </p>
+                    <div className="mt-auto">
+                      <span
+                        className="inline-block px-3 py-1.5 rounded-full text-[10px] font-bold uppercase"
+                        style={{
+                          backgroundColor: p.accent,
+                          color: '#FFF',
+                          letterSpacing: '0.18em',
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        {p.metric}
+                      </span>
+                    </div>
+                    <img
+                      src={p.icon}
+                      alt={p.iconAlt}
+                      aria-hidden
+                      className="absolute right-10 lg:right-16 top-1/2 w-36 h-36 lg:w-48 lg:h-48 object-contain pointer-events-none"
+                      style={{
+                        transform: 'translateY(-50%) rotate(-12deg)',
+                        opacity: 0.78,
+                      }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Progress dots — show + jump to a panel; also visualize the
+              auto-rotate position. */}
+          <div className="flex items-center justify-center gap-2.5 mt-10">
+            {TESTIMONIAL_PANELS.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setActivePanel(i)}
+                aria-label={`Show panel ${i + 1}`}
+                className="h-2.5 rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: i === activePanel ? 32 : 10,
+                  backgroundColor: i === activePanel ? '#FA6C43' : 'rgba(31,31,31,0.18)',
+                }}
+              />
+            ))}
+          </div>
         </div>
       </section>
 
