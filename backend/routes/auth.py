@@ -131,12 +131,14 @@ def register():
         password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
         
         # 3. Create User Immediately (Unverified)
+        requested_role = data.get('role', 'professor')
+        role = requested_role if requested_role in ('professor', 'student') else 'professor'
         new_user = {
             "email": email,
             "username": username,
             "password": password_hash,
             "is_verified": False,  # <--- User cannot login until this is True
-            "role": "professor"
+            "role": role
         }
         User.create(new_user)
 

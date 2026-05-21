@@ -1,7 +1,27 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaDownload, FaSpinner, FaChevronDown, FaChevronUp, FaUser } from 'react-icons/fa';
+import { marked } from 'marked';
 import apiClient from '../api/apiClient';
+
+marked.use({ gfm: true, breaks: true });
+
+const stripMarkdown = (text) => {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/`{3}[\s\S]*?`{3}/g, '')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/^>\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
 
 const chunkArray = (arr, size) => {
   const out = [];
@@ -56,7 +76,10 @@ const TranscriptView = ({ sessionId }) => {
               {role === 'AI' ? 'AI' : <FaUser className="text-[10px]" />}
             </div>
             <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm ${role === 'AI' ? 'bg-[#FA6C43]/10 text-gray-800 rounded-tr-sm' : 'bg-gray-100 text-gray-800 rounded-tl-sm'}`}>
-              {text}
+              {role === 'AI'
+                ? <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(text) }} />
+                : text
+              }
             </div>
           </div>
         );
@@ -118,7 +141,12 @@ const ResponsesPage = () => {
         );
         chunk.forEach((s, i) => {
           const transcript = results[i]
-            .map(m => `[${extractRole(m)}]: ${extractText(m)}`)
+            .map(m => {
+              const t = extractText(m);
+              if (!t) return null;
+              const clean = extractRole(m) === 'AI' ? stripMarkdown(t) : t;
+              return `[${extractRole(m)}]: ${clean}`;
+            })
             .filter(Boolean)
             .join('\n');
           allRows.push([s.session_id, s.displayName, s.timestamp, s.message_count, s.title || '', transcript]);

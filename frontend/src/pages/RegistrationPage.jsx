@@ -30,6 +30,7 @@ const RegistrationPage = () => {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState('professor');
   const [errors, setErrors] = useState({});
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,7 +80,7 @@ const RegistrationPage = () => {
 
     setIsLoading(true);
     try {
-      await apiClient.post('/auth/register', { email, username, password });
+      await apiClient.post('/auth/register', { email, username, password, role });
       setRegistrationSuccess(true);
     } catch (error) {
       console.error('Registration error:', error);
@@ -248,6 +249,26 @@ const RegistrationPage = () => {
                   )}
 
                   {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">I am a</label>
+                  <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setRole('professor')}
+                      className={`flex-1 py-2.5 text-sm font-bold transition-colors ${role === 'professor' ? 'bg-[#FA6C43] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      Professor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRole('student')}
+                      className={`flex-1 py-2.5 text-sm font-bold transition-colors border-l border-gray-200 ${role === 'student' ? 'bg-[#FA6C43] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      Student
+                    </button>
+                  </div>
                 </div>
 
                 <button
