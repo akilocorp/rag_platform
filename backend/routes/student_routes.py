@@ -23,12 +23,12 @@ def get_personal_config():
     user_id = get_jwt_identity()
     configs = current_app.config['MONGO_DB']['config_collections']
 
-    doc = configs.find_one({'owner_id': user_id, 'is_personal': True})
+    doc = configs.find_one({'user_id': user_id, 'is_personal': True})
     if not doc:
         oid = ObjectId()
         new_config = {
             '_id': oid,
-            'owner_id': user_id,
+            'user_id': user_id,
             'vector_collection_name': f'config_{oid}',
             'created_at': time.time(),
             **_PERSONAL_CONFIG_DEFAULTS,
@@ -47,7 +47,7 @@ def update_personal_config():
     user_id = get_jwt_identity()
     configs = current_app.config['MONGO_DB']['config_collections']
 
-    doc = configs.find_one({'owner_id': user_id, 'is_personal': True})
+    doc = configs.find_one({'user_id': user_id, 'is_personal': True})
     if not doc:
         return jsonify({'error': 'Personal config not found'}), 404
 
