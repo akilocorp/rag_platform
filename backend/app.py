@@ -27,6 +27,7 @@ from routes.audio import audio_bp
 from routes.audio_clm import audio_clm_bp
 from routes.admin_routes import admin_bp
 from routes.student_routes import student_bp
+from routes.analysis_routes import analysis_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ def create_app():
     app.register_blueprint(audio_clm_bp, url_prefix='/api')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(student_bp, url_prefix='/api/student')
+    app.register_blueprint(analysis_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 

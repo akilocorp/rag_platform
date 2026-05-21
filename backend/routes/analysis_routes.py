@@ -1,0 +1,187 @@
+import concurrent.futures
+import json
+import logging
+
+from bson import ObjectId
+from flask import Blueprint, current_app, jsonify
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from openai import OpenAI
+
+logger = logging.getLogger(__name__)
+analysis_bp = Blueprint('analysis', __name__)
+
+
+def _get_transcript(chat_histories, session_id):
+    doc = chat_histories.find_one({'SessionId': session_id})
+    if not doc:
+        return ''
+    lines = []
+    for entry in (doc.get('History') or []):
+        role = 'Student' if entry.get('type') == 'human' else 'AI'
+        data = entry.get('data') or {}
+        content = data.get('content', '')
+        if isinstance(content, list):
+            content = ' '.join(b.get('text', '') for b in content if isinstance(b, dict))
+        if content:
+            lines.append(f'[{role}]: {content}')
+    return '\n'.join(lines)
+
+
+def _analyze_one(client, system_prompt, transcript, display_name, session_id, message_count):
+    if not transcript.strip():
+        return {
+            'session_id': session_id, 'display_name': display_name,
+            'score': 0, 'message_count': message_count,
+            'summary': 'No interaction recorded for this session.',
+            'strengths': [], 'improvements': ['Student did not engage with the simulation.'],
+        }
+
+    context = system_prompt.strip() or 'a general AI assistant conversation'
+    prompt = f"""You are an academic performance evaluator assessing a student's participation in an AI-assisted simulation.
+
+The AI assistant's role and instructions were:
+{context}
+
+Student conversation transcript:
+{transcript}
+
+Evaluate this student and return a JSON object with exactly these fields:
+{{
+  "score": <integer 0-100>,
+  "summary": "<2-3 sentence summary of overall performance>",
+  "strengths": ["<specific strength>", "<another strength>"],
+  "improvements": ["<specific area to improve>", "<another area>"]
+}}
+
+Base the score on: relevance and depth of responses, quality of reasoning, and how well the student engaged with the simulation goals."""
+
+    try:
+        resp = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[{'role': 'user', 'content': prompt}],
+            response_format={'type': 'json_object'},
+            temperature=0.2,
+            max_tokens=400,
+        )
+        result = json.loads(resp.choices[0].message.content)
+        result.setdefault('score', 0)
+        result.setdefault('summary', '')
+        result.setdefault('strengths', [])
+        result.setdefault('improvements', [])
+    except Exception as e:
+        logger.error(f'Per-session analysis failed for {session_id}: {e}')
+        result = {'score': 0, 'summary': 'Analysis failed.', 'strengths': [], 'improvements': []}
+
+    result['session_id'] = session_id
+    result['display_name'] = display_name
+    result['message_count'] = message_count
+    return result
+
+
+def _class_summary(client, system_prompt, analyses):
+    context = system_prompt.strip() or 'a general AI assistant conversation'
+    lines = '\n'.join(f'- Score {a["score"]}/100: {a["summary"]}' for a in analyses)
+    prompt = f"""You are summarizing class-wide performance for a professor.
+
+The simulation scenario was: {context}
+
+Individual student results:
+{lines}
+
+Return a JSON object with exactly these fields:
+{{
+  "overall_insight": "<3-4 sentence paragraph about how the class performed, key trends, and notable observations>",
+  "common_strengths": ["<pattern across multiple students>", "<another common strength>"],
+  "common_weaknesses": ["<common gap>", "<another weakness>"]
+}}"""
+
+    try:
+        resp = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[{'role': 'user', 'content': prompt}],
+            response_format={'type': 'json_object'},
+            temperature=0.2,
+            max_tokens=400,
+        )
+        return json.loads(resp.choices[0].message.content)
+    except Exception as e:
+        logger.error(f'Class summary failed: {e}')
+        return {'overall_insight': 'Unable to generate class summary.', 'common_strengths': [], 'common_weaknesses': []}
+
+
+@analysis_bp.route('/config/<string:config_id>/analyze', methods=['POST'])
+@jwt_required()
+def analyze_config(config_id):
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+
+        config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
+        if not config_doc:
+            return jsonify({'error': 'Config not found'}), 404
+        if str(config_doc.get('user_id', '')) != user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        system_prompt = config_doc.get('instructions', '') or ''
+        sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
+        if not sessions:
+            return jsonify({'error': 'No sessions found for this config'}), 400
+
+        users_col = current_app.config['MONGO_COLLECTION']
+        chat_histories = db['chat_histories']
+
+        labeled = []
+        anon_count = 0
+        for s in sessions:
+            uid = s.get('user_id', '')
+            display = None
+            if uid and uid != 'anonymous':
+                try:
+                    user = users_col.find_one({'_id': ObjectId(uid)})
+                    if user:
+                        display = user.get('email')
+                except Exception:
+                    pass
+            if not display:
+                anon_count += 1
+                display = f'Anonymous #{anon_count}'
+            labeled.append({
+                'session_id': s.get('session_id', str(s['_id'])),
+                'display_name': display,
+                'message_count': s.get('message_count', 0),
+            })
+
+        client = OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
+
+        def analyze_one(item):
+            transcript = _get_transcript(chat_histories, item['session_id'])
+            return _analyze_one(client, system_prompt, transcript,
+                                item['display_name'], item['session_id'], item['message_count'])
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            analyses = list(executor.map(analyze_one, labeled))
+
+        scored = [a for a in analyses if a.get('score', 0) > 0]
+        avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
+        summary = _class_summary(client, system_prompt, scored) if scored else {
+            'overall_insight': 'No completed sessions to analyze.',
+            'common_strengths': [], 'common_weaknesses': [],
+        }
+
+        analyses.sort(key=lambda a: a.get('score', 0), reverse=True)
+
+        return jsonify({
+            'class_summary': {
+                'avg_score': avg_score,
+                'total_sessions': len(sessions),
+                'overall_insight': summary.get('overall_insight', ''),
+                'common_strengths': summary.get('common_strengths', []),
+                'common_weaknesses': summary.get('common_weaknesses', []),
+            },
+            'top_performers': analyses[:3],
+            'students': analyses,
+        })
+
+    except Exception as e:
+        logger.error(f'analyze_config error for {config_id}: {e}', exc_info=True)
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
