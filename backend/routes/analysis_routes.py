@@ -270,7 +270,7 @@ def analyze_config(config_id):
                 }
 
         analyses = [None] * len(labeled)
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=25) as executor:
             futures = {executor.submit(_analyze_item, item): i for i, item in enumerate(labeled)}
             for future in as_completed(futures):
                 analyses[futures[future]] = future.result()
