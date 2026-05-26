@@ -259,6 +259,18 @@ Answer:"""
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
         }
+
+        # Video-analysis configs carry an assignment type + an editable scoring spec.
+        if bot_type == 'video_analysis':
+            from src.video.rubrics import registry as video_registry
+            assignment_type = (config_data.get('assignment_type') or '').strip()
+            if assignment_type and assignment_type not in video_registry.get_preset_keys():
+                return jsonify({"error": f"Unknown assignment_type '{assignment_type}'"}), 400
+            scoring_spec = config_data.get('scoring_spec')
+            if not (isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights')):
+                scoring_spec = video_registry.get_default_spec(assignment_type)
+            config_document['assignment_type'] = assignment_type
+            config_document['scoring_spec'] = scoring_spec
         
         result = mongo_collection.get_collection().insert_one(config_document)
         config_id = result.inserted_id

@@ -20,6 +20,9 @@ import GroupChatPage from './pages/GroupChatPage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
+import VideoUploadPage from './pages/VideoUploadPage';
+import VideoResultsPage from './pages/VideoResultsPage';
+import VideoDashboardPage from './pages/VideoDashboardPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -57,7 +60,11 @@ function App() {
           <Route element={<PublicChatRoute />}>
             <Route path="/chat/:configId/:chatId?" element={<ChatPage />} />
             <Route path="/chat/:configId/:chatId/:qualtricsId" element={<ChatPage />} />
+            <Route path="/video-upload/:configId" element={<VideoUploadPage />} />
           </Route>
+
+          {/* Video results — accessible via one-time token (anonymous) or logged-in owner/prof */}
+          <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
 
           {/* Protected Routes - Professor only */}
           <Route element={<ProfessorRoute />}>
@@ -65,6 +72,7 @@ function App() {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />
+            <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

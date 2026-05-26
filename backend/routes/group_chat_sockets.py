@@ -28,7 +28,16 @@ def register_socket_events(socketio, app):
             return
         join_room(f"user:{uid}")
         logger.info(f"📥 sid={request.sid} subscribed to upload events for user:{uid}")
-    # ----------------------------    
+
+    @socketio.on('subscribe_video')
+    def handle_subscribe_video(data):
+        """Join a submission-scoped room so the video pipeline can push progress."""
+        sub_id = (data or {}).get('submission_id')
+        if not sub_id:
+            return
+        join_room(f"video:{sub_id}")
+        logger.info(f"🎬 sid={request.sid} subscribed to video events for video:{sub_id}")
+    # ----------------------------
     @socketio.on('join_queue')
     def handle_join_queue(data):
         """User enters matchmaking queue for a group chat config."""

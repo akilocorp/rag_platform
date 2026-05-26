@@ -29,6 +29,10 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
           setError('Failed to select configuration');
           return;
         }
+        if (config.bot_type === 'video_analysis') {
+          navigate(`/video-dashboard/${config.config_id}`);
+          return;
+        }
         onSelect(config.config_id);
       }}
       onMouseEnter={() => setIsHovered(true)}
@@ -51,7 +55,7 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
             {isHovered && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur-[2px] rounded-[1.5rem] pointer-events-none transition-all duration-200 z-10">
                 <div className="px-5 py-2 text-sm font-bold text-white rounded-xl bg-[#FA6C43] shadow-md transform scale-100 animate-in fade-in zoom-in-95 duration-200">
-                  Click to chat
+                  {config.bot_type === 'video_analysis' ? 'Open dashboard' : 'Click to chat'}
                 </div>
               </div>
             )}
@@ -67,12 +71,12 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/responses/${config.config_id}`);
+            navigate(config.bot_type === 'video_analysis' ? `/video-dashboard/${config.config_id}` : `/responses/${config.config_id}`);
           }}
           className="px-3 py-1.5 text-xs font-bold bg-gray-50 border border-gray-200 text-gray-600 rounded-lg hover:bg-[#F9D0C4]/30 hover:text-[#FA6C43] hover:border-[#FA6C43]/30 transition-colors flex items-center space-x-1.5"
         >
           <FaListAlt className="text-sm" />
-          <span>Responses</span>
+          <span>{config.bot_type === 'video_analysis' ? 'Dashboard' : 'Responses'}</span>
         </button>
         <button
           onClick={(e) => {

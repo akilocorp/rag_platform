@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
+import VideoScoringEditor from '../components/VideoScoringEditor';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -151,6 +152,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     hume_config_id: '',
     bot_avatar: 'robot',
     introduction: '',
+    // Video Analysis Specifics
+    assignment_type: '',
+    scoring_spec: null,
     // Group Chat Specifics
     group_size: 3,
     group_duration: 15,
@@ -244,7 +248,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
       newErrors.bot_name = 'Name is required';
     }
     if (step === 4) {
-      if (config.bot_type === 'group_chat') {
+      if (config.bot_type === 'video_analysis') {
+        if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
+      } else if (config.bot_type === 'group_chat') {
         config.bots.forEach((bot, idx) => {
           if (!bot.name.trim()) newErrors[`bot_${idx}_name`] = 'Required';
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
@@ -263,13 +269,20 @@ const ConfigModal = ({ isOpen, onClose }) => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Visible wizard steps per bot_type. Group chat skips the model picker (lobby
+  // AI is fixed); video analysis skips model + knowledge base (no chat model, no RAG).
+  const stepsFor = (botType) => {
+    if (botType === 'group_chat') return [1, 3, 4, 5];
+    if (botType === 'video_analysis') return [1, 4, 5];
+    return [1, 2, 3, 4, 5];
+  };
+
   const handleNext = () => {
     if (validateStep()) {
-      if (step < 5) {
-        // Group chat skips step 2 (model picker) — the lobby AI is fixed at
-        // gpt-3.5-turbo (set in initial config). Per-bot models are picked on step 4.
-        const skipModel = config.bot_type === 'group_chat' && step + 1 === 2;
-        setStep(skipModel ? 3 : step + 1);
+      const steps = stepsFor(config.bot_type);
+      const idx = steps.indexOf(step);
+      if (idx < steps.length - 1) {
+        setStep(steps[idx + 1]);
       } else {
         handleSubmit();
       }
@@ -277,9 +290,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
   };
 
   const handleBack = () => {
-    if (step > 1) {
-      const skipModel = config.bot_type === 'group_chat' && step - 1 === 2;
-      setStep(skipModel ? 1 : step - 1);
+    const steps = stepsFor(config.bot_type);
+    const idx = steps.indexOf(step);
+    if (idx > 0) {
+      setStep(steps[idx - 1]);
     } else if (onClose) {
       onClose();
     }
@@ -313,11 +327,17 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (configToSend.bot_type === 'group_chat') {
       // 1. Stringify the bots array for the backend
       configToSend.bots = JSON.stringify(configToSend.bots);
-      
+
       // 2. Inject a dummy instruction to satisfy the backend's validation requirement
       configToSend.instructions = "Group Space: Managing multiple AI agents.";
       delete configToSend.prompt_template;
-      
+
+    } else if (configToSend.bot_type === 'video_analysis') {
+      // No chat model / RAG; scoring_spec + assignment_type drive the feature.
+      configToSend.bots = [];
+      // Dummy instruction satisfies the backend's instructions-or-template check.
+      configToSend.instructions = `Video analysis assignment: ${configToSend.assignment_type}`;
+      delete configToSend.prompt_template;
     } else {
       // Standard Chat / Avatar Chat logic
       configToSend.bots = [];
@@ -350,6 +370,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
       
       if (configToSend.bot_type === 'group_chat') {
         navigate(`/group-chat/${newConfigId}`);
+      } else if (configToSend.bot_type === 'video_analysis') {
+        navigate(`/video-dashboard/${newConfigId}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -380,7 +402,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               progress bar has 4 segments instead of 5. A segment lights up
               when its step number is <= current step. */}
           <div className="flex justify-between space-x-2 mb-6 pl-4 pr-14 flex-shrink-0">
-            {(config.bot_type === 'group_chat' ? [1, 3, 4, 5] : [1, 2, 3, 4, 5]).map(i => (
+            {stepsFor(config.bot_type).map(i => (
               <div key={i} className={`h-2 flex-1 rounded-full transition-colors duration-300 ${i <= step ? 'bg-[#FA6C43]' : 'bg-gray-200'}`} />
             ))}
           </div>
@@ -407,7 +429,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space Type</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="chat" checked={config.bot_type === 'chat'} onChange={handleChange} className="hidden" />
                       <FaComments className={`text-2xl mb-2 ${config.bot_type === 'chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
@@ -434,6 +456,13 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <FaUsers className={`text-2xl mb-2 ${config.bot_type === 'group_chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Group Chat</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Multi-User & Multi-AI</p>
+                    </label>
+
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'video_analysis' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="video_analysis" checked={config.bot_type === 'video_analysis'} onChange={handleChange} className="hidden" />
+                      <FaFilm className={`text-2xl mb-2 ${config.bot_type === 'video_analysis' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Video Analysis</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Upload & Score</p>
                     </label>
                   </div>
                 </div>
@@ -478,7 +507,20 @@ const ConfigModal = ({ isOpen, onClose }) => {
             {/* STEP 4: AI Behavior OR Group Configuration */}
             {step === 4 && (
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4 pb-4">
-                {config.bot_type === 'group_chat' ? (
+                {config.bot_type === 'video_analysis' ? (
+                  // ==============================
+                  // VIDEO ANALYSIS — assignment type + editable scoring spec
+                  // ==============================
+                  <>
+                    <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Define the Rubric</h2>
+                    <VideoScoringEditor
+                      assignmentType={config.assignment_type}
+                      scoringSpec={config.scoring_spec}
+                      onChange={({ assignment_type, scoring_spec }) =>
+                        setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
+                    />
+                  </>
+                ) : config.bot_type === 'group_chat' ? (
                   // ==============================
                   // GROUP CHAT CONFIGURATION DASHBOARD
                   // ==============================
@@ -643,7 +685,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && (
+                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && config.bot_type !== 'video_analysis' && (
                   <div>
                     <label className="block text-[13px] font-semibold text-gray-700 mb-2">
                       {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}

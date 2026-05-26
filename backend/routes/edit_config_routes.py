@@ -120,6 +120,20 @@ def update_existing_config(config_id):
             "bots": bots_list
         }
 
+        # --- VIDEO-ANALYSIS FIELDS (assignment type + editable scoring spec) ---
+        assignment_type = data.get('assignment_type')
+        if assignment_type is not None:
+            update_data['assignment_type'] = (assignment_type or '').strip()
+        scoring_spec = data.get('scoring_spec')
+        if scoring_spec is not None:
+            if isinstance(scoring_spec, str):
+                try:
+                    scoring_spec = json.loads(scoring_spec)
+                except json.JSONDecodeError:
+                    scoring_spec = None
+            if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
+                update_data['scoring_spec'] = scoring_spec
+
         # Update the document in the database
         Config.get_collection().update_one(
             {"_id": ObjectId(config_id)},
