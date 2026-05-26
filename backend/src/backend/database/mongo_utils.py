@@ -4,7 +4,7 @@ from pymongo.database import Database
 from pymongo.collection import Collection
 # You might not need StreamlitChatMessageHistory anymore, as we're not using it.
 # from langchain_community.chat_message_histories import StreamlitChatMessageHistory 
-from langchain_community.chat_message_histories import MongoDBChatMessageHistory # this one is key
+from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory  # moved out of langchain_community; matches chat_routes/analysis_routes
 
 logger = logging.getLogger(__name__)
 
