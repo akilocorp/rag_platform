@@ -178,6 +178,66 @@ export default function VideoDashboardPage() {
           </div>
         )}
 
+        {/* Class-level analytics */}
+        {dash?.class_analytics && (dash.total_submissions > 0) && (() => {
+          const ca = dash.class_analytics;
+          const maxGrowth = Math.max(1, ...(ca.common_growth_areas || []).map(g => g.weight));
+          return (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+              <h2 className="font-bold text-[#222] mb-4">Class Analytics</h2>
+
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {[['Avg pace', ca.avg_wpm != null ? `${ca.avg_wpm} wpm` : '—'],
+                  ['Avg filler', ca.avg_filler_pct != null ? `${ca.avg_filler_pct}%` : '—'],
+                  ['Avg weak words', ca.avg_weak_pct != null ? `${ca.avg_weak_pct}%` : '—']].map(([l, v]) => (
+                  <div key={l} className="bg-[#F0F6FB] rounded-xl p-4 text-center">
+                    <p className="text-xl font-extrabold text-[#222]">{v}</p>
+                    <p className="text-[11px] text-gray-500 font-semibold mt-0.5">{l}</p>
+                  </div>
+                ))}
+              </div>
+
+              {(ca.common_growth_areas || []).length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Most common growth areas</h3>
+                  <div className="space-y-2">
+                    {ca.common_growth_areas.map((g) => (
+                      <div key={g.label} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-700 w-44 shrink-0">{g.label}</span>
+                        <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-[#FA6C43] rounded-full" style={{ width: `${(g.weight / maxGrowth) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(ca.tone_distribution || []).length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Tone across the class</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {ca.tone_distribution.map((t) => (
+                      <span key={t.label} className="text-sm bg-[#EEF2FF] text-[#4f46e5] font-semibold px-3 py-1 rounded-full">{t.label} <span className="opacity-60">×{t.count}</span></span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(ca.common_words || []).length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Most common filler / weak words</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {ca.common_words.map((w) => (
+                      <span key={w.word} className="text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-full"><b>{w.word}</b> <span className="text-gray-400">{w.students} student{w.students === 1 ? '' : 's'}</span></span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Per-student table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="flex items-center gap-4 py-2.5 px-4 bg-gray-50 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400">

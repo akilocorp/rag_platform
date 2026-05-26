@@ -31,6 +31,11 @@ FILLER_WORDS = {"um", "uh", "er", "ah", "hmm", "like", "okay", "ok", "right",
                 "yeah", "basically", "actually", "literally", "so"}
 HEDGE_PHRASES = ["i think", "i guess", "maybe", "sort of", "kind of", "i mean",
                  "probably", "i'm not sure", "it seems", "perhaps", "i suppose"]
+# "Weak" / non-committal qualifiers that dilute impact (Yoodli-style). Single
+# tokens are flagged with timestamps; multi-word ones counted in the text.
+WEAK_WORDS = {"just", "really", "very", "quite", "actually", "basically",
+              "literally", "stuff", "things", "somewhat", "pretty", "kinda",
+              "sorta", "honestly"}
 IDEAL_WPM_LOW, IDEAL_WPM_HIGH = 110, 160
 
 # --- Hume emotion bundles (names match Hume's 48-emotion taxonomy) --------
@@ -206,6 +211,192 @@ def _label_for(value):
     return "Weak"
 
 
+# --- Quantitative analytics (Yoodli-style, deterministic) ----------------
+
+def _status(value, good, warn, higher_better=True):
+    """Map a value to good/warn/bad against two thresholds."""
+    if value is None:
+        return "na"
+    if higher_better:
+        return "good" if value >= good else ("warn" if value >= warn else "bad")
+    return "good" if value <= good else ("warn" if value <= warn else "bad")
+
+
+def _norm(w):
+    return (w or "").strip().lower().strip(".,!?;:\"'")
+
+
+def compute_analytics(collected: dict, sm: dict) -> dict:
+    """Rich quantitative metrics grouped Word Choice / Delivery / Presence.
+    Every metric carries a value, a status, a human label, a benchmark note,
+    and (where useful) the actual flagged instances with timestamps."""
+    transcript = collected.get("transcript") or {}
+    words = transcript.get("words") or []
+    low = (transcript.get("text") or "").lower()
+    segments = transcript.get("segments") or []
+    duration = float(collected.get("duration_sec") or transcript.get("duration") or 0.0)
+
+    n_words = len(words)
+    tokens = re.findall(r"[a-z']+", low)
+    total = len(tokens) or 1
+    talk_sec = duration
+
+    # ---- Word Choice ----
+    filler_instances = [{"word": _norm(w.get("word")), "time": round(w.get("start", 0.0), 1)}
+                        for w in words if _norm(w.get("word")) in FILLER_WORDS]
+    filler_pct = round(100.0 * len(filler_instances) / total, 1)
+
+    weak_instances = [{"word": _norm(w.get("word")), "time": round(w.get("start", 0.0), 1)}
+                      for w in words if _norm(w.get("word")) in WEAK_WORDS]
+    weak_pct = round(100.0 * len(weak_instances) / total, 1)
+
+    hedge_count = sum(low.count(p) for p in HEDGE_PHRASES)
+    hedge_per100 = round(hedge_count / (total / 100.0), 1)
+
+    # sentence starters: first word of each segment; flag any used >1
+    starters = {}
+    for s in segments:
+        m = re.findall(r"[A-Za-z']+", s.get("text", "") or "")
+        if m:
+            k = m[0].lower()
+            starters[k] = starters.get(k, 0) + 1
+    recurring_starters = sorted([{"starter": k, "count": v} for k, v in starters.items() if v > 1],
+                                key=lambda x: -x["count"])
+
+    unique_ratio = round(len(set(tokens)) / total, 2)
+
+    # ---- Delivery ----
+    wpm = round(n_words / (talk_sec / 60.0)) if talk_sec else 0
+    pauses = []
+    for i in range(1, n_words):
+        gap = round(words[i].get("start", 0) - words[i - 1].get("end", 0), 1)
+        if gap >= 1.0:
+            pauses.append({"time": round(words[i - 1].get("end", 0), 1), "duration": gap})
+    longest_pause = max((p["duration"] for p in pauses), default=0.0)
+
+    # pace over thirds of the talk, to surface rushed/dragging sections
+    sections = []
+    if n_words > 6 and talk_sec > 6:
+        third = talk_sec / 3.0
+        for idx in range(3):
+            lo, hi = idx * third, (idx + 1) * third
+            cnt = sum(1 for w in words if lo <= w.get("start", 0) < hi)
+            sec_wpm = round(cnt / (third / 60.0)) if third else 0
+            sections.append({"label": ["Open", "Middle", "Close"][idx], "wpm": sec_wpm})
+
+    def sub(name):
+        m = sm.get(name) or {}
+        return m.get("score") if m.get("available") else None
+
+    pitch = sub("pitch_variation")
+    energy = sub("energy_dynamics")
+    expr = sub("facial_expressivity")
+    comp = sub("face_composure")
+
+    analytics = {
+        "talk_time_sec": round(talk_sec, 1),
+        "word_count": n_words,
+        "word_choice": {
+            "filler_words": {
+                "count": len(filler_instances), "pct": filler_pct,
+                "status": _status(filler_pct, 3, 6, higher_better=False),
+                "label": f"{filler_pct}% filler", "instances": filler_instances[:25],
+                "benchmark": "Strong speakers stay under 3%.",
+            },
+            "weak_words": {
+                "count": len(weak_instances), "pct": weak_pct,
+                "status": _status(weak_pct, 3, 6, higher_better=False),
+                "label": f"{len(weak_instances)} weak words ({weak_pct}%)", "instances": weak_instances[:25],
+                "benchmark": "It's natural to have fewer than 4% weak words.",
+            },
+            "hedging": {
+                "per_100": hedge_per100, "count": hedge_count,
+                "status": _status(hedge_per100, 1.5, 3.5, higher_better=False),
+                "label": f"{hedge_per100} hedges / 100 words",
+                "benchmark": "Confident delivery uses few hedges (\"I think\", \"maybe\").",
+            },
+            "sentence_starters": {
+                "recurring": len(recurring_starters), "top": recurring_starters[:5],
+                "status": _status(len(recurring_starters), 1, 3, higher_better=False),
+                "label": f"{len(recurring_starters)} recurring starters",
+                "benchmark": "Vary how you open sentences to stay engaging.",
+            },
+            "vocabulary": {
+                "unique_ratio": unique_ratio, "total_words": n_words,
+                "status": _status(unique_ratio * 100, 45, 35),
+                "label": f"{int(unique_ratio * 100)}% unique words",
+                "benchmark": "Higher lexical variety reads as more articulate.",
+            },
+        },
+        "delivery": {
+            "pace": {
+                "wpm": wpm,
+                "status": "good" if IDEAL_WPM_LOW <= wpm <= IDEAL_WPM_HIGH else "warn" if (90 <= wpm < IDEAL_WPM_LOW or IDEAL_WPM_HIGH < wpm <= 185) else "bad",
+                "label": f"{wpm} words/min", "sections": sections,
+                "benchmark": f"Conversational pace is {IDEAL_WPM_LOW}-{IDEAL_WPM_HIGH} wpm.",
+            },
+            "pauses": {
+                "count": len(pauses), "longest_sec": longest_pause,
+                "status": _status(len(pauses), 4, 9, higher_better=False),
+                "label": f"{len(pauses)} long pauses (max {longest_pause}s)", "instances": pauses[:25],
+                "benchmark": "A few pauses add emphasis; many disrupt flow.",
+            },
+            "pitch_variation": {
+                "value": pitch, "status": _status(pitch, 55, 35) if pitch is not None else "na",
+                "label": "Vocal variation (monotone ↔ dynamic)",
+                "benchmark": "Varied pitch keeps listeners engaged.",
+            },
+            "energy": {
+                "value": energy, "status": _status(energy, 55, 35) if energy is not None else "na",
+                "label": "Vocal energy", "benchmark": "Energy signals conviction.",
+            },
+        },
+        "presence": {
+            "facial_expressivity": {
+                "value": expr, "status": _status(expr, 50, 30) if expr is not None else "na",
+                "label": "Facial expressivity", "benchmark": "Expressive faces build connection.",
+            },
+            "composure": {
+                "value": comp, "status": _status(comp, 55, 40) if comp is not None else "na",
+                "label": "Facial composure", "benchmark": "Calm composure reads as confident.",
+            },
+        },
+    }
+    return analytics
+
+
+TONE_CANDIDATES = ["Confident", "Enthusiastic", "Clear", "Measured", "Rushed", "Monotone", "Hesitant"]
+
+
+def compute_tone_tags(analytics: dict, sm: dict) -> list:
+    """Yoodli-style tone chips: a fixed candidate set, each marked active or not."""
+    wpm = (analytics.get("delivery") or {}).get("pace", {}).get("wpm", 0)
+    filler = (analytics.get("word_choice") or {}).get("filler_words", {}).get("pct", 0)
+    weak = (analytics.get("word_choice") or {}).get("weak_words", {}).get("pct", 0)
+
+    def s(name):
+        m = sm.get(name) or {}
+        return m.get("score") if m.get("available") else None
+
+    conf, enth, pitch = s("prosody_confidence"), s("hume_enthusiasm"), s("pitch_variation")
+    active = set()
+    if conf is not None and conf >= 60:
+        active.add("Confident")
+    if enth is not None and enth >= 55:
+        active.add("Enthusiastic")
+    if filler < 4 and weak < 4:
+        active.add("Clear")
+    if IDEAL_WPM_LOW <= wpm <= IDEAL_WPM_HIGH:
+        active.add("Measured")
+    if wpm > 175:
+        active.add("Rushed")
+    if pitch is not None and pitch < 35:
+        active.add("Monotone")
+    if filler > 6 or (conf is not None and conf < 40):
+        active.add("Hesitant")
+    return [{"label": t, "active": t in active} for t in TONE_CANDIDATES]
+
+
 # --- LLM content evaluation + checks + qualitative feedback (one call) ----
 
 def _parse_json(text):
@@ -220,71 +411,89 @@ def _parse_json(text):
     return json.loads(text)
 
 
-def _llm_evaluate(api_key, scoring_spec, transcript_text, submetric_summary):
+def _analytics_brief(analytics: dict, tone_tags: list) -> str:
+    """Compact, factual brief of the measured signals for the LLM to ground its
+    coaching in (so feedback cites real numbers, not guesses)."""
+    wc = analytics.get("word_choice", {})
+    dl = analytics.get("delivery", {})
+    active_tones = ", ".join(t["label"] for t in tone_tags if t["active"]) or "none detected"
+    top_weak = ", ".join(sorted({i["word"] for i in wc.get("weak_words", {}).get("instances", [])})) or "none"
+    return (
+        f"- Talk time: {analytics.get('talk_time_sec', 0)}s, {analytics.get('word_count', 0)} words\n"
+        f"- Pace: {dl.get('pace', {}).get('wpm', 0)} wpm ({dl.get('pace', {}).get('status', 'na')})\n"
+        f"- Filler words: {wc.get('filler_words', {}).get('pct', 0)}%; weak words: {wc.get('weak_words', {}).get('pct', 0)}% ({top_weak})\n"
+        f"- Hedging: {wc.get('hedging', {}).get('per_100', 0)} per 100 words\n"
+        f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0)}s)\n"
+        f"- Detected tone: {active_tones}\n"
+    )
+
+
+def _llm_coaching(api_key, scoring_spec, transcript_text, analytics_brief):
+    """One structured call → Yoodli-style coaching grounded in the transcript."""
     checks = scoring_spec.get("content_checks") or []
     checks_block = ""
     if checks:
         lines = "\n".join(f'- {c["id"]}: {c.get("label","")} — {c.get("description","")}' for c in checks)
-        checks_block = (
-            "\nContent checks — for each, decide if the presentation satisfies it:\n"
-            f"{lines}\n"
-        )
+        checks_block = f"\nContent checks — decide if the presentation satisfies each:\n{lines}\n"
+
     prompt = f"""{scoring_spec.get('feedback_prompt_template', '').strip()}
 
-You are scoring the CONTENT/COMPETENCE of the transcript below and giving holistic feedback.
+You are an expert speaking coach. Give DEEP, specific, actionable feedback on the presentation below. Ground every point in what was actually said — quote real phrases and rewrite them. Be encouraging but honest.
 
-Delivery signals already measured (0-100, higher is better):
-{submetric_summary}
-
+Measured delivery signals (already computed — reference them where relevant):
+{analytics_brief}
 Transcript:
 \"\"\"
-{transcript_text[:6000]}
+{transcript_text[:7000]}
 \"\"\"
 {checks_block}
-Return ONLY a JSON object:
+Return ONLY a JSON object with this exact shape:
 {{
+  "strength": "<2-3 sentences naming the single biggest thing they did well, specific to their content/delivery>",
+  "growth_areas": [
+    {{
+      "title": "<imperative, e.g. 'Open with a hook'>",
+      "detail": "<2-3 sentences of concrete, specific advice>",
+      "rewrites": [{{"original": "<exact phrase from the transcript>", "improved": "<a stronger rewrite>"}}]
+    }}
+    // 3 to 6 items. Include rewrites only when you can quote a real phrase; otherwise use an empty array.
+  ],
+  "follow_up_questions": ["<question an audience member would likely ask>", "...", "..."],
+  "summary": ["<bullet summarizing a key point they made>", "..."],
   "competence_content_score": <0-100, quality of hook/structure/evidence/vocabulary/close>,
-  "content_checks": [{{"id": "<id>", "passed": <true|false>, "score": <0-100>, "note": "<short>"}}],
-  "summary": "<2-3 sentence overall summary>",
-  "strengths": ["<short>", "..."],
-  "improvements": ["<short>", "..."],
-  "per_dimension": {{"confidence": "<1 sentence>", "competence": "<1 sentence>", "passion": "<1 sentence>"}}
+  "content_checks": [{{"id": "<id>", "passed": <true|false>, "score": <0-100>, "note": "<short, specific>"}}]
 }}"""
-    llm = ChatOpenAI(model="gpt-4o-mini", api_key=api_key, temperature=0.2, max_tokens=900)
+    llm = ChatOpenAI(model="gpt-4o-mini", api_key=api_key, temperature=0.3, max_tokens=1800)
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
-
-
-def _submetric_summary(sm):
-    avail = [f'{k}={v["score"]}' for k, v in sm.items() if v["available"] and v["score"] is not None]
-    return ", ".join(avail) or "none available"
 
 
 def score_submission(submission: dict, collected: dict, scoring_spec: dict, openai_api_key: str) -> dict:
     """Pure scoring. Returns the `video_scores` document body (no _id/insert)."""
     sm = compute_submetrics(collected)
+    analytics = compute_analytics(collected, sm)
+    tone_tags = compute_tone_tags(analytics, sm)
     transcript_text = ((collected.get("transcript") or {}).get("text") or "")
 
-    # LLM content + checks + feedback (best-effort; degrade gracefully)
+    # LLM coaching + content score + checks (best-effort; degrade gracefully).
     llm_content_score = None
     content_checks = []
-    feedback = {"summary": "", "strengths": [], "improvements": [],
-                "per_dimension": {"confidence": "", "competence": "", "passion": ""}}
+    coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
-        ev = _llm_evaluate(openai_api_key, scoring_spec, transcript_text, _submetric_summary(sm))
-        llm_content_score = float(ev.get("competence_content_score")) if ev.get("competence_content_score") is not None else None
+        ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
+        llm_content_score = float(ev["competence_content_score"]) if ev.get("competence_content_score") is not None else None
         content_checks = ev.get("content_checks") or []
-        feedback = {
-            "summary": ev.get("summary", ""),
-            "strengths": ev.get("strengths", []) or [],
-            "improvements": ev.get("improvements", []) or [],
-            "per_dimension": ev.get("per_dimension", {}) or feedback["per_dimension"],
+        coaching = {
+            "strength": ev.get("strength", "") or "",
+            "growth_areas": ev.get("growth_areas", []) or [],
+            "follow_up_questions": ev.get("follow_up_questions", []) or [],
+            "summary": ev.get("summary", []) or [],
         }
     except Exception as e:
-        logger.error("LLM evaluation failed: %s", e, exc_info=True)
-        feedback["summary"] = "Automated content feedback was unavailable for this submission."
+        logger.error("LLM coaching failed: %s", e, exc_info=True)
+        coaching["strength"] = "Automated coaching was unavailable for this submission."
 
-    # Inject LLM content score as the competence content sub-metric.
+    # Inject the LLM content score as the competence content sub-metric.
     sm["llm_content"] = _sm(llm_content_score, llm_content_score, llm_content_score is not None, "Content quality (LLM)")
 
     weights = scoring_spec.get("submetric_weights") or {}
@@ -303,6 +512,13 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     tw = sum(w for w, _ in present)
     overall = round(sum(w * v for w, v in present) / tw, 1) if tw > 0 else None
 
+    # Legacy feedback view kept so the dashboard quick-view keeps working.
+    feedback = {
+        "summary": " ".join(coaching.get("summary", [])[:2]) or coaching.get("strength", ""),
+        "strengths": [coaching["strength"]] if coaching.get("strength") else [],
+        "improvements": [g.get("title", "") for g in coaching.get("growth_areas", []) if g.get("title")],
+    }
+
     return {
         "submission_id": str(submission["_id"]),
         "config_id": submission.get("config_id"),
@@ -312,6 +528,9 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
         "scores": composites,
         "content_checks": content_checks,
         "overall": overall,
+        "coaching": coaching,
+        "analytics": analytics,
+        "tone_tags": tone_tags,
         "feedback": feedback,
         "timeline_markers": [],
         "scored_at": time.time(),

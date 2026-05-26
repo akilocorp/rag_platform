@@ -397,6 +397,59 @@ def dashboard(config_id):
     averages = {d: (round(sum(sums[d]) / len(sums[d]), 1) if sums[d] else None) for d in dims}
     overall_vals = [s.get("overall") for s in scores if s.get("overall") is not None]
 
+    # ---- Class-level analytics (Yoodli-style, aggregated) ----
+    tone_counts = {}
+    metric_issues = {}   # label -> weighted count (bad=2, warn=1)
+    word_freq = {}       # weak/filler word -> students using it
+    filler_pcts, wpms, weak_pcts = [], [], []
+
+    # (category, metric_key, friendly label) — the metrics we surface as common growth areas
+    ISSUE_METRICS = [
+        ("word_choice", "filler_words", "Filler words"),
+        ("word_choice", "weak_words", "Weak words"),
+        ("word_choice", "hedging", "Hedging"),
+        ("word_choice", "sentence_starters", "Repetitive openers"),
+        ("delivery", "pace", "Pacing"),
+        ("delivery", "pauses", "Long pauses"),
+        ("delivery", "pitch_variation", "Monotone delivery"),
+        ("delivery", "energy", "Low energy"),
+        ("presence", "facial_expressivity", "Flat expression"),
+        ("presence", "composure", "Composure"),
+    ]
+
+    for s in scores:
+        an = s.get("analytics") or {}
+        for t in (s.get("tone_tags") or []):
+            if t.get("active"):
+                tone_counts[t["label"]] = tone_counts.get(t["label"], 0) + 1
+        wc = an.get("word_choice") or {}
+        dl = an.get("delivery") or {}
+        if wc.get("filler_words", {}).get("pct") is not None:
+            filler_pcts.append(wc["filler_words"]["pct"])
+        if wc.get("weak_words", {}).get("pct") is not None:
+            weak_pcts.append(wc["weak_words"]["pct"])
+        if dl.get("pace", {}).get("wpm"):
+            wpms.append(dl["pace"]["wpm"])
+        for cat, key, label in ISSUE_METRICS:
+            st = ((an.get(cat) or {}).get(key) or {}).get("status")
+            if st == "bad":
+                metric_issues[label] = metric_issues.get(label, 0) + 2
+            elif st == "warn":
+                metric_issues[label] = metric_issues.get(label, 0) + 1
+        seen = set()
+        for inst in (wc.get("weak_words", {}).get("instances", []) + wc.get("filler_words", {}).get("instances", [])):
+            w = inst.get("word")
+            if w and w not in seen:
+                seen.add(w)
+                word_freq[w] = word_freq.get(w, 0) + 1
+
+    def _avg(xs):
+        return round(sum(xs) / len(xs), 1) if xs else None
+
+    top_growth = sorted(metric_issues.items(), key=lambda kv: -kv[1])[:5]
+    top_words = sorted(word_freq.items(), key=lambda kv: -kv[1])[:8]
+    tone_dist = sorted(tone_counts.items(), key=lambda kv: -kv[1])
+
     return jsonify({
         "total_submissions": len(scores),
         "avg_overall": round(sum(overall_vals) / len(overall_vals), 1) if overall_vals else None,
@@ -404,4 +457,12 @@ def dashboard(config_id):
         "distributions": buckets,
         "common_weakness_dimension": (max(weakness_tally, key=weakness_tally.get) if weakness_tally else None),
         "weakness_tally": weakness_tally,
+        "class_analytics": {
+            "avg_filler_pct": _avg(filler_pcts),
+            "avg_weak_pct": _avg(weak_pcts),
+            "avg_wpm": _avg(wpms),
+            "tone_distribution": [{"label": k, "count": v} for k, v in tone_dist],
+            "common_growth_areas": [{"label": k, "weight": v} for k, v in top_growth],
+            "common_words": [{"word": k, "students": v} for k, v in top_words],
+        },
     })
