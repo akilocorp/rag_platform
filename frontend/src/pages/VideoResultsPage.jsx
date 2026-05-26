@@ -75,6 +75,7 @@ export default function VideoResultsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [videoUrl, setVideoUrl] = useState(null);
 
   const load = () => {
     const q = token ? `?token=${encodeURIComponent(token)}` : '';
@@ -85,6 +86,23 @@ export default function VideoResultsPage() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [submissionId, token]);
+
+  // Presigned playback URL (available as soon as the video is uploaded).
+  useEffect(() => {
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    apiClient.get(`/video/submissions/${submissionId}/video-url${q}`)
+      .then((res) => setVideoUrl(res.data.url))
+      .catch(() => setVideoUrl(null));
+    // eslint-disable-next-line
+  }, [submissionId, token]);
+
+  // Plain JSX value (not a nested component) so re-renders don't remount the
+  // <video> element and interrupt playback.
+  const player = videoUrl ? (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 mb-5">
+      <video src={videoUrl} controls playsInline className="w-full rounded-xl bg-black max-h-[420px]" />
+    </div>
+  ) : null;
 
   // Poll while still processing.
   useEffect(() => {
@@ -110,11 +128,14 @@ export default function VideoResultsPage() {
 
   if (status !== 'scored') {
     return wrap(
+      <>
+      {player}
       <div className="bg-white rounded-2xl p-10 text-center">
         {status === 'failed'
           ? <><h2 className="font-bold text-lg text-red-600">Processing failed</h2><p className="text-sm text-gray-500 mt-2">{submission?.error || 'Please try uploading again.'}</p></>
           : <><FaSpinner className="animate-spin text-3xl text-[#FA6C43] mx-auto mb-4" /><h2 className="font-bold text-lg text-[#222]">Still analyzing…</h2><p className="text-sm text-gray-500 mt-2">Your results will appear here automatically.</p></>}
       </div>
+      </>
     );
   }
 
@@ -127,6 +148,8 @@ export default function VideoResultsPage() {
         <h1 className="text-2xl font-extrabold text-[#222]">Your Results</h1>
         <p className="text-sm text-gray-500">{submission?.name} · {submission?.assignment_type?.replace(/_/g, ' ')}</p>
       </div>
+
+      {player}
 
       {/* Overall */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-5 flex items-center justify-between">

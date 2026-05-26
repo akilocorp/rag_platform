@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 
 from src.utils.s3_client import (
     generate_presigned_put_url,
+    generate_download_url,
     object_exists,
     get_s3_client,
     get_bucket,
@@ -280,6 +281,26 @@ def get_results(sub_id):
         "duration_sec": (collected or {}).get("duration_sec"),
         "modalities_present": (collected or {}).get("modalities_present", []),
     })
+
+
+@video_bp.route('/video/submissions/<sub_id>/video-url', methods=['GET'])
+def video_url(sub_id):
+    """Presigned GET URL for inline playback. Same access rules as results
+    (owner / prof / same-email account / valid token)."""
+    db = current_app.config['MONGO_DB']
+    try:
+        sub = db['video_submissions'].find_one({"_id": ObjectId(sub_id)})
+    except InvalidId:
+        return jsonify({"error": "Invalid submission id"}), 400
+    if not sub:
+        return jsonify({"error": "Submission not found"}), 404
+    if not _can_view_results(sub, request.args.get("token")):
+        return jsonify({"error": "Forbidden"}), 403
+    key = sub.get("storage_key")
+    if not key:
+        return jsonify({"error": "No video on file"}), 404
+    # No `filename` → no attachment disposition → plays inline in a <video> tag.
+    return jsonify({"url": generate_download_url(key, expires_in=3600)})
 
 
 @video_bp.route('/video/submissions/<sub_id>/rescore', methods=['POST'])
