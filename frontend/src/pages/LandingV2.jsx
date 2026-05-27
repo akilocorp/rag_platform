@@ -13,27 +13,27 @@ const UVPS = [
     id: 'syllabus',
     icon: '/illustrations/icon-question.png',
     iconAlt: 'Question mark',
-    headline: 'Trained on your syllabus, not the internet.',
+    headline: 'No PDF hassles anymore.',
     body:
-      'Upload your slides, readings, and PDFs. Your bot answers from your files — not from generic training data. Your students get answers grounded in what you actually teach.',
+      'Stop the tedious cycle of downloading, organizing, and manually uploading course materials. Actrlabs connects directly to your Canvas dashboard, pulling your lecture notes, syllabi, and readings in real-time.',
     side: 'left',
   },
   {
     id: 'models',
     icon: '/illustrations/icon-pencil.png',
     iconAlt: 'Pencil',
-    headline: 'Pick the AI for the lesson, not the lesson for the AI.',
+    headline: 'Your Intelligence, Your Terms.',
     body:
-      'Claude for analysis. GPT for code. Gemini for math. Haiku for quick tutoring. One platform, six models — pick the right one per bot, swap any time.',
+      'Stop paying for multiple subscriptions just to access the best tools. Actrlabs breaks the platform lock-in by giving you unified access to the leading state-of-the-art AI models—all in one place.',
     side: 'right',
   },
   {
     id: 'research',
     icon: '/illustrations/icon-glasses.png',
     iconAlt: 'Glasses',
-    headline: 'Built for research, not just for class.',
+    headline: 'Test. Iterate. Evolve.',
     body:
-      'Embed in Qualtrics surveys. Capture full transcripts. Run A/B variants on the same bot. Group-chat matching for cohort studies. We built this to be a research instrument, not just a tutoring tool.',
+      'We provide a dedicated sandbox where students, educators, and researchers can observe how AI interacts with academic content in real-time.',
     side: 'left',
   },
 ];
@@ -135,44 +135,94 @@ const BentoTile = ({
 // get clipped by the tile's overflow:hidden — that's the "tilted card
 // peeking off the corner" effect. They never cross the zone edge that
 // borders the copy zone.
+const SyllabusFileRow = ({ type, name, status }) => {
+  const typeColors = {
+    PDF: '#C8472A',
+    DOCX: '#3E6493',
+    PPT: '#A8832D',
+  };
+  return (
+    <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-gray-50">
+      <span
+        className="text-[8px] font-bold px-1.5 py-0.5 rounded text-white"
+        style={{ backgroundColor: typeColors[type] || '#888' }}
+      >
+        {type}
+      </span>
+      <span className="text-[10px] text-gray-800 flex-1 truncate">{name}</span>
+      {status === 'syncing' ? (
+        <span
+          className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-[#FA6C43]"
+          style={{ animation: 'landing-spin 1s linear infinite' }}
+          aria-hidden
+        />
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
+          <circle cx="6" cy="6" r="6" fill="#10A37F" />
+          <path d="M3.5 6.2l1.7 1.6 3.3-3.4" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </div>
+  );
+};
+
 const SyllabusMockup = () => (
   <>
+    {/* Tilted secondary course card peeking behind */}
     <div
-      className="absolute bottom-[150px] right-[200px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2 pointer-events-none"
-      style={{ transform: 'rotate(-16deg)' }}
+      className="absolute bottom-[200px] right-[-30px] w-[240px] bg-white rounded-xl shadow-lg border border-gray-200 p-3 pointer-events-none"
+      style={{ transform: 'rotate(6deg)', fontFamily: FONT_BODY }}
       aria-hidden
     >
-      <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
-      <div className="h-1 bg-gray-300 rounded mb-1"></div>
-      <div className="h-1 bg-gray-200 rounded mb-1 w-3/4"></div>
-      <div className="h-1 bg-gray-200 rounded w-1/2"></div>
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#A8832D' }} />
+        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">HIST 204</span>
+      </div>
+      <div className="h-1.5 bg-gray-200 rounded mb-1.5"></div>
+      <div className="h-1.5 bg-gray-100 rounded w-3/4"></div>
     </div>
+
+    {/* Main Canvas-styled course panel */}
     <div
-      className="absolute bottom-[110px] right-[80px] w-20 h-24 bg-white rounded-lg shadow-md border border-gray-200 p-2 pointer-events-none"
-      style={{ transform: 'rotate(11deg)' }}
-      aria-hidden
-    >
-      <div className="text-[8px] font-bold text-gray-400 mb-1">PDF</div>
-      <div className="h-1 bg-gray-300 rounded mb-1"></div>
-      <div className="h-1 bg-gray-200 rounded mb-1 w-2/3"></div>
-      <div className="h-1 bg-gray-200 rounded w-1/2"></div>
-    </div>
-    <div
-      className="absolute bottom-[20px] right-[-10px] w-[320px] bg-white rounded-2xl p-3.5 shadow-2xl space-y-2 border border-gray-100 pointer-events-none"
+      className="absolute bottom-[20px] right-[-10px] w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden pointer-events-none"
       style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
       aria-hidden
     >
+      {/* Canvas-styled header */}
       <div
-        className="ml-8 px-3 py-2 rounded-2xl text-sm"
-        style={{ backgroundColor: '#FA6C43', color: '#fff' }}
+        className="px-3.5 py-2.5 flex items-center justify-between"
+        style={{ backgroundColor: '#C8472A' }}
       >
-        What&rsquo;s the difference between Type I and Type II error?
-      </div>
-      <div className="mr-6 px-3 py-2 rounded-2xl bg-gray-100 text-sm text-gray-800">
-        Per your Week 3 lecture (slide 14): Type I rejects a true null hypothesis&hellip;
-        <div className="mt-2 inline-flex items-center gap-1 bg-white rounded-full px-2 py-0.5 text-[10px] border border-gray-200 text-gray-600">
-          <span>&#128196;</span> lecture-3.pdf
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-white/95 flex items-center justify-center">
+            <span className="text-[10px] font-black" style={{ color: '#C8472A' }}>C</span>
+          </div>
+          <span className="text-[11px] font-bold text-white tracking-wide">Canvas</span>
         </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-white/95" style={{ animation: 'landing-pulse-dot 1.8s ease-in-out infinite' }} />
+          <span className="text-[9px] font-semibold text-white/95 uppercase tracking-wider">Live</span>
+        </div>
+      </div>
+
+      {/* Course title row */}
+      <div className="px-3.5 pt-3 pb-2 border-b border-gray-100">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">PSYC 301</div>
+        <div className="text-[12px] font-bold text-gray-800">Research Methods · Fall</div>
+      </div>
+
+      {/* File list */}
+      <div className="px-2 py-2 space-y-0.5">
+        <SyllabusFileRow type="PDF"  name="lecture-3-hypothesis.pdf" status="synced" />
+        <SyllabusFileRow type="DOCX" name="syllabus-v2.docx"          status="synced" />
+        <SyllabusFileRow type="PPT"  name="week-4-anova.pptx"         status="syncing" />
+        <SyllabusFileRow type="PDF"  name="reading-list.pdf"          status="synced" />
+      </div>
+
+      {/* Footer */}
+      <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+        <span className="text-[9px] text-gray-500">Auto-sync every 5 min</span>
+        <span className="text-[9px] font-semibold" style={{ color: '#10A37F' }}>4 files ready</span>
       </div>
     </div>
   </>
@@ -225,28 +275,50 @@ const ResearchMockup = () => (
       className="bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
       style={{ fontFamily: FONT_BODY }}
     >
-      <div className="bg-slate-50 px-3 py-2 border-b border-gray-200 flex items-center justify-between">
-        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Cognitive Load Study</span>
-        <span className="text-[9px] text-slate-500">Q4/12</span>
-      </div>
-      <div className="p-3.5 space-y-2.5">
-        <div className="text-[11px] font-semibold text-gray-800 leading-snug">How clear was the bot&rsquo;s response?</div>
-        <div className="flex gap-1.5">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <span
-              key={n}
-              className={`w-6 h-6 rounded text-[10px] flex items-center justify-center font-semibold ${
-                n === 3 ? 'text-white' : 'bg-gray-100 text-gray-500'
-              }`}
-              style={n === 3 ? { backgroundColor: '#3E6493' } : {}}
-            >
-              {n}
-            </span>
-          ))}
+      {/* Sandbox header */}
+      <div
+        className="px-3 py-2 border-b border-gray-200 flex items-center justify-between"
+        style={{ backgroundColor: '#EEF3F9' }}
+      >
+        <div className="flex items-center gap-1.5">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
+            <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="#3E6493" strokeWidth="1.2" fill="none" />
+            <path d="M3.5 6l1.5 1.5L8.5 4.5" stroke="#3E6493" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#3E6493' }}>Sandbox</span>
         </div>
-        <div className="bg-gray-50 rounded-md p-2 mt-1 border border-gray-100">
-          <div className="text-[8px] uppercase tracking-wider text-gray-400 mb-1">Embedded chat</div>
-          <div className="text-[10px] text-gray-700">&ldquo;Per slide 14, Type I error is&hellip;&rdquo;</div>
+        <div className="flex items-center gap-1">
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: '#10A37F', animation: 'landing-pulse-dot 1.6s ease-in-out infinite' }}
+          />
+          <span className="text-[9px] font-semibold text-gray-600">Observing</span>
+        </div>
+      </div>
+
+      {/* Mini exchange */}
+      <div className="p-3 space-y-1.5">
+        <div className="ml-6 px-2.5 py-1.5 rounded-xl text-[10px]" style={{ backgroundColor: '#3E6493', color: '#fff' }}>
+          Explain Bayes&rsquo; theorem.
+        </div>
+        <div className="mr-4 px-2.5 py-1.5 rounded-xl bg-gray-100 text-[10px] text-gray-800 leading-snug">
+          From your slide 8: P(A|B) = P(B|A)·P(A) / P(B)&hellip;
+        </div>
+      </div>
+
+      {/* Observation strip */}
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 grid grid-cols-3 gap-2">
+        <div>
+          <div className="text-[8px] uppercase tracking-wider text-gray-400">Latency</div>
+          <div className="text-[10px] font-bold text-gray-800">1.4s</div>
+        </div>
+        <div>
+          <div className="text-[8px] uppercase tracking-wider text-gray-400">Cited</div>
+          <div className="text-[10px] font-bold text-gray-800">3 src</div>
+        </div>
+        <div>
+          <div className="text-[8px] uppercase tracking-wider text-gray-400">Variant</div>
+          <div className="text-[10px] font-bold" style={{ color: '#3E6493' }}>B</div>
         </div>
       </div>
     </div>
@@ -1291,6 +1363,13 @@ const LandingV2 = () => {
         }
         .landing-cta-pulse:hover {
           animation: none;
+        }
+        @keyframes landing-spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes landing-pulse-dot {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
         }
         @media (prefers-reduced-motion: reduce) {
           .landing-icon-float img { animation: none; }
