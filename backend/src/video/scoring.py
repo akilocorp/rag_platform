@@ -557,7 +557,12 @@ Rules:
 - summary: 2 to 5 bullets.
 - ALL scores must use the full 0-100 range per the calibration above — do NOT cluster around 50-70."""
 
-    llm = ChatOpenAI(model="gpt-5", api_key=api_key, max_tokens=2400)
+    llm = ChatOpenAI(
+        model="gpt-5",
+        api_key=api_key,
+        max_tokens=8000,
+        model_kwargs={"reasoning_effort": "minimal"},
+    )
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
 
