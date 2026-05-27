@@ -259,6 +259,62 @@ export default function VideoResultsPage() {
             </div>
           )}
 
+          {/* PCCP Breakdown */}
+          {coaching.pccp && Object.keys(coaching.pccp).length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">PCCP Evaluation</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { key: 'project_competence', label: 'Project Competence' },
+                  { key: 'competence', label: 'Competence' },
+                  { key: 'confidence', label: 'Confidence' },
+                  { key: 'passion', label: 'Passion' },
+                ].map(({ key, label }) => {
+                  const d = coaching.pccp[key] || {};
+                  const v = d.score;
+                  return (
+                    <div key={key} className="bg-[#F0F6FB] rounded-xl p-3">
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className="text-xs font-bold text-gray-600">{label}</span>
+                        <span className="text-lg font-extrabold" style={{ color: color(v) }}>{v != null ? Math.round(v) : '—'}</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-2">
+                        <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
+                      </div>
+                      {d.note && <p className="text-[11px] text-gray-500 leading-snug">{d.note}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+              {coaching.pccp.overall != null && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-600">PCCP Overall</span>
+                  <span className="text-xl font-extrabold" style={{ color: color(coaching.pccp.overall) }}>{Math.round(coaching.pccp.overall)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Opening Gambit */}
+          {coaching.gambit && coaching.gambit.identified && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Opening Gambit</h3>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-[#222]">{coaching.gambit.identified}</p>
+                  {coaching.gambit.relevance_note && <p className="text-xs text-gray-500 mt-1">{coaching.gambit.relevance_note}</p>}
+                  {coaching.gambit.improvement && <p className="text-xs text-blue-600 mt-2 bg-blue-50 rounded-lg px-3 py-2">{coaching.gambit.improvement}</p>}
+                </div>
+                {coaching.gambit.effectiveness != null && (
+                  <div className="text-right shrink-0">
+                    <span className="text-2xl font-extrabold" style={{ color: color(coaching.gambit.effectiveness) }}>{Math.round(coaching.gambit.effectiveness)}</span>
+                    <p className="text-[11px] text-gray-400">effectiveness</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Strength */}
           {coaching.strength && (
             <div className="bg-white rounded-2xl border border-green-200 shadow-sm p-5">

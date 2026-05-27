@@ -36,7 +36,7 @@ def _parse_json(text):
 
 
 def _llm(api_key, prompt, max_tokens=600):
-    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, temperature=0.2, max_tokens=max_tokens)
+    llm = ChatOpenAI(model='gpt-5', api_key=api_key, max_tokens=max_tokens)
     response = llm.invoke([HumanMessage(content=prompt)])
     return response.content
 
