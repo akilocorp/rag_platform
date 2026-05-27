@@ -428,6 +428,20 @@ const LandingV2 = () => {
     return () => clearInterval(id);
   }, [activePanel]);
 
+  // Hero composer attach-menu state. Outside-click closes the menu.
+  const [attachOpen, setAttachOpen] = useState(false);
+  const attachRef = useRef(null);
+  useEffect(() => {
+    if (!attachOpen) return;
+    const handler = (e) => {
+      if (attachRef.current && !attachRef.current.contains(e.target)) {
+        setAttachOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [attachOpen]);
+
   useLayoutEffect(() => {
     if (reducedMotion()) return;
 
@@ -810,115 +824,181 @@ const LandingV2 = () => {
             Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust — trained on what you actually teach.
           </p>
 
-          {/* Glass chat-input card — visual only for now. Typing works
-              (it's a real <input>) but the send button + actions are
-              wired to nothing. Redirect-to-register hookup lands later. */}
-          <div
-            className="w-full max-w-2xl rounded-3xl p-1.5"
-            style={{
-              backgroundColor: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              backdropFilter: 'blur(24px) saturate(140%)',
-              WebkitBackdropFilter: 'blur(24px) saturate(140%)',
-              boxShadow: '0 24px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
-            }}
-          >
+          {/* Composer — credits chip + white input card. Input is a real
+              <input> so typing works, but send + attach options are
+              visual-only for now. Wiring to register-redirect lands
+              later. */}
+          <div className="w-full max-w-2xl">
+            {/* Credits chip — sits above the card with a subtle overlap. */}
             <div
-              className="rounded-[20px] p-5"
-              style={{ backgroundColor: 'rgba(255,255,255,0.025)' }}
+              className="ml-4 inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full relative z-10"
+              style={{
+                backgroundColor: '#FFFFFF',
+                boxShadow: '0 8px 22px rgba(0,0,0,0.18)',
+                marginBottom: '-6px',
+              }}
             >
-              {/* Input + send button */}
-              <div className="flex items-center gap-3">
+              <div
+                className="relative h-1.5 rounded-full overflow-hidden"
+                style={{ width: '64px', backgroundColor: '#EFEFEF' }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{ width: '38%', backgroundColor: '#FA6C43' }}
+                />
+              </div>
+              <span
+                className="text-[11px] font-semibold"
+                style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+              >
+                123 credits left
+              </span>
+            </div>
+
+            {/* Main input card */}
+            <div
+              className="relative flex gap-3 p-4 rounded-[28px] text-left"
+              style={{
+                backgroundColor: '#FFFFFF',
+                boxShadow:
+                  '0 24px 60px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
+              }}
+            >
+              {/* Left column: input + divider + icon row */}
+              <div className="flex-1 flex flex-col min-h-[100px]">
                 <input
                   type="text"
-                  placeholder="Ask anything…"
-                  className="flex-1 bg-transparent outline-none text-base placeholder:text-white/40"
+                  placeholder="Ask Anything.."
+                  className="bg-transparent outline-none border-none w-full px-2 py-1.5 text-base placeholder:text-gray-500"
                   style={{
-                    color: '#FFF',
+                    color: '#1F1F1F',
                     fontFamily: FONT_BODY,
-                    border: 'none',
                     boxShadow: 'none',
                   }}
                 />
-                <button
-                  type="button"
-                  aria-label="Send"
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: '#FFF', color: '#1F1F1F' }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M8 14V2M8 2l-5 5M8 2l5 5"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Divider */}
-              <div
-                className="h-px my-4"
-                style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
-              />
-
-              {/* Action row + provider label */}
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-5">
+                <div className="flex-1" />
+                <div
+                  className="h-px mx-1"
+                  style={{ backgroundColor: '#EFEFEF' }}
+                />
+                <div className="flex items-center gap-1 px-1 pt-2">
+                  {/* Attach button + dropdown */}
+                  <div className="relative" ref={attachRef}>
+                    <button
+                      type="button"
+                      onClick={() => setAttachOpen((o) => !o)}
+                      aria-label="Attach"
+                      aria-expanded={attachOpen}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-50"
+                      style={{ color: '#1F1F1F' }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                        <path
+                          d="M8 3v10M3 8h10"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                    {attachOpen && (
+                      <div
+                        className="absolute left-0 w-48 rounded-2xl py-1.5 z-20"
+                        style={{
+                          bottom: 'calc(100% + 10px)',
+                          backgroundColor: '#FFFFFF',
+                          boxShadow:
+                            '0 18px 48px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-sm text-left transition-colors hover:bg-gray-50"
+                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                          onClick={() => setAttachOpen(false)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                            <path
+                              d="M3.5 1h5l3 3v8a1 1 0 01-1 1h-7a1 1 0 01-1-1v-10a1 1 0 011-1z"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M8.5 1v3h3"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                          Attach file
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-sm text-left transition-colors hover:bg-gray-50"
+                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                          onClick={() => setAttachOpen(false)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                            <path
+                              d="M1.5 4a1 1 0 011-1h3l1.5 1.5h4.5a1 1 0 011 1v6a1 1 0 01-1 1h-9a1 1 0 01-1-1V4z"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                          Attach folder
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {/* Voice */}
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
-                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
+                    aria-label="Voice"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-50"
+                    style={{ color: '#1F1F1F' }}
                   >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
                       <path
-                        d="M10.5 2.5L4.2 8.8a3 3 0 104.24 4.24l6.3-6.3a5 5 0 10-7.07-7.07L1.5 6.04"
+                        d="M8 2a2 2 0 00-2 2v4a2 2 0 004 0V4a2 2 0 00-2-2z"
                         stroke="currentColor"
-                        strokeWidth="1.3"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M3.5 8a4.5 4.5 0 009 0M8 12.5V15"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       />
                     </svg>
-                    Attach
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
-                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M8 1.5a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0V4A2.5 2.5 0 008 1.5zM3 8a5 5 0 0010 0M8 13v2"
-                        stroke="currentColor"
-                        strokeWidth="1.3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Voice
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 transition-colors hover:text-white/80"
-                    style={{ color: 'rgba(255,255,255,0.5)', fontFamily: FONT_BODY }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M2 4h12M2 8h12M2 12h8"
-                        stroke="currentColor"
-                        strokeWidth="1.3"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    Prompts
                   </button>
                 </div>
-                <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: FONT_BODY }}>
-                  Powered by Claude
-                </span>
               </div>
+
+              {/* Send button — stretches to full card height */}
+              <button
+                type="button"
+                aria-label="Send"
+                className="flex-shrink-0 w-16 rounded-[20px] flex items-center justify-center transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{ backgroundColor: '#FA6C43' }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M12 20V4M12 4l-6 6M12 4l6 6"
+                    stroke="#FFFFFF"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
             </div>
           </div>
         </div>
