@@ -300,29 +300,29 @@ const TESTIMONIAL_PANELS = [
 // tokens (text chunks + inline brand icons). Splitting into separate
 // paragraphs gives breathing room between thoughts and lets the
 // cinematic word-by-word scrub feel less like a wall of text.
+// Icons stand in for the nouns they depict ("icons as language") —
+// the noun word is omitted when its icon is present.
 const PHILOSOPHY_PARAGRAPHS = [
   [
-    { text: 'Every class moves at the speed of small things — the' },
-    { icon: 'hand', alt: 'hand' },
-    { text: 'raised in the back row, the question scribbled in' },
-    { icon: 'pencil', alt: 'pencil' },
-    { text: ', the' },
-    { icon: 'calculator', alt: 'calculator' },
-    { text: 'tap that solves a problem two minutes before the bell.' },
+    { text: 'ACTRlabs was made to make learning easier and more engaging, both for the teachers and the students.' },
   ],
   [
-    { text: 'We built ACTRlabs for the educators already showing up for those moments. Upload your syllabus, slides, and readings; pick the AI model that fits your class; share it in one link.' },
+    { text: 'our platform is available on' },
+    { src: '/illustrations/ipad.png', alt: 'iPad' },
+    { text: ',' },
+    { src: '/illustrations/icon-laptop.png', alt: 'laptop' },
+    { text: ', and on the' },
+    { src: '/illustrations/wifi-internet.svg', alt: 'web' },
+    { text: '.' },
   ],
   [
-    { text: 'Whether your students are on' },
-    { icon: 'laptop', alt: 'laptop' },
-    { text: 'in lecture halls or chasing' },
-    { icon: 'hashtag', alt: 'hashtag' },
-    { text: 'between classes — your bot meets them with what you actually teach, not the open internet.' },
-  ],
-  [
-    { icon: 'glasses', alt: 'glasses' },
-    { text: 'on, notebooks open, every question gets a real answer.' },
+    { text: "whether you're the" },
+    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering' },
+    { text: 'student breaking the grade curve, the' },
+    { src: '/illustrations/money-business.svg', alt: 'business' },
+    { text: 'student optimizing ways to build generational wealth, or the' },
+    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying' },
+    { text: "student surveying dozens of students on the daily, our ai bot will meet you right where you're at." },
   ],
 ];
 
@@ -891,12 +891,13 @@ const LandingV2 = () => {
       </section>
 
       {/* === PHILOSOPHY (icons-as-language + word-by-word scrub) ===
-          Sits between the cinematic and the UVPs. The paragraph
-          replaces "hand", "pencil", "calculator", "laptop", "hashtag",
-          "glasses" with their hand-drawn brand icons inline. Every
-          word starts at a near-white tone and darkens to #1F1F1F as
-          the user scrolls — staggered, so it reads like the user is
-          following along with the scroll. */}
+          Sits between the cinematic and the UVPs. Brand illustrations
+          stand in for the audience nouns (iPad, laptop, web,
+          engineering, business, humanities) — the noun word is
+          omitted when its icon is present. Every word starts at a
+          near-white tone and darkens to #1F1F1F as the user scrolls
+          — staggered, so it reads like the user is following along
+          with the scroll. */}
       <section
         ref={philosophyRef}
         className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32 mt-[400px]"
@@ -925,11 +926,11 @@ const LandingV2 = () => {
             return PHILOSOPHY_PARAGRAPHS.map((tokens, pi) => (
               <p key={`p-${pi}`}>
                 {tokens.map((tok, ti) => {
-                  if (tok.icon) {
+                  if (tok.src) {
                     return (
                       <img
                         key={`p${pi}-i${ti}`}
-                        src={`/illustrations/icon-${tok.icon}.png`}
+                        src={tok.src}
                         alt={tok.alt}
                         className="inline-block align-middle mx-2"
                         style={{
