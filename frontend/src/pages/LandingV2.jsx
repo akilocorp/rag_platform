@@ -304,25 +304,25 @@ const TESTIMONIAL_PANELS = [
 // the noun word is omitted when its icon is present.
 const PHILOSOPHY_PARAGRAPHS = [
   [
-    { text: 'ACTRlabs was made to make learning easier and more engaging, both for the teachers and the students.' },
+    { text: 'ACTRlabs makes learning easier and more engaging — for teachers and students alike.' },
   ],
   [
-    { text: 'our platform is available on' },
+    { text: 'Our platform is available on' },
     { src: '/illustrations/ipad.png', alt: 'iPad' },
     { text: ',' },
     { src: '/illustrations/icon-laptop.png', alt: 'laptop' },
-    { text: ', and on the' },
+    { text: ', and the' },
     { src: '/illustrations/wifi-internet.svg', alt: 'web' },
     { text: '.' },
   ],
   [
-    { text: "whether you're the" },
+    { text: "Whether you're the" },
     { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering' },
     { text: 'student breaking the grade curve, the' },
     { src: '/illustrations/money-business.svg', alt: 'business' },
-    { text: 'student optimizing ways to build generational wealth, or the' },
+    { text: 'student building generational wealth, or the' },
     { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying' },
-    { text: "student surveying dozens of students on the daily, our ai bot will meet you right where you're at." },
+    { text: "student polling peers every day — our AI bot meets you right where you are." },
   ],
 ];
 
