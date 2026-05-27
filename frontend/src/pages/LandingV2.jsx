@@ -671,9 +671,7 @@ const LandingV2 = () => {
           // code that desynced Sign in's reveal from Get started's.
           '--nav-fg': '#1F1F1F',
           '--nav-fg-soft': '#1F1F1F',
-          backgroundColor: 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(14px) saturate(140%)',
-          WebkitBackdropFilter: 'blur(14px) saturate(140%)',
+          backgroundColor: '#FFFFFF',
           borderBottom: '1px solid rgba(31,31,31,0.08)',
         }}
       >
