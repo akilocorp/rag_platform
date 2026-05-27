@@ -329,9 +329,7 @@ const ResearchMockup = () => (
 // a time; the others collapse to a narrow vertical-label rail. Body copy
 // is intentionally placeholder (lorem ipsum) — to be replaced with real
 // audience pitches.
-// Panel bg colors use rgba with 0.55 alpha so the backdrop-filter blur
-// on each panel actually has something to do — the cream page bg + the
-// notebook grid behind get a soft frosted-glass look through the tint.
+// Panel bg colors match the bento tile pastels for visual cohesion.
 const TESTIMONIAL_PANELS = [
   {
     id: 'students',
@@ -340,7 +338,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
     icon: '/illustrations/icon-question.png',
     iconAlt: 'Question mark',
-    bg: 'rgba(253, 227, 216, 0.55)',
+    bg: '#FDE3D8',
     accent: '#C8472A',
     metric: '1,420 ACTIVE',
   },
@@ -351,7 +349,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.',
     icon: '/illustrations/icon-pencil.png',
     iconAlt: 'Pencil',
-    bg: 'rgba(244, 236, 216, 0.55)',
+    bg: '#F4ECD8',
     accent: '#A8832D',
     metric: '84 BOTS BUILT',
   },
@@ -362,7 +360,7 @@ const TESTIMONIAL_PANELS = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Sunt in culpa qui officia deserunt mollit anim id est laborum.',
     icon: '/illustrations/icon-glasses.png',
     iconAlt: 'Glasses',
-    bg: 'rgba(217, 229, 242, 0.55)',
+    bg: '#D9E5F2',
     accent: '#3E6493',
     metric: '27 STUDIES',
   },
@@ -1139,9 +1137,7 @@ const LandingV2 = () => {
                     width: isActive ? 'calc(100% - 212px)' : '90px',
                     flexShrink: 0,
                     backgroundColor: p.bg,
-                    backdropFilter: 'blur(20px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-                    border: '1px solid rgba(255,255,255,0.4)',
+                    border: '1px solid rgba(31,31,31,0.06)',
                     minHeight: '480px',
                     transition:
                       'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease',
