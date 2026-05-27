@@ -391,7 +391,7 @@ const PHILOSOPHY_PARAGRAPHS = [
     { text: "Whether you're the" },
     { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering' },
     { text: 'student breaking the grade curve, the' },
-    { src: '/illustrations/money-business.svg', alt: 'business' },
+    { src: '/illustrations/briefcase-business.svg', alt: 'business' },
     { text: 'student building generational wealth, or the' },
     { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying' },
     { text: "student polling peers every day — our AI bot meets you right where you are." },
