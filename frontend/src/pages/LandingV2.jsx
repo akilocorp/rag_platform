@@ -591,7 +591,7 @@ const LandingV2 = () => {
       {/* === PERSISTENT TOP NAV === */}
       <nav
         ref={navRef}
-        className="fixed top-0 left-0 right-0 z-40 flex items-center justify-end gap-3 px-6 lg:px-12 py-4"
+        className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between gap-3 px-6 lg:px-12 py-3"
         style={{
           // Nav text is always dark: the nav sits at z=40 behind the
           // dark overlay (z=60), so it's only ever visible against the
@@ -599,31 +599,41 @@ const LandingV2 = () => {
           // code that desynced Sign in's reveal from Get started's.
           '--nav-fg': '#1F1F1F',
           '--nav-fg-soft': '#1F1F1F',
-          backgroundColor: 'rgba(255,255,255,0.06)',
+          backgroundColor: 'rgba(255,255,255,0.88)',
           backdropFilter: 'blur(14px) saturate(140%)',
           WebkitBackdropFilter: 'blur(14px) saturate(140%)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          borderBottom: '1px solid rgba(31,31,31,0.08)',
         }}
       >
-        <Link
-          to="/login"
-          className="text-sm font-semibold transition-opacity hover:opacity-80"
-          style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
-        >
-          Sign in
+        <Link to="/" className="flex items-center transition-opacity hover:opacity-80">
+          <img
+            src="/actrlabs-wordmark.jpg"
+            alt="ACTRLabs — Redefining Learning"
+            className="h-8 w-auto select-none"
+            draggable={false}
+          />
         </Link>
-        <Link
-          to="/register"
-          className="px-4 py-2 text-sm font-semibold transition-all hover:scale-105"
-          style={{
-            backgroundColor: '#FA6C43',
-            color: '#FFFFFF',
-            fontFamily: FONT_BODY,
-            borderRadius: '12px',
-          }}
-        >
-          Get started
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/login"
+            className="text-sm font-semibold transition-opacity hover:opacity-80"
+            style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
+          >
+            Sign in
+          </Link>
+          <Link
+            to="/register"
+            className="px-4 py-2 text-sm font-semibold transition-all hover:scale-105"
+            style={{
+              backgroundColor: '#FA6C43',
+              color: '#FFFFFF',
+              fontFamily: FONT_BODY,
+              borderRadius: '12px',
+            }}
+          >
+            Get started
+          </Link>
+        </div>
       </nav>
 
       {/* === LOGO LAYER ===
