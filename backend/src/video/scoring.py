@@ -27,8 +27,20 @@ from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 
 # --- transcript signals --------------------------------------------------
-FILLER_WORDS = {"um", "uh", "er", "ah", "hmm", "like", "okay", "ok", "right",
-                "yeah", "basically", "actually", "literally", "so"}
+FILLER_WORDS = {
+    # hesitation sounds (Whisper variants)
+    "um", "umm", "uh", "uhh", "uhm",
+    "er", "erm", "emm",
+    "ah", "aah", "aa",
+    "eh", "hmm", "hm", "mm", "mhm",
+    # discourse fillers
+    "like", "so", "well", "right",
+    "okay", "ok", "alright",
+    "yeah", "yep", "ya", "yea",
+    # padding words
+    "basically", "actually", "literally", "honestly",
+    "essentially", "anyway", "anyways",
+}
 HEDGE_PHRASES = ["i think", "i guess", "maybe", "sort of", "kind of", "i mean",
                  "probably", "i'm not sure", "it seems", "perhaps", "i suppose"]
 # "Weak" / non-committal qualifiers that dilute impact (Yoodli-style). Single
