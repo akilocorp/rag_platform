@@ -863,6 +863,9 @@ const LandingV2 = () => {
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
             />
 
+            {/* Divider between input and actions */}
+            <div className="h-px mx-1 mt-3" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }} />
+
             {/* Bottom row: actions left, send right */}
             <div className="flex items-center justify-between mt-3 px-1">
               <div className="flex items-center gap-1.5">
