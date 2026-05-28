@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   FaArrowLeft, FaDownload, FaSpinner, FaChevronDown, FaChevronUp,
-  FaUser, FaBrain, FaCheckCircle, FaArrowRight, FaChartBar,
+  FaUser, FaBrain, FaCheckCircle, FaArrowRight, FaChartBar, FaPlus,
 } from 'react-icons/fa';
 import { marked } from 'marked';
 import apiClient from '../api/apiClient';
@@ -242,35 +242,202 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
       .finally(() => setLoadingSaved(false));
   }, [configId]);
 
-  const applyTemplate = (t) => {
-    setGradingCriteria(t.criteria);
-    setActiveTemplate(t.id);
+// ─── Sidebar helpers ─────────────────────────────────────────────────────────
+
+const fmtTs = (ts) => {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+const SidebarItem = ({ a, isViewing, isComparing, pickable, onSelect }) => {
+  const c = scoreColor(a.avg_score || 0);
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full text-left px-3 py-3 rounded-xl border transition-all ${
+        isViewing   ? 'border-[#FA6C43] bg-[#FA6C43]/5' :
+        isComparing ? 'border-blue-400 bg-blue-50' :
+        pickable    ? 'border-dashed border-blue-300 hover:border-blue-500 hover:bg-blue-50/50 cursor-pointer' :
+                      'border-gray-200 bg-white hover:border-gray-300'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] font-bold text-gray-400">{fmtTs(a.analyzed_at)}</span>
+        {a.avg_score != null && (
+          <span className={`text-xs font-black px-1.5 py-0.5 rounded-lg ${c.bg} ${c.text}`}>{a.avg_score}</span>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">
+        {a.grading_criteria ? a.grading_criteria.slice(0, 60) + (a.grading_criteria.length > 60 ? '…' : '') : 'No custom criteria'}
+      </p>
+      {isComparing && <span className="text-[10px] font-bold text-blue-500 mt-1 block">Comparing</span>}
+      {pickable && <span className="text-[10px] font-bold text-blue-400 mt-1 block">Click to compare →</span>}
+    </button>
+  );
+};
+
+// ─── Compare view ─────────────────────────────────────────────────────────────
+
+const CompareView = ({ data1, data2, meta1, meta2 }) => {
+  const s1Map = Object.fromEntries((data1.students || []).map(s => [s.session_id, s]));
+  const s2Map = Object.fromEntries((data2.students || []).map(s => [s.session_id, s]));
+  const allSids = [...new Map([...(data1.students || []), ...(data2.students || [])].map(s => [s.session_id, s])).keys()];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        {[{ data: data1, meta: meta1, accent: '[#FA6C43]', accentBg: '[#FA6C43]/10', label: 'Analysis A' },
+          { data: data2, meta: meta2, accent: 'blue-500',  accentBg: 'blue-50',       label: 'Analysis B' }]
+          .map(({ data, meta, accent, accentBg, label }, i) => {
+            const cs = data.class_summary || {};
+            const n = (data.students || []).length;
+            const buckets = [
+              { label: '85–100', count: (data.students || []).filter(s => s.score >= 85).length, color: 'bg-green-400' },
+              { label: '70–84', count: (data.students || []).filter(s => s.score >= 70 && s.score < 85).length, color: 'bg-blue-400' },
+              { label: '50–69', count: (data.students || []).filter(s => s.score >= 50 && s.score < 70).length, color: 'bg-amber-400' },
+              { label: '0–49',  count: (data.students || []).filter(s => s.score > 0 && s.score < 50).length,  color: 'bg-red-400' },
+            ];
+            return (
+              <div key={i} className={`bg-white rounded-[2rem] border-2 shadow-sm p-5 ${i === 0 ? 'border-[#FA6C43]/40' : 'border-blue-300/60'}`}>
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-3 ${i === 0 ? 'text-[#FA6C43]' : 'text-blue-500'}`}>
+                  {label} · {fmtTs(meta?.analyzed_at)}
+                </p>
+                <div className="flex items-center gap-4 mb-3">
+                  <div className={`flex flex-col items-center rounded-xl p-3 ${i === 0 ? 'bg-[#FA6C43]/10' : 'bg-blue-50'}`}>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Avg</span>
+                    <span className={`text-3xl font-black ${scoreColor(cs.avg_score).text}`}>{cs.avg_score ?? '—'}</span>
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    {buckets.map(b => <DistributionBar key={b.label} label={b.label} count={b.count} total={n} colorClass={b.color} />)}
+                  </div>
+                </div>
+                {meta?.grading_criteria && (
+                  <p className="text-[11px] text-gray-400 italic line-clamp-2">{meta.grading_criteria}</p>
+                )}
+              </div>
+            );
+          })}
+      </div>
+
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm font-bold text-[#222]">Student Scores</div>
+        <div className="grid grid-cols-[1fr_72px_72px_56px] gap-3 px-6 py-2 border-b border-gray-100 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+          <span>Student</span>
+          <span className="text-center text-[#FA6C43]">A</span>
+          <span className="text-center text-blue-500">B</span>
+          <span className="text-center">Δ</span>
+        </div>
+        {allSids.map(sid => {
+          const s1 = s1Map[sid]; const s2 = s2Map[sid];
+          const name = (s1 || s2)?.display_name || sid.slice(0, 8);
+          const sc1 = s1?.score ?? null; const sc2 = s2?.score ?? null;
+          const diff = sc1 != null && sc2 != null ? sc2 - sc1 : null;
+          return (
+            <div key={sid} className="grid grid-cols-[1fr_72px_72px_56px] gap-3 px-6 py-3 border-b border-gray-50 last:border-0 items-center">
+              <span className="text-sm font-semibold text-[#222] truncate">{name}</span>
+              <span className="flex justify-center">{sc1 != null ? <ScoreBadge score={sc1} /> : <span className="text-gray-300 text-sm">—</span>}</span>
+              <span className="flex justify-center">{sc2 != null ? <ScoreBadge score={sc2} /> : <span className="text-gray-300 text-sm">—</span>}</span>
+              <span className={`text-center text-sm font-bold ${diff > 0 ? 'text-green-500' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                {diff != null ? (diff > 0 ? `+${diff}` : `${diff}`) : '—'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ─── Analytics tab ────────────────────────────────────────────────────────────
+
+const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
+  const [analyses, setAnalyses] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [loaded, setLoaded] = useState({});
+  const loadedRef = useRef({});
+  const [viewId, setViewId] = useState(null);
+  const [compareId, setCompareId] = useState(null);
+  const [pickingCompare, setPickingCompare] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState('');
+  const [error, setError] = useState('');
+  const [expandedStudent, setExpandedStudent] = useState(null);
+  const [gradingCriteria, setGradingCriteria] = useState('');
+  const [activeTemplate, setActiveTemplate] = useState(null);
+
+  const refreshList = useCallback(async () => {
+    try {
+      const res = await apiClient.get(`/config/${configId}/analyses`);
+      const list = res.data.analyses || [];
+      setAnalyses(list);
+      return list;
+    } catch { return []; }
+  }, [configId]);
+
+  const loadDetail = useCallback(async (id) => {
+    if (loadedRef.current[id]) return loadedRef.current[id];
+    const res = await apiClient.get(`/config/${configId}/analyses/${id}`);
+    loadedRef.current[id] = res.data;
+    setLoaded(prev => ({ ...prev, [id]: res.data }));
+    return res.data;
+  }, [configId]);
+
+  useEffect(() => {
+    refreshList().then(list => {
+      if (list.length > 0) {
+        const id = list[0]._id;
+        setViewId(id);
+        loadDetail(id).catch(() => {});
+      } else {
+        setShowForm(true);
+      }
+      setLoadingList(false);
+    });
+  }, [configId]);  // eslint-disable-line
+
+  const selectView = async (id) => {
+    try { await loadDetail(id); } catch {}
+    setViewId(id); setCompareId(null); setPickingCompare(false); setShowForm(false); setExpandedStudent(null);
+  };
+
+  const pickForCompare = async (id) => {
+    try { await loadDetail(id); } catch {}
+    setCompareId(id); setPickingCompare(false);
   };
 
   const handleAnalyze = async () => {
     setAnalyzing(true); setError(''); setAnalysisProgress('Starting…');
     try {
-      const startRes = await apiClient.post(`/config/${configId}/analyze`, { grading_criteria: gradingCriteria });
-      const { job_id } = startRes.data;
+      const { data: { job_id } } = await apiClient.post(`/config/${configId}/analyze`, { grading_criteria: gradingCriteria });
       while (true) {
         await new Promise(r => setTimeout(r, 3000));
-        const pollRes = await apiClient.get(`/config/${configId}/analyze/${job_id}`);
-        const job = pollRes.data;
+        const { data: job } = await apiClient.get(`/config/${configId}/analyze/${job_id}`);
         if (job.progress) setAnalysisProgress(job.progress);
-        if (job.status === 'done') { setAnalysis(job.result); break; }
-        if (job.status === 'error') { setError(job.error || 'Analysis failed. Please try again.'); break; }
+        if (job.status === 'done') {
+          const list = await refreshList();
+          if (list.length > 0) {
+            const id = list[0]._id;
+            const enriched = { ...job.result, analyzed_at: Date.now() / 1000, grading_criteria: gradingCriteria };
+            loadedRef.current[id] = enriched;
+            setLoaded(prev => ({ ...prev, [id]: enriched }));
+            setViewId(id); setCompareId(null); setShowForm(false);
+          }
+          break;
+        }
+        if (job.status === 'error') { setError(job.error || 'Analysis failed.'); break; }
       }
     } catch (e) {
       setError(e.response?.data?.error || 'Analysis failed. Please try again.');
-    } finally {
-      setAnalyzing(false); setAnalysisProgress('');
-    }
+    } finally { setAnalyzing(false); setAnalysisProgress(''); }
   };
 
-  if (loadingSaved) return (
+  const applyTemplate = (t) => { setGradingCriteria(t.criteria); setActiveTemplate(t.id); };
+
+  if (loadingList) return (
     <div className="flex flex-col items-center justify-center h-64 bg-white rounded-[2rem] border border-gray-100">
       <FaSpinner className="animate-spin text-3xl text-[#FA6C43] mb-3" />
-      <p className="text-gray-500 text-sm font-medium">Loading saved analysis…</p>
+      <p className="text-gray-500 text-sm font-medium">Loading analysis history…</p>
     </div>
   );
 
@@ -282,170 +449,194 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
     </div>
   );
 
-  if (!analysis && !analyzing) return (
-    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8 flex flex-col gap-7 max-w-2xl mx-auto">
-      <div className="flex flex-col items-center text-center gap-3">
-        <div className="w-16 h-16 bg-[#F9D0C4]/40 rounded-2xl flex items-center justify-center">
-          <FaBrain className="text-3xl text-[#FA6C43]" />
+  const viewData = viewId ? loaded[viewId] : null;
+  const compareData = compareId ? loaded[compareId] : null;
+  const viewMeta = analyses.find(a => a._id === viewId);
+  const compareMeta = analyses.find(a => a._id === compareId);
+
+  const renderMain = () => {
+    if (analyzing) return (
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-16 flex flex-col items-center gap-4">
+        <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
+        <p className="font-semibold text-[#222]">Analyzing {sessions.length} sessions…</p>
+        <p className="text-sm text-gray-400">{analysisProgress}</p>
+      </div>
+    );
+
+    if (showForm) return (
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8 flex flex-col gap-7">
+        <div className="flex flex-col items-center text-center gap-3">
+          <div className="w-16 h-16 bg-[#F9D0C4]/40 rounded-2xl flex items-center justify-center">
+            <FaBrain className="text-3xl text-[#FA6C43]" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-[#222] mb-1">New Analysis</h3>
+            <p className="text-gray-500 text-sm">Score each student with a class summary — tailored to your criteria.</p>
+          </div>
+          <div className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · est. {Math.ceil(sessions.length * 1.5)}–{sessions.length * 3}s</div>
         </div>
         <div>
-          <h3 className="text-xl font-bold text-[#222] mb-1">AI-Powered Class Insights</h3>
-          <p className="text-gray-500 text-sm">Score each student and get a full class summary — tailored to your simulation.</p>
-        </div>
-        <div className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · est. {Math.ceil(sessions.length * 1.5)}–{sessions.length * 3}s</div>
-      </div>
-
-      {/* Grading templates */}
-      <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Quick Templates</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {GRADING_TEMPLATES.map(t => (
-            <button
-              key={t.id}
-              onClick={() => activeTemplate === t.id ? (setActiveTemplate(null), setGradingCriteria('')) : applyTemplate(t)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all text-left ${
-                activeTemplate === t.id
-                  ? 'bg-[#FA6C43]/10 border-[#FA6C43]/40 text-[#FA6C43]'
-                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white'
-              }`}
-            >
-              <span>{t.emoji}</span> {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Custom criteria textarea */}
-      <div>
-        <label className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 block">
-          Grading Criteria <span className="normal-case font-normal text-gray-400">(optional — or customize a template)</span>
-        </label>
-        <textarea
-          value={gradingCriteria}
-          onChange={e => { setGradingCriteria(e.target.value); setActiveTemplate(null); }}
-          placeholder="Describe how you want the AI to evaluate students. E.g. 'Focus on whether students used evidence to support their claims and asked clarifying questions.'"
-          rows={4}
-          className="w-full text-sm border border-gray-200 rounded-xl px-4 py-3 text-gray-700 placeholder-gray-300 focus:outline-none focus:border-[#FA6C43] focus:ring-1 focus:ring-[#FA6C43]/30 resize-none transition-colors"
-        />
-      </div>
-
-      {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-      <button onClick={handleAnalyze} className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 w-full">
-        <FaBrain className="text-sm" /> Generate Analysis
-      </button>
-    </div>
-  );
-
-  if (analyzing) return (
-    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-16 flex flex-col items-center gap-4">
-      <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
-      <p className="font-semibold text-[#222]">Analyzing {sessions.length} sessions…</p>
-      <p className="text-sm text-gray-400">{analysisProgress || 'Scoring each student with GPT-4o Mini based on your simulation prompt'}</p>
-    </div>
-  );
-
-  const { class_summary, top_performers, students } = analysis;
-  const buckets = [
-    { label: '85–100', count: students.filter(s => s.score >= 85).length, color: 'bg-green-400' },
-    { label: '70–84', count: students.filter(s => s.score >= 70 && s.score < 85).length, color: 'bg-blue-400' },
-    { label: '50–69', count: students.filter(s => s.score >= 50 && s.score < 70).length, color: 'bg-amber-400' },
-    { label: '0–49', count: students.filter(s => s.score > 0 && s.score < 50).length, color: 'bg-red-400' },
-  ];
-
-  return (
-    <div className="space-y-8">
-
-      {/* Class Overview */}
-      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6 lg:p-8">
-        <h2 className="text-lg font-bold text-[#222] mb-6">Class Overview</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-          {/* Avg score */}
-          <div className="flex flex-col items-center justify-center bg-[#F0F6FB] rounded-2xl p-6 gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Class Average</span>
-            <span className={`text-6xl font-black ${scoreColor(class_summary.avg_score).text}`}>{class_summary.avg_score}</span>
-            <span className="text-gray-400 text-sm font-medium">/ 100</span>
-            <span className="text-xs text-gray-400 mt-1">{class_summary.total_sessions} session{class_summary.total_sessions !== 1 ? 's' : ''}</span>
-          </div>
-
-          {/* Distribution */}
-          <div className="flex flex-col justify-center gap-3 lg:col-span-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Score Distribution</span>
-            {buckets.map(b => (
-              <DistributionBar key={b.label} label={b.label} count={b.count} total={students.length} colorClass={b.color} />
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Quick Templates</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {GRADING_TEMPLATES.map(t => (
+              <button key={t.id}
+                onClick={() => activeTemplate === t.id ? (setActiveTemplate(null), setGradingCriteria('')) : applyTemplate(t)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all text-left ${activeTemplate === t.id ? 'bg-[#FA6C43]/10 border-[#FA6C43]/40 text-[#FA6C43]' : 'bg-gray-50 border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white'}`}>
+                <span>{t.emoji}</span> {t.label}
+              </button>
             ))}
           </div>
         </div>
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 block">
+            Grading Criteria <span className="normal-case font-normal text-gray-400">(optional)</span>
+          </label>
+          <textarea value={gradingCriteria}
+            onChange={e => { setGradingCriteria(e.target.value); setActiveTemplate(null); }}
+            placeholder="Describe how you want the AI to evaluate students…"
+            rows={4}
+            className="w-full text-sm border border-gray-200 rounded-xl px-4 py-3 text-gray-700 placeholder-gray-300 focus:outline-none focus:border-[#FA6C43] focus:ring-1 focus:ring-[#FA6C43]/30 resize-none transition-colors"
+          />
+        </div>
+        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+        <button onClick={handleAnalyze}
+          className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 w-full">
+          <FaBrain className="text-sm" /> Generate Analysis
+        </button>
+      </div>
+    );
 
-        {/* Class insight */}
-        <div className="mt-6 pt-6 border-t border-gray-100">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Class Insight</p>
-          <p className="text-sm text-gray-700 leading-relaxed">{class_summary.overall_insight}</p>
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {class_summary.common_strengths?.length > 0 && (
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-green-600 mb-2">Common Strengths</p>
-                <ul className="space-y-1">
-                  {class_summary.common_strengths.map((s, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                      <FaCheckCircle className="text-green-500 text-xs mt-0.5 flex-shrink-0" /> {s}
-                    </li>
-                  ))}
-                </ul>
+    if (viewData && compareData) return (
+      <CompareView data1={viewData} data2={compareData} meta1={viewMeta} meta2={compareMeta} />
+    );
+
+    if (viewData) {
+      const { class_summary, top_performers, students } = viewData;
+      const buckets = [
+        { label: '85–100', count: students.filter(s => s.score >= 85).length, color: 'bg-green-400' },
+        { label: '70–84', count: students.filter(s => s.score >= 70 && s.score < 85).length, color: 'bg-blue-400' },
+        { label: '50–69', count: students.filter(s => s.score >= 50 && s.score < 70).length, color: 'bg-amber-400' },
+        { label: '0–49',  count: students.filter(s => s.score > 0 && s.score < 50).length,  color: 'bg-red-400' },
+      ];
+      return (
+        <div className="space-y-8">
+          {pickingCompare && (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl px-5 py-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-blue-700">Select an analysis from the sidebar to compare</span>
+              <button onClick={() => setPickingCompare(false)} className="text-xs text-blue-500 font-bold hover:underline">Cancel</button>
+            </div>
+          )}
+          <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6 lg:p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold text-[#222]">Class Overview</h2>
+              {analyses.length > 1 && !pickingCompare && (
+                <button onClick={() => setPickingCompare(true)}
+                  className="text-xs font-bold text-gray-400 hover:text-blue-500 transition-colors">
+                  Compare with another →
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="flex flex-col items-center justify-center bg-[#F0F6FB] rounded-2xl p-6 gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Class Average</span>
+                <span className={`text-6xl font-black ${scoreColor(class_summary.avg_score).text}`}>{class_summary.avg_score}</span>
+                <span className="text-gray-400 text-sm font-medium">/ 100</span>
+                <span className="text-xs text-gray-400 mt-1">{class_summary.total_sessions} session{class_summary.total_sessions !== 1 ? 's' : ''}</span>
               </div>
-            )}
-            {class_summary.common_weaknesses?.length > 0 && (
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600 mb-2">Common Areas to Improve</p>
-                <ul className="space-y-1">
-                  {class_summary.common_weaknesses.map((s, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                      <FaArrowRight className="text-amber-500 text-xs mt-0.5 flex-shrink-0" /> {s}
-                    </li>
-                  ))}
-                </ul>
+              <div className="flex flex-col justify-center gap-3 lg:col-span-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Score Distribution</span>
+                {buckets.map(b => <DistributionBar key={b.label} label={b.label} count={b.count} total={students.length} colorClass={b.color} />)}
               </div>
-            )}
+            </div>
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Class Insight</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{class_summary.overall_insight}</p>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {class_summary.common_strengths?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-green-600 mb-2">Common Strengths</p>
+                    <ul className="space-y-1">
+                      {class_summary.common_strengths.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                          <FaCheckCircle className="text-green-500 text-xs mt-0.5 flex-shrink-0" /> {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {class_summary.common_weaknesses?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600 mb-2">Common Areas to Improve</p>
+                    <ul className="space-y-1">
+                      {class_summary.common_weaknesses.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                          <FaArrowRight className="text-amber-500 text-xs mt-0.5 flex-shrink-0" /> {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {top_performers?.length > 0 && (
+            <div>
+              <h2 className="text-lg font-bold text-[#222] mb-4">Top Performers</h2>
+              <div className={`grid gap-4 ${top_performers.length === 1 ? 'grid-cols-1 max-w-sm' : top_performers.length === 2 ? 'grid-cols-2 max-w-lg' : 'grid-cols-1 sm:grid-cols-3'}`}>
+                {top_performers.map((s, i) => <TopPerformerCard key={s.session_id} student={s} rank={i} />)}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h2 className="text-lg font-bold text-[#222] mb-4">All Students</h2>
+            <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+              <div className="grid grid-cols-[24px_1fr_80px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                <span>#</span><span>Student</span><span>Score</span>
+              </div>
+              {students.map((s, i) => (
+                <StudentRow key={s.session_id} student={s} rank={i + 1}
+                  expanded={expandedStudent === s.session_id}
+                  onToggle={() => setExpandedStudent(expandedStudent === s.session_id ? null : s.session_id)} />
+              ))}
+            </div>
           </div>
         </div>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="flex gap-5 items-start">
+      {/* Sidebar */}
+      <div className="w-52 shrink-0 space-y-2">
+        <button
+          onClick={() => { setShowForm(true); setViewId(null); setCompareId(null); setPickingCompare(false); setError(''); setGradingCriteria(''); setActiveTemplate(null); }}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl font-bold text-sm transition-colors">
+          <FaPlus className="text-xs" /> New Analysis
+        </button>
+        {analyses.length > 0 && (
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1 pt-2">History</p>
+        )}
+        {analyses.map(a => (
+          <SidebarItem key={a._id} a={a}
+            isViewing={!showForm && viewId === a._id}
+            isComparing={compareId === a._id}
+            pickable={pickingCompare && viewId !== a._id}
+            onSelect={() => {
+              if (pickingCompare && viewId !== a._id) pickForCompare(a._id);
+              else if (!pickingCompare) selectView(a._id);
+            }}
+          />
+        ))}
       </div>
 
-      {/* Top Performers */}
-      {top_performers?.length > 0 && (
-        <div>
-          <h2 className="text-lg font-bold text-[#222] mb-4">Top Performers</h2>
-          <div className={`grid gap-4 ${top_performers.length === 1 ? 'grid-cols-1 max-w-sm' : top_performers.length === 2 ? 'grid-cols-2 max-w-lg' : 'grid-cols-1 sm:grid-cols-3'}`}>
-            {top_performers.map((s, i) => <TopPerformerCard key={s.session_id} student={s} rank={i} />)}
-          </div>
-        </div>
-      )}
-
-      {/* All Students */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-[#222]">All Students</h2>
-          <button
-            onClick={() => { setAnalysis(null); }}
-            disabled={analyzing}
-            className="text-xs font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors flex items-center gap-1"
-          >
-            <FaChartBar className="text-xs" /> Re-analyze
-          </button>
-        </div>
-        <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-[24px_1fr_80px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-            <span>#</span><span>Student</span><span>Score</span>
-          </div>
-          {students.map((s, i) => (
-            <StudentRow
-              key={s.session_id}
-              student={s}
-              rank={i + 1}
-              expanded={expandedStudent === s.session_id}
-              onToggle={() => setExpandedStudent(expandedStudent === s.session_id ? null : s.session_id)}
-            />
-          ))}
-        </div>
+      {/* Main content */}
+      <div className="flex-1 min-w-0">
+        {renderMain()}
       </div>
     </div>
   );
@@ -506,7 +697,6 @@ const ResponsesPage = () => {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('analytics');
-  const [analyticsKey, setAnalyticsKey] = useState(0);
   const [csvLoading, setCsvLoading] = useState(false);
   const [csvProgress, setCsvProgress] = useState('');
 
@@ -590,7 +780,7 @@ const ResponsesPage = () => {
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => { if (id === 'analytics' && tab !== 'analytics') setAnalyticsKey(k => k + 1); setTab(id); }}
+              onClick={() => setTab(id)}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${
                 tab === id ? 'border-[#FA6C43] text-[#FA6C43]' : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
@@ -609,7 +799,7 @@ const ResponsesPage = () => {
             <p className="text-gray-500 font-medium">Loading…</p>
           </div>
         ) : tab === 'analytics' ? (
-          <AnalyticsTab key={analyticsKey} sessions={sessions} configId={configId} systemPrompt={systemPrompt} configName={configName} />
+          <AnalyticsTab sessions={sessions} configId={configId} systemPrompt={systemPrompt} configName={configName} />
         ) : (
           <SessionsTab sessions={sessions} />
         )}

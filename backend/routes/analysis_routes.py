@@ -260,19 +260,15 @@ def _run_analysis(job_id, config_id, api_key, system_prompt, grading_criteria, m
             'students': analyses,
         }
 
-        # Persist to MongoDB — upsert so re-running replaces the old result
+        # Persist to MongoDB — insert each run as a separate document
         try:
             db = mongo_client[db_name]
-            db['chat_analysis_results'].replace_one(
-                {'config_id': config_id},
-                {
-                    'config_id': config_id,
-                    'grading_criteria': grading_criteria,
-                    'analyzed_at': time.time(),
-                    **result,
-                },
-                upsert=True,
-            )
+            db['chat_analysis_results'].insert_one({
+                'config_id': config_id,
+                'grading_criteria': grading_criteria,
+                'analyzed_at': time.time(),
+                **result,
+            })
             print(f'[job {job_id[:8]}] saved to chat_analysis_results.', flush=True)
         except Exception as e:
             print(f'[job {job_id[:8]}] WARNING: failed to save to MongoDB: {e}', flush=True)
@@ -409,16 +405,42 @@ def analyze_status(config_id, job_id):
     return jsonify(job)
 
 
-@analysis_bp.route('/config/<string:config_id>/analysis', methods=['GET'])
+def _check_config_owner(db, config_id, user_id):
+    doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
+    return doc if (doc and str(doc.get('user_id', '')) == user_id) else None
+
+
+@analysis_bp.route('/config/<string:config_id>/analyses', methods=['GET'])
 @jwt_required()
-def get_saved_analysis(config_id):
-    """Return the most recent saved analysis for this config, or 404 if none."""
+def list_analyses(config_id):
+    """Return summary list of all analyses for this config (no students array)."""
     user_id = get_jwt_identity()
     db = current_app.config['MONGO_DB']
-    config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
-    if not config_doc or str(config_doc.get('user_id', '')) != user_id:
+    if not _check_config_owner(db, config_id, user_id):
         return jsonify({'error': 'Forbidden'}), 403
-    saved = db['chat_analysis_results'].find_one({'config_id': config_id}, {'_id': 0})
-    if not saved:
-        return jsonify({'error': 'No analysis found'}), 404
-    return jsonify(saved)
+    docs = list(db['chat_analysis_results'].find(
+        {'config_id': config_id},
+        {'students': 0, 'top_performers': 0},
+    ).sort('analyzed_at', -1))
+    for d in docs:
+        d['_id'] = str(d['_id'])
+        d['avg_score'] = (d.get('class_summary') or {}).get('avg_score')
+    return jsonify({'analyses': docs})
+
+
+@analysis_bp.route('/config/<string:config_id>/analyses/<string:analysis_id>', methods=['GET'])
+@jwt_required()
+def get_analysis(config_id, analysis_id):
+    """Return a single full analysis by ID."""
+    user_id = get_jwt_identity()
+    db = current_app.config['MONGO_DB']
+    if not _check_config_owner(db, config_id, user_id):
+        return jsonify({'error': 'Forbidden'}), 403
+    try:
+        doc = db['chat_analysis_results'].find_one({'_id': ObjectId(analysis_id), 'config_id': config_id})
+    except Exception:
+        return jsonify({'error': 'Invalid ID'}), 400
+    if not doc:
+        return jsonify({'error': 'Not found'}), 404
+    doc['_id'] = str(doc['_id'])
+    return jsonify(doc)
