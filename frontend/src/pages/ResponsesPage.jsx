@@ -227,12 +227,20 @@ const GRADING_TEMPLATES = [
 
 const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   const [analysis, setAnalysis] = useState(null);
+  const [loadingSaved, setLoadingSaved] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState('');
   const [error, setError] = useState('');
   const [expandedStudent, setExpandedStudent] = useState(null);
   const [gradingCriteria, setGradingCriteria] = useState('');
   const [activeTemplate, setActiveTemplate] = useState(null);
+
+  useEffect(() => {
+    apiClient.get(`/config/${configId}/analysis`)
+      .then(res => setAnalysis(res.data))
+      .catch(() => {})
+      .finally(() => setLoadingSaved(false));
+  }, [configId]);
 
   const applyTemplate = (t) => {
     setGradingCriteria(t.criteria);
@@ -258,6 +266,13 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
       setAnalyzing(false); setAnalysisProgress('');
     }
   };
+
+  if (loadingSaved) return (
+    <div className="flex flex-col items-center justify-center h-64 bg-white rounded-[2rem] border border-gray-100">
+      <FaSpinner className="animate-spin text-3xl text-[#FA6C43] mb-3" />
+      <p className="text-gray-500 text-sm font-medium">Loading saved analysis…</p>
+    </div>
+  );
 
   if (sessions.length === 0) return (
     <div className="flex flex-col items-center justify-center h-64 bg-white rounded-[2rem] border border-gray-100">

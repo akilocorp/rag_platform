@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -247,21 +248,36 @@ def _run_analysis(job_id, config_id, api_key, system_prompt, grading_criteria, m
 
         analyses.sort(key=lambda a: a.get('score', 0), reverse=True)
 
-        _jobs[job_id].update({
-            'status': 'done',
-            'progress': 'Done',
-            'result': {
-                'class_summary': {
-                    'avg_score': avg_score,
-                    'total_sessions': total,
-                    'overall_insight': summary.get('overall_insight', ''),
-                    'common_strengths': summary.get('common_strengths', []),
-                    'common_weaknesses': summary.get('common_weaknesses', []),
-                },
-                'top_performers': analyses[:3],
-                'students': analyses,
+        result = {
+            'class_summary': {
+                'avg_score': avg_score,
+                'total_sessions': total,
+                'overall_insight': summary.get('overall_insight', ''),
+                'common_strengths': summary.get('common_strengths', []),
+                'common_weaknesses': summary.get('common_weaknesses', []),
             },
-        })
+            'top_performers': analyses[:3],
+            'students': analyses,
+        }
+
+        # Persist to MongoDB — upsert so re-running replaces the old result
+        try:
+            db = mongo_client[db_name]
+            db['chat_analysis_results'].replace_one(
+                {'config_id': config_id},
+                {
+                    'config_id': config_id,
+                    'grading_criteria': grading_criteria,
+                    'analyzed_at': time.time(),
+                    **result,
+                },
+                upsert=True,
+            )
+            print(f'[job {job_id[:8]}] saved to chat_analysis_results.', flush=True)
+        except Exception as e:
+            print(f'[job {job_id[:8]}] WARNING: failed to save to MongoDB: {e}', flush=True)
+
+        _jobs[job_id].update({'status': 'done', 'progress': 'Done', 'result': result})
         print(f'[job {job_id[:8]}] complete.', flush=True)
 
     except Exception as e:
@@ -391,3 +407,18 @@ def analyze_status(config_id, job_id):
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     return jsonify(job)
+
+
+@analysis_bp.route('/config/<string:config_id>/analysis', methods=['GET'])
+@jwt_required()
+def get_saved_analysis(config_id):
+    """Return the most recent saved analysis for this config, or 404 if none."""
+    user_id = get_jwt_identity()
+    db = current_app.config['MONGO_DB']
+    config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
+    if not config_doc or str(config_doc.get('user_id', '')) != user_id:
+        return jsonify({'error': 'Forbidden'}), 403
+    saved = db['chat_analysis_results'].find_one({'config_id': config_id}, {'_id': 0})
+    if not saved:
+        return jsonify({'error': 'No analysis found'}), 404
+    return jsonify(saved)
