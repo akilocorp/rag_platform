@@ -225,23 +225,6 @@ const GRADING_TEMPLATES = [
   },
 ];
 
-const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
-  const [analysis, setAnalysis] = useState(null);
-  const [loadingSaved, setLoadingSaved] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState('');
-  const [error, setError] = useState('');
-  const [expandedStudent, setExpandedStudent] = useState(null);
-  const [gradingCriteria, setGradingCriteria] = useState('');
-  const [activeTemplate, setActiveTemplate] = useState(null);
-
-  useEffect(() => {
-    apiClient.get(`/config/${configId}/analysis`)
-      .then(res => setAnalysis(res.data))
-      .catch(() => {})
-      .finally(() => setLoadingSaved(false));
-  }, [configId]);
-
 // ─── Sidebar helpers ─────────────────────────────────────────────────────────
 
 const fmtTs = (ts) => {
