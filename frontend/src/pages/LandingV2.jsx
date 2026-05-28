@@ -832,39 +832,60 @@ const LandingV2 = () => {
           className="absolute inset-0 flex flex-col items-center justify-center text-center px-6"
           style={{ zIndex: 70 }}
         >
-          {/* "New" pill — left empty for now, just a small accent dot +
-              the word "New". Real announcement copy slots in next to it
-              when there's something to announce. */}
+          {/* Announcement pill — solid white against the dark hero so it
+              reads as a callout, not chrome. */}
           <div
             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-8"
             style={{
-              backgroundColor: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.10)',
+              backgroundColor: '#FFFFFF',
+              boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
             }}
           >
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#FA6C43' }} />
             <span
-              className="text-xs font-medium"
-              style={{ color: 'rgba(255,255,255,0.7)', fontFamily: FONT_BODY }}
+              className="text-xs font-semibold"
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
             >
-              New
+              UI System Revamped
             </span>
           </div>
 
-          {/* Headline */}
+          {/* Headline — italic line over a giant solid LEARNING word.
+              Two-line stack with tight leading for drama. */}
           <h1
-            className="mb-6 max-w-4xl"
+            className="mb-6 max-w-5xl"
             style={{
               fontFamily: FONT_DISPLAY,
-              fontWeight: 800,
               color: '#FFFFFF',
-              fontSize: 'clamp(44px, 7.5vmin, 96px)',
-              lineHeight: 0.98,
+              lineHeight: 0.92,
               letterSpacing: '-0.045em',
             }}
           >
-            Are you ready to redefine{' '}
-            <span style={{ color: '#FA6C43' }}>Learning</span>?
+            <span
+              className="block"
+              style={{
+                fontWeight: 500,
+                fontStyle: 'italic',
+                fontSize: 'clamp(28px, 4.5vmin, 56px)',
+                letterSpacing: '-0.02em',
+                marginBottom: '0.08em',
+              }}
+            >
+              We&rsquo;re ready to revolutionize
+            </span>
+            <span
+              className="block"
+              style={{
+                fontWeight: 900,
+                color: '#FA6C43',
+                fontSize: 'clamp(88px, 16vmin, 200px)',
+                textTransform: 'uppercase',
+                letterSpacing: '-0.055em',
+                lineHeight: 0.88,
+              }}
+            >
+              Learning
+            </span>
           </h1>
 
           {/* Subhead */}
