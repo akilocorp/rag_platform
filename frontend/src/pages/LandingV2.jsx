@@ -824,23 +824,23 @@ const LandingV2 = () => {
             Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust — trained on what you actually teach.
           </p>
 
-          {/* Composer — credits chip + white input card. Input is a real
-              <input> so typing works, but send + attach options are
-              visual-only for now. Wiring to register-redirect lands
-              later. */}
-          <div className="w-full max-w-2xl">
-            {/* Credits chip — sits above the card with a subtle overlap. */}
-            <div
-              className="ml-4 inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full relative z-10"
-              style={{
-                backgroundColor: '#FFFFFF',
-                boxShadow: '0 8px 22px rgba(0,0,0,0.18)',
-                marginBottom: '-6px',
-              }}
-            >
+          {/* Composer — single white card. Top-left credits progress
+              bar, big "Ask anything" input, and a bottom row with
+              attach (+ dropdown), voice, and a circular orange send
+              button. Visual-only for now; routing lands later. */}
+          <div
+            className="w-full max-w-2xl text-left rounded-[28px] p-5"
+            style={{
+              backgroundColor: '#FFFFFF',
+              boxShadow:
+                '0 28px 70px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
+            }}
+          >
+            {/* Top-left credits indicator */}
+            <div className="flex items-center gap-2.5 px-1 mb-4">
               <div
                 className="relative h-1.5 rounded-full overflow-hidden"
-                style={{ width: '64px', backgroundColor: '#EFEFEF' }}
+                style={{ width: '80px', backgroundColor: '#EFEFEF' }}
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded-full"
@@ -849,151 +849,137 @@ const LandingV2 = () => {
               </div>
               <span
                 className="text-[11px] font-semibold"
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
               >
                 123 credits left
               </span>
             </div>
 
-            {/* Main input card */}
-            <div
-              className="relative flex gap-3 p-4 rounded-[28px] text-left"
-              style={{
-                backgroundColor: '#FFFFFF',
-                boxShadow:
-                  '0 24px 60px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
-              }}
-            >
-              {/* Left column: input + divider + icon row */}
-              <div className="flex-1 flex flex-col min-h-[100px]">
-                <input
-                  type="text"
-                  placeholder="Ask Anything.."
-                  className="bg-transparent outline-none border-none w-full px-2 py-1.5 text-base placeholder:text-gray-500"
-                  style={{
-                    color: '#1F1F1F',
-                    fontFamily: FONT_BODY,
-                    boxShadow: 'none',
-                  }}
-                />
-                <div className="flex-1" />
-                <div
-                  className="h-px mx-1"
-                  style={{ backgroundColor: '#EFEFEF' }}
-                />
-                <div className="flex items-center gap-1 px-1 pt-2">
-                  {/* Attach button + dropdown */}
-                  <div className="relative" ref={attachRef}>
-                    <button
-                      type="button"
-                      onClick={() => setAttachOpen((o) => !o)}
-                      aria-label="Attach"
-                      aria-expanded={attachOpen}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-50"
-                      style={{ color: '#1F1F1F' }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                        <path
-                          d="M8 3v10M3 8h10"
-                          stroke="currentColor"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </button>
-                    {attachOpen && (
-                      <div
-                        className="absolute left-0 w-48 rounded-2xl py-1.5 z-20"
-                        style={{
-                          bottom: 'calc(100% + 10px)',
-                          backgroundColor: '#FFFFFF',
-                          boxShadow:
-                            '0 18px 48px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)',
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-sm text-left transition-colors hover:bg-gray-50"
-                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                          onClick={() => setAttachOpen(false)}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                            <path
-                              d="M3.5 1h5l3 3v8a1 1 0 01-1 1h-7a1 1 0 01-1-1v-10a1 1 0 011-1z"
-                              stroke="currentColor"
-                              strokeWidth="1.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M8.5 1v3h3"
-                              stroke="currentColor"
-                              strokeWidth="1.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          Attach file
-                        </button>
-                        <button
-                          type="button"
-                          className="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-sm text-left transition-colors hover:bg-gray-50"
-                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                          onClick={() => setAttachOpen(false)}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                            <path
-                              d="M1.5 4a1 1 0 011-1h3l1.5 1.5h4.5a1 1 0 011 1v6a1 1 0 01-1 1h-9a1 1 0 01-1-1V4z"
-                              stroke="currentColor"
-                              strokeWidth="1.2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          Attach folder
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {/* Voice */}
+            {/* Input */}
+            <input
+              type="text"
+              placeholder="Ask anything…"
+              className="w-full bg-transparent outline-none border-none px-1 py-2 text-xl placeholder:text-gray-400"
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
+            />
+
+            {/* Bottom row: actions left, send right */}
+            <div className="flex items-center justify-between mt-3 px-1">
+              <div className="flex items-center gap-1.5">
+                {/* Attach button + dropdown */}
+                <div className="relative" ref={attachRef}>
                   <button
                     type="button"
-                    aria-label="Voice"
-                    className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-50"
+                    onClick={() => setAttachOpen((o) => !o)}
+                    aria-label="Attach"
+                    aria-expanded={attachOpen}
+                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100"
                     style={{ color: '#1F1F1F' }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
                       <path
-                        d="M8 2a2 2 0 00-2 2v4a2 2 0 004 0V4a2 2 0 00-2-2z"
+                        d="M8 3v10M3 8h10"
                         stroke="currentColor"
-                        strokeWidth="1.4"
+                        strokeWidth="1.5"
                         strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M3.5 8a4.5 4.5 0 009 0M8 12.5V15"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
                       />
                     </svg>
                   </button>
+                  {attachOpen && (
+                    <div
+                      className="absolute left-0 w-52 rounded-2xl py-2 z-20 landing-menu-in"
+                      style={{
+                        bottom: 'calc(100% + 10px)',
+                        backgroundColor: '#FFFFFF',
+                        boxShadow:
+                          '0 18px 48px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2.5 flex items-center gap-3 text-sm text-left transition-colors hover:bg-gray-50"
+                        style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                        onClick={() => setAttachOpen(false)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden style={{ color: '#1F1F1F', flexShrink: 0 }}>
+                          <path
+                            d="M4 1.5h5.5L13 5v8.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-11a1 1 0 011-1z"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M9.5 1.5V5H13"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span className="font-medium">Attach file</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2.5 flex items-center gap-3 text-sm text-left transition-colors hover:bg-gray-50"
+                        style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                        onClick={() => setAttachOpen(false)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden style={{ color: '#1F1F1F', flexShrink: 0 }}>
+                          <path
+                            d="M1.5 4.5a1 1 0 011-1h3.5L7.5 5h6a1 1 0 011 1v6.5a1 1 0 01-1 1h-11a1 1 0 01-1-1v-8z"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span className="font-medium">Attach folder</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
+                {/* Voice */}
+                <button
+                  type="button"
+                  aria-label="Voice"
+                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100"
+                  style={{ color: '#1F1F1F' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path
+                      d="M8 2a2 2 0 00-2 2v4a2 2 0 004 0V4a2 2 0 00-2-2z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M3.5 8a4.5 4.5 0 009 0M8 12.5V15"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
               </div>
 
-              {/* Send button — stretches to full card height */}
+              {/* Send button — circular, orange, slim white up-arrow */}
               <button
                 type="button"
                 aria-label="Send"
-                className="flex-shrink-0 w-16 rounded-[20px] flex items-center justify-center transition-all hover:opacity-90 active:scale-[0.98]"
-                style={{ backgroundColor: '#FA6C43' }}
+                className="w-11 h-11 rounded-full flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
+                style={{
+                  backgroundColor: '#FA6C43',
+                  boxShadow: '0 6px 16px rgba(250,108,67,0.45)',
+                }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
                   <path
-                    d="M12 20V4M12 4l-6 6M12 4l6 6"
+                    d="M10 16V4M10 4l-5 5M10 4l5 5"
                     stroke="#FFFFFF"
-                    strokeWidth="1.7"
+                    strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
@@ -1445,9 +1431,18 @@ const LandingV2 = () => {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.35; }
         }
+        @keyframes landing-menu-in {
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .landing-menu-in {
+          animation: landing-menu-in 140ms ease-out;
+          transform-origin: bottom left;
+        }
         @media (prefers-reduced-motion: reduce) {
           .landing-icon-float img { animation: none; }
           .landing-cta-pulse { animation: none; }
+          .landing-menu-in { animation: none; }
         }
       `}</style>
     </div>
