@@ -491,6 +491,7 @@ const ResponsesPage = () => {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('analytics');
+  const [analyticsKey, setAnalyticsKey] = useState(0);
   const [csvLoading, setCsvLoading] = useState(false);
   const [csvProgress, setCsvProgress] = useState('');
 
@@ -574,7 +575,7 @@ const ResponsesPage = () => {
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => { if (id === 'analytics' && tab !== 'analytics') setAnalyticsKey(k => k + 1); setTab(id); }}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${
                 tab === id ? 'border-[#FA6C43] text-[#FA6C43]' : 'border-transparent text-gray-400 hover:text-gray-600'
               }`}
@@ -593,7 +594,7 @@ const ResponsesPage = () => {
             <p className="text-gray-500 font-medium">Loading…</p>
           </div>
         ) : tab === 'analytics' ? (
-          <AnalyticsTab sessions={sessions} configId={configId} systemPrompt={systemPrompt} configName={configName} />
+          <AnalyticsTab key={analyticsKey} sessions={sessions} configId={configId} systemPrompt={systemPrompt} configName={configName} />
         ) : (
           <SessionsTab sessions={sessions} />
         )}
