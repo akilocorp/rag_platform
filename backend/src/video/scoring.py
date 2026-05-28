@@ -428,73 +428,11 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
     )
 
 
-_GAMBITS = (
-    "Question (rhetorical or directed at audience), Anecdote (short human-interest story), "
-    "Quotation (from a respected source — current beats historical), Factoid (striking statistic "
-    "or little-known fact), Retrospective (look into the past to reveal change), Prospective "
-    "(project into the future), Aphorism (familiar saying), Analogy (comparison between two "
-    "seemingly unrelated things), Humor (high risk — only count if it lands and is relevant), "
-    "Grabber (say or do something surprising or shocking), Curiosity Arousal (start with an "
-    "unusual thought that makes the audience wonder), The Problem (name an important, "
-    "unrecognized problem that needs a solution), Hey-Yeh (tell the audience something they "
-    "hadn't thought of but recognize as truth once stated), The Whoa Intro (a surprising bit of "
-    "info), Presuming Audience Involvement (start mid-story and let the audience fill in the "
-    "rest), Room Reference (relate the topic to something directly relevant in the room), "
-    "Movie Preview (promise a compelling insight to be revealed later)"
-)
-
-_PCCP_RUBRIC = """
-PCCP FRAMEWORK (Prof. Nason) — score each dimension 0-100:
-
-P — Project Competence (does the speaker PROJECT an aura of expertise through delivery style?)
-  • 80-100: Authoritative, commanding, sounds like a subject-matter expert who knows the material cold
-  • 60-79:  Mostly confident presentation style with minor stumbles
-  • 40-59:  Competence is not clearly projected; sounds uncertain or under-prepared at times
-  • 20-39:  Hesitant, reads notes, stumbles through content — does NOT feel like an expert
-  •  0-19:  Completely unprepared delivery; no projection of competence whatsoever
-
-C — Competence (does the CONTENT demonstrate genuine knowledge and analytical depth?)
-  • 80-100: Specific data, tight logic, credible claims, addresses the customer/competition/deal clearly
-  • 60-79:  Covers most fundamentals with reasonable specificity
-  • 40-59:  Content is surface-level or partially incomplete; some fundamentals missing
-  • 20-39:  Vague claims, missing key fundamentals, little evidence of preparation
-  •  0-19:  Content is confused, incorrect, or missing almost entirely
-
-C — Confidence (does the speaker SOUND and FEEL confident?)
-  • 80-100: Strong clear voice, assertive statements, zero apologetic hedging ("I think maybe...")
-  • 60-79:  Generally confident with occasional hesitation
-  • 40-59:  Noticeable hedging, filler words, or wavering tone; somewhat uncertain
-  • 20-39:  Heavy filler words, quivering or trailing voice, apologetic opener or close
-  •  0-19:  Severe anxiety evident throughout; delivery is painful to listen to
-
-P — Passion (does the speaker convey GENUINE belief in their idea? NOTE: aggressive ≠ passion)
-  • 80-100: Warm, authentic enthusiasm that makes YOU want to hear more; sounds like they truly believe
-  • 60-79:  Clear energy and engagement; listener feels the speaker cares
-  • 40-59:  Some energy but inconsistent; passion doesn't come through in the voice
-  • 20-39:  Flat, monotone, or — EQUALLY BAD — pushy/salesy/aggressive energy that feels forced or desperate
-  •  0-19:  No passion at all (complete monotone) OR aggressive over-selling that alienates the listener
-
-CRITICAL PASSION DISTINCTION: Aggressive, high-pressure, or "used-car-salesman" delivery is NOT passion.
-It signals desperation, not belief. Score it in the 20-39 range. True passion is warm, infectious, and
-grounded — it makes the listener lean in, not pull back.
-"""
-
-_CALIBRATION = """
-OVERALL SCORE CALIBRATION — use the full range:
-  90-100: Exceptional — rare. Every fundamental covered, powerful gambit, infectious PCCP throughout.
-  80-89:  Excellent — compelling, polished, memorable. Most fundamentals, effective gambit, strong PCCP.
-  65-79:  Strong — clear structure, confident delivery, genuine passion. Minor gaps in fundamentals.
-  50-64:  Average — covers basics but lacks polish; some hesitation or missing key fundamentals.
-  35-49:  Below average — weak delivery, low energy, missing several fundamentals, unclear gambit.
-  20-34:  Poor — mumbled, disorganized, little to no energy, fails most fundamentals.
-   0-19:  Very poor — incomprehensible, no recognizable structure or content.
-
-DO NOT cluster scores in the 50-70 band. A poor video MUST score around 20; a truly excellent one 90+.
-"""
 
 
 def _llm_coaching(api_key, scoring_spec, transcript_text, analytics_brief):
-    """One structured LLM call → PCCP-grounded coaching + gambit ID + content checks."""
+    """One structured LLM call → grading prompt-driven coaching + content checks."""
+    grading_prompt = (scoring_spec.get("feedback_prompt_template") or "").strip()
     checks = scoring_spec.get("content_checks") or []
     checks_block = ""
     if checks:
@@ -504,14 +442,7 @@ def _llm_coaching(api_key, scoring_spec, transcript_text, analytics_brief):
         )
         checks_block = f"\nContent checks — evaluate each against the transcript:\n{lines}\n"
 
-    prompt = f"""{scoring_spec.get('feedback_prompt_template', '').strip()}
-
-{_PCCP_RUBRIC}
-
-{_CALIBRATION}
-
-OPENING GAMBITS (17 types — identify which one was used, if any):
-{_GAMBITS}
+    prompt = f"""{grading_prompt}
 
 Measured delivery signals (already computed — reference them in your feedback):
 {analytics_brief}
@@ -524,43 +455,30 @@ Transcript:
 
 Return ONLY a valid JSON object with this exact shape (no markdown, no prose outside the JSON):
 {{
-  "strength": "<2-3 sentences: the single biggest thing they did well, specific to their content or delivery>",
+  "overall_score": <0-100 — overall quality score based on your grading criteria>,
+  "strength": "<2-3 sentences: the single biggest thing they did well>",
   "growth_areas": [
     {{
-      "title": "<short imperative, e.g. 'Add a clear competitive advantage'>",
+      "title": "<short imperative>",
       "detail": "<2-3 sentences of concrete, specific advice>",
       "rewrites": [{{"original": "<exact phrase from transcript>", "improved": "<stronger rewrite>"}}]
     }}
   ],
-  "follow_up_questions": ["<question a VC or judge would likely ask>", "...", "..."],
-  "summary": ["<bullet summarizing a key point they made>", "..."],
-  "competence_content_score": <0-100 — content quality score, same calibration as above>,
-  "content_checks": [{{"id": "<id>", "passed": <true|false>, "score": <0-100>, "note": "<short, specific, quote transcript when possible>"}}],
-  "pccp": {{
-    "project_competence": {{"score": <0-100>, "note": "<1-2 sentences grounded in delivery>"}},
-    "competence":         {{"score": <0-100>, "note": "<1-2 sentences grounded in content>"}},
-    "confidence":         {{"score": <0-100>, "note": "<1-2 sentences grounded in delivery signals>"}},
-    "passion":            {{"score": <0-100>, "note": "<1-2 sentences; call out aggressive vs. genuine if relevant>"}},
-    "overall":            <0-100 — weighted average of the four, apply the calibration above>
-  }},
-  "gambit": {{
-    "identified": "<gambit name from the list, or 'None detected'>",
-    "effectiveness": <0-100>,
-    "relevance_note": "<was it directly relevant to the pitch content?>",
-    "improvement": "<one concrete suggestion to strengthen the gambit, or empty string if excellent>"
-  }}
+  "follow_up_questions": ["<question>", "...", "..."],
+  "summary": ["<bullet summarizing a key point>", "..."],
+  "content_checks": [{{"id": "<id>", "passed": <true|false>, "score": <0-100>, "note": "<short, specific note>"}}]
 }}
 
 Rules:
 - growth_areas: 3 to 6 items. Include rewrites only when you can quote a real phrase; otherwise use [].
 - follow_up_questions: exactly 3 items.
 - summary: 2 to 5 bullets.
-- ALL scores must use the full 0-100 range per the calibration above — do NOT cluster around 50-70."""
+- overall_score: use the full 0-100 range — do NOT cluster around 50-70."""
 
     llm = ChatOpenAI(
         model="gpt-4o-mini",
         api_key=api_key,
-        max_tokens=8000,
+        max_tokens=4000,
     )
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
@@ -579,15 +497,13 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
         ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
-        llm_content_score = float(ev["competence_content_score"]) if ev.get("competence_content_score") is not None else None
+        llm_content_score = float(ev["overall_score"]) if ev.get("overall_score") is not None else None
         content_checks = ev.get("content_checks") or []
         coaching = {
             "strength": ev.get("strength", "") or "",
             "growth_areas": ev.get("growth_areas", []) or [],
             "follow_up_questions": ev.get("follow_up_questions", []) or [],
             "summary": ev.get("summary", []) or [],
-            "pccp": ev.get("pccp") or {},
-            "gambit": ev.get("gambit") or {},
         }
     except Exception as e:
         logger.error("LLM coaching failed: %s", e, exc_info=True)

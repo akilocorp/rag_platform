@@ -112,15 +112,16 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
         </div>
       </div>
 
-      {/* Feedback prompt */}
+      {/* Grading prompt */}
       <div>
-        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Feedback Prompt</label>
+        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Grading Prompt</label>
+        <p className="text-xs text-gray-500 mb-2">Describe what the AI should evaluate and how it should score the video. This replaces any default rubric.</p>
         <textarea
-          rows="4"
+          rows="5"
           value={spec.feedback_prompt_template || ''}
           onChange={(e) => patch({ feedback_prompt_template: e.target.value })}
           className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none"
-          placeholder="Instructions for the AI that writes qualitative feedback…"
+          placeholder="E.g. 'You are grading a 60-second elevator pitch. Score the student on: (1) clarity of the problem they identified, (2) strength of their proposed solution, (3) confidence and energy in delivery. A score of 90+ means all three were exceptional; below 50 means major gaps in at least two areas.'"
         />
       </div>
 
