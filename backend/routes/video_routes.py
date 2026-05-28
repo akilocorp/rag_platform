@@ -5,14 +5,21 @@ S3 helpers (s3_client.py), Mongo job store (user_files upload_jobs), and the
 two-view dashboard shape (analysis_routes.py). The heavy lifting lives in
 src/video/pipeline.py (collection) and src/video/scoring.py (scoring).
 """
+import json
 import logging
 import os
+import re
+import threading
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 from werkzeug.utils import secure_filename
 
 from src.utils.s3_client import (
@@ -466,3 +473,217 @@ def dashboard(config_id):
             "common_words": [{"word": k, "students": v} for k, v in top_words],
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# Professor-defined AI analysis (prompt-based grading)
+# ---------------------------------------------------------------------------
+
+_va_jobs = {}  # job_id -> {status, progress, result, error}
+_MAX_TRANSCRIPT_WORDS = 500
+
+
+def _parse_json_va(text):
+    text = text.strip()
+    for pattern in (r'\[.*\]', r'\{.*\}'):
+        m = re.search(pattern, text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group())
+            except Exception:
+                pass
+    return json.loads(text)
+
+
+def _llm_va(api_key, prompt, max_tokens=500):
+    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, max_tokens=max_tokens)
+    return llm.invoke([HumanMessage(content=prompt)]).content
+
+
+def _transcript_text(transcript):
+    if not transcript:
+        return ''
+    if isinstance(transcript, dict):
+        return transcript.get('text', '') or ''
+    if isinstance(transcript, list):
+        return ' '.join((w.get('word', '') if isinstance(w, dict) else str(w)) for w in transcript)
+    return str(transcript)
+
+
+def _run_video_analysis(job_id, config_id, api_key, grading_prompt, db_client, db_name):
+    try:
+        db = db_client[db_name]
+        _va_jobs[job_id]['progress'] = 'Loading submissions…'
+
+        subs = list(db['video_submissions'].find(
+            {'config_id': config_id, 'status': 'scored'},
+            {'_id': 1, 'submitter_name': 1, 'submitter_email': 1},
+        ))
+        if not subs:
+            _va_jobs[job_id].update({'status': 'error', 'error': 'No scored submissions found for this config.'})
+            return
+
+        _va_jobs[job_id]['progress'] = f'Loading transcripts (0/{len(subs)})…'
+
+        students = []
+        for s in subs:
+            sub_id = str(s['_id'])
+            collected = db['video_collected_data'].find_one({'submission_id': sub_id}, {'transcript': 1})
+            raw = _transcript_text((collected or {}).get('transcript'))
+            words = raw.split()
+            if len(words) > _MAX_TRANSCRIPT_WORDS:
+                raw = ' '.join(words[:_MAX_TRANSCRIPT_WORDS]) + ' [truncated]'
+            students.append({
+                'submission_id': sub_id,
+                'name': s.get('submitter_name') or 'Anonymous',
+                'email': s.get('submitter_email') or '',
+                'transcript': raw,
+            })
+
+        _va_jobs[job_id]['progress'] = f'Grading {len(students)} submissions…'
+
+        def _grade_one(s):
+            text = s['transcript'] or '[no transcript available]'
+            prompt = f"""You are grading a student video presentation.
+
+Grading criteria from professor:
+{grading_prompt.strip()}
+
+Student: {s['name']}
+Video transcript:
+{text}
+
+Return a JSON object:
+{{"score": <0-100>, "summary": "<2-3 sentences>", "strengths": ["..."], "improvements": ["..."]}}
+
+Return ONLY the JSON object."""
+            try:
+                raw = _llm_va(api_key, prompt, max_tokens=400)
+                r = _parse_json_va(raw)
+                r.setdefault('score', 0)
+                r.setdefault('summary', '')
+                r.setdefault('strengths', [])
+                r.setdefault('improvements', [])
+            except Exception as e:
+                logger.error('Video grade failed for %s: %s', s['submission_id'], e)
+                r = {'score': 0, 'summary': 'Analysis failed.', 'strengths': [], 'improvements': []}
+            return {**s, **r}
+
+        analyses = []
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            for r in ex.map(_grade_one, students):
+                analyses.append(r)
+
+        _va_jobs[job_id]['progress'] = 'Generating class summary…'
+        scored = [a for a in analyses if a.get('score', 0) > 0]
+        avg_score = round(sum(a['score'] for a in scored) / len(scored)) if scored else 0
+
+        cs = {'overall_insight': 'No scored submissions to summarize.', 'common_strengths': [], 'common_weaknesses': []}
+        if scored:
+            lines = '\n'.join(f'- Score {a["score"]}/100: {a["summary"]}' for a in scored)
+            summary_prompt = f"""Summarize class-wide video presentation performance for a professor.
+
+Grading criteria used:
+{grading_prompt.strip()}
+
+Individual results:
+{lines}
+
+Return JSON: {{"overall_insight": "<3-4 sentences>", "common_strengths": ["<pattern>"], "common_weaknesses": ["<gap>"]}}
+Return only the JSON."""
+            try:
+                cs = _parse_json_va(_llm_va(api_key, summary_prompt, max_tokens=600))
+            except Exception as e:
+                logger.error('Video class summary failed: %s', e)
+
+        analyses.sort(key=lambda a: a.get('score', 0), reverse=True)
+
+        result = {
+            'class_summary': {
+                'avg_score': avg_score,
+                'total_submissions': len(analyses),
+                'overall_insight': cs.get('overall_insight', ''),
+                'common_strengths': cs.get('common_strengths', []),
+                'common_weaknesses': cs.get('common_weaknesses', []),
+            },
+            'students': analyses,
+        }
+
+        try:
+            db['video_analysis_results'].insert_one({
+                'config_id': config_id,
+                'grading_prompt': grading_prompt,
+                'analyzed_at': time.time(),
+                **result,
+            })
+        except Exception as e:
+            logger.error('Failed to persist video analysis: %s', e)
+
+        _va_jobs[job_id].update({'status': 'done', 'progress': 'Done', 'result': result})
+
+    except Exception as e:
+        import traceback
+        logger.error('Video analysis job fatal: %s', traceback.format_exc())
+        _va_jobs[job_id].update({'status': 'error', 'error': f'{type(e).__name__}: {str(e)}'})
+
+
+@video_bp.route('/video/config/<config_id>/ai-analyze', methods=['POST'])
+def start_video_analysis(config_id):
+    config, err = _require_config_owner(config_id)
+    if err:
+        return err
+    grading_prompt = (request.get_json(silent=True) or {}).get('grading_prompt', '').strip()
+    if not grading_prompt:
+        return jsonify({'error': 'grading_prompt is required'}), 400
+    api_key = current_app.config.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY')
+    db = current_app.config['MONGO_DB']
+    job_id = str(uuid.uuid4())
+    _va_jobs[job_id] = {'status': 'running', 'progress': 'Starting…', 'result': None, 'error': None}
+    threading.Thread(
+        target=_run_video_analysis,
+        args=(job_id, config_id, api_key, grading_prompt, db.client, db.name),
+        daemon=True,
+    ).start()
+    return jsonify({'job_id': job_id})
+
+
+@video_bp.route('/video/config/<config_id>/ai-analyze/<job_id>', methods=['GET'])
+def video_analysis_status(config_id, job_id):
+    _, err = _require_config_owner(config_id)
+    if err:
+        return err
+    job = _va_jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify(job)
+
+
+@video_bp.route('/video/config/<config_id>/ai-analyses', methods=['GET'])
+def list_video_analyses(config_id):
+    _, err = _require_config_owner(config_id)
+    if err:
+        return err
+    db = current_app.config['MONGO_DB']
+    docs = list(db['video_analysis_results'].find(
+        {'config_id': config_id}, {'students': 0},
+    ).sort('analyzed_at', -1))
+    for d in docs:
+        d['_id'] = str(d['_id'])
+        d['avg_score'] = (d.get('class_summary') or {}).get('avg_score')
+    return jsonify({'analyses': docs})
+
+
+@video_bp.route('/video/config/<config_id>/ai-analyses/<analysis_id>', methods=['GET'])
+def get_video_analysis(config_id, analysis_id):
+    _, err = _require_config_owner(config_id)
+    if err:
+        return err
+    db = current_app.config['MONGO_DB']
+    try:
+        doc = db['video_analysis_results'].find_one({'_id': ObjectId(analysis_id), 'config_id': config_id})
+    except Exception:
+        return jsonify({'error': 'Invalid ID'}), 400
+    if not doc:
+        return jsonify({'error': 'Not found'}), 404
+    doc['_id'] = str(doc['_id'])
+    return jsonify(doc)
