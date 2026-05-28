@@ -8,6 +8,14 @@ gsap.registerPlugin(ScrollTrigger);
 const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 
+const HERO_PROMPTS = [
+  'Explain the first law of thermodynamics',
+  'Type 1 vs Type 2 Bipolar disorder?',
+  'Walk me through CRISPR gene editing',
+  'Why did the Roman Empire fall?',
+  'Derive the Black-Scholes equation',
+];
+
 const UVPS = [
   {
     id: 'syllabus',
@@ -442,6 +450,54 @@ const LandingV2 = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, [attachOpen]);
 
+  // Typewriter placeholder cycling through HERO_PROMPTS. Type → hold →
+  // erase → brief pause → next. Reduced-motion users see a static
+  // "Ask anything…" string instead. Pure setTimeout chain — no rAF
+  // needed since the cadence is character-scale, not frame-scale.
+  const [typedPrompt, setTypedPrompt] = useState(HERO_PROMPTS[0]);
+  useEffect(() => {
+    if (reducedMotion()) {
+      setTypedPrompt('Ask anything…');
+      return;
+    }
+    let idx = 0;
+    let charIdx = 0;
+    let phase = 'typing';
+    let timeoutId = null;
+    const tick = () => {
+      const full = HERO_PROMPTS[idx];
+      if (phase === 'typing') {
+        charIdx += 1;
+        setTypedPrompt(full.slice(0, charIdx));
+        if (charIdx >= full.length) {
+          phase = 'holding';
+          timeoutId = setTimeout(tick, 1600);
+          return;
+        }
+        timeoutId = setTimeout(tick, 42);
+      } else if (phase === 'holding') {
+        phase = 'erasing';
+        timeoutId = setTimeout(tick, 22);
+      } else if (phase === 'erasing') {
+        charIdx -= 1;
+        setTypedPrompt(full.slice(0, Math.max(0, charIdx)));
+        if (charIdx <= 0) {
+          phase = 'typing';
+          idx = (idx + 1) % HERO_PROMPTS.length;
+          charIdx = 0;
+          timeoutId = setTimeout(tick, 320);
+          return;
+        }
+        timeoutId = setTimeout(tick, 22);
+      }
+    };
+    setTypedPrompt('');
+    timeoutId = setTimeout(tick, 600);
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (reducedMotion()) return;
 
@@ -855,10 +911,11 @@ const LandingV2 = () => {
               </span>
             </div>
 
-            {/* Input */}
+            {/* Input — placeholder cycles through HERO_PROMPTS via a
+                typewriter effect (see useEffect in component body). */}
             <input
               type="text"
-              placeholder="Ask anything…"
+              placeholder={typedPrompt}
               className="w-full bg-transparent outline-none border-none px-1 py-2 text-xl placeholder:text-gray-400"
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
             />
