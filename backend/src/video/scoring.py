@@ -558,10 +558,9 @@ Rules:
 - ALL scores must use the full 0-100 range per the calibration above — do NOT cluster around 50-70."""
 
     llm = ChatOpenAI(
-        model="gpt-5",
+        model="gpt-4o-mini",
         api_key=api_key,
         max_tokens=8000,
-        model_kwargs={"reasoning_effort": "minimal"},
     )
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
