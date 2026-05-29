@@ -30,7 +30,7 @@ const mmss = (s) => { if (!s) return ''; const m = Math.floor(s / 60); return `$
 function PccpCard({ label, blurb, data, evalScore, evalComment }) {
   const [open, setOpen] = useState(false);
   const v = evalScore != null ? evalScore : data?.value;
-  const subs = Object.entries(data?.submetrics || {});
+  const subs = Object.entries(data?.submetrics || {}).filter(([, m]) => m?.available && m?.score != null);
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-start justify-between mb-3">
