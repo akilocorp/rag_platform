@@ -340,66 +340,60 @@ export default function VideoDashboardPage() {
                 </div>
 
                 {/* PCCP Delivery averages (LLM-graded) */}
-                {dash?.total_submissions > 0 && Object.values(dash?.pccp_averages || {}).some(v => v != null) && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">PCCP Delivery (Class Avg)</h2>
-                    <div className="grid grid-cols-3 gap-3">
-                      {DIMS.map(d => {
-                        const v = dash.pccp_averages?.[d.key];
-                        return (
-                          <div key={d.key} className="text-center">
-                            <p className="text-2xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</p>
-                            <p className="text-xs text-gray-500 font-semibold mt-0.5">{d.label}</p>
-                            <div className="mt-1.5 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
-                            </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">PCCP Delivery (Class Avg)</h2>
+                  <div className="grid grid-cols-3 gap-3">
+                    {DIMS.map(d => {
+                      const v = dash?.pccp_averages?.[d.key];
+                      return (
+                        <div key={d.key} className="text-center">
+                          <p className="text-2xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</p>
+                          <p className="text-xs text-gray-500 font-semibold mt-0.5">{d.label}</p>
+                          <div className="mt-1.5 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
 
                 {/* Opening Gambit average */}
-                {dash?.total_submissions > 0 && dash?.component_averages?.gambit != null && (
-                  <div className="bg-white rounded-2xl border-2 border-[#4f46e5]/20 shadow-sm p-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="font-bold text-[#222]">Opening Gambit / Hook</h2>
-                        <p className="text-xs text-gray-400 mt-0.5">Class average — first 8 seconds</p>
-                      </div>
-                      <span className="text-3xl font-extrabold" style={{ color: color(dash.component_averages.gambit) }}>
-                        {fmt10(dash.component_averages.gambit)}
-                      </span>
+                <div className="bg-white rounded-2xl border-2 border-[#4f46e5]/20 shadow-sm p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="font-bold text-[#222]">Opening Gambit / Hook</h2>
+                      <p className="text-xs text-gray-400 mt-0.5">Class average — first 8 seconds</p>
                     </div>
-                    <div className="mt-3 w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${dash.component_averages.gambit || 0}%`, background: color(dash.component_averages.gambit) }} />
-                    </div>
+                    <span className="text-3xl font-extrabold" style={{ color: color(dash?.component_averages?.gambit) }}>
+                      {fmt10(dash?.component_averages?.gambit)}
+                    </span>
                   </div>
-                )}
+                  <div className="mt-3 w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${dash?.component_averages?.gambit || 0}%`, background: color(dash?.component_averages?.gambit) }} />
+                  </div>
+                </div>
 
                 {/* Key Component cards */}
-                {dash?.total_submissions > 0 && KEY_COMPONENTS.some(kc => dash?.component_averages?.[kc.id] != null) && (
-                  <div>
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Key Components (Class Avg)</h2>
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      {KEY_COMPONENTS.map(kc => {
-                        const v = dash?.component_averages?.[kc.id];
-                        return (
-                          <div key={kc.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <span className="text-sm font-bold text-[#222]">{kc.label}</span>
-                              <span className="text-xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
-                            </div>
+                <div>
+                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Key Components (Class Avg)</h2>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {KEY_COMPONENTS.map(kc => {
+                      const v = dash?.component_averages?.[kc.id];
+                      return (
+                        <div key={kc.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-sm font-bold text-[#222]">{kc.label}</span>
+                            <span className="text-xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
 
                 {dash?.common_weakness_dimension && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
