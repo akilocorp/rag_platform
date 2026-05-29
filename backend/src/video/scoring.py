@@ -650,7 +650,8 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
   "overall_score": <1-10 — NOT a pure average; severe delivery flaws must drag this down>,
   "conclusion": "<1-3 sentences on how content and delivery interacted>",
   "areas_of_improvement": ["<specific area, e.g. Improve PCCP delivery>", "..."],
-  "additional_points": ["<notable observation e.g. audience reaction>"]
+  "follow_up_questions": ["<question the audience is likely to ask that the speaker should prepare for>", "..."],
+  "additional_points": ["<notable observation e.g. audience reaction, unusual delivery quirk>"]
 }}
 
 Scoring rules:
@@ -659,6 +660,7 @@ Scoring rules:
 - opening_gambit comment: always name the gambit type (e.g. "Factoid gambit") or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch (e.g. "Try opening with: 'Did you know 40% of athletes overtrain and never recover?'").
 - Passion < 4 (extremely dry or unprofessional) must pull overall_score below key_components average.
 - areas_of_improvement: 2 to 5 items.
+- follow_up_questions: 2 to 3 tough questions the audience would likely ask based on gaps in this pitch.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
 
     llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4000)
@@ -725,7 +727,7 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
                 {"title": s, "detail": "", "rewrites": []}
                 for s in (ev.get("areas_of_improvement") or [])
             ],
-            "follow_up_questions": ev.get("additional_points") or [],
+            "follow_up_questions": ev.get("follow_up_questions") or [],
             "summary": [ev["conclusion"]] if ev.get("conclusion") else [],
             "additional_points": ev.get("additional_points") or [],
         }
