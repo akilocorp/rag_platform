@@ -1114,29 +1114,27 @@ const LandingV2 = () => {
             body="Every answer footnoted back to your uploaded files or live web results."
           />
 
-          {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3) */}
+          {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3).
+              The source JPG already contains the orange tile + white A
+              artwork; we lay it as a background image positioned left so
+              the A anchors to the left edge, and the right portion is
+              uniform orange that the headline + button sit on top of.
+              Falls back to backgroundColor if the image fails to load. */}
           <a
             href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
             className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center transition-all duration-300 shadow-[0_18px_48px_rgba(250,108,67,0.28)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(250,108,67,0.40)]"
             style={{
               backgroundColor: '#FA6C43',
+              backgroundImage: 'url(/landing-bento-cta.jpg)',
+              backgroundSize: 'auto 100%',
+              backgroundPosition: 'left center',
+              backgroundRepeat: 'no-repeat',
               borderRadius: '40px',
               minHeight: '320px',
             }}
           >
-            <div
-              className="flex items-center justify-center flex-shrink-0"
-              style={{ width: '45%', padding: '1.5rem 1rem 1.5rem 2rem' }}
-            >
-              <img
-                src="/logo-A.svg"
-                alt=""
-                aria-hidden
-                className="h-32 lg:h-48 w-auto select-none"
-                draggable={false}
-                style={{ filter: 'brightness(0) invert(1)' }}
-              />
-            </div>
+            {/* Spacer that pushes the text past the A artwork on the left. */}
+            <div className="flex-shrink-0" style={{ width: '45%' }} aria-hidden />
             <div className="flex-1 pr-8 lg:pr-12">
               <h2
                 className="text-white text-3xl lg:text-[2.5rem] tracking-tight leading-[1.05] mb-5"
