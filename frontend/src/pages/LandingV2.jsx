@@ -50,36 +50,73 @@ const UVPS = [
 // a bold title and a short body. Pure presentational — no mockup zone,
 // no accent eyebrow. Three of these fill the left/right "feature
 // highlight" slots around the Canvas hero and the contact CTA.
-const SmallFeatureTile = ({ title, body, className = '' }) => (
-  <div
-    className={`relative overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(31,31,31,0.08)] hover:scale-[1.012] hover:shadow-[0_20px_48px_rgba(31,31,31,0.15)] ${className}`}
-    style={{
-      backgroundColor: '#D9E5F2',
-      borderRadius: '32px',
-      minHeight: '150px',
-    }}
-  >
-    <div className="absolute inset-0 p-6 lg:p-7 flex flex-col justify-center">
-      <h3
-        className="text-lg lg:text-xl tracking-tight leading-[1.1] mb-2"
-        style={{
-          color: '#1F1F1F',
-          fontFamily: FONT_DISPLAY,
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-        }}
+// `layout` controls vertical order. "default" stacks title→body, vertically
+// centered. "body-top-title-bottom" places body at the top of the tile and
+// pins the title to the bottom-right corner — eyes land on the heading first,
+// then drift up to the supporting text.
+const SmallFeatureTile = ({ title, body, className = '', layout = 'default' }) => {
+  const isSplit = layout === 'body-top-title-bottom';
+  return (
+    <div
+      className={`relative overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(31,31,31,0.08)] hover:scale-[1.012] hover:shadow-[0_20px_48px_rgba(31,31,31,0.15)] ${className}`}
+      style={{
+        backgroundColor: '#D9E5F2',
+        borderRadius: '32px',
+        minHeight: '180px',
+      }}
+    >
+      <div
+        className={`absolute inset-0 p-6 lg:p-7 flex flex-col ${
+          isSplit ? 'justify-between' : 'justify-center'
+        }`}
       >
-        {title}
-      </h3>
-      <p
-        className="text-[12px] lg:text-[13px] leading-snug"
-        style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
-      >
-        {body}
-      </p>
+        {isSplit ? (
+          <>
+            <p
+              className="text-[15px] lg:text-base leading-snug"
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+            >
+              {body}
+            </p>
+            <h3
+              className="text-2xl lg:text-[1.85rem] tracking-tight text-right"
+              style={{
+                color: '#1F1F1F',
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                letterSpacing: '-0.02em',
+                lineHeight: 1.0,
+              }}
+            >
+              {title}
+            </h3>
+          </>
+        ) : (
+          <>
+            <h3
+              className="text-2xl lg:text-[1.85rem] tracking-tight mb-3"
+              style={{
+                color: '#1F1F1F',
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                letterSpacing: '-0.02em',
+                lineHeight: 1.0,
+              }}
+            >
+              {title}
+            </h3>
+            <p
+              className="text-[15px] lg:text-base leading-snug"
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+            >
+              {body}
+            </p>
+          </>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // SyllabusMockup lives in the right half of the Canvas hero tile and
 // positions its Canvas cards absolutely. Negative right offsets bleed
@@ -1141,8 +1178,8 @@ const LandingV2 = () => {
                 </span>
               </h2>
               <p
-                className="text-sm lg:text-[14px] leading-snug max-w-[300px]"
-                style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+                className="text-[15px] lg:text-base leading-snug max-w-[300px]"
+                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
                 It&rsquo;s a massive pain to keep re-uploading your lecture notes, only for the AI to start making things up halfway through your study session.
               </p>
@@ -1155,10 +1192,13 @@ const LandingV2 = () => {
             </div>
           </div>
 
-          {/* TOP-RIGHT — Any Model (lg: col 4, row 1) */}
+          {/* TOP-RIGHT — Any Model (lg: col 4, row 1). Body up top,
+              title pinned to the bottom-right so the eye lands on the
+              heading first and walks up to the supporting text. */}
           <SmallFeatureTile
             title="Any Model"
             body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat — no extra subscriptions."
+            layout="body-top-title-bottom"
           />
 
           {/* MID-LEFT — Cites Its Sources (lg: col 1, row 2) */}
