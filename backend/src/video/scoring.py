@@ -41,6 +41,9 @@ FILLER_WORDS = {
     "basically", "actually", "literally", "honestly",
     "essentially", "anyway", "anyways",
 }
+FILLER_PHRASES = [
+    "you know", "i mean", "you see", "right so", "so yeah", "and so",
+]
 HEDGE_PHRASES = [
     "i think", "i guess", "maybe", "sort of", "kind of", "i mean",
     "probably", "i'm not sure", "it seems", "perhaps", "i suppose",
@@ -51,12 +54,19 @@ HEDGE_PHRASES = [
     "we think", "we hope", "we believe", "we're trying to",
     "we would like to", "we hope to", "we're hoping",
 ]
+_FILLER_PHRASE_SET = set(FILLER_PHRASES)
+# Stop-word bigrams/trigrams excluded from repeated-phrase detection
+_PHRASE_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "is", "it", "this", "that", "we", "i", "so", "as",
+}
 # "Weak" / non-committal qualifiers that dilute impact (Yoodli-style). Single
 # tokens are flagged with timestamps; multi-word ones counted in the text.
 WEAK_WORDS = {"just", "really", "very", "quite", "actually", "basically",
               "literally", "stuff", "things", "somewhat", "pretty", "kinda",
               "sorta", "honestly"}
 IDEAL_WPM_LOW, IDEAL_WPM_HIGH = 110, 160
+IDEAL_BRIGHTNESS_LOW, IDEAL_BRIGHTNESS_HIGH = 80, 180
 
 # --- Hume emotion bundles (names match Hume's 48-emotion taxonomy) --------
 CONF_POS = ["Calmness", "Determination", "Pride", "Concentration", "Contentment"]
@@ -104,6 +114,7 @@ def compute_submetrics(collected: dict) -> dict:
     prosody_frames = (collected.get("prosody") or {}).get("frames") or []
     face_frames = (collected.get("face") or {}).get("frames") or []
     pose = collected.get("pose")
+    visual = collected.get("visual") or {}
 
     sm = {}
 
@@ -125,7 +136,7 @@ def compute_submetrics(collected: dict) -> dict:
 
     tokens = re.findall(r"[a-z']+", text)
     if tokens:
-        filler_n = sum(1 for t in tokens if t in FILLER_WORDS)
+        filler_n = sum(1 for t in tokens if t in FILLER_WORDS) + sum(text.count(p) for p in FILLER_PHRASES)
         filler_rate = filler_n / len(tokens)
         sm["filler_rate"] = _sm(_clamp(100.0 * (1.0 - min(filler_rate / 0.12, 1.0))),
                                 round(filler_rate, 4), True, f"{round(filler_rate * 100, 1)}% filler words")
@@ -188,6 +199,54 @@ def compute_submetrics(collected: dict) -> dict:
         sm["face_composure"] = _sm(None, None, False, "No face data")
         sm["facial_expressivity"] = _sm(None, None, False, "No face data")
 
+    # ---- face coverage / centering / distance (from Hume bbox) ----
+    bbox_frames = [f for f in face_frames if f.get("bbox")]
+    if face_frames:
+        coverage = len(bbox_frames) / len(face_frames)
+        sm["face_coverage"] = _sm(_clamp(coverage * 100.0), round(coverage, 4), True,
+                                  f"Face visible {round(coverage * 100)}% of time")
+        fw = visual.get("frame_width") or 0
+        fh = visual.get("frame_height") or 0
+        if bbox_frames and fw and fh:
+            deviations, areas = [], []
+            for f in bbox_frames:
+                b = f["bbox"]
+                cx = (b["x"] + b["w"] / 2.0) / fw
+                cy = (b["y"] + b["h"] / 2.0) / fh
+                deviations.append(abs(cx - 0.5) + abs(cy - 0.5))
+                areas.append((b["w"] * b["h"]) / (fw * fh))
+            mean_dev = _mean(deviations)
+            mean_area = _mean(areas)
+            # centering: 0 deviation = perfect (score 100), 0.5 deviation = fully off (score 0)
+            sm["face_centering"] = _sm(_clamp(100.0 * (1.0 - min(mean_dev / 0.3, 1.0))),
+                                       round(mean_dev, 4), True, "Face centered in frame")
+            # distance proxy: ideal face area is 5-20% of frame; too small or too large penalized
+            ideal_area_mid = 0.10
+            distance_score = _clamp(100.0 - abs(mean_area - ideal_area_mid) / ideal_area_mid * 80.0)
+            sm["face_distance"] = _sm(distance_score, round(mean_area, 4), True,
+                                      f"Face size {round(mean_area * 100, 1)}% of frame")
+        else:
+            sm["face_centering"] = _sm(None, None, False, "No frame dimensions")
+            sm["face_distance"] = _sm(None, None, False, "No frame dimensions")
+    else:
+        sm["face_coverage"] = _sm(None, None, False, "No face data")
+        sm["face_centering"] = _sm(None, None, False, "No face data")
+        sm["face_distance"] = _sm(None, None, False, "No face data")
+
+    # ---- lighting quality (from visual analysis) ----
+    mean_brightness = visual.get("mean_brightness")
+    if mean_brightness is not None:
+        if IDEAL_BRIGHTNESS_LOW <= mean_brightness <= IDEAL_BRIGHTNESS_HIGH:
+            brightness_score = 100.0
+        elif mean_brightness < IDEAL_BRIGHTNESS_LOW:
+            brightness_score = _clamp(100.0 * (mean_brightness / IDEAL_BRIGHTNESS_LOW))
+        else:
+            brightness_score = _clamp(100.0 * (1.0 - (mean_brightness - IDEAL_BRIGHTNESS_HIGH) / (255.0 - IDEAL_BRIGHTNESS_HIGH)))
+        sm["lighting_quality"] = _sm(brightness_score, round(mean_brightness, 1), True,
+                                     f"Brightness {round(mean_brightness)}/255")
+    else:
+        sm["lighting_quality"] = _sm(None, None, False, "No video frame data")
+
     # ---- pose-derived (PHASE 2) ----
     pose_present = bool(pose)
     for k, lbl in (("posture", "Upright posture"), ("sway", "Body steadiness"),
@@ -246,7 +305,7 @@ def _norm(w):
     return (w or "").strip().lower().strip(".,!?;:\"'")
 
 
-def compute_analytics(collected: dict, sm: dict) -> dict:
+def compute_analytics(collected: dict, sm: dict, target_duration_sec: int = 60) -> dict:
     """Rich quantitative metrics grouped Word Choice / Delivery / Presence.
     Every metric carries a value, a status, a human label, a benchmark note,
     and (where useful) the actual flagged instances with timestamps."""
@@ -264,6 +323,36 @@ def compute_analytics(collected: dict, sm: dict) -> dict:
     # ---- Word Choice ----
     filler_instances = [{"word": _norm(w.get("word")), "time": round(w.get("start", 0.0), 1)}
                         for w in words if _norm(w.get("word")) in FILLER_WORDS]
+    # multi-word filler phrases (e.g. "you know")
+    for i in range(len(words) - 1):
+        phrase = f"{_norm(words[i].get('word', ''))} {_norm(words[i + 1].get('word', ''))}"
+        if phrase in _FILLER_PHRASE_SET:
+            filler_instances.append({"word": phrase, "time": round(words[i].get("start", 0.0), 1)})
+    filler_instances.sort(key=lambda x: x["time"])
+
+    # repeated restarts: same word within 2s of itself, or a cut-off (<0.2s) before its continuation
+    restart_instances = []
+    for i in range(1, len(words)):
+        prev_word = _norm(words[i - 1].get("word", ""))
+        curr_word = _norm(words[i].get("word", ""))
+        gap = words[i].get("start", 0) - words[i - 1].get("start", 0)
+        prev_dur = words[i - 1].get("end", 0) - words[i - 1].get("start", 0)
+        if curr_word == prev_word and gap < 2.0 and prev_word:
+            restart_instances.append({"word": curr_word, "time": round(words[i - 1].get("start", 0.0), 1)})
+        elif prev_dur < 0.2 and len(prev_word) >= 3 and curr_word.startswith(prev_word[:3]):
+            restart_instances.append({"word": f"{prev_word}... {curr_word}", "time": round(words[i - 1].get("start", 0.0), 1)})
+
+    # repeated phrases: bigrams + trigrams appearing 3+ times, excluding stop-word-only n-grams
+    from collections import Counter
+    ngrams = []
+    for n in (2, 3):
+        for j in range(len(tokens) - n + 1):
+            gram = tokens[j:j + n]
+            if not all(t in _PHRASE_STOPWORDS for t in gram):
+                ngrams.append(" ".join(gram))
+    repeated_phrases = [{"phrase": p, "count": c}
+                        for p, c in Counter(ngrams).most_common(10) if c >= 3]
+
     filler_pct = round(100.0 * len(filler_instances) / total, 1)
 
     weak_instances = [{"word": _norm(w.get("word")), "time": round(w.get("start", 0.0), 1)}
@@ -304,6 +393,30 @@ def compute_analytics(collected: dict, sm: dict) -> dict:
             sec_wpm = round(cnt / (third / 60.0)) if third else 0
             sections.append({"label": ["Open", "Middle", "Close"][idx], "wpm": sec_wpm})
 
+    # 5-second windows for rush/slow detection
+    pace_windows = []
+    window = 5.0
+    if n_words > 3 and talk_sec > window:
+        t = 0.0
+        while t < talk_sec:
+            cnt = sum(1 for w in words if t <= w.get("start", 0) < t + window)
+            win_wpm = round(cnt / (window / 60.0))
+            flag = "rush" if win_wpm > 200 else "slow" if win_wpm < 70 else "ok"
+            pace_windows.append({"time": round(t, 1), "wpm": win_wpm, "flag": flag})
+            t += window
+
+    # completion check
+    completion_sec = round(talk_sec, 1)
+    completion_delta = round(talk_sec - target_duration_sec, 1)
+    if abs(completion_delta) <= 5:
+        completion_status = "good"
+    elif completion_delta < -10:
+        completion_status = "short"
+    elif completion_delta > 10:
+        completion_status = "over"
+    else:
+        completion_status = "warn"
+
     def sub(name):
         m = sm.get(name) or {}
         return m.get("score") if m.get("available") else None
@@ -316,6 +429,13 @@ def compute_analytics(collected: dict, sm: dict) -> dict:
     analytics = {
         "talk_time_sec": round(talk_sec, 1),
         "word_count": n_words,
+        "completion": {
+            "duration_sec": completion_sec,
+            "target_sec": target_duration_sec,
+            "delta_sec": completion_delta,
+            "status": completion_status,
+            "label": f"{completion_sec}s / {target_duration_sec}s target",
+        },
         "word_choice": {
             "filler_words": {
                 "count": len(filler_instances), "pct": filler_pct,
@@ -335,6 +455,18 @@ def compute_analytics(collected: dict, sm: dict) -> dict:
                 "label": f"{hedge_per100} hedges / 100 words",
                 "benchmark": "Confident delivery uses few hedges (\"I think\", \"maybe\").",
             },
+            "restarts": {
+                "count": len(restart_instances), "instances": restart_instances[:20],
+                "status": _status(len(restart_instances), 2, 5, higher_better=False),
+                "label": f"{len(restart_instances)} restarts",
+                "benchmark": "Fewer than 2 restarts keeps delivery fluent.",
+            },
+            "repeated_phrases": {
+                "count": len(repeated_phrases), "top": repeated_phrases[:5],
+                "status": _status(len(repeated_phrases), 1, 3, higher_better=False),
+                "label": f"{len(repeated_phrases)} repeated phrases",
+                "benchmark": "Vary your language to avoid sounding scripted.",
+            },
             "sentence_starters": {
                 "recurring": len(recurring_starters), "top": recurring_starters[:5],
                 "status": _status(len(recurring_starters), 1, 3, higher_better=False),
@@ -352,7 +484,7 @@ def compute_analytics(collected: dict, sm: dict) -> dict:
             "pace": {
                 "wpm": wpm,
                 "status": "good" if IDEAL_WPM_LOW <= wpm <= IDEAL_WPM_HIGH else "warn" if (90 <= wpm < IDEAL_WPM_LOW or IDEAL_WPM_HIGH < wpm <= 185) else "bad",
-                "label": f"{wpm} words/min", "sections": sections,
+                "label": f"{wpm} words/min", "sections": sections, "windows": pace_windows,
                 "benchmark": f"Conversational pace is {IDEAL_WPM_LOW}-{IDEAL_WPM_HIGH} wpm.",
             },
             "pauses": {
@@ -439,14 +571,23 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
     active_tones = ", ".join(t["label"] for t in tone_tags if t["active"]) or "none detected"
     top_fillers = ", ".join(sorted({i["word"] for i in wc.get("filler_words", {}).get("instances", [])})) or "none"
     top_weak = ", ".join(sorted({i["word"] for i in wc.get("weak_words", {}).get("instances", [])})) or "none"
+    restart_count = wc.get("restarts", {}).get("count", 0)
+    top_repeated = ", ".join(f'"{r["phrase"]}" ×{r["count"]}' for r in wc.get("repeated_phrases", {}).get("top", [])) or "none"
     energy = dl.get("energy", {}).get("value")
     pitch_var = dl.get("pitch_variation", {}).get("value")
     expressivity = pr.get("facial_expressivity", {}).get("value")
     composure = pr.get("composure", {}).get("value")
+    rushed_windows = [w for w in dl.get("pace", {}).get("windows", []) if w.get("flag") == "rush"]
+    slow_windows = [w for w in dl.get("pace", {}).get("windows", []) if w.get("flag") == "slow"]
+    completion = analytics.get("completion", {})
     return (
-        f"- Talk time: {analytics.get('talk_time_sec', 0):.0f}s, {analytics.get('word_count', 0)} words\n"
-        f"- Pace: {dl.get('pace', {}).get('wpm', 0)} wpm ({dl.get('pace', {}).get('status', 'na')})\n"
+        f"- Talk time: {analytics.get('talk_time_sec', 0):.0f}s (target {completion.get('target_sec', 60)}s, {completion.get('status', 'na')})\n"
+        f"- Pace: {dl.get('pace', {}).get('wpm', 0)} wpm ({dl.get('pace', {}).get('status', 'na')})"
+        f"{f', rushed at {len(rushed_windows)} windows' if rushed_windows else ''}"
+        f"{f', slow at {len(slow_windows)} windows' if slow_windows else ''}\n"
         f"- Filler words: {wc.get('filler_words', {}).get('pct', 0):.1f}% ({top_fillers})\n"
+        f"- Restarts: {restart_count}\n"
+        f"- Repeated phrases: {top_repeated}\n"
         f"- Weak/hedge words: {wc.get('weak_words', {}).get('pct', 0):.1f}% ({top_weak})\n"
         f"- Hedging phrases: {wc.get('hedging', {}).get('per_100', 0):.1f} per 100 words\n"
         f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0):.1f}s)\n"
@@ -522,7 +663,7 @@ Scoring rules (1-10 scale):
 def score_submission(submission: dict, collected: dict, scoring_spec: dict, anthropic_api_key: str) -> dict:
     """Pure scoring. Returns the `video_scores` document body (no _id/insert)."""
     sm = compute_submetrics(collected)
-    analytics = compute_analytics(collected, sm)
+    analytics = compute_analytics(collected, sm, target_duration_sec=int(scoring_spec.get("target_duration_sec", 60)))
     tone_tags = compute_tone_tags(analytics, sm)
     transcript_text = ((collected.get("transcript") or {}).get("text") or "")
 

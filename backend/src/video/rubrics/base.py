@@ -37,11 +37,13 @@ ASSIGNMENT_PRESETS: Dict[str, Dict[str, Any]] = {}
 # MediaPipe is wired; the roll-up ignores absent submetrics.
 DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
     "confidence": {
-        "prosody_confidence": 0.30,
-        "face_composure": 0.20,
-        "filler_rate": 0.20,        # inverted by the scoring layer (low filler → high score)
-        "volume_steadiness": 0.15,
-        "posture": 0.10,            # phase 2
+        "prosody_confidence": 0.28,
+        "face_composure": 0.18,
+        "filler_rate": 0.18,        # inverted by the scoring layer (low filler → high score)
+        "volume_steadiness": 0.14,
+        "face_coverage": 0.08,      # fraction of frames where face is visible
+        "lighting_quality": 0.05,
+        "posture": 0.09,            # phase 2
         "sway": 0.05,               # phase 2 (inverted)
     },
     "competence": {
@@ -76,6 +78,7 @@ def default_scoring_spec() -> Dict[str, Any]:
         "submetric_weights": copy.deepcopy(DEFAULT_SUBMETRIC_WEIGHTS),
         "feedback_prompt_template": DEFAULT_FEEDBACK_PROMPT,
         "content_checks": [],
+        "target_duration_sec": 60,
     }
 
 

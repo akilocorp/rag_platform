@@ -118,10 +118,19 @@ def _normalize(data) -> dict:
 
                 for gp in (models.get("face", {}).get("grouped_predictions", []) or []):
                     for p in (gp.get("predictions", []) or []):
-                        face_frames.append({
+                        frame: dict = {
                             "time": round(float(p.get("time", 0.0) or 0.0), 3),
                             "emotions": _emotions_to_map(p.get("emotions")),
-                        })
+                        }
+                        raw_bbox = p.get("bbox")
+                        if raw_bbox:
+                            frame["bbox"] = {
+                                "x": round(float(raw_bbox.get("x", 0.0)), 2),
+                                "y": round(float(raw_bbox.get("y", 0.0)), 2),
+                                "w": round(float(raw_bbox.get("w", 0.0)), 2),
+                                "h": round(float(raw_bbox.get("h", 0.0)), 2),
+                            }
+                        face_frames.append(frame)
     except Exception as e:
         logger.error("Hume normalize error: %s", e, exc_info=True)
 
