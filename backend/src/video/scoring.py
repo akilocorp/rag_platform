@@ -641,7 +641,7 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
     "team":             {{"score": <1-10>, "comment": "<short specific note>"}},
     "summary_sentence": {{"score": <1-10>, "comment": "<short specific note>"}}
   }},
-  "opening_gambit": {{"score": <1-10>, "comment": "<note on gambit type and effectiveness>"}},
+  "opening_gambit": {{"score": <0-10 — 0 if no recognizable gambit present>, "comment": "<gambit type used or 'No gambit detected'; if score < 7 include one concrete example of a stronger opening for this specific pitch>"}},
   "pccp": {{
     "competence": {{"score": <1-10>, "comment": "<short note>"}},
     "confidence": {{"score": <1-10>, "comment": "<short note>"}},
@@ -653,8 +653,10 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
   "additional_points": ["<notable observation e.g. audience reaction>"]
 }}
 
-Scoring rules (1-10 scale):
+Scoring rules:
 - Explicit clarity rewarded; vague or implied content penalized.
+- opening_gambit: score 0 if the speaker launches straight into the pitch with no hook. Score 1-4 if there is a weak or accidental hook. Score 5-6 for a recognizable but flat gambit. Score 7-10 for a deliberate, attention-grabbing opener.
+- opening_gambit comment: always name the gambit type (e.g. "Factoid gambit") or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch (e.g. "Try opening with: 'Did you know 40% of athletes overtrain and never recover?'").
 - Passion < 4 (extremely dry or unprofessional) must pull overall_score below key_components average.
 - areas_of_improvement: 2 to 5 items.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
