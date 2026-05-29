@@ -1045,7 +1045,7 @@ const LandingV2 = () => {
           tile for its target cell. */}
       <section
         id="features"
-        className="relative px-6 lg:px-10 py-12 lg:py-16"
+        className="relative z-10 px-6 lg:px-10 py-12 lg:py-16"
         style={{ backgroundColor: '#FAFAF7' }}
       >
         <div
@@ -1089,15 +1089,31 @@ const LandingV2 = () => {
                 <br />
                 <span
                   style={{
-                    backgroundColor: '#FA6C43',
-                    color: '#FFFFFF',
-                    padding: '0.25em 0.4em',
-                    borderRadius: '12px',
                     position: 'relative',
-                    zIndex: 1,
+                    display: 'inline-block',
                   }}
                 >
-                  Files
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      backgroundColor: '#FA6C43',
+                      borderRadius: '12px',
+                      zIndex: 1,
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: 'relative',
+                      zIndex: 3,
+                      padding: '0.25em 0.4em',
+                      color: '#FFFFFF',
+                      display: 'inline-block',
+                    }}
+                  >
+                    Files
+                  </span>
                 </span>
               </h2>
               <p
@@ -1128,24 +1144,38 @@ const LandingV2 = () => {
           />
 
           {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3).
-              The source JPG already contains the orange tile + white A
-              artwork; we lay it as a background image positioned left so
-              the A anchors to the left edge, and the right portion is
-              uniform orange that the headline + button sit on top of.
-              Falls back to backgroundColor if the image fails to load. */}
+              Solid orange tile with the isolated white A logo (body +
+              dot) overlaid on the left half as an inline SVG. */}
           <a
             href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
             className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center transition-all duration-300 shadow-[0_18px_48px_rgba(250,108,67,0.28)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(250,108,67,0.40)]"
             style={{
               backgroundColor: '#FA6C43',
-              backgroundImage: 'url(/landing-bento-cta.jpg)',
-              backgroundSize: '100% 100%',
-              backgroundPosition: 'left center',
-              backgroundRepeat: 'no-repeat',
               borderRadius: '40px',
               minHeight: '320px',
             }}
           >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 615.88 475.73"
+              className="absolute pointer-events-none"
+              style={{
+                left: '4%',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '36%',
+                height: 'auto',
+              }}
+            >
+              <path
+                fill="#FFFFFF"
+                d="M126.07,446.13c-24.86.93-50.63,2.85-74.48-5.62-32.68-10.76-35.93-36.8-10.39-58.42,16.36-13,35.78-21.4,56-26.59q3.21-.83,6.43-1.54l2-.42c.6-.13,1.2-.26,1.79-.37l1.76-.36,1.5-.29,1.27-.23,2.11-.37a80.47,80.47,0,0,1,12.73-1.78q6-12.52,12-25c1.29-2.7,2.58-5.39,3.88-8.09q20.3-42.49,40.6-84.95,18.73-39.17,37.44-78.33,21.09-44.14,42.2-88.28,5.76-12.06,11.53-24.14,15-3.29,30.13-6h.07l3.54-.62,1.73-.31c1.17-.2,2.33-.41,3.5-.6l2-.34,3.05-.5c1.68-.28,3.37-.54,5.06-.8q21.68-3.37,43.54-5.46c8.52-.76,17.06-1.37,25.61-1.78Q382.76,44,373,63.2l-19.45,38L339,129.58q-6.47,12.64-12.94,25.29-24,46.92-48,93.86-23,44.81-45.89,89.63-23.35,45.6-46.69,91.22l-6,11.76c-16.46,1.92-33,3.58-49.52,4.57Z"
+              />
+              <path
+                fill="#1F1F1F"
+                d="M330.18,389.33c-9.07-1.62-17.44-6.25-24.32-12.24-14.21-12.38-19.95-32.75-15.46-50.85a51.33,51.33,0,0,1,43.17-38.5,41.12,41.12,0,0,1,8.71-.43l.51,0c.28,0,.55,0,.82,0h.14a9.42,9.42,0,0,1,1.08.1c1.86.17,3.69.44,5.53.77,15.38,2.78,28.55,13.27,35.82,26.92a51.54,51.54,0,0,1-26.45,71.41,53.29,53.29,0,0,1-6.93,2.24l-.34.08-.68.18a54.22,54.22,0,0,1-6.83,1.08c-.63.07-1.25.12-1.88.16A54.71,54.71,0,0,1,330.18,389.33Z"
+              />
+            </svg>
             {/* Spacer that pushes the text past the A artwork on the left. */}
             <div className="flex-shrink-0" style={{ width: '45%' }} aria-hidden />
             <div className="flex-1 pr-8 lg:pr-12">
