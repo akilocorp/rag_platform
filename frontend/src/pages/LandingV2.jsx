@@ -1065,21 +1065,28 @@ const LandingV2 = () => {
               className="absolute z-10 p-8 lg:p-10 overflow-hidden"
               style={{ top: 0, left: 0, right: '50%', bottom: 0 }}
             >
-              <div
-                className="inline-block px-4 py-2.5 rounded-[14px] mb-5"
-                style={{ backgroundColor: '#FA6C43' }}
+              <h2
+                className="text-2xl lg:text-[1.85rem] tracking-tight mb-5"
+                style={{
+                  fontFamily: FONT_DISPLAY,
+                  fontWeight: 800,
+                  letterSpacing: '-0.02em',
+                  lineHeight: 1.5,
+                }}
               >
-                <h2
-                  className="text-white text-2xl lg:text-[1.85rem] tracking-tight leading-[1.05]"
+                <span
                   style={{
-                    fontFamily: FONT_DISPLAY,
-                    fontWeight: 800,
-                    letterSpacing: '-0.02em',
+                    backgroundColor: '#FA6C43',
+                    color: '#FFFFFF',
+                    padding: '0.12em 0.4em',
+                    borderRadius: '12px',
+                    boxDecorationBreak: 'clone',
+                    WebkitBoxDecorationBreak: 'clone',
                   }}
                 >
                   Fetches Canvas<br />Files
-                </h2>
-              </div>
+                </span>
+              </h2>
               <p
                 className="text-sm lg:text-[14px] leading-snug max-w-[300px]"
                 style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
