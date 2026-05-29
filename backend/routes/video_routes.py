@@ -457,13 +457,41 @@ def dashboard(config_id):
     top_words = sorted(word_freq.items(), key=lambda kv: -kv[1])[:8]
     tone_dist = sorted(tone_counts.items(), key=lambda kv: -kv[1])
 
+    # ---- Key component averages (from content_checks on each score doc) ----
+    COMPONENT_IDS = ["gambit", "pain", "solution", "customer", "competition", "deal", "team", "summary_sentence"]
+    comp_sums = {cid: [] for cid in COMPONENT_IDS}
+    for s in scores:
+        for chk in (s.get("content_checks") or []):
+            cid = chk.get("id")
+            v = chk.get("score")
+            if cid in comp_sums and v is not None:
+                comp_sums[cid].append(v)
+    component_averages = {
+        cid: (round(sum(vals) / len(vals), 1) if vals else None)
+        for cid, vals in comp_sums.items()
+    }
+
+    # ---- PCCP eval averages (LLM-graded delivery) ----
+    pccp_sums = {"competence": [], "confidence": [], "passion": []}
+    for s in scores:
+        for dim, d in (s.get("pccp_eval") or {}).items():
+            v = d.get("score") if isinstance(d, dict) else None
+            if dim in pccp_sums and v is not None:
+                pccp_sums[dim].append(v)
+    pccp_averages = {
+        dim: (round(sum(vals) / len(vals), 1) if vals else None)
+        for dim, vals in pccp_sums.items()
+    }
+
     return jsonify({
         "total_submissions": len(scores),
         "avg_overall": round(sum(overall_vals) / len(overall_vals), 1) if overall_vals else None,
         "averages": averages,
+        "pccp_averages": pccp_averages,
         "distributions": buckets,
         "common_weakness_dimension": (max(weakness_tally, key=weakness_tally.get) if weakness_tally else None),
         "weakness_tally": weakness_tally,
+        "component_averages": component_averages,
         "class_analytics": {
             "avg_filler_pct": _avg(filler_pcts),
             "avg_weak_pct": _avg(weak_pcts),
