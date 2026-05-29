@@ -30,11 +30,11 @@ const EditConfigPage = () => {
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro' },
-    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-    { id: 'gpt-4', name: 'GPT-4' },
-    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-    { id: 'gpt-4.1', name: 'GPT-4.1' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    // { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    // { id: 'gpt-4', name: 'GPT-4' },
+    // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    // { id: 'gpt-4.1', name: 'GPT-4.1' },
+    // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
@@ -66,7 +66,7 @@ const EditConfigPage = () => {
             parsedBots = [];
         }
         if (parsedBots.length === 0) {
-             parsedBots = [{ name: 'Assistant', prompt: '', model_name: 'gpt-4o', temperature: 0.7 }];
+             parsedBots = [{ name: 'Assistant', prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }];
         }
     }
 
@@ -138,7 +138,7 @@ const EditConfigPage = () => {
   const addBot = () => {
     setConfig(prev => ({
       ...prev,
-      bots: [...prev.bots, { name: `Bot ${prev.bots.length + 1}`, prompt: '', model_name: 'gpt-3.5-turbo', temperature: 0.7 }]
+      bots: [...prev.bots, { name: `Bot ${prev.bots.length + 1}`, prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }]
     }));
   };
 

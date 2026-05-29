@@ -18,7 +18,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from werkzeug.utils import secure_filename
 
@@ -332,8 +332,8 @@ def rescore(sub_id):
     scoring_spec = (_config.get("scoring_spec")
                     if isinstance(_config.get("scoring_spec"), dict) and _config["scoring_spec"].get("submetric_weights")
                     else registry.get_default_spec(sub.get("assignment_type") or ""))
-    openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    score_doc = score_submission(sub, collected, scoring_spec, openai_key)
+    anthropic_key = current_app.config.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+    score_doc = score_submission(sub, collected, scoring_spec, anthropic_key)
     db['video_scores'].replace_one({"submission_id": sub_id}, score_doc, upsert=True)
     db['video_submissions'].update_one({"_id": sub["_id"]}, {"$set": {"status": "scored", "updated_at": time.time()}})
     score_doc.pop("_id", None)
@@ -496,7 +496,7 @@ def _parse_json_va(text):
 
 
 def _llm_va(api_key, prompt, max_tokens=500):
-    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, max_tokens=max_tokens)
+    llm = ChatAnthropic(model='claude-sonnet-4-6', api_key=api_key, max_tokens=max_tokens)
     return llm.invoke([HumanMessage(content=prompt)]).content
 
 
@@ -635,7 +635,7 @@ def start_video_analysis(config_id):
     grading_prompt = (request.get_json(silent=True) or {}).get('grading_prompt', '').strip()
     if not grading_prompt:
         return jsonify({'error': 'grading_prompt is required'}), 400
-    api_key = current_app.config.get('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY')
+    api_key = current_app.config.get('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
     db = current_app.config['MONGO_DB']
     job_id = str(uuid.uuid4())
     _va_jobs[job_id] = {'status': 'running', 'progress': 'Starting…', 'result': None, 'error': None}

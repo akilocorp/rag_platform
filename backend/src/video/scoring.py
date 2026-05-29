@@ -21,7 +21,7 @@ import logging
 import re
 import time
 
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -487,8 +487,8 @@ Rules:
 - summary: 2 to 5 bullets.
 - overall_score: use the full 0-100 range — do NOT cluster around 50-70."""
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
+    llm = ChatAnthropic(
+        model="claude-sonnet-4-6",
         api_key=api_key,
         max_tokens=4000,
     )
@@ -496,7 +496,7 @@ Rules:
     return _parse_json(raw)
 
 
-def score_submission(submission: dict, collected: dict, scoring_spec: dict, openai_api_key: str) -> dict:
+def score_submission(submission: dict, collected: dict, scoring_spec: dict, anthropic_api_key: str) -> dict:
     """Pure scoring. Returns the `video_scores` document body (no _id/insert)."""
     sm = compute_submetrics(collected)
     analytics = compute_analytics(collected, sm)
@@ -508,7 +508,7 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     content_checks = []
     coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
-        ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
+        ev = _llm_coaching(anthropic_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
         llm_content_score = float(ev["overall_score"]) if ev.get("overall_score") is not None else None
         content_checks = ev.get("content_checks") or []
         coaching = {

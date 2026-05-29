@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -9,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, message_to_dict
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 
@@ -37,7 +38,7 @@ def _parse_json(text):
 
 
 def _llm(api_key, prompt, max_tokens=600):
-    llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, max_tokens=max_tokens)
+    llm = ChatAnthropic(model='claude-sonnet-4-6', api_key=api_key, max_tokens=max_tokens)
     response = llm.invoke([HumanMessage(content=prompt)])
     return response.content
 
@@ -315,7 +316,7 @@ def analyze_config(config_id):
     try:
         user_id = get_jwt_identity()
         db = current_app.config['MONGO_DB']
-        api_key = current_app.config['OPENAI_API_KEY']
+        api_key = current_app.config.get('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
 
         config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
         if not config_doc:
