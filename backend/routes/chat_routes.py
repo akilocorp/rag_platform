@@ -443,6 +443,17 @@ def get_session_history(session_id: str, user_id: str, config_id: str, user_inpu
         if marketing_opt_in is not None:
             doc["marketing_opt_in"] = marketing_opt_in
         metadata_collection.insert_one(doc)
+        if student_email:
+            db["potential_users"].update_one(
+                {"email": student_email},
+                {"$set": {
+                    "email": student_email,
+                    "name": student_label or "",
+                    "marketing_opt_in": marketing_opt_in if marketing_opt_in is not None else True,
+                    "last_seen": time.time(),
+                }, "$setOnInsert": {"first_seen": time.time()}},
+                upsert=True,
+            )
     elif qualtrics_id or student_label or student_email:
         # Update existing session if we now have identity info we didn't before
         update = {}

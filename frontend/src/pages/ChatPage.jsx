@@ -304,7 +304,7 @@ const ChatPage = () => {
   const [guestInfo, setGuestInfo] = useState(() => {
     try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
   });
-  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: false });
+  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: true });
   const [guestFormError, setGuestFormError] = useState('');
 
   const submitGuestForm = () => {
@@ -993,7 +993,7 @@ const ChatPage = () => {
               onChange={e => setGuestForm(p => ({ ...p, marketingOptIn: e.target.checked }))}
               className="mt-0.5 accent-[#FA6C43]"
             />
-            <span className="text-sm text-gray-600">I agree to receive updates and research-related communications.</span>
+            <span className="text-sm text-gray-600">I'd like to receive updates and research-related communications. <span className="text-gray-400">(Uncheck to opt out)</span></span>
           </label>
           {guestFormError && <p className="text-xs text-red-500">{guestFormError}</p>}
           <button
