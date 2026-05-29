@@ -18,7 +18,6 @@ def transcribe_words(audio_path: str, api_key: str) -> dict:
     aai.settings.api_key = api_key
     config = aai.TranscriptionConfig(
         disfluencies=True,
-        speech_model=aai.SpeechModel.best,
     )
     result = aai.Transcriber(config=config).transcribe(audio_path)
 
