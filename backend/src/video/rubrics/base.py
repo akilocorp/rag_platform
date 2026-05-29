@@ -47,9 +47,11 @@ DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
         "sway": 0.05,               # phase 2 (inverted)
     },
     "competence": {
-        "llm_content": 0.70,        # LLM-evaluated transcript quality (hook/structure/evidence/vocab/close)
-        "pacing_smoothness": 0.18,
+        "llm_content": 0.55,        # LLM-evaluated transcript quality (hook/structure/evidence/vocab/close)
+        "pacing_smoothness": 0.13,
         "hedging": 0.12,            # inverted (low hedging → high score)
+        "filler_rate": 0.12,        # inverted (low fillers → high score)
+        "vocabulary": 0.08,         # unique word ratio (higher = more articulate)
     },
     "passion": {
         "pitch_variation": 0.25,

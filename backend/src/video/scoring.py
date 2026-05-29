@@ -21,7 +21,7 @@ import logging
 import re
 import time
 
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -141,12 +141,16 @@ def compute_submetrics(collected: dict) -> dict:
         sm["filler_rate"] = _sm(_clamp(100.0 * (1.0 - min(filler_rate / 0.12, 1.0))),
                                 round(filler_rate, 4), True, f"{round(filler_rate * 100, 1)}% filler words")
         hedge_n = sum(text.count(p) for p in HEDGE_PHRASES)
-        hedge_rate = hedge_n / max(len(tokens) / 100.0, 1.0)  # per 100 words
-        sm["hedging"] = _sm(_clamp(100.0 * (1.0 - min(hedge_rate / 4.0, 1.0))),
-                            round(hedge_rate, 2), True, f"{round(hedge_rate, 1)} hedges/100 words")
+        # >3 hedges = starts to hurt; >8 = worst case
+        sm["hedging"] = _sm(_clamp(100.0 * (1.0 - max(0, hedge_n - 3) / 5.0)),
+                            hedge_n, True, f"{hedge_n} hedge{'s' if hedge_n != 1 else ''}")
+        unique_ratio = len(set(tokens)) / len(tokens)
+        sm["vocabulary"] = _sm(_clamp(100.0 * min(unique_ratio / 0.40, 1.0)),
+                               round(unique_ratio, 4), True, f"{round(unique_ratio * 100)}% unique words")
     else:
         sm["filler_rate"] = _sm(None, None, False, "No transcript")
         sm["hedging"] = _sm(None, None, False, "No transcript")
+        sm["vocabulary"] = _sm(None, None, False, "No transcript")
 
     # pacing smoothness: penalize frequent long inter-word pauses
     if n_words > 5:
@@ -450,10 +454,10 @@ def compute_analytics(collected: dict, sm: dict, target_duration_sec: int = 60) 
                 "benchmark": "It's natural to have fewer than 4% weak words.",
             },
             "hedging": {
-                "per_100": hedge_per100, "count": hedge_count,
-                "status": _status(hedge_per100, 1.5, 3.5, higher_better=False),
-                "label": f"{hedge_per100} hedges / 100 words",
-                "benchmark": "Confident delivery uses few hedges (\"I think\", \"maybe\").",
+                "count": hedge_count,
+                "status": _status(hedge_count, 3, 7, higher_better=False),
+                "label": f"{hedge_count} hedge{'s' if hedge_count != 1 else ''}",
+                "benchmark": "Keep hedges to 3 or fewer. Every \"I think\" or \"maybe\" signals uncertainty.",
             },
             "restarts": {
                 "count": len(restart_instances), "instances": restart_instances[:20],
@@ -589,7 +593,7 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
         f"- Restarts: {restart_count}\n"
         f"- Repeated phrases: {top_repeated}\n"
         f"- Weak/hedge words: {wc.get('weak_words', {}).get('pct', 0):.1f}% ({top_weak})\n"
-        f"- Hedging phrases: {wc.get('hedging', {}).get('per_100', 0):.1f} per 100 words\n"
+        f"- Hedging phrases: {wc.get('hedging', {}).get('count', 0)} total (\"I think\", \"maybe\", etc.)\n"
         f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0):.1f}s)\n"
         f"- Vocal energy (0=flat, 100=high): {round(energy) if energy is not None else 'N/A'}/100\n"
         f"- Pitch variation (0=monotone, 100=dynamic): {round(pitch_var) if pitch_var is not None else 'N/A'}/100\n"
@@ -655,12 +659,12 @@ Scoring rules (1-10 scale):
 - areas_of_improvement: 2 to 5 items.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
 
-    llm = ChatAnthropic(model="claude-sonnet-4-6", api_key=api_key, max_tokens=4000)
+    llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4000)
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
 
 
-def score_submission(submission: dict, collected: dict, scoring_spec: dict, anthropic_api_key: str) -> dict:
+def score_submission(submission: dict, collected: dict, scoring_spec: dict, openai_api_key: str) -> dict:
     """Pure scoring. Returns the `video_scores` document body (no _id/insert)."""
     sm = compute_submetrics(collected)
     analytics = compute_analytics(collected, sm, target_duration_sec=int(scoring_spec.get("target_duration_sec", 60)))
@@ -674,7 +678,7 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, anth
     pccp_eval = {}
     coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
-        ev = _llm_coaching(anthropic_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
+        ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
 
         # Convert 1-10 scores → 0-100 for internal consistency
         label_map = {c["id"]: c.get("label", c["id"]) for c in (scoring_spec.get("content_checks") or [])}
