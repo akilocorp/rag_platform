@@ -1080,11 +1080,24 @@ const LandingV2 = () => {
                     color: '#FFFFFF',
                     padding: '0.25em 0.4em',
                     borderRadius: '12px',
-                    boxDecorationBreak: 'clone',
-                    WebkitBoxDecorationBreak: 'clone',
+                    position: 'relative',
+                    zIndex: 2,
                   }}
                 >
-                  Fetches Canvas<br />Files
+                  Fetches Canvas
+                </span>
+                <br />
+                <span
+                  style={{
+                    backgroundColor: '#FA6C43',
+                    color: '#FFFFFF',
+                    padding: '0.25em 0.4em',
+                    borderRadius: '12px',
+                    position: 'relative',
+                    zIndex: 1,
+                  }}
+                >
+                  Files
                 </span>
               </h2>
               <p
@@ -1126,7 +1139,7 @@ const LandingV2 = () => {
             style={{
               backgroundColor: '#FA6C43',
               backgroundImage: 'url(/landing-bento-cta.jpg)',
-              backgroundSize: 'auto 100%',
+              backgroundSize: '100% 100%',
               backgroundPosition: 'left center',
               backgroundRepeat: 'no-repeat',
               borderRadius: '40px',
