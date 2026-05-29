@@ -331,7 +331,8 @@ def get_config_sessions(config_id):
                     "user_email": {"$ifNull": [{"$arrayElemAt": ["$user_info.email", 0]}, None]},
                     "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]},
                     "qualtrics_id": 1,
-                    "student_label": 1
+                    "student_label": 1,
+                    "student_email": 1
                 }
             },
             {"$sort": {"timestamp": -1}}

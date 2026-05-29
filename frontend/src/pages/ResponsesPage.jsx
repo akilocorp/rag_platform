@@ -629,10 +629,12 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
 
 const SessionsTab = ({ sessions }) => {
   const [expandedId, setExpandedId] = useState(null);
-  const labeled = (() => {
-    let c = 1;
-    return sessions.map(s => ({ ...s, displayName: s.student_label || s.user_email || (s.qualtrics_id ? `Q:${s.qualtrics_id}` : null) || `Session ${s.session_id?.slice(0,8)}` }));
-  })();
+  const labeled = sessions.map(s => {
+    const name = s.student_label || (s.qualtrics_id ? `Q:${s.qualtrics_id}` : null) || null;
+    const email = s.user_email || s.student_email || null;
+    const fallback = `Session ${s.session_id?.slice(0, 8)}`;
+    return { ...s, displayName: name || email || fallback, displayEmail: name ? email : null };
+  });
 
   if (!sessions.length) return (
     <div className="flex flex-col items-center justify-center h-64 bg-white rounded-[2rem] border border-gray-100">
@@ -652,7 +654,10 @@ const SessionsTab = ({ sessions }) => {
             className="w-full grid grid-cols-[1fr_180px_70px_1fr_40px] gap-4 px-6 py-4 text-left hover:bg-gray-50 transition-colors items-center"
             onClick={() => setExpandedId(expandedId === s.session_id ? null : s.session_id)}
           >
-            <span className="text-sm font-semibold text-[#222] truncate">{s.displayName}</span>
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-[#222] truncate">{s.displayName}</span>
+              {s.displayEmail && <span className="text-xs text-gray-400 truncate">{s.displayEmail}</span>}
+            </span>
             <span className="text-sm text-gray-500">{formatDate(s.timestamp)}</span>
             <span className="text-sm text-gray-500">{s.message_count}</span>
             <span className="text-sm text-gray-400 truncate">{s.title || '—'}</span>
