@@ -137,9 +137,9 @@ def compute_submetrics(collected: dict) -> dict:
     tokens = re.findall(r"[a-z']+", text)
     if tokens:
         filler_n = sum(1 for t in tokens if t in FILLER_WORDS) + sum(text.count(p) for p in FILLER_PHRASES)
-        filler_rate = filler_n / len(tokens)
-        sm["filler_rate"] = _sm(_clamp(100.0 * (1.0 - min(filler_rate / 0.12, 1.0))),
-                                round(filler_rate, 4), True, f"{round(filler_rate * 100, 1)}% filler words")
+        # score: 0-1 fillers = 100, drops linearly, 9+ = 0
+        sm["filler_rate"] = _sm(_clamp(100.0 * max(0.0, 1.0 - max(0, filler_n - 1) / 8.0)),
+                                filler_n, True, f"{filler_n} filler word{'s' if filler_n != 1 else ''}")
         hedge_n = sum(text.count(p) for p in HEDGE_PHRASES)
         # >3 hedges = starts to hurt; >8 = worst case
         sm["hedging"] = _sm(_clamp(100.0 * (1.0 - max(0, hedge_n - 3) / 5.0)),
@@ -443,9 +443,9 @@ def compute_analytics(collected: dict, sm: dict, target_duration_sec: int = 60) 
         "word_choice": {
             "filler_words": {
                 "count": len(filler_instances), "pct": filler_pct,
-                "status": _status(filler_pct, 3, 6, higher_better=False),
-                "label": f"{filler_pct}% filler", "instances": filler_instances[:25],
-                "benchmark": "Strong speakers stay under 3%.",
+                "status": _status(len(filler_instances), 2, 5, higher_better=False),
+                "label": f"{len(filler_instances)} filler word{'s' if len(filler_instances) != 1 else ''}", "instances": filler_instances[:25],
+                "benchmark": "Keep filler words to 1 or fewer. Every 'um' or 'like' breaks your flow.",
             },
             "weak_words": {
                 "count": len(weak_instances), "pct": weak_pct,
@@ -738,7 +738,11 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     # Inject the LLM content score as the competence content sub-metric.
     sm["llm_content"] = _sm(llm_content_score, llm_content_score, llm_content_score is not None, "Content quality (LLM)")
 
-    weights = scoring_spec.get("submetric_weights") or {}
+    import copy as _copy
+    weights = _copy.deepcopy(scoring_spec.get("submetric_weights") or {})
+    # Migration: filler_rate belongs in competence only — strip from confidence if stored spec is stale
+    if "filler_rate" in (weights.get("confidence") or {}):
+        del weights["confidence"]["filler_rate"]
     composites = {}
     for dim in ("confidence", "competence", "passion"):
         val = _rollup(sm, weights.get(dim) or {})
