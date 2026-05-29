@@ -37,14 +37,13 @@ ASSIGNMENT_PRESETS: Dict[str, Dict[str, Any]] = {}
 # MediaPipe is wired; the roll-up ignores absent submetrics.
 DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
     "confidence": {
-        "prosody_confidence": 0.28,
-        "face_composure": 0.18,
-        "filler_rate": 0.18,        # inverted by the scoring layer (low filler → high score)
-        "volume_steadiness": 0.14,
-        "face_coverage": 0.08,      # fraction of frames where face is visible
-        "lighting_quality": 0.05,
-        "posture": 0.09,            # phase 2
-        "sway": 0.05,               # phase 2 (inverted)
+        "prosody_confidence": 0.33,
+        "face_composure": 0.22,
+        "volume_steadiness": 0.17,
+        "face_coverage": 0.10,      # fraction of frames where face is visible
+        "lighting_quality": 0.06,
+        "posture": 0.08,            # phase 2
+        "sway": 0.04,               # phase 2 (inverted)
     },
     "competence": {
         "llm_content": 0.55,        # LLM-evaluated transcript quality (hook/structure/evidence/vocab/close)
