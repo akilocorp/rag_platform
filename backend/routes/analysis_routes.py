@@ -354,6 +354,7 @@ def analyze_config(config_id):
                 'user_email': {'$ifNull': [{'$arrayElemAt': ['$user_info.email', 0]}, None]},
                 'qualtrics_id': 1,
                 'student_label': 1,
+                'student_email': 1,
             }},
         ]
         sessions = list(db['chat_session_metadata'].aggregate(pipeline))
@@ -363,12 +364,17 @@ def analyze_config(config_id):
         labeled = []
         for s in sessions:
             sid = s.get('session_id', str(s['_id']))
-            display = (
-                s.get('student_label')
-                or s.get('user_email')
-                or (f"Q:{s['qualtrics_id']}" if s.get('qualtrics_id') else None)
-                or f"Session {sid[:8]}"
-            )
+            name_part = s.get('student_label')
+            email_part = s.get('user_email') or s.get('student_email')
+            if name_part and email_part:
+                display = f"{name_part} <{email_part}>"
+            else:
+                display = (
+                    name_part
+                    or email_part
+                    or (f"Q:{s['qualtrics_id']}" if s.get('qualtrics_id') else None)
+                    or f"Session {sid[:8]}"
+                )
             labeled.append({
                 'session_id': sid,
                 'display_name': display,

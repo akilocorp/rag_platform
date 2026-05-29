@@ -241,7 +241,9 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const _qp = new URLSearchParams(window.location.search);
   const qualtricsIdRef = useRef(_qp.get('qualtricsId') || null);
-  const studentLabelRef = useRef(_qp.get('studentEmail') || _qp.get('studentName') || null);
+  const _urlStudentLabel = _qp.get('studentEmail') || _qp.get('studentName') || null;
+  const _savedGuest = (() => { try { return JSON.parse(localStorage.getItem('guestInfo') || 'null'); } catch { return null; } })();
+  const studentLabelRef = useRef(_urlStudentLabel || _savedGuest?.name || null);
   const { variant } = useVariant();
   
   // --- STATE ---
@@ -298,6 +300,21 @@ const ChatPage = () => {
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
+
+  const [guestInfo, setGuestInfo] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
+  });
+  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: false });
+  const [guestFormError, setGuestFormError] = useState('');
+
+  const submitGuestForm = () => {
+    if (!guestForm.name.trim()) { setGuestFormError('Name is required.'); return; }
+    if (!guestForm.email.trim() || !/\S+@\S+\.\S+/.test(guestForm.email)) { setGuestFormError('A valid email is required.'); return; }
+    const info = { name: guestForm.name.trim(), email: guestForm.email.trim(), marketingOptIn: guestForm.marketingOptIn };
+    localStorage.setItem('guestInfo', JSON.stringify(info));
+    studentLabelRef.current = info.name;
+    setGuestInfo(info);
+  };
 
   // Sync Ref with URL param
   useEffect(() => {
@@ -729,6 +746,8 @@ const ChatPage = () => {
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
           ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
           ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
+          ...(guestInfo?.email ? { student_email: guestInfo.email } : {}),
+          ...(guestInfo && !isAuthenticated ? { marketing_opt_in: guestInfo.marketingOptIn } : {}),
         })
       });
 
@@ -936,6 +955,55 @@ const ChatPage = () => {
   if (isInitializing) return (
     <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] flex-col gap-4">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
+    </div>
+  );
+
+  if (!isAuthenticated && config?.is_public && !guestInfo) return (
+    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] px-4">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
+        <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
+        <p className="text-sm text-gray-500 mb-6">Enter your info to get started.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input
+              type="text"
+              value={guestForm.name}
+              onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && submitGuestForm()}
+              placeholder="Your name"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#FA6C43]"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={guestForm.email}
+              onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && submitGuestForm()}
+              placeholder="you@example.com"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#FA6C43]"
+            />
+          </div>
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={guestForm.marketingOptIn}
+              onChange={e => setGuestForm(p => ({ ...p, marketingOptIn: e.target.checked }))}
+              className="mt-0.5 accent-[#FA6C43]"
+            />
+            <span className="text-sm text-gray-600">I agree to receive updates and research-related communications.</span>
+          </label>
+          {guestFormError && <p className="text-xs text-red-500">{guestFormError}</p>}
+          <button
+            onClick={submitGuestForm}
+            className="w-full bg-[#FA6C43] hover:bg-[#e85a30] text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+          >
+            Start Chat
+          </button>
+        </div>
+      </div>
     </div>
   );
 
