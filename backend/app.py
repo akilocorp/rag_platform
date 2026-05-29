@@ -74,8 +74,10 @@ def create_app():
     app.config['MONGO_COLLECTION'] = mongo_collection
     app.config['MONGO_DB'] = db
     
+    # OpenAI is used ONLY for embeddings (RAG vector search).
+    # Chat models are configured per-bot (Claude, Deepseek, Gemini, etc.).
     app.config['EMBEDDINGS'] = OpenAIEmbeddings(
-        model="text-embedding-3-large", 
+        model="text-embedding-3-large",
         api_key=app.config["OPENAI_API_KEY"]
     )
     app.config['RAG_CHAIN_CACHE'] = {}
