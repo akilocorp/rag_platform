@@ -41,8 +41,16 @@ FILLER_WORDS = {
     "basically", "actually", "literally", "honestly",
     "essentially", "anyway", "anyways",
 }
-HEDGE_PHRASES = ["i think", "i guess", "maybe", "sort of", "kind of", "i mean",
-                 "probably", "i'm not sure", "it seems", "perhaps", "i suppose"]
+HEDGE_PHRASES = [
+    "i think", "i guess", "maybe", "sort of", "kind of", "i mean",
+    "probably", "i'm not sure", "it seems", "perhaps", "i suppose",
+    "hopefully", "a little bit", "kind of like", "you know",
+    "to be honest", "in my opinion", "i believe", "i feel like",
+    "it could be", "it might be", "i would say", "i'd like to think",
+    "more or less", "if you will", "as it were",
+    "we think", "we hope", "we believe", "we're trying to",
+    "we would like to", "we hope to", "we're hoping",
+]
 # "Weak" / non-committal qualifiers that dilute impact (Yoodli-style). Single
 # tokens are flagged with timestamps; multi-word ones counted in the text.
 WEAK_WORDS = {"just", "really", "very", "quite", "actually", "basically",
@@ -424,18 +432,28 @@ def _parse_json(text):
 
 
 def _analytics_brief(analytics: dict, tone_tags: list) -> str:
-    """Compact, factual brief of the measured signals for the LLM to ground its
-    coaching in (so feedback cites real numbers, not guesses)."""
+    """Compact delivery brief for the LLM — covers all signals needed for PCCP scoring."""
     wc = analytics.get("word_choice", {})
     dl = analytics.get("delivery", {})
+    pr = analytics.get("presence", {})
     active_tones = ", ".join(t["label"] for t in tone_tags if t["active"]) or "none detected"
+    top_fillers = ", ".join(sorted({i["word"] for i in wc.get("filler_words", {}).get("instances", [])})) or "none"
     top_weak = ", ".join(sorted({i["word"] for i in wc.get("weak_words", {}).get("instances", [])})) or "none"
+    energy = dl.get("energy", {}).get("value")
+    pitch_var = dl.get("pitch_variation", {}).get("value")
+    expressivity = pr.get("facial_expressivity", {}).get("value")
+    composure = pr.get("composure", {}).get("value")
     return (
-        f"- Talk time: {analytics.get('talk_time_sec', 0)}s, {analytics.get('word_count', 0)} words\n"
+        f"- Talk time: {analytics.get('talk_time_sec', 0):.0f}s, {analytics.get('word_count', 0)} words\n"
         f"- Pace: {dl.get('pace', {}).get('wpm', 0)} wpm ({dl.get('pace', {}).get('status', 'na')})\n"
-        f"- Filler words: {wc.get('filler_words', {}).get('pct', 0)}%; weak words: {wc.get('weak_words', {}).get('pct', 0)}% ({top_weak})\n"
-        f"- Hedging: {wc.get('hedging', {}).get('per_100', 0)} per 100 words\n"
-        f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0)}s)\n"
+        f"- Filler words: {wc.get('filler_words', {}).get('pct', 0):.1f}% ({top_fillers})\n"
+        f"- Weak/hedge words: {wc.get('weak_words', {}).get('pct', 0):.1f}% ({top_weak})\n"
+        f"- Hedging phrases: {wc.get('hedging', {}).get('per_100', 0):.1f} per 100 words\n"
+        f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0):.1f}s)\n"
+        f"- Vocal energy (0=flat, 100=high): {round(energy) if energy is not None else 'N/A'}/100\n"
+        f"- Pitch variation (0=monotone, 100=dynamic): {round(pitch_var) if pitch_var is not None else 'N/A'}/100\n"
+        f"- Facial expressivity: {round(expressivity) if expressivity is not None else 'N/A'}/100\n"
+        f"- Composure/confidence signals: {round(composure) if composure is not None else 'N/A'}/100\n"
         f"- Detected tone: {active_tones}\n"
     )
 
@@ -443,55 +461,60 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
 
 
 def _llm_coaching(api_key, scoring_spec, transcript_text, analytics_brief):
-    """One structured LLM call → grading prompt-driven coaching + content checks."""
-    grading_prompt = (scoring_spec.get("feedback_prompt_template") or "").strip()
+    """LLM grading using Prof. Nason's PCCP rubric (V3)."""
+    grading_criteria = (scoring_spec.get("feedback_prompt_template") or "").strip()
+
+    # Build component descriptions for the 7 key components + gambit
+    TARGET_IDS = {"gambit", "pain", "solution", "customer", "competition", "deal", "team", "summary_sentence"}
     checks = scoring_spec.get("content_checks") or []
-    checks_block = ""
-    if checks:
-        lines = "\n".join(
-            f'- {c["id"]}: {c.get("label", "")} — {c.get("description", "")}'
-            for c in checks
-        )
-        checks_block = f"\nContent checks — evaluate each against the transcript:\n{lines}\n"
+    comp_lines = "\n".join(
+        f'  {c["id"]}: {c.get("label", "")} — {c.get("description", "")}'
+        for c in checks if c["id"] in TARGET_IDS
+    )
 
-    prompt = f"""{grading_prompt}
+    prompt = f"""{grading_criteria}
 
-Measured delivery signals (already computed — reference them in your feedback):
+Measured delivery signals (use these to calibrate your PCCP scores):
 {analytics_brief}
 
 Transcript:
 \"\"\"
 {transcript_text[:7000]}
 \"\"\"
-{checks_block}
 
-Return ONLY a valid JSON object with this exact shape (no markdown, no prose outside the JSON):
+Component descriptions:
+{comp_lines}
+
+Return ONLY a valid JSON object (no markdown, no prose outside JSON):
 {{
-  "overall_score": <0-100 — overall quality score based on your grading criteria>,
-  "strength": "<2-3 sentences: the single biggest thing they did well>",
-  "growth_areas": [
-    {{
-      "title": "<short imperative>",
-      "detail": "<2-3 sentences of concrete, specific advice>",
-      "rewrites": [{{"original": "<exact phrase from transcript>", "improved": "<stronger rewrite>"}}]
-    }}
-  ],
-  "follow_up_questions": ["<question>", "...", "..."],
-  "summary": ["<bullet summarizing a key point>", "..."],
-  "content_checks": [{{"id": "<id>", "passed": <true|false>, "score": <0-100>, "note": "<short, specific note>"}}]
+  "key_components": {{
+    "pain":             {{"score": <1-10>, "comment": "<short specific note>"}},
+    "solution":         {{"score": <1-10>, "comment": "<short specific note>"}},
+    "customer":         {{"score": <1-10>, "comment": "<short specific note>"}},
+    "competition":      {{"score": <1-10>, "comment": "<short specific note>"}},
+    "deal":             {{"score": <1-10>, "comment": "<short specific note>"}},
+    "team":             {{"score": <1-10>, "comment": "<short specific note>"}},
+    "summary_sentence": {{"score": <1-10>, "comment": "<short specific note>"}}
+  }},
+  "opening_gambit": {{"score": <1-10>, "comment": "<note on gambit type and effectiveness>"}},
+  "pccp": {{
+    "competence": {{"score": <1-10>, "comment": "<short note>"}},
+    "confidence": {{"score": <1-10>, "comment": "<short note>"}},
+    "passion":    {{"score": <1-10>, "comment": "<short note — extremely dry=1, awkward/unprofessional=3-4>"}}
+  }},
+  "overall_score": <1-10 — NOT a pure average; severe delivery flaws must drag this down>,
+  "conclusion": "<1-3 sentences on how content and delivery interacted>",
+  "areas_of_improvement": ["<specific area, e.g. Improve PCCP delivery>", "..."],
+  "additional_points": ["<notable observation e.g. audience reaction>"]
 }}
 
-Rules:
-- growth_areas: 3 to 6 items. Include rewrites only when you can quote a real phrase; otherwise use [].
-- follow_up_questions: exactly 3 items.
-- summary: 2 to 5 bullets.
-- overall_score: use the full 0-100 range — do NOT cluster around 50-70."""
+Scoring rules (1-10 scale):
+- Explicit clarity rewarded; vague or implied content penalized.
+- Passion < 4 (extremely dry or unprofessional) must pull overall_score below key_components average.
+- areas_of_improvement: 2 to 5 items.
+- additional_points: 0 to 3 items; use [] if nothing notable."""
 
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-6",
-        api_key=api_key,
-        max_tokens=4000,
-    )
+    llm = ChatAnthropic(model="claude-sonnet-4-6", api_key=api_key, max_tokens=4000)
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
 
@@ -503,19 +526,61 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, anth
     tone_tags = compute_tone_tags(analytics, sm)
     transcript_text = ((collected.get("transcript") or {}).get("text") or "")
 
-    # LLM coaching + content score + checks (best-effort; degrade gracefully).
+    # LLM coaching — Prof. Nason's PCCP rubric (1-10 scale, converted to 0-100 internally).
     llm_content_score = None
+    llm_overall = None
     content_checks = []
+    pccp_eval = {}
     coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
         ev = _llm_coaching(anthropic_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
-        llm_content_score = float(ev["overall_score"]) if ev.get("overall_score") is not None else None
-        content_checks = ev.get("content_checks") or []
+
+        # Convert 1-10 scores → 0-100 for internal consistency
+        label_map = {c["id"]: c.get("label", c["id"]) for c in (scoring_spec.get("content_checks") or [])}
+
+        kc = ev.get("key_components") or {}
+        for cid, d in kc.items():
+            s = d.get("score")
+            content_checks.append({
+                "id": cid,
+                "label": label_map.get(cid, cid),
+                "passed": s >= 7 if s is not None else False,
+                "score": round(s * 10) if s is not None else None,
+                "note": d.get("comment", ""),
+            })
+
+        gambit = ev.get("opening_gambit") or {}
+        gs = gambit.get("score")
+        content_checks.append({
+            "id": "gambit",
+            "label": label_map.get("gambit", "Opening Gambit"),
+            "passed": gs >= 7 if gs is not None else False,
+            "score": round(gs * 10) if gs is not None else None,
+            "note": gambit.get("comment", ""),
+        })
+
+        pccp_raw = ev.get("pccp") or {}
+        for dim in ("competence", "confidence", "passion"):
+            d = pccp_raw.get(dim) or {}
+            s = d.get("score")
+            pccp_eval[dim] = {
+                "score": round(s * 10) if s is not None else None,
+                "comment": d.get("comment", ""),
+            }
+
+        os_raw = ev.get("overall_score")
+        llm_overall = round(os_raw * 10) if os_raw is not None else None
+        llm_content_score = llm_overall  # feeds the competence sub-metric
+
         coaching = {
-            "strength": ev.get("strength", "") or "",
-            "growth_areas": ev.get("growth_areas", []) or [],
-            "follow_up_questions": ev.get("follow_up_questions", []) or [],
-            "summary": ev.get("summary", []) or [],
+            "strength": "",
+            "growth_areas": [
+                {"title": s, "detail": "", "rewrites": []}
+                for s in (ev.get("areas_of_improvement") or [])
+            ],
+            "follow_up_questions": ev.get("additional_points") or [],
+            "summary": [ev["conclusion"]] if ev.get("conclusion") else [],
+            "additional_points": ev.get("additional_points") or [],
         }
     except Exception as e:
         logger.error("LLM coaching failed: %s", e, exc_info=True)
@@ -556,6 +621,8 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, anth
         "scores": composites,
         "content_checks": content_checks,
         "overall": overall,
+        "llm_overall": llm_overall,
+        "pccp_eval": pccp_eval,
         "coaching": coaching,
         "analytics": analytics,
         "tone_tags": tone_tags,

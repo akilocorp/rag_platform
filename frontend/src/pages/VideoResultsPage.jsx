@@ -26,9 +26,10 @@ const fmt = (v) => v != null ? (v / 10).toFixed(1) : '—';
 const mmss = (s) => { if (!s) return ''; const m = Math.floor(s / 60); return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`; };
 
 // ─── PCCP composite card ───────────────────────────────────────────────────────
-function PccpCard({ label, blurb, data }) {
+// evalScore: LLM-graded (0-100), takes priority over computed value if present
+function PccpCard({ label, blurb, data, evalScore, evalComment }) {
   const [open, setOpen] = useState(false);
-  const v = data?.value;
+  const v = evalScore != null ? evalScore : data?.value;
   const subs = Object.entries(data?.submetrics || {});
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -45,9 +46,10 @@ function PccpCard({ label, blurb, data }) {
       <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
         <div className="h-full rounded-full transition-all" style={{ width: `${v || 0}%`, background: C(v) }} />
       </div>
+      {evalComment && <p className="text-xs text-gray-500 mt-1 mb-1 leading-relaxed">{evalComment}</p>}
       {subs.length > 0 && (
         <button onClick={() => setOpen(!open)} className="text-xs text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 mt-1">
-          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide detail' : 'Why this score?'}
+          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'Delivery signals'}
         </button>
       )}
       {open && (
@@ -154,11 +156,13 @@ export default function VideoResultsPage() {
     );
   }
 
-  const coaching = scores?.coaching || {};
-  const checks   = scores?.content_checks || [];
-  const checkMap = Object.fromEntries(checks.map(c => [c.id, c]));
-  const gambit   = checkMap['gambit'];
-  const overall  = scores?.overall;
+  const coaching  = scores?.coaching || {};
+  const checks    = scores?.content_checks || [];
+  const checkMap  = Object.fromEntries(checks.map(c => [c.id, c]));
+  const gambit    = checkMap['gambit'];
+  const pccpEval  = scores?.pccp_eval || {};
+  // LLM overall (1-10 * 10) takes priority over computed composite average
+  const overall   = scores?.llm_overall != null ? scores.llm_overall : scores?.overall;
   const talkTime = scores?.analytics?.talk_time_sec;
 
   return wrap(
@@ -188,7 +192,14 @@ export default function VideoResultsPage() {
       {/* ── PCCP composite cards ── */}
       <div className="grid sm:grid-cols-3 gap-4 mb-8">
         {COMPOSITES.map(c => (
-          <PccpCard key={c.key} label={c.label} blurb={c.blurb} data={scores?.scores?.[c.key]} />
+          <PccpCard
+            key={c.key}
+            label={c.label}
+            blurb={c.blurb}
+            data={scores?.scores?.[c.key]}
+            evalScore={pccpEval[c.key]?.score}
+            evalComment={pccpEval[c.key]?.comment}
+          />
         ))}
       </div>
 
@@ -233,21 +244,15 @@ export default function VideoResultsPage() {
       {/* ── Areas for Improvement ── */}
       {(coaching.growth_areas || []).length > 0 && (
         <div className="bg-white rounded-2xl border-2 border-[#FA6C43]/30 shadow-sm p-5 mb-5">
-          <h2 className="font-bold text-[#FA6C43] flex items-center gap-2 mb-4"><FaFlag /> Areas for Improvement</h2>
-          <div className="space-y-4">
+          <h2 className="font-bold text-[#FA6C43] flex items-center gap-2 mb-3"><FaFlag /> Areas for Improvement</h2>
+          <ul className="space-y-2">
             {coaching.growth_areas.map((g, i) => (
-              <div key={i} className={i < coaching.growth_areas.length - 1 ? 'pb-4 border-b border-gray-100' : ''}>
-                <p className="text-sm font-bold text-[#222]">{g.title}</p>
-                {g.detail && <p className="text-sm text-gray-600 mt-1 leading-relaxed">{g.detail}</p>}
-                {(g.rewrites || []).map((r, j) => (
-                  <div key={j} className="mt-2 space-y-1 ml-1">
-                    <p className="text-xs"><span className="font-semibold text-red-500">Original:</span> <span className="text-gray-500">"{r.original}"</span></p>
-                    <p className="text-xs"><span className="font-semibold text-green-600">Improved:</span> <span className="text-gray-500">"{r.improved}"</span></p>
-                  </div>
-                ))}
-              </div>
+              <li key={i} className="flex gap-2.5 text-sm text-gray-700">
+                <span className="text-[#FA6C43] shrink-0 mt-0.5">→</span>
+                <span>{g.title || g}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
 
@@ -267,6 +272,20 @@ export default function VideoResultsPage() {
             {coaching.summary.map((s, i) => (
               <li key={i} className="text-sm text-gray-700 flex gap-2.5">
                 <span className="text-[#FA6C43] shrink-0 mt-0.5">•</span>{s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Additional Points ── */}
+      {(coaching.additional_points || []).length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
+          <h2 className="font-bold text-[#222] mb-3">Additional Notes</h2>
+          <ul className="space-y-1.5">
+            {coaching.additional_points.map((s, i) => (
+              <li key={i} className="text-sm text-gray-600 flex gap-2.5">
+                <span className="text-gray-400 shrink-0">•</span>{s}
               </li>
             ))}
           </ul>
