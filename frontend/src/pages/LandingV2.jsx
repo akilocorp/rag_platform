@@ -296,6 +296,24 @@ const LandingV2 = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, [attachOpen]);
 
+  // Hero composer input value + register-gate modal. Submit (Enter or
+  // send button) opens the modal instead of routing anywhere — anonymous
+  // visitors have to register before they can chat.
+  const [promptValue, setPromptValue] = useState('');
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const handleComposerSubmit = (e) => {
+    if (e) e.preventDefault();
+    setShowRegisterModal(true);
+  };
+  useEffect(() => {
+    if (!showRegisterModal) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setShowRegisterModal(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showRegisterModal]);
+
   // Typewriter placeholder cycling through HERO_PROMPTS. Type → hold →
   // erase → brief pause → next. Reduced-motion users see a static
   // "Ask anything…" string instead. Pure setTimeout chain — no rAF
@@ -779,10 +797,15 @@ const LandingV2 = () => {
             </div>
 
             {/* Input — placeholder cycles through HERO_PROMPTS via a
-                typewriter effect (see useEffect in component body). */}
+                typewriter effect (see useEffect in component body).
+                Submit (Enter or the send button) opens the register-gate
+                modal — anonymous visitors can't actually send. */}
+            <form onSubmit={handleComposerSubmit}>
             <input
               type="text"
               placeholder={typedPrompt}
+              value={promptValue}
+              onChange={(e) => setPromptValue(e.target.value)}
               className="w-full bg-transparent outline-none border-none px-1 py-2 text-xl placeholder:text-gray-400"
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
             />
@@ -894,7 +917,7 @@ const LandingV2 = () => {
 
               {/* Send button — circular, orange, slim white up-arrow */}
               <button
-                type="button"
+                type="submit"
                 aria-label="Send"
                 className="w-11 h-11 rounded-full flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
                 style={{
@@ -913,6 +936,7 @@ const LandingV2 = () => {
                 </svg>
               </button>
             </div>
+            </form>
           </div>
         </div>
 
@@ -1456,6 +1480,140 @@ const LandingV2 = () => {
           </div>
         </div>
       </footer>
+
+      {/* Register-gate modal. Opened when an anonymous visitor tries to
+          submit the hero composer. Backdrop click + Escape close it
+          (Escape wired in the component-body useEffect above). */}
+      {showRegisterModal && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center px-6"
+          style={{ backgroundColor: 'rgba(15,15,15,0.55)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setShowRegisterModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="register-gate-title"
+        >
+          <div
+            className="relative w-full max-w-md rounded-[28px] p-7 text-left"
+            style={{
+              backgroundColor: '#FFFFFF',
+              boxShadow: '0 32px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.04)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShowRegisterModal(false)}
+              aria-label="Close"
+              className="absolute flex items-center justify-center transition-colors hover:bg-gray-100"
+              style={{
+                top: '14px',
+                right: '14px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '9999px',
+                color: '#6B6B6B',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                <path
+                  d="M2 2l10 10M12 2L2 12"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            <h2
+              id="register-gate-title"
+              className="mb-3"
+              style={{
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                fontSize: '26px',
+                lineHeight: 1.1,
+                letterSpacing: '-0.025em',
+                color: '#1F1F1F',
+              }}
+            >
+              Create an account to chat
+            </h2>
+            <p
+              className="mb-6"
+              style={{
+                fontFamily: FONT_BODY,
+                color: '#5A5A5A',
+                fontSize: '15px',
+                lineHeight: 1.5,
+              }}
+            >
+              Sign up free to send your first prompt and start building your AI tutor on Actrlabs.
+            </p>
+            {promptValue.trim() && (
+              <div
+                className="mb-6 rounded-2xl p-3"
+                style={{
+                  backgroundColor: '#F5F3EE',
+                  fontFamily: FONT_BODY,
+                  color: '#3A3A3A',
+                  fontSize: '13px',
+                  lineHeight: 1.45,
+                }}
+              >
+                <div
+                  className="mb-1"
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.18em',
+                    textTransform: 'uppercase',
+                    color: '#8B8B8B',
+                    fontWeight: 600,
+                  }}
+                >
+                  Your prompt
+                </div>
+                <div
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {promptValue}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('/register')}
+              className="w-full py-3 text-sm font-semibold transition-all hover:opacity-95 active:scale-[0.99]"
+              style={{
+                backgroundColor: '#FA6C43',
+                color: '#FFFFFF',
+                fontFamily: FONT_BODY,
+                borderRadius: '14px',
+                boxShadow: '0 8px 20px rgba(250,108,67,0.35)',
+              }}
+            >
+              Sign up free
+            </button>
+            <div
+              className="mt-4 text-center text-sm"
+              style={{ color: '#6B6B6B', fontFamily: FONT_BODY }}
+            >
+              Already have an account?{' '}
+              <Link
+                to="/login"
+                style={{ color: '#FA6C43', fontWeight: 600 }}
+                className="hover:underline"
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Closer-icon idle float + CTA pulse + reduced-motion fallback */}
       <style>{`
