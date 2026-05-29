@@ -192,12 +192,24 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
 
 
 def _resolve_scoring_spec(db, sub):
-    """Prefer the editable spec stored on the config; fall back to the registry
-    preset (backward-compat for configs created before scoring_spec existed)."""
+    """Always start from the preset as base, then overlay any prof customisations.
+    This ensures fields added to presets (content_checks, target_duration_sec, etc.)
+    are never missing just because the config's stored spec predates them."""
+    spec = registry.get_default_spec(sub.get("assignment_type") or "")
     config = db["config_collections"].find_one({"_id": ObjectId(sub["config_id"])}) if sub.get("config_id") else None
-    if config and isinstance(config.get("scoring_spec"), dict) and config["scoring_spec"].get("submetric_weights"):
-        return config["scoring_spec"]
-    return registry.get_default_spec(sub.get("assignment_type") or "")
+    if config and isinstance(config.get("scoring_spec"), dict):
+        stored = config["scoring_spec"]
+        if stored.get("submetric_weights"):
+            spec["submetric_weights"] = stored["submetric_weights"]
+        if stored.get("composite_weights"):
+            spec["composite_weights"] = stored["composite_weights"]
+        if stored.get("feedback_prompt_template"):
+            spec["feedback_prompt_template"] = stored["feedback_prompt_template"]
+        if stored.get("content_checks"):
+            spec["content_checks"] = stored["content_checks"]
+        if stored.get("target_duration_sec"):
+            spec["target_duration_sec"] = stored["target_duration_sec"]
+    return spec
 
 
 def _issue_token_and_email(db, sub):

@@ -329,9 +329,20 @@ def rescore(sub_id):
     if not collected:
         return jsonify({"error": "No collected data to score yet"}), 400
 
-    scoring_spec = (_config.get("scoring_spec")
-                    if isinstance(_config.get("scoring_spec"), dict) and _config["scoring_spec"].get("submetric_weights")
-                    else registry.get_default_spec(sub.get("assignment_type") or ""))
+    spec = registry.get_default_spec(sub.get("assignment_type") or "")
+    if isinstance(_config.get("scoring_spec"), dict):
+        stored = _config["scoring_spec"]
+        if stored.get("submetric_weights"):
+            spec["submetric_weights"] = stored["submetric_weights"]
+        if stored.get("composite_weights"):
+            spec["composite_weights"] = stored["composite_weights"]
+        if stored.get("feedback_prompt_template"):
+            spec["feedback_prompt_template"] = stored["feedback_prompt_template"]
+        if stored.get("content_checks"):
+            spec["content_checks"] = stored["content_checks"]
+        if stored.get("target_duration_sec"):
+            spec["target_duration_sec"] = stored["target_duration_sec"]
+    scoring_spec = spec
     openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     score_doc = score_submission(sub, collected, scoring_spec, openai_key)
     db['video_scores'].replace_one({"submission_id": sub_id}, score_doc, upsert=True)
