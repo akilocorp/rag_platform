@@ -1071,14 +1071,14 @@ const LandingV2 = () => {
                   fontFamily: FONT_DISPLAY,
                   fontWeight: 800,
                   letterSpacing: '-0.02em',
-                  lineHeight: 1.5,
+                  lineHeight: 1.0,
                 }}
               >
                 <span
                   style={{
                     backgroundColor: '#FA6C43',
                     color: '#FFFFFF',
-                    padding: '0.12em 0.4em',
+                    padding: '0.25em 0.4em',
                     borderRadius: '12px',
                     boxDecorationBreak: 'clone',
                     WebkitBoxDecorationBreak: 'clone',
