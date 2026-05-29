@@ -46,103 +46,46 @@ const UVPS = [
   },
 ];
 
-// Per-feature visual identity for the bento. Each tile gets its own
-// pastel `copyBg` and an `accentColor` for the eyebrow + divider.
-// Mockups (SyllabusMockup / ModelsMockup / ResearchMockup) are built
-// inline per tile and bleed off one edge with a slight tilt.
-const FEATURE_VISUALS = {
-  syllabus: { copyBg: '#FDE3D8', accentColor: '#C8472A' },
-  models:   { copyBg: '#F4ECD8', accentColor: '#A8832D' },
-  research: { copyBg: '#D9E5F2', accentColor: '#3E6493' },
-};
-
-// --- BENTO COMPONENTS ----------------------------------------------------
-// A single tile split into two NON-OVERLAPPING absolute zones inside the
-// tile's overflow:hidden box: a copy zone (~40%) and a mockup zone (~60%).
-// `mockupSide` picks the split axis:
-//   'bottom' → vertical split (copy on top, mockup on bottom) — used by
-//              the tall Syllabus hero.
-//   'right'  → horizontal split (copy on left, mockup on right) — used
-//              by the short Models + Research tiles.
-// Hover lift (scale + deeper shadow) runs on pure CSS :hover — no React
-// state, no z-index dance, no page-wide blur overlay.
-const BentoTile = ({
-  id,
-  index,
-  uvp,
-  visual,
-  className = '',
-  mockupSide = 'right',
-  children,
-}) => {
-  const isVertical = mockupSide === 'bottom';
-  const copyZoneStyle = isVertical
-    ? { top: 0, left: 0, right: 0, bottom: '60%' }
-    : { top: 0, left: 0, right: '58%', bottom: 0 };
-  const mockupZoneStyle = isVertical
-    ? { top: '40%', left: 0, right: 0, bottom: 0 }
-    : { top: 0, left: '42%', right: 0, bottom: 0 };
-
-  return (
-    <div
-      className={`relative overflow-hidden transition-all duration-300 shadow-[0_18px_48px_rgba(31,31,31,0.10)] hover:scale-[1.012] hover:shadow-[0_28px_64px_rgba(31,31,31,0.18)] ${className}`}
-      style={{
-        backgroundColor: visual.copyBg,
-        borderRadius: '40px',
-      }}
-    >
-      {/* Copy zone — fixed 40% of tile, hard-bounded so body text can
-          never wrap into the mockup zone. */}
-      <div className="absolute z-10 p-7 lg:p-8 overflow-hidden" style={copyZoneStyle}>
-        <span
-          className="inline-block text-[11px] font-bold uppercase tracking-[0.22em] mb-3"
-          style={{ color: visual.accentColor, fontFamily: FONT_BODY }}
-        >
-          {`0${index + 1} / 03`}
-        </span>
-        <h2
-          className={`tracking-tight leading-[1.1] mb-2.5 ${
-            isVertical ? 'text-2xl lg:text-[1.9rem]' : 'text-base lg:text-[1.15rem]'
-          }`}
-          style={{
-            color: '#1F1F1F',
-            fontFamily: FONT_DISPLAY,
-            fontWeight: 800,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          {uvp.headline}
-        </h2>
-        <div
-          className="h-px w-12 mb-2.5"
-          style={{ backgroundColor: visual.accentColor, opacity: 0.5 }}
-        />
-        <p
-          className={`leading-snug ${
-            isVertical ? 'text-[12.5px] lg:text-[13px]' : 'text-[10.5px] lg:text-[11px]'
-          }`}
-          style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
-        >
-          {uvp.body}
-        </p>
-      </div>
-      {/* Mockup zone — 60% of tile, positioned context for the mockup's
-          absolute children. Mockups bleed past the *tile* right/bottom
-          edges (clipped by tile overflow-hidden) but never past the zone
-          edge that abuts the copy zone. */}
-      <div className="absolute" style={mockupZoneStyle}>
-        {children}
-      </div>
+// Small feature tile used in the redesigned bento. Light-blue card with
+// a bold title and a short body. Pure presentational — no mockup zone,
+// no accent eyebrow. Three of these fill the left/right "feature
+// highlight" slots around the Canvas hero and the contact CTA.
+const SmallFeatureTile = ({ title, body, className = '' }) => (
+  <div
+    className={`relative overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(31,31,31,0.08)] hover:scale-[1.012] hover:shadow-[0_20px_48px_rgba(31,31,31,0.15)] ${className}`}
+    style={{
+      backgroundColor: '#D9E5F2',
+      borderRadius: '32px',
+      minHeight: '150px',
+    }}
+  >
+    <div className="absolute inset-0 p-6 lg:p-7 flex flex-col justify-center">
+      <h3
+        className="text-lg lg:text-xl tracking-tight leading-[1.1] mb-2"
+        style={{
+          color: '#1F1F1F',
+          fontFamily: FONT_DISPLAY,
+          fontWeight: 800,
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        className="text-[12px] lg:text-[13px] leading-snug"
+        style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+      >
+        {body}
+      </p>
     </div>
-  );
-};
+  </div>
+);
 
-// Mockups receive an already-positioned mockup zone as their parent
-// (via BentoTile), so coordinates here are RELATIVE TO THAT ZONE.
-// Negative offsets bleed past the tile's outer edges (right/bottom) and
-// get clipped by the tile's overflow:hidden — that's the "tilted card
-// peeking off the corner" effect. They never cross the zone edge that
-// borders the copy zone.
+// SyllabusMockup lives in the right half of the Canvas hero tile and
+// positions its Canvas cards absolutely. Negative right offsets bleed
+// past the tile's outer edge and get clipped by the tile's
+// overflow:hidden — that's the "tilted card peeking off the corner"
+// effect.
 const SyllabusFileRow = ({ type, name, status }) => {
   const typeColors = {
     PDF: '#C8472A',
@@ -234,103 +177,6 @@ const SyllabusMockup = () => (
       </div>
     </div>
   </>
-);
-
-const ModelPill = ({ color, label, selected }) => (
-  <div
-    className="bg-white rounded-full pl-3 pr-4 py-2 shadow-md flex items-center gap-2 text-sm min-w-[160px]"
-    style={{
-      borderColor: selected ? '#FA6C43' : 'rgba(0,0,0,0.05)',
-      borderWidth: selected ? '2px' : '1px',
-      borderStyle: 'solid',
-      fontFamily: FONT_BODY,
-    }}
-  >
-    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }}></div>
-    <span className="font-semibold text-gray-800">{label}</span>
-    {selected && <span className="ml-auto text-[14px] font-bold" style={{ color: '#FA6C43' }}>&#10003;</span>}
-  </div>
-);
-
-const ModelsMockup = () => (
-  <div
-    className="absolute pointer-events-none flex flex-col gap-2"
-    style={{
-      right: '-30px',
-      top: '50%',
-      transform: 'translateY(-50%) rotate(-5deg)',
-    }}
-    aria-hidden
-  >
-    <ModelPill color="#D97757" label="Claude" selected={false} />
-    <ModelPill color="#10A37F" label="GPT-4o"  selected={true}  />
-    <ModelPill color="#4285F4" label="Gemini"  selected={false} />
-    <ModelPill color="#A855F7" label="Haiku"   selected={false} />
-  </div>
-);
-
-const ResearchMockup = () => (
-  <div
-    className="absolute pointer-events-none w-[260px]"
-    style={{
-      right: '-20px',
-      top: '50%',
-      transform: 'translateY(-50%) rotate(3deg)',
-    }}
-    aria-hidden
-  >
-    <div
-      className="bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
-      style={{ fontFamily: FONT_BODY }}
-    >
-      {/* Sandbox header */}
-      <div
-        className="px-3 py-2 border-b border-gray-200 flex items-center justify-between"
-        style={{ backgroundColor: '#EEF3F9' }}
-      >
-        <div className="flex items-center gap-1.5">
-          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-            <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="#3E6493" strokeWidth="1.2" fill="none" />
-            <path d="M3.5 6l1.5 1.5L8.5 4.5" stroke="#3E6493" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#3E6493' }}>Sandbox</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: '#10A37F', animation: 'landing-pulse-dot 1.6s ease-in-out infinite' }}
-          />
-          <span className="text-[9px] font-semibold text-gray-600">Observing</span>
-        </div>
-      </div>
-
-      {/* Mini exchange */}
-      <div className="p-3 space-y-1.5">
-        <div className="ml-6 px-2.5 py-1.5 rounded-xl text-[10px]" style={{ backgroundColor: '#3E6493', color: '#fff' }}>
-          Explain Bayes&rsquo; theorem.
-        </div>
-        <div className="mr-4 px-2.5 py-1.5 rounded-xl bg-gray-100 text-[10px] text-gray-800 leading-snug">
-          From your slide 8: P(A|B) = P(B|A)·P(A) / P(B)&hellip;
-        </div>
-      </div>
-
-      {/* Observation strip */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 grid grid-cols-3 gap-2">
-        <div>
-          <div className="text-[8px] uppercase tracking-wider text-gray-400">Latency</div>
-          <div className="text-[10px] font-bold text-gray-800">1.4s</div>
-        </div>
-        <div>
-          <div className="text-[8px] uppercase tracking-wider text-gray-400">Cited</div>
-          <div className="text-[10px] font-bold text-gray-800">3 src</div>
-        </div>
-        <div>
-          <div className="text-[8px] uppercase tracking-wider text-gray-400">Variant</div>
-          <div className="text-[10px] font-bold" style={{ color: '#3E6493' }}>B</div>
-        </div>
-      </div>
-    </div>
-  </div>
 );
 
 // Three audience panels for the horizontal accordion. One is expanded at
@@ -1190,12 +1036,13 @@ const LandingV2 = () => {
       </section>
 
       {/* === FEATURES (BENTO) ===
-          Asymmetric two-column bento on lg+: Syllabus is the tall hero
-          on the left (spans 2 rows), Models + Research stack on the
-          right. Each tile owns a product mockup that bleeds off one
-          edge with a slight tilt. Hovering any tile bumps its zIndex
-          above the page-wide blur overlay (z=45), so the hovered tile
-          stays sharp while the nav, grid, and other tiles blur. */}
+          4-column asymmetric bento. Top row: wide peach "Fetches Canvas
+          Files" hero (cols 1-3) holding the SyllabusMockup + a small
+          gray feature tile on col 4. Bottom rows: two small gray
+          feature tiles stacked on col 1, with a 3-col × 2-row orange
+          "missing a feature?" mailto-CTA filling the rest. Grid
+          auto-flow places tiles in JSX order; see the comment at each
+          tile for its target cell. */}
       <section
         id="features"
         className="relative px-6 lg:px-10 py-12 lg:py-16"
@@ -1203,40 +1050,124 @@ const LandingV2 = () => {
       >
         <div
           ref={featureGridRef}
-          className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-6 lg:auto-rows-[300px]"
+          className="grid grid-cols-1 lg:grid-cols-4 gap-5 max-w-7xl mx-auto"
         >
-          <BentoTile
-            id="syllabus"
-            index={0}
-            uvp={UVPS[0]}
-            visual={FEATURE_VISUALS['syllabus']}
-            mockupSide="bottom"
-            className="min-h-[520px] lg:row-span-2 lg:min-h-[624px]"
+          {/* TOP-LEFT — Canvas hero (lg: cols 1-3, row 1) */}
+          <div
+            className="relative overflow-hidden lg:col-span-3 transition-all duration-300 shadow-[0_18px_48px_rgba(31,31,31,0.10)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(31,31,31,0.18)]"
+            style={{
+              backgroundColor: '#FDE3D8',
+              borderRadius: '40px',
+              minHeight: '340px',
+            }}
           >
-            <SyllabusMockup />
-          </BentoTile>
+            <div
+              className="absolute z-10 p-8 lg:p-10 overflow-hidden"
+              style={{ top: 0, left: 0, right: '50%', bottom: 0 }}
+            >
+              <div
+                className="inline-block px-4 py-2.5 rounded-[14px] mb-5"
+                style={{ backgroundColor: '#FA6C43' }}
+              >
+                <h2
+                  className="text-white text-2xl lg:text-[1.85rem] tracking-tight leading-[1.05]"
+                  style={{
+                    fontFamily: FONT_DISPLAY,
+                    fontWeight: 800,
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  Fetches Canvas<br />Files
+                </h2>
+              </div>
+              <p
+                className="text-sm lg:text-[14px] leading-snug max-w-[300px]"
+                style={{ color: '#3A3A3A', fontFamily: FONT_BODY }}
+              >
+                It&rsquo;s a massive pain to keep re-uploading your lecture notes, only for the AI to start making things up halfway through your study session.
+              </p>
+            </div>
+            <div
+              className="absolute"
+              style={{ top: 0, left: '50%', right: 0, bottom: 0 }}
+            >
+              <SyllabusMockup />
+            </div>
+          </div>
 
-          <BentoTile
-            id="models"
-            index={1}
-            uvp={UVPS[1]}
-            visual={FEATURE_VISUALS['models']}
-            mockupSide="right"
-            className="min-h-[320px]"
-          >
-            <ModelsMockup />
-          </BentoTile>
+          {/* TOP-RIGHT — Any Model (lg: col 4, row 1) */}
+          <SmallFeatureTile
+            title="Any Model"
+            body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat — no extra subscriptions."
+          />
 
-          <BentoTile
-            id="research"
-            index={2}
-            uvp={UVPS[2]}
-            visual={FEATURE_VISUALS['research']}
-            mockupSide="right"
-            className="min-h-[320px]"
+          {/* MID-LEFT — Cites Its Sources (lg: col 1, row 2) */}
+          <SmallFeatureTile
+            title="Cites Its Sources"
+            body="Every answer footnoted back to your uploaded files or live web results."
+          />
+
+          {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3) */}
+          <a
+            href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
+            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center transition-all duration-300 shadow-[0_18px_48px_rgba(250,108,67,0.28)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(250,108,67,0.40)]"
+            style={{
+              backgroundColor: '#FA6C43',
+              borderRadius: '40px',
+              minHeight: '320px',
+            }}
           >
-            <ResearchMockup />
-          </BentoTile>
+            <div
+              className="flex items-center justify-center flex-shrink-0"
+              style={{ width: '45%', padding: '1.5rem 1rem 1.5rem 2rem' }}
+            >
+              <img
+                src="/logo-A.svg"
+                alt=""
+                aria-hidden
+                className="h-32 lg:h-48 w-auto select-none"
+                draggable={false}
+                style={{ filter: 'brightness(0) invert(1)' }}
+              />
+            </div>
+            <div className="flex-1 pr-8 lg:pr-12">
+              <h2
+                className="text-white text-3xl lg:text-[2.5rem] tracking-tight leading-[1.05] mb-5"
+                style={{
+                  fontFamily: FONT_DISPLAY,
+                  fontWeight: 800,
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                Are we missing<br />a feature?
+              </h2>
+              <span
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all group-hover:scale-[1.04] shadow-md"
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  color: '#1F1F1F',
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                Get in touch &middot; Suggest features
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                  <path
+                    d="M3 7h8M7 3l4 4-4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+          </a>
+
+          {/* BOTTOM-LEFT — Observable Sandbox (lg: col 1, row 3) */}
+          <SmallFeatureTile
+            title="Observable Sandbox"
+            body="Researcher-grade view of every student &harr; bot exchange &mdash; latency, citations, model variant."
+          />
         </div>
       </section>
 
