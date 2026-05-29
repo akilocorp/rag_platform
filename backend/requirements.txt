@@ -29,5 +29,5 @@ hume
 pymupdf
 Flask-SocketIO
 imageio-ffmpeg
-assemblyai==0.33.0
+assemblyai
 opencv-python-headless
