@@ -27,12 +27,11 @@ def run_mediapipe_pose(video_path: str) -> dict:
     """Analyse pose in video_path; return signal dict or {} on failure."""
     try:
         import cv2
-        import mediapipe as mp
+        from mediapipe.python.solutions import pose as mp_pose
     except ImportError:
         logger.warning("mediapipe not installed; skipping pose analysis")
         return {}
 
-    mp_pose = mp.solutions.pose
 
     posture_scores: list   = []
     torso_xs:       list   = []
