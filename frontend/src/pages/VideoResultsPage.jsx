@@ -228,13 +228,6 @@ export default function VideoResultsPage() {
       detail: fillerDetail,
       available: fillerAvailable,
     },
-    {
-      key: 'awkward_gestures',
-      label: 'Awkward gestures',
-      score: scores?.scores?.competence?.submetrics?.awkward_gestures?.score ?? null,
-      detail: null,
-      available: false,
-    },
   ];
 
   return wrap(

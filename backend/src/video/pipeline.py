@@ -25,7 +25,6 @@ from src.video.hume_batch import run_hume_batch
 from src.video.assemblyai_words import transcribe_words
 from src.video.scoring import score_submission
 from src.video.visual_analysis import analyze_video_frames
-from src.video.pose_analysis import run_mediapipe_pose
 from src.video.rubrics import registry
 
 logger = logging.getLogger(__name__)
@@ -125,11 +124,9 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 fut_whisper = ex.submit(transcribe_words, tmp_audio, assemblyai_key)
                 fut_hume = ex.submit(run_hume_batch, media_url)
                 fut_visual = ex.submit(analyze_video_frames, tmp_video)
-                fut_pose = ex.submit(run_mediapipe_pose, tmp_video)
                 transcript = fut_whisper.result()
                 hume = fut_hume.result()
                 visual = fut_visual.result()
-                pose = fut_pose.result()
 
             modalities = ["transcript"]
             prosody = {"frames": []}
@@ -155,7 +152,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 "transcript": transcript,
                 "prosody": prosody,
                 "face": face,
-                "pose": pose or None,
+                "pose": None,
                 "visual": visual,
                 "raw_refs": {"hume_predictions_key": None},
                 "created_at": time.time(),

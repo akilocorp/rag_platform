@@ -37,28 +37,24 @@ ASSIGNMENT_PRESETS: Dict[str, Dict[str, Any]] = {}
 # MediaPipe is wired; the roll-up ignores absent submetrics.
 DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
     "confidence": {
-        "prosody_confidence": 0.33,
-        "face_composure": 0.22,
-        "volume_steadiness": 0.17,
-        "face_coverage": 0.10,      # fraction of frames where face is visible
+        "prosody_confidence": 0.37,
+        "face_composure": 0.25,
+        "volume_steadiness": 0.20,
+        "face_coverage": 0.12,
         "lighting_quality": 0.06,
-        "posture": 0.08,            # phase 2
-        "sway": 0.04,               # phase 2 (inverted)
     },
     "competence": {
-        "llm_content":       0.40,  # LLM-evaluated content quality
-        "filler_rate":       0.30,  # inverted (low fillers → high score) — major signal: fillers directly undermine competence
-        "pacing_smoothness": 0.12,
-        "vocabulary":        0.10,  # unique word ratio (higher = more articulate)
-        "awkward_gestures":  0.08,  # phase 2 — inverted (fewer awkward gestures → higher score)
+        "llm_content":       0.43,
+        "filler_rate":       0.33,
+        "pacing_smoothness": 0.14,
+        "vocabulary":        0.10,
     },
     "passion": {
-        "vocal_control":      0.30,  # controlled delivery — penalises spikes + aggressive opener
-        "energy_dynamics":    0.22,  # Goldilocks energy (adequate range, not raw loudness)
-        "pitch_variation":    0.15,  # variation matters, but less than control
-        "facial_expressivity": 0.15, # genuine expressiveness
-        "hume_enthusiasm":    0.08,  # raw enthusiasm signal — low weight; context matters more
-        "gesture_activity":   0.10,  # phase 2
+        "vocal_control":      0.33,
+        "energy_dynamics":    0.25,
+        "pitch_variation":    0.17,
+        "facial_expressivity": 0.17,
+        "hume_enthusiasm":    0.08,
     },
 }
 
