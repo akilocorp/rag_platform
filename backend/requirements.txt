@@ -31,4 +31,4 @@ Flask-SocketIO
 imageio-ffmpeg
 assemblyai==0.64.4
 opencv-python-headless
-mediapipe>=0.10.0,<0.11.0
+mediapipe==0.10.14
