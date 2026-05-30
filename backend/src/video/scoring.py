@@ -264,14 +264,13 @@ def compute_submetrics(collected: dict) -> dict:
     else:
         sm["lighting_quality"] = _sm(None, None, False, "No video frame data")
 
-    # ---- pose-derived (PHASE 2) ----
+    # ---- pose-derived ----
     pose_present = bool(pose)
     for k, lbl in (("posture", "Upright posture"), ("sway", "Body steadiness"),
                    ("gesture_activity", "Gesture activity"),
                    ("awkward_gestures", "Awkward gestures")):
-        # When pose lands, replace this with real derivations; renormalization
-        # means scores adjust automatically once `available` flips true.
-        sm[k] = _sm(None, None, pose_present, lbl)
+        val = pose.get(k) if pose_present else None
+        sm[k] = _sm(val, val, val is not None, lbl)
 
     return sm
 
