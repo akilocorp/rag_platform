@@ -53,11 +53,12 @@ DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
         "vocabulary": 0.08,         # unique word ratio (higher = more articulate)
     },
     "passion": {
-        "pitch_variation": 0.25,
-        "energy_dynamics": 0.25,
-        "hume_enthusiasm": 0.25,
-        "facial_expressivity": 0.15,
-        "gesture_activity": 0.10,   # phase 2
+        "vocal_control":      0.30,  # controlled delivery — penalises spikes + aggressive opener
+        "energy_dynamics":    0.22,  # Goldilocks energy (adequate range, not raw loudness)
+        "pitch_variation":    0.15,  # variation matters, but less than control
+        "facial_expressivity": 0.15, # genuine expressiveness
+        "hume_enthusiasm":    0.08,  # raw enthusiasm signal — low weight; context matters more
+        "gesture_activity":   0.10,  # phase 2
     },
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
@@ -96,6 +96,7 @@ function ComponentCard({ label, check }) {
 export default function VideoResultsPage() {
   const { submissionId } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const token = searchParams.get('token');
 
   const [data, setData] = useState(null);
@@ -177,6 +178,22 @@ export default function VideoResultsPage() {
       {videoUrl && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 mb-5">
           <video src={videoUrl} controls playsInline className="w-full rounded-xl bg-black max-h-[420px]" />
+        </div>
+      )}
+
+      {/* ── Navigation strip ── */}
+      {submission?.config_id && (
+        <div className="flex gap-3 mb-4">
+          <button onClick={() => navigate(`/video-upload/${submission.config_id}`)}
+            className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#FA6C43] transition-colors">
+            ← Upload another
+          </button>
+          {submission?.email && (
+            <button onClick={() => navigate(`/video/compare/${submission.config_id}?email=${encodeURIComponent(submission.email)}`)}
+              className="text-xs font-semibold text-[#FA6C43] px-3 py-1.5 rounded-lg border border-[#FA6C43]/30 hover:border-[#FA6C43] transition-colors">
+              Compare all attempts →
+            </button>
+          )}
         </div>
       )}
 

@@ -22,6 +22,7 @@ import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
 import VideoUploadPage from './pages/VideoUploadPage';
 import VideoResultsPage from './pages/VideoResultsPage';
+import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
 
 // Import the ProtectedRoute component
@@ -63,8 +64,9 @@ function App() {
             <Route path="/video-upload/:configId" element={<VideoUploadPage />} />
           </Route>
 
-          {/* Video results — accessible via one-time token (anonymous) or logged-in owner/prof */}
+          {/* Video results / compare — accessible via one-time token (anonymous) or logged-in owner/prof */}
           <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
+          <Route path="/video/compare/:configId" element={<VideoComparePage />} />
 
           {/* Protected Routes - Professor only */}
           <Route element={<ProfessorRoute />}>

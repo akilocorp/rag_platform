@@ -38,6 +38,7 @@ video_bp = Blueprint('video_routes', __name__)
 
 ALLOWED_VIDEO_EXT = {'mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'}
 MAX_VIDEO_BYTES = int(os.getenv("MAX_VIDEO_BYTES", str(1024 * 1024 * 1024)))  # 1 GB
+MAX_SUBMISSIONS_PER_STUDENT = 5
 
 
 def _resolve_user_id():
@@ -126,6 +127,20 @@ def create_submission():
         return jsonify({"error": "name and email are required"}), 400
 
     db = current_app.config['MONGO_DB']
+
+    existing_count = db['video_submissions'].count_documents({
+        "config_id": config_id,
+        "submitter_email": email,
+        "upload_status": {"$ne": "upload_failed"},
+        "status": {"$ne": "failed"},
+    })
+    if existing_count >= MAX_SUBMISSIONS_PER_STUDENT:
+        return jsonify({
+            "error": f"You have reached the maximum of {MAX_SUBMISSIONS_PER_STUDENT} submissions for this assignment.",
+            "limit_reached": True,
+            "submission_count": existing_count,
+        }), 409
+
     now = time.time()
     doc = {
         "config_id": config_id,
@@ -276,6 +291,7 @@ def get_results(sub_id):
     return jsonify({
         "submission": {
             "id": sub_id,
+            "config_id": sub.get("config_id"),
             "name": sub.get("submitter_name"),
             "email": sub.get("submitter_email"),
             "status": sub.get("status"),
@@ -287,6 +303,54 @@ def get_results(sub_id):
         "transcript": (collected or {}).get("transcript"),
         "duration_sec": (collected or {}).get("duration_sec"),
         "modalities_present": (collected or {}).get("modalities_present", []),
+    })
+
+
+@video_bp.route('/video/config/<config_id>/student-history', methods=['GET'])
+def student_history(config_id):
+    """A student's past submissions for this config, identified by email."""
+    email = (request.args.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+    config = _get_config(config_id)
+    if not config:
+        return jsonify({"error": "Config not found"}), 404
+    db = current_app.config['MONGO_DB']
+    subs = list(db['video_submissions'].find(
+        {"config_id": config_id, "submitter_email": email,
+         "upload_status": {"$ne": "upload_failed"}, "status": {"$ne": "failed"}},
+        {"_id": 1, "status": 1, "upload_status": 1, "created_at": 1},
+    ).sort("created_at", 1))
+    out = []
+    for i, s in enumerate(subs):
+        sub_id = str(s["_id"])
+        score_doc = db['video_scores'].find_one(
+            {"submission_id": sub_id},
+            {"_id": 0, "overall": 1, "llm_overall": 1, "scores": 1},
+        )
+        overall = None
+        composite_scores = None
+        if score_doc:
+            overall = score_doc.get("llm_overall") if score_doc.get("llm_overall") is not None else score_doc.get("overall")
+            raw = score_doc.get("scores") or {}
+            composite_scores = {
+                k: (raw[k].get("value") if isinstance(raw.get(k), dict) else None)
+                for k in ("confidence", "competence", "passion")
+            }
+        out.append({
+            "submission_id": sub_id,
+            "attempt_number": i + 1,
+            "status": s.get("status"),
+            "upload_status": s.get("upload_status"),
+            "created_at": s.get("created_at"),
+            "overall": overall,
+            "composite_scores": composite_scores,
+        })
+    return jsonify({
+        "submissions": out,
+        "count": len(out),
+        "limit": MAX_SUBMISSIONS_PER_STUDENT,
+        "can_submit": len(out) < MAX_SUBMISSIONS_PER_STUDENT,
     })
 
 

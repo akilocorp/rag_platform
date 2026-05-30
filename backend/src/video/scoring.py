@@ -68,6 +68,15 @@ WEAK_WORDS = {"just", "really", "very", "quite", "actually", "basically",
 IDEAL_WPM_LOW, IDEAL_WPM_HIGH = 110, 160
 IDEAL_BRIGHTNESS_LOW, IDEAL_BRIGHTNESS_HIGH = 80, 180
 
+# --- Passion: Goldilocks energy thresholds (raw Hume AROUSAL bundle means) --
+# Hume arousal values are small fractions; BUNDLE_SCALE maps them to 0-100.
+# Good passion = adequate energy (not flat, not shouting). These thresholds define
+# the "comfortable" band: below DEAD_LOW → lifeless; above MAX_HIGH → aggressive.
+_ENERGY_DEAD_LOW  = 0.02   # below this → flat delivery, score 0
+_ENERGY_OPT_LOW   = 0.10   # start of ideal zone
+_ENERGY_OPT_HIGH  = 0.22   # end of ideal zone
+_ENERGY_MAX_HIGH  = 0.33   # above this → too aggressive, score 0
+
 # --- Hume emotion bundles (names match Hume's 48-emotion taxonomy) --------
 CONF_POS = ["Calmness", "Determination", "Pride", "Concentration", "Contentment"]
 CONF_NEG = ["Anxiety", "Doubt", "Awkwardness", "Distress", "Fear"]
@@ -174,9 +183,13 @@ def compute_submetrics(collected: dict) -> dict:
 
         arousal_series = _frame_bundle_series(prosody_frames, AROUSAL)
         mean_ar = _mean(arousal_series)
-        sm["energy_dynamics"] = _sm(_clamp(mean_ar * BUNDLE_SCALE), round(mean_ar, 4), True, "Vocal energy")
+        # Goldilocks: adequate energy = 100, flat = 0, aggressive/shouting = 0
+        sm["energy_dynamics"] = _sm(_clamp(_energy_adequacy(mean_ar)), round(mean_ar, 4), True, "Vocal energy (adequate range)")
         var = _stddev(arousal_series)
         sm["pitch_variation"] = _sm(_clamp(var * BUNDLE_SCALE * 2.0), round(var, 4), True, "Vocal variation")
+        # Delivery control: penalise aggressive opener and sudden spikes
+        vc = _vocal_control(arousal_series)
+        sm["vocal_control"] = _sm(vc, round(mean_ar, 4) if vc is not None else None, vc is not None, "Delivery control")
         # steadiness: low abrupt frame-to-frame change in arousal
         if len(arousal_series) > 1:
             deltas = [abs(arousal_series[i] - arousal_series[i - 1]) for i in range(1, len(arousal_series))]
@@ -187,7 +200,7 @@ def compute_submetrics(collected: dict) -> dict:
     else:
         for k, lbl in (("prosody_confidence", "Vocal confidence"), ("hume_enthusiasm", "Vocal enthusiasm"),
                        ("energy_dynamics", "Vocal energy"), ("pitch_variation", "Vocal variation"),
-                       ("volume_steadiness", "Delivery steadiness")):
+                       ("volume_steadiness", "Delivery steadiness"), ("vocal_control", "Delivery control")):
             sm[k] = _sm(None, None, False, "No prosody data")
 
     # ---- Hume face-derived ----
@@ -268,6 +281,44 @@ def _stddev(xs):
         return 0.0
     m = sum(xs) / len(xs)
     return (sum((x - m) ** 2 for x in xs) / len(xs)) ** 0.5
+
+
+def _energy_adequacy(mean_ar: float) -> float:
+    """Goldilocks score for vocal energy: 100 in the optimal band, falls off toward
+    flat (too low) or aggressive/shouting (too high). Shouting ≠ passion."""
+    if mean_ar <= _ENERGY_DEAD_LOW:
+        return 0.0
+    if mean_ar <= _ENERGY_OPT_LOW:
+        return 100.0 * (mean_ar - _ENERGY_DEAD_LOW) / (_ENERGY_OPT_LOW - _ENERGY_DEAD_LOW)
+    if mean_ar <= _ENERGY_OPT_HIGH:
+        return 100.0
+    return _clamp(100.0 * (1.0 - (mean_ar - _ENERGY_OPT_HIGH) / (_ENERGY_MAX_HIGH - _ENERGY_OPT_HIGH)))
+
+
+def _vocal_control(arousal_series: list):
+    """Penalises aggressive delivery: sudden spikes and a much-louder opening.
+    A calm speaker who stays consistently engaged scores near 100; a speaker
+    who opens aggressively or has frequent shouting spikes scores lower."""
+    n = len(arousal_series)
+    if n == 0:
+        return None
+    mean_ar = _mean(arousal_series)
+    if mean_ar <= 0:
+        return 50.0
+
+    # Spike penalty: fraction of frames where arousal > 2.5× mean
+    spike_n = sum(1 for a in arousal_series if a > mean_ar * 2.5)
+    spike_penalty = min(40.0, (spike_n / n) * 300.0)
+
+    # Opening-aggression penalty: first ~15 % of frames vs the rest
+    split = max(1, n // 7)
+    opening_mean = _mean(arousal_series[:split])
+    rest_mean = _mean(arousal_series[split:]) if n > split else mean_ar
+    aggression_ratio = opening_mean / (rest_mean + 1e-6)
+    # >1.8× opening vs rest = aggressive start
+    opening_penalty = min(40.0, max(0.0, (aggression_ratio - 1.8) * 30.0))
+
+    return _clamp(100.0 - spike_penalty - opening_penalty)
 
 
 def _rollup(sm: dict, weights: dict):
@@ -595,7 +646,7 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
         f"- Weak/hedge words: {wc.get('weak_words', {}).get('pct', 0):.1f}% ({top_weak})\n"
         f"- Hedging phrases: {wc.get('hedging', {}).get('count', 0)} total (\"I think\", \"maybe\", etc.)\n"
         f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0):.1f}s)\n"
-        f"- Vocal energy (0=flat, 100=high): {round(energy) if energy is not None else 'N/A'}/100\n"
+        f"- Vocal energy adequacy (0=flat or too aggressive, 100=appropriate level): {round(energy) if energy is not None else 'N/A'}/100\n"
         f"- Pitch variation (0=monotone, 100=dynamic): {round(pitch_var) if pitch_var is not None else 'N/A'}/100\n"
         f"- Facial expressivity: {round(expressivity) if expressivity is not None else 'N/A'}/100\n"
         f"- Composure/confidence signals: {round(composure) if composure is not None else 'N/A'}/100\n"
@@ -645,7 +696,7 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
   "pccp": {{
     "competence": {{"score": <1-10>, "comment": "<short note>"}},
     "confidence": {{"score": <1-10>, "comment": "<short note>"}},
-    "passion":    {{"score": <1-10>, "comment": "<short note — extremely dry=1, awkward/unprofessional=3-4>"}}
+    "passion":    {{"score": <1-10>, "comment": "<short note>"}}
   }},
   "overall_score": <1-10 — NOT a pure average; severe delivery flaws must drag this down>,
   "conclusion": "<1-3 sentences on how content and delivery interacted>",
@@ -658,7 +709,13 @@ Scoring rules:
 - Explicit clarity rewarded; vague or implied content penalized.
 - opening_gambit: score 0 if the speaker launches straight into the pitch with no hook. Score 1-4 if there is a weak or accidental hook. Score 5-6 for a recognizable but flat gambit. Score 7-10 for a deliberate, attention-grabbing opener.
 - opening_gambit comment: always name the gambit type (e.g. "Factoid gambit") or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch (e.g. "Try opening with: 'Did you know 40% of athletes overtrain and never recover?'").
-- Passion < 4 (extremely dry or unprofessional) must pull overall_score below key_components average.
+- Passion scoring is CONTEXT-AWARE: first read the transcript to assess whether the subject matter is inherently dry/technical or naturally exciting. A calm, steady speaker pitching a dry topic who clearly believes in it should score 7-9. A speaker pitching an exciting idea who matches that with proportionate energy should also score 7-9. Both can be a 10 if the delivery is masterful.
+- Good passion = conviction + adequate vocal energy + natural variation. It does NOT mean loudness or high raw energy. Shouting is not passion.
+- Aggressive or loud opener (jumping straight to high energy in the first few sentences) = deduct 1-2 points. Sustained shouting or over-the-top delivery throughout = cap at 5.
+- Silly, forced, or performative enthusiasm (cheerleader-like, unnaturally hyper) = cap at 5, note why.
+- Monotone with zero engagement, regardless of topic = 1-3.
+- Passion < 4 (completely flat or unprofessional) must pull overall_score below key_components average.
+- Passion > 8 requires controlled, appropriate energy — never awarded for raw loudness or aggressive delivery alone.
 - areas_of_improvement: 2 to 5 items.
 - follow_up_questions: 2 to 3 tough questions the audience would likely ask based on gaps in this pitch.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
