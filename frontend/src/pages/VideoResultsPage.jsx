@@ -209,16 +209,24 @@ export default function VideoResultsPage() {
   const fillerSm       = scores?.scores?.competence?.submetrics?.filler_rate;
   const fillerInstances = scores?.analytics?.word_choice?.filler_words?.instances || [];
   const fillerPct      = scores?.analytics?.word_choice?.filler_words?.pct;
+  const fillerCount    = scores?.analytics?.word_choice?.filler_words?.count ?? fillerInstances.length;
   const fillerDetail   = fillerInstances.length > 0
     ? `${fillerInstances.length} detected${fillerPct != null ? ` · ${fillerPct}%` : ''}`
     : (fillerPct != null ? `${fillerPct}%` : null);
+  // Derive score from analytics when submetric wasn't stored (old configs) — mirrors scoring.py formula
+  const fillerScore    = fillerSm?.score != null
+    ? fillerSm.score
+    : fillerCount != null
+      ? Math.max(0, Math.min(100, 100 * (1 - Math.max(0, fillerCount - 1) / 8)))
+      : null;
+  const fillerAvailable = fillerSm?.available ?? (fillerCount != null);
   const competencePinnedSignals = [
     {
       key: 'filler_rate',
       label: 'Filler words',
-      score: fillerSm?.score ?? null,
+      score: fillerScore,
       detail: fillerDetail,
-      available: fillerSm?.available ?? fillerInstances.length > 0 ?? false,
+      available: fillerAvailable,
     },
     {
       key: 'awkward_gestures',
