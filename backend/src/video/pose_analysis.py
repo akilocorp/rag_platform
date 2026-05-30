@@ -27,20 +27,23 @@ def run_mediapipe_pose(video_path: str) -> dict:
     """Analyse pose in video_path; return signal dict or {} on failure."""
     try:
         import cv2
+        import mediapipe as mp  # noqa: F401 — ensure package loads
         from mediapipe.python.solutions import pose as mp_pose
-    except ImportError:
-        logger.warning("mediapipe not installed; skipping pose analysis")
+        logger.info("Pose analysis starting | file=%s", os.path.basename(video_path))
+    except Exception as e:
+        logger.warning("mediapipe unavailable (%s); skipping pose analysis", e)
         return {}
-
 
     posture_scores: list   = []
     torso_xs:       list   = []
     # Each entry: (l_wrist_x, l_wrist_y, r_wrist_x, r_wrist_y, nose_x, nose_y)
     frame_data:     list   = []
+    frames_read    = 0
 
     try:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
+            logger.warning("Pose: cv2 could not open video | file=%s", os.path.basename(video_path))
             return {}
 
         with mp_pose.Pose(
@@ -56,6 +59,7 @@ def run_mediapipe_pose(video_path: str) -> dict:
                 if not ret:
                     break
                 idx += 1
+                frames_read += 1
                 if idx % SAMPLE_EVERY_N != 0:
                     continue
 
@@ -95,6 +99,10 @@ def run_mediapipe_pose(video_path: str) -> dict:
         return {}
 
     if not posture_scores and not frame_data:
+        logger.warning(
+            "Pose: no landmarks detected in %d frames | file=%s",
+            frames_read, os.path.basename(video_path),
+        )
         return {}
 
     posture = round(_mean(posture_scores), 1) if posture_scores else None
