@@ -27,12 +27,18 @@ const mmss = (s) => { if (!s) return ''; const m = Math.floor(s / 60); return `$
 
 // ─── PCCP composite card ───────────────────────────────────────────────────────
 // evalScore: LLM-graded (0-100), takes priority over computed value if present
-function PccpCard({ label, blurb, data, evalScore, evalComment }) {
+// pinnedSignals: always-visible rows shown before the collapsible section.
+// Each: { label, score (0-100|null), detail (string|null), available (bool) }
+function PccpCard({ label, blurb, data, evalScore, evalComment, pinnedSignals }) {
   const [open, setOpen] = useState(false);
   const v = evalScore != null ? evalScore : data?.value;
-  const subs = Object.entries(data?.submetrics || {}).filter(([, m]) => m?.available && m?.score != null);
-  const pending = Object.entries(data?.submetrics || {}).filter(([, m]) => !m?.available);
-  const hasSignals = subs.length > 0 || pending.length > 0;
+  // Exclude keys that are already shown as pinnedSignals
+  const pinnedKeys = new Set((pinnedSignals || []).map(s => s.key).filter(Boolean));
+  const subs = Object.entries(data?.submetrics || {})
+    .filter(([k, m]) => m?.available && m?.score != null && !pinnedKeys.has(k));
+  const pending = Object.entries(data?.submetrics || {})
+    .filter(([k, m]) => !m?.available && !pinnedKeys.has(k));
+  const hasCollapsible = subs.length > 0 || pending.length > 0;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-start justify-between mb-3">
@@ -49,9 +55,33 @@ function PccpCard({ label, blurb, data, evalScore, evalComment }) {
         <div className="h-full rounded-full transition-all" style={{ width: `${v || 0}%`, background: C(v) }} />
       </div>
       {evalComment && <p className="text-xs text-gray-500 mt-1 mb-1 leading-relaxed">{evalComment}</p>}
-      {hasSignals && (
-        <button onClick={() => setOpen(!open)} className="text-xs text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 mt-1">
-          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'Scoring signals'}
+
+      {/* Always-visible pinned signals */}
+      {pinnedSignals?.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
+          {pinnedSignals.map((sig, i) => (
+            <div key={i}>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="font-semibold text-gray-700">{sig.label}</span>
+                {sig.available && sig.score != null
+                  ? <span style={{ color: C(sig.score) }} className="font-bold">{Math.round(sig.score)}</span>
+                  : <span className="text-gray-300 italic text-[11px]">Not yet measured</span>}
+              </div>
+              {sig.available && sig.score != null && (
+                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${sig.score}%`, background: C(sig.score) }} />
+                </div>
+              )}
+              {sig.detail && <p className="text-[11px] text-gray-400 mt-0.5">{sig.detail}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Collapsible remaining signals */}
+      {hasCollapsible && (
+        <button onClick={() => setOpen(!open)} className="text-xs text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 mt-3">
+          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'More signals'}
         </button>
       )}
       {open && (
@@ -172,9 +202,32 @@ export default function VideoResultsPage() {
   const checkMap  = Object.fromEntries(checks.map(c => [c.id, c]));
   const gambit    = checkMap['gambit'];
   const pccpEval  = scores?.pccp_eval || {};
-  // LLM overall (1-10 * 10) takes priority over computed composite average
-  const overall   = scores?.llm_overall != null ? scores.llm_overall : scores?.overall;
-  const talkTime = scores?.analytics?.talk_time_sec;
+  const overall   = scores?.overall != null ? scores.overall : scores?.llm_overall;
+  const talkTime  = scores?.analytics?.talk_time_sec;
+
+  // Pinned signals for the Competence card — always visible regardless of stored weights
+  const fillerSm       = scores?.scores?.competence?.submetrics?.filler_rate;
+  const fillerInstances = scores?.analytics?.word_choice?.filler_words?.instances || [];
+  const fillerPct      = scores?.analytics?.word_choice?.filler_words?.pct;
+  const fillerDetail   = fillerInstances.length > 0
+    ? `${fillerInstances.length} detected${fillerPct != null ? ` · ${fillerPct}%` : ''}`
+    : (fillerPct != null ? `${fillerPct}%` : null);
+  const competencePinnedSignals = [
+    {
+      key: 'filler_rate',
+      label: 'Filler words',
+      score: fillerSm?.score ?? null,
+      detail: fillerDetail,
+      available: fillerSm?.available ?? fillerInstances.length > 0 ?? false,
+    },
+    {
+      key: 'awkward_gestures',
+      label: 'Awkward gestures',
+      score: scores?.scores?.competence?.submetrics?.awkward_gestures?.score ?? null,
+      detail: null,
+      available: false,
+    },
+  ];
 
   return wrap(
     <>
@@ -222,10 +275,11 @@ export default function VideoResultsPage() {
           <PccpCard
             key={c.key}
             label={c.label}
-            blurb={c.blurb}
+            blurb={c.key === 'competence' ? 'Filler words, content quality, delivery' : c.blurb}
             data={scores?.scores?.[c.key]}
             evalScore={pccpEval[c.key]?.score}
             evalComment={pccpEval[c.key]?.comment}
+            pinnedSignals={c.key === 'competence' ? competencePinnedSignals : undefined}
           />
         ))}
       </div>

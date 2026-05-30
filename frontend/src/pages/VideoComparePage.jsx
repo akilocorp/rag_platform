@@ -55,7 +55,7 @@ function CompareTable({ submissions, detailMap }) {
             <td className="text-xs font-semibold text-gray-600 py-3 pr-4">Overall</td>
             {submissions.map((s) => {
               const d = detailMap[s.submission_id];
-              const overall = d?.scores?.llm_overall != null ? d.scores.llm_overall : (d?.scores?.overall ?? s.overall);
+              const overall = d?.scores?.overall != null ? d.scores.overall : (d?.scores?.llm_overall ?? s.overall);
               return (
                 <td key={s.submission_id} className="text-center py-3 px-3">
                   {s.status === 'scored'
