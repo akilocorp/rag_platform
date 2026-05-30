@@ -27,8 +27,7 @@ def run_mediapipe_pose(video_path: str) -> dict:
     """Analyse pose in video_path; return signal dict or {} on failure."""
     try:
         import cv2
-        import mediapipe as mp  # noqa: F401 — ensure package loads
-        from mediapipe.python.solutions import pose as mp_pose
+        from mediapipe.solutions import pose as mp_pose
         logger.info("Pose analysis starting | file=%s", os.path.basename(video_path))
     except Exception as e:
         logger.warning("mediapipe unavailable (%s); skipping pose analysis", e)
