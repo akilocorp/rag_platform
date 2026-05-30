@@ -142,6 +142,28 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
                   );
                 })}
               </div>
+              {/* Competence signals: filler words + awkward gestures */}
+              {(() => {
+                const fillerSm = detail.scores?.scores?.competence?.submetrics?.filler_rate;
+                const fillerInstances = detail.scores?.analytics?.word_choice?.filler_words?.instances || [];
+                const fillerPct = detail.scores?.analytics?.word_choice?.filler_words?.pct;
+                const awkwardSm = detail.scores?.scores?.competence?.submetrics?.awkward_gestures;
+                if (!fillerSm && !awkwardSm) return null;
+                return (
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 border-t border-gray-100">
+                    {fillerSm?.available && fillerSm?.score != null && (
+                      <span className="text-xs">
+                        <span className="font-semibold text-gray-600">Filler words: </span>
+                        <span style={{ color: color(fillerSm.score) }} className="font-bold">{Math.round(fillerSm.score)}/100</span>
+                        {fillerPct != null && <span className="text-gray-400"> · {fillerPct}%{fillerInstances.length > 0 && ` (${fillerInstances.length} detected)`}</span>}
+                      </span>
+                    )}
+                    {awkwardSm && !awkwardSm.available && (
+                      <span className="text-xs text-gray-300 italic">Awkward gestures: not yet measured</span>
+                    )}
+                  </div>
+                );
+              })()}
               {fb.summary && <p className="text-sm text-gray-700">{fb.summary}</p>}
               {(fb.improvements || []).length > 0 && (
                 <div>

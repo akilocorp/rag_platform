@@ -267,7 +267,8 @@ def compute_submetrics(collected: dict) -> dict:
     # ---- pose-derived (PHASE 2) ----
     pose_present = bool(pose)
     for k, lbl in (("posture", "Upright posture"), ("sway", "Body steadiness"),
-                   ("gesture_activity", "Gesture activity")):
+                   ("gesture_activity", "Gesture activity"),
+                   ("awkward_gestures", "Awkward gestures")):
         # When pose lands, replace this with real derivations; renormalization
         # means scores adjust automatically once `available` flips true.
         sm[k] = _sm(None, None, pose_present, lbl if pose_present else "Not yet measured")

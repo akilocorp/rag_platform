@@ -31,6 +31,8 @@ function PccpCard({ label, blurb, data, evalScore, evalComment }) {
   const [open, setOpen] = useState(false);
   const v = evalScore != null ? evalScore : data?.value;
   const subs = Object.entries(data?.submetrics || {}).filter(([, m]) => m?.available && m?.score != null);
+  const pending = Object.entries(data?.submetrics || {}).filter(([, m]) => !m?.available);
+  const hasSignals = subs.length > 0 || pending.length > 0;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-start justify-between mb-3">
@@ -47,9 +49,9 @@ function PccpCard({ label, blurb, data, evalScore, evalComment }) {
         <div className="h-full rounded-full transition-all" style={{ width: `${v || 0}%`, background: C(v) }} />
       </div>
       {evalComment && <p className="text-xs text-gray-500 mt-1 mb-1 leading-relaxed">{evalComment}</p>}
-      {subs.length > 0 && (
+      {hasSignals && (
         <button onClick={() => setOpen(!open)} className="text-xs text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 mt-1">
-          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'Delivery signals'}
+          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'Scoring signals'}
         </button>
       )}
       {open && (
@@ -58,15 +60,23 @@ function PccpCard({ label, blurb, data, evalScore, evalComment }) {
             <div key={k}>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-gray-600">{m.label || k}</span>
-                <span style={{ color: C(m.available ? m.score : null) }}>
-                  {m.available && m.score != null ? Math.round(m.score) : 'N/A'}
-                </span>
+                <span style={{ color: C(m.score) }}>{Math.round(m.score)}</span>
               </div>
               <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${(m.available && m.score) || 0}%`, background: C(m.available ? m.score : null) }} />
+                <div className="h-full rounded-full" style={{ width: `${m.score || 0}%`, background: C(m.score) }} />
               </div>
             </div>
           ))}
+          {pending.length > 0 && (
+            <div className={subs.length > 0 ? 'pt-2 border-t border-gray-50' : ''}>
+              {pending.map(([k, m]) => (
+                <div key={k} className="flex justify-between text-xs py-0.5 text-gray-300">
+                  <span>{m.label || k}</span>
+                  <span className="italic">Not yet measured</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
