@@ -74,8 +74,8 @@ jobs:
           echo "Using compose file: $COMPOSE_FILE"
           echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-          # Remove stopped containers, dangling images, and build cache so
-          # requirements.txt changes (pinned versions) always take effect.
+          # Stop running containers, then prune stopped/dangling, then rebuild.
+          compose -f $COMPOSE_FILE down --remove-orphans || true
           sudo docker system prune -f || true
           sudo docker builder prune -f || true
 
@@ -148,8 +148,8 @@ jobs:
                   echo "Using compose file: $COMPOSE_FILE"
                   echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-                  # Remove stopped containers, dangling images, and build cache so
-                  # requirements.txt changes (pinned versions) always take effect.
+                  # Stop running containers, then prune stopped/dangling, then rebuild.
+                  compose -f $COMPOSE_FILE down --remove-orphans || true
                   sudo docker system prune -f || true
                   sudo docker builder prune -f || true
 
