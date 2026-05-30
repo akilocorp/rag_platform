@@ -271,6 +271,16 @@ Answer:"""
                 scoring_spec = video_registry.get_default_spec(assignment_type)
             config_document['assignment_type'] = assignment_type
             config_document['scoring_spec'] = scoring_spec
+
+            # Class code — optional, must be unique across all configs
+            raw_code = (config_data.get('class_code') or '').strip().lower()
+            if raw_code:
+                import re as _re
+                if not _re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
+                    return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
+                if mongo_collection.get_collection().find_one({"class_code": raw_code}):
+                    return jsonify({"error": "Class code already taken. Choose a different one."}), 409
+                config_document['class_code'] = raw_code
         
         result = mongo_collection.get_collection().insert_one(config_document)
         config_id = result.inserted_id
@@ -300,4 +310,25 @@ Answer:"""
 
     except Exception as e:
         current_app.logger.error(f"An error occurred in /config route: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/by-class/<string:class_code>', methods=['GET'])
+def get_config_by_class(class_code):
+    """Public endpoint — returns minimal config info for a class code (used by the join page)."""
+    try:
+        from models.config import Config as mongo_collection
+        doc = mongo_collection.get_collection().find_one(
+            {"class_code": class_code.strip().lower()},
+            {"bot_name": 1, "assignment_type": 1}
+        )
+        if not doc:
+            return jsonify({"error": "Class code not found"}), 404
+        return jsonify({
+            "config_id": str(doc["_id"]),
+            "bot_name": doc.get("bot_name", "Assignment"),
+            "assignment_type": doc.get("assignment_type", ""),
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500

@@ -120,7 +120,7 @@ def update_existing_config(config_id):
             "bots": bots_list
         }
 
-        # --- VIDEO-ANALYSIS FIELDS (assignment type + editable scoring spec) ---
+        # --- VIDEO-ANALYSIS FIELDS (assignment type + editable scoring spec + class code) ---
         assignment_type = data.get('assignment_type')
         if assignment_type is not None:
             update_data['assignment_type'] = (assignment_type or '').strip()
@@ -133,6 +133,16 @@ def update_existing_config(config_id):
                     scoring_spec = None
             if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
                 update_data['scoring_spec'] = scoring_spec
+
+        raw_code = (data.get('class_code') or '').strip().lower()
+        if raw_code:
+            import re as _re
+            if not _re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
+                return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
+            existing = Config.get_collection().find_one({"class_code": raw_code})
+            if existing and str(existing['_id']) != config_id:
+                return jsonify({"error": "Class code already taken. Choose a different one."}), 409
+            update_data['class_code'] = raw_code
 
         # Update the document in the database
         Config.get_collection().update_one(

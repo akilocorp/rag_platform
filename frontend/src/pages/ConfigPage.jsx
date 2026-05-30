@@ -155,6 +155,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     // Video Analysis Specifics
     assignment_type: '',
     scoring_spec: null,
+    class_code: '',
     // Group Chat Specifics
     group_size: 3,
     group_duration: 15,
@@ -519,6 +520,20 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       onChange={({ assignment_type, scoring_spec }) =>
                         setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
                     />
+                    <div className="mt-4">
+                      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                        Class Code <span className="font-normal text-gray-400">(optional — lets students join via invite link)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={config.class_code}
+                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                        maxLength={20}
+                        placeholder="e.g. actr101"
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">3–20 characters, letters, numbers, hyphens. Must be unique.</p>
+                    </div>
                   </>
                 ) : config.bot_type === 'group_chat' ? (
                   // ==============================

@@ -24,6 +24,8 @@ import VideoUploadPage from './pages/VideoUploadPage';
 import VideoResultsPage from './pages/VideoResultsPage';
 import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
+import JoinPage from './pages/JoinPage';
+import StudentDashboardPage from './pages/StudentDashboardPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -67,6 +69,14 @@ function App() {
           {/* Video results / compare — accessible via one-time token (anonymous) or logged-in owner/prof */}
           <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
           <Route path="/video/compare/:configId" element={<VideoComparePage />} />
+
+          {/* Join link — public, redirects to register/login with class code */}
+          <Route path="/join/:classCode" element={<JoinPage />} />
+
+          {/* Student dashboard — requires login */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/student-dashboard" element={<StudentDashboardPage />} />
+          </Route>
 
           {/* Protected Routes - Professor only */}
           <Route element={<ProfessorRoute />}>

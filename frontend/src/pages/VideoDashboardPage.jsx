@@ -189,8 +189,10 @@ export default function VideoDashboardPage() {
   const { configId } = useParams();
   const [dash, setDash] = useState(null);
   const [subs, setSubs] = useState([]);
+  const [classCode, setClassCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
 
   // Analysis sidebar state
   const [analyses, setAnalyses] = useState([]);
@@ -208,8 +210,12 @@ export default function VideoDashboardPage() {
     Promise.all([
       apiClient.get(`/video/config/${configId}/dashboard`),
       apiClient.get(`/video/config/${configId}/submissions`),
-    ]).then(([d, s]) => { setDash(d.data); setSubs(s.data.submissions || []); })
-      .finally(() => setLoading(false));
+      apiClient.get(`/config/${configId}`).catch(() => ({ data: {} })),
+    ]).then(([d, s, cfg]) => {
+      setDash(d.data);
+      setSubs(s.data.submissions || []);
+      setClassCode(cfg.data?.config?.class_code || '');
+    }).finally(() => setLoading(false));
   }, [configId]);
 
   const refreshAnalyses = useCallback(() => {
@@ -278,7 +284,9 @@ export default function VideoDashboardPage() {
   };
 
   const uploadLink = `${window.location.origin}/video-upload/${configId}`;
+  const inviteLink = classCode ? `${window.location.origin}/join/${classCode}` : '';
   const copyLink = () => { navigator.clipboard.writeText(uploadLink); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const copyInvite = () => { navigator.clipboard.writeText(inviteLink); setCopiedInvite(true); setTimeout(() => setCopiedInvite(false), 2000); };
 
   const activeAnalysis = viewId ? loadedRef.current[viewId] : null;
   const analysisStudentMap = activeAnalysis
@@ -319,13 +327,24 @@ export default function VideoDashboardPage() {
 
           {/* Main content */}
           <div className="flex-1 min-w-0 space-y-6">
-            {/* Upload link */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-400 shrink-0">Upload link</span>
-              <code className="flex-1 text-sm text-gray-700 truncate bg-gray-50 px-3 py-2 rounded-lg">{uploadLink}</code>
-              <button onClick={copyLink} className="px-3 py-2 rounded-lg bg-[#FA6C43] text-white text-sm font-semibold flex items-center gap-2">
-                {copied ? <FaCheck /> : <FaCopy />} {copied ? 'Copied' : 'Copy'}
-              </button>
+            {/* Links */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-400 shrink-0 w-24">Upload link</span>
+                <code className="flex-1 text-sm text-gray-700 truncate bg-gray-50 px-3 py-2 rounded-lg">{uploadLink}</code>
+                <button onClick={copyLink} className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold flex items-center gap-2 shrink-0">
+                  {copied ? <FaCheck className="text-green-500" /> : <FaCopy />} {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              {inviteLink && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#FA6C43] shrink-0 w-24">Invite link</span>
+                  <code className="flex-1 text-sm text-gray-700 truncate bg-[#FFF5F2] border border-[#FA6C43]/20 px-3 py-2 rounded-lg">{inviteLink}</code>
+                  <button onClick={copyInvite} className="px-3 py-2 rounded-lg bg-[#FA6C43] text-white text-sm font-semibold flex items-center gap-2 shrink-0">
+                    {copiedInvite ? <FaCheck /> : <FaCopy />} {copiedInvite ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Delivery view (no analysis selected) */}

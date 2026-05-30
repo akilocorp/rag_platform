@@ -137,8 +137,9 @@ def register():
             "email": email,
             "username": username,
             "password": password_hash,
-            "is_verified": False,  # <--- User cannot login until this is True
-            "role": role
+            "is_verified": False,
+            "role": role,
+            "classes": [],
         }
         User.create(new_user)
 
@@ -174,12 +175,14 @@ def student_register():
             return jsonify({"error": "That username is already taken."}), 409
 
         password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        class_code = (data.get('class_code') or '').strip().lower()
         new_user = {
             "email": email,
             "username": username,
             "password": password_hash,
             "is_verified": False,
-            "role": "student"
+            "role": "student",
+            "classes": [class_code] if class_code else [],
         }
         User.create(new_user)
 
