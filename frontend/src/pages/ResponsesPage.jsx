@@ -129,6 +129,7 @@ const TopPerformerCard = ({ student, rank }) => {
 };
 
 const StudentRow = ({ student, rank, expanded, onToggle }) => {
+  const [showHistory, setShowHistory] = useState(false);
   const c = scoreColor(student.score);
   return (
     <div className="border-b border-gray-50 last:border-b-0">
@@ -153,31 +154,45 @@ const StudentRow = ({ student, rank, expanded, onToggle }) => {
       </button>
 
       {expanded && (
-        <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50/40 border-t border-gray-100">
-          {student.strengths?.length > 0 && (
-            <div className="pt-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-green-600 mb-2">Strengths</p>
-              <ul className="space-y-1.5">
-                {student.strengths.map((s, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <FaCheckCircle className="text-green-500 text-xs mt-0.5 flex-shrink-0" />
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {student.improvements?.length > 0 && (
-            <div className="pt-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600 mb-2">Areas to Improve</p>
-              <ul className="space-y-1.5">
-                {student.improvements.map((s, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <FaArrowRight className="text-amber-500 text-xs mt-0.5 flex-shrink-0" />
-                    {s}
-                  </li>
-                ))}
-              </ul>
+        <div className="px-6 pb-5 bg-gray-50/40 border-t border-gray-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {student.strengths?.length > 0 && (
+              <div className="pt-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-green-600 mb-2">Strengths</p>
+                <ul className="space-y-1.5">
+                  {student.strengths.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <FaCheckCircle className="text-green-500 text-xs mt-0.5 flex-shrink-0" />
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {student.improvements?.length > 0 && (
+              <div className="pt-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600 mb-2">Areas to Improve</p>
+                <ul className="space-y-1.5">
+                  {student.improvements.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <FaArrowRight className="text-amber-500 text-xs mt-0.5 flex-shrink-0" />
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {student.session_id && (
+            <div className="mt-4 pt-3 border-t border-gray-100">
+              <button
+                onClick={() => setShowHistory(h => !h)}
+                className="text-xs font-semibold text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 transition-colors"
+              >
+                {showHistory ? <FaChevronUp className="text-[10px]" /> : <FaChevronDown className="text-[10px]" />}
+                {showHistory ? 'Hide chat history' : 'Show full results & chat history'}
+              </button>
+              {showHistory && <TranscriptView sessionId={student.session_id} />}
             </div>
           )}
         </div>

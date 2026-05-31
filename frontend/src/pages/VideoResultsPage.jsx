@@ -376,7 +376,7 @@ export default function VideoResultsPage() {
 
       {/* ── Follow-up questions ── */}
       {(coaching.follow_up_questions || []).length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
           <h2 className="font-bold text-[#222] flex items-center gap-2 mb-3">
             <FaLightbulb className="text-blue-400" /> Questions to Prepare For
           </h2>
@@ -387,6 +387,27 @@ export default function VideoResultsPage() {
           </ul>
         </div>
       )}
+
+      {/* ── Full Transcript ── */}
+      {data.transcript?.text && <FullTranscript transcript={data.transcript} />}
     </>
+  );
+}
+
+function FullTranscript({ transcript }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between text-sm font-bold text-gray-600 hover:text-[#FA6C43] transition-colors">
+        <span>Full Transcript</span>
+        {open ? <FaChevronUp className="text-xs" /> : <FaChevronDown className="text-xs" />}
+      </button>
+      {open && (
+        <div className="mt-4 pt-4 border-t border-gray-100 max-h-96 overflow-y-auto">
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{transcript.text}</p>
+        </div>
+      )}
+    </div>
   );
 }

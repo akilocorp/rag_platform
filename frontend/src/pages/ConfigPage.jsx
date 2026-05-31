@@ -430,7 +430,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space Type</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="chat" checked={config.bot_type === 'chat'} onChange={handleChange} className="hidden" />
                       <FaComments className={`text-2xl mb-2 ${config.bot_type === 'chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
@@ -438,26 +438,26 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Text</p>
                     </label>
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'avatar' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'avatar' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="avatar" checked={config.bot_type === 'avatar'} onChange={handleChange} className="hidden" />
                       <FaVideo className={`text-2xl mb-2 ${config.bot_type === 'avatar' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Avatar Bot</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Video</p>
-                    </label>
+                    </label> */}
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="audio_call" checked={config.bot_type === 'audio_call'} onChange={handleChange} className="hidden" />
                       <FaPhoneAlt className={`text-2xl mb-2 ${config.bot_type === 'audio_call' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Audio Call</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Voice + Transcript</p>
-                    </label>
+                    </label> */}
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="group_chat" checked={config.bot_type === 'group_chat'} onChange={handleChange} className="hidden" />
                       <FaUsers className={`text-2xl mb-2 ${config.bot_type === 'group_chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Group Chat</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Multi-User & Multi-AI</p>
-                    </label>
+                    </label> */}
 
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'video_analysis' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="video_analysis" checked={config.bot_type === 'video_analysis'} onChange={handleChange} className="hidden" />
