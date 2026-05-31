@@ -367,7 +367,7 @@ def video_url(sub_id):
         return jsonify({"error": "Submission not found"}), 404
     if not _can_view_results(sub, request.args.get("token")):
         return jsonify({"error": "Forbidden"}), 403
-    key = sub.get("storage_key")
+    key = sub.get("processed_key") or sub.get("storage_key")
     if not key:
         return jsonify({"error": "No video on file"}), 404
     # No `filename` → no attachment disposition → plays inline in a <video> tag.

@@ -10,6 +10,7 @@ Mongo/S3), so it can later move behind a real queue without a rewrite.
 """
 import logging
 import os
+import re
 import secrets
 import subprocess
 import threading
@@ -80,6 +81,26 @@ def _extract_audio(video_path: str) -> str:
     return audio_path
 
 
+def _transcode_for_web(video_path: str) -> str:
+    """Re-encode to H.264/AAC MP4.
+
+    Handles HEVC (iPhone default), MOV container, and portrait rotation metadata
+    (ffmpeg applies stored rotation when re-encoding). yuv420p ensures every
+    browser can decode the result.
+    """
+    out = video_path + "_web.mp4"
+    cmd = [
+        _ffmpeg_exe(), "-y", "-i", video_path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
+        out,
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return out
+
+
 def _run_video_pipeline(app, submission_id: str, job_id: str):
     with app.app_context():
         from flask import current_app
@@ -96,6 +117,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
         acquired = _semaphore.acquire(timeout=600)
         tmp_video = None
         tmp_audio = None
+        tmp_processed = None
         try:
             if not acquired:
                 raise RuntimeError("Video worker pool busy — timed out waiting for a slot")
@@ -110,10 +132,21 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             tmp_video = os.path.join(TMP_DIR, f"{uuid.uuid4().hex}_{os.path.basename(storage_key)}")
             get_s3_client().download_file(get_bucket(), storage_key, tmp_video)
 
-            # 2. Audio for Whisper; presigned GET URL for Hume (no second download).
+            # 2. Transcode to H.264 MP4 (fixes HEVC/MOV phone videos for Hume + browsers).
             _emit(sio, sub, "video_job_progress", {"stage": "extracting_audio", "job_id": job_id})
-            tmp_audio = _extract_audio(tmp_video)
-            media_url = generate_download_url(storage_key, expires_in=3600)
+            try:
+                tmp_processed = _transcode_for_web(tmp_video)
+                processed_key = re.sub(r'\.[^.]+$', '', storage_key) + "_processed.mp4"
+                get_s3_client().upload_file(tmp_processed, get_bucket(), processed_key,
+                                            ExtraArgs={"ContentType": "video/mp4"})
+                subs.update_one({"_id": sub["_id"]}, {"$set": {"processed_key": processed_key}})
+                media_url = generate_download_url(processed_key, expires_in=3600)
+                hume_source = tmp_processed
+            except Exception as tc_err:
+                logger.warning("Transcode failed, falling back to original: %s", tc_err)
+                media_url = generate_download_url(storage_key, expires_in=3600)
+                hume_source = tmp_video
+            tmp_audio = _extract_audio(hume_source)
 
             openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
             assemblyai_key = current_app.config.get("ASSEMBLYAI_API_KEY") or os.getenv("ASSEMBLYAI_API_KEY")
@@ -188,6 +221,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 _semaphore.release()
             _safe_unlink(tmp_video)
             _safe_unlink(tmp_audio)
+            _safe_unlink(tmp_processed)
 
 
 def _resolve_scoring_spec(db, sub):
