@@ -399,7 +399,7 @@ const EditConfigPage = () => {
                 />
                 <div className=”mt-4”>
                   <label className=”block text-[13px] font-semibold text-gray-700 mb-1.5”>
-                    Class Code <span className=”font-normal text-gray-400”>(optional — generates a student invite link)</span>
+                    Class Code <span className=”font-normal text-gray-400”>(optional - generates a student invite link)</span>
                   </label>
                   <input
                     type=”text”
@@ -409,7 +409,7 @@ const EditConfigPage = () => {
                     placeholder=”e.g. actr101”
                     className=”w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all”
                   />
-                  <p className=”text-[11px] text-gray-400 mt-1”>3–20 characters, letters, numbers, hyphens. Must be unique.</p>
+                  <p className=”text-[11px] text-gray-400 mt-1”>3-20 characters, letters, numbers, hyphens. Must be unique.</p>
                 </div>
                 <p className=”text-xs text-gray-400 mt-4”>Editing weights or prompts applies to new submissions. Use “Rescore” on the dashboard to re-grade existing ones.</p>
               </div>
