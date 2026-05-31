@@ -50,11 +50,11 @@ DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
         "vocabulary":        0.10,
     },
     "passion": {
-        "vocal_control":      0.33,
-        "energy_dynamics":    0.25,
-        "pitch_variation":    0.17,
-        "facial_expressivity": 0.17,
-        "hume_enthusiasm":    0.08,
+        "vocal_control":      0.27,
+        "energy_dynamics":    0.20,
+        "pitch_variation":    0.14,
+        "facial_expressivity": 0.14,
+        "hume_enthusiasm":    0.25,
     },
 }
 
