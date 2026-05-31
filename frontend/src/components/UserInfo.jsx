@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/apiClient';
-import { FaUser, FaChevronDown, FaSignOutAlt } from 'react-icons/fa';
+import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
 const UserInfo = () => {
@@ -60,6 +60,19 @@ const UserInfo = () => {
 
       {showDropdown && (
         <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+          {userInfo.role === 'admin' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDropdown(false);
+                navigate('/admin');
+              }}
+              className="block w-full px-3 py-1.5 text-left text-xs text-purple-700 bg-white flex items-center gap-2 hover:bg-purple-50 rounded-md border-0"
+            >
+              <FaShieldAlt className="w-4 h-4" />
+              Admin Panel
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

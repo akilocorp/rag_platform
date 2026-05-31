@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt } from 'react-icons/fa';
+import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
+import VideoScoringEditor from '../components/VideoScoringEditor';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -16,6 +18,7 @@ const EditConfigPage = () => {
   const [errors, setErrors] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [promptMode, setPromptMode] = useState('instructions');
+  const [showTemplates, setShowTemplates] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
   
@@ -27,11 +30,11 @@ const EditConfigPage = () => {
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro' },
-    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-    { id: 'gpt-4', name: 'GPT-4' },
-    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-    { id: 'gpt-4.1', name: 'GPT-4.1' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    // { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    // { id: 'gpt-4', name: 'GPT-4' },
+    // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    // { id: 'gpt-4.1', name: 'GPT-4.1' },
+    // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
@@ -63,7 +66,7 @@ const EditConfigPage = () => {
             parsedBots = [];
         }
         if (parsedBots.length === 0) {
-             parsedBots = [{ name: 'Assistant', prompt: '', model_name: 'gpt-4o', temperature: 0.7 }];
+             parsedBots = [{ name: 'Assistant', prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }];
         }
     }
 
@@ -112,6 +115,7 @@ const EditConfigPage = () => {
     const id = config.config_id || config._id;
     if (id) {
       if (config.bot_type === 'group_chat') navigate(`/group-chat/${id}`);
+      else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${id}`);
       else navigate(`/chat/${id}`, { state: { fromEdit: true } });
     } else {
       navigate('/config_list');
@@ -134,7 +138,7 @@ const EditConfigPage = () => {
   const addBot = () => {
     setConfig(prev => ({
       ...prev,
-      bots: [...prev.bots, { name: `Bot ${prev.bots.length + 1}`, prompt: '', model_name: 'gpt-3.5-turbo', temperature: 0.7 }]
+      bots: [...prev.bots, { name: `Bot ${prev.bots.length + 1}`, prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }]
     }));
   };
 
@@ -182,6 +186,8 @@ const EditConfigPage = () => {
             if (!b.name.trim()) newErrors[`bot_${i}_name`] = 'Required';
             if (!b.prompt.trim()) newErrors[`bot_${i}_prompt`] = 'Required';
         });
+    } else if (config.bot_type === 'video_analysis') {
+        if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
     } else {
         if (promptMode === 'instructions' && !config.instructions?.trim()) newErrors.instructions = 'Required';
         if (promptMode === 'template' && !config.prompt_template?.trim()) newErrors.prompt_template = 'Required';
@@ -213,16 +219,25 @@ const EditConfigPage = () => {
       if (configToSubmit.bot_type === 'group_chat') {
           configToSubmit.instructions = "Group Space: Managing multiple AI agents.";
           configToSubmit.prompt_template = "";
+      } else if (configToSubmit.bot_type === 'video_analysis') {
+          configToSubmit.instructions = `Video analysis assignment: ${configToSubmit.assignment_type}`;
+          configToSubmit.prompt_template = "";
       } else {
           if (promptMode === 'instructions') configToSubmit.prompt_template = '';
           else configToSubmit.instructions = '';
       }
 
+      // scoring_spec is an object — serialize it (the generic loop would coerce to "[object Object]").
+      const scoringSpec = configToSubmit.scoring_spec;
+
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec') {
           formData.append(key, value);
         }
       });
+      if (scoringSpec && typeof scoringSpec === 'object') {
+        formData.append('scoring_spec', JSON.stringify(scoringSpec));
+      }
       
       // Append bots safely
       if (configToSubmit.bot_type === 'group_chat') {
@@ -238,6 +253,7 @@ const EditConfigPage = () => {
       await apiClient.put(`/config/${config.config_id}`, formData);
 
       if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
+      else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${config.config_id}`);
       else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
       
     } catch (error) {
@@ -272,7 +288,7 @@ const EditConfigPage = () => {
         
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
-            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : 'AI Assistant'}
+            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : 'AI Assistant'}
           </h1>
         </div>
 
@@ -299,7 +315,7 @@ const EditConfigPage = () => {
                 {errors.bot_name && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.bot_name}</p>}
               </div>
 
-              {config.bot_type !== 'group_chat' && (
+              {config.bot_type !== 'group_chat' && config.bot_type !== 'video_analysis' && (
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Model Name</label>
                   <select
@@ -315,7 +331,7 @@ const EditConfigPage = () => {
             </div>
 
             {/* Avatar Selection Based on Type */}
-            <div className={`pt-2 ${config.bot_type === 'audio_call' ? 'hidden' : ''}`}>
+            <div className={`pt-2 ${(config.bot_type === 'audio_call' || config.bot_type === 'video_analysis') ? 'hidden' : ''}`}>
                 {config.bot_type === 'avatar' ? (
                     <>
                       <label className="block text-[13px] font-semibold text-gray-700 mb-2">Video Avatar</label>
@@ -371,8 +387,33 @@ const EditConfigPage = () => {
               </div>
             </div>
 
-            {/* CONDITIONAL LOGIC: Group Chat vs Standard */}
-            {config.bot_type === 'group_chat' ? (
+            {/* CONDITIONAL LOGIC: Video Analysis vs Group Chat vs Standard */}
+            {config.bot_type === 'video_analysis' ? (
+              <div className="border-t border-gray-100 pt-8 mt-8">
+                <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Rubric & Scoring</h3>
+                <VideoScoringEditor
+                  assignmentType={config.assignment_type}
+                  scoringSpec={config.scoring_spec}
+                  onChange={({ assignment_type, scoring_spec }) =>
+                    setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
+                />
+                <div className="mt-4">
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                    Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.class_code || ''}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                    maxLength={20}
+                    placeholder="e.g. actr101"
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
+                </div>
+                <p className="text-xs text-gray-400 mt-4">Editing weights or prompts applies to new submissions. Use "Rescore" on the dashboard to re-grade existing ones.</p>
+              </div>
+            ) : config.bot_type === 'group_chat' ? (
               <div className="border-t border-gray-100 pt-8 mt-8 space-y-6">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Matchmaking Rules</h3>
                 <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-2xl border border-gray-100">
@@ -426,6 +467,35 @@ const EditConfigPage = () => {
               // Standard AI Settings
               <>
                 <div className="space-y-4 border-t border-gray-100 pt-8 mt-8">
+                  {/* Template Gallery (collapsible) */}
+                  <div className="mb-2">
+                    <button type="button" onClick={() => setShowTemplates(v => !v)} className="flex items-center gap-2 text-sm font-semibold text-[#FA6C43] hover:underline">
+                      {showTemplates ? '▾' : '▸'} Apply a simulation template
+                    </button>
+                    {showTemplates && (
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        {SIMULATION_TEMPLATES.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              setConfig(prev => ({ ...prev, instructions: t.instructions, temperature: t.temperature }));
+                              handlePromptModeChange('instructions');
+                              setShowTemplates(false);
+                            }}
+                            className="text-left p-3 rounded-xl border-2 border-gray-200 hover:border-[#FA6C43] hover:bg-[#F9D0C4]/20 bg-white transition-all"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">{t.icon}</span>
+                              <span className="text-sm font-bold text-[#222]">{t.title}</span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-snug">{t.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex space-x-3 w-fit">
                     <button type="button" onClick={() => handlePromptModeChange('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Simple Instructions</button>
                     <button type="button" onClick={() => handlePromptModeChange('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Advanced Template</button>
@@ -461,9 +531,9 @@ const EditConfigPage = () => {
               </>
             )}
 
-            <div className="border-t border-gray-100 pt-8 mt-8">
+            <div className={`border-t border-gray-100 pt-8 mt-8 ${config.bot_type === 'video_analysis' ? 'hidden' : ''}`}>
               <label className="block text-[13px] font-semibold text-gray-700 mb-2">Knowledge Base Files</label>
-              
+
               {config.documents && config.documents.length > 0 && (
                 <div className="mt-3 space-y-2">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Currently Uploaded</h4>
@@ -506,7 +576,10 @@ const EditConfigPage = () => {
               <button type="button" onClick={handleDelete} disabled={isDeleting || isLoading} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200">
                 {isDeleting ? 'Deleting...' : 'Delete Space'}
               </button>
-              <div className="flex gap-3 w-full sm:w-auto">
+              <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-end">
+                <button type="button" onClick={() => navigate(config.bot_type === 'video_analysis' ? `/video-dashboard/${config.config_id}` : `/responses/${config.config_id}`)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
+                  <FaListAlt className="text-sm text-gray-500" /><span>{config.bot_type === 'video_analysis' ? 'Dashboard' : 'View Responses'}</span>
+                </button>
                 <button type="button" onClick={navigateToThisAgentChat} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
                 <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">
                   {isLoading ? 'Saving...' : 'Save Changes'}

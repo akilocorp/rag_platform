@@ -31,6 +31,32 @@ def upload_file(local_path: str, key: str, content_type: str | None = None) -> s
     return key
 
 
+def generate_presigned_put_url(
+    key: str,
+    content_type: str,
+    expires_in: int = 900,
+) -> str:
+    """Presigned URL for a direct browser PUT upload.
+
+    The browser MUST send the exact same Content-Type when uploading, or S3
+    returns 403 (the header is part of the signature).
+    """
+    return get_s3_client().generate_presigned_url(
+        'put_object',
+        Params={'Bucket': get_bucket(), 'Key': key, 'ContentType': content_type},
+        ExpiresIn=expires_in,
+    )
+
+
+def object_exists(key: str) -> bool:
+    """True if the object is present (used to confirm a direct upload landed)."""
+    try:
+        get_s3_client().head_object(Bucket=get_bucket(), Key=key)
+        return True
+    except (ClientError, BotoCoreError):
+        return False
+
+
 def delete_object(key: str) -> None:
     try:
         get_s3_client().delete_object(Bucket=get_bucket(), Key=key)

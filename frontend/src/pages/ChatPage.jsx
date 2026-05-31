@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiMoreVertical, FiImage } from 'react-icons/fi';
+import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiMoreVertical, FiImage, FiSettings } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -239,6 +239,11 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
 const ChatPage = () => {
   const { configId, chatId } = useParams();
   const navigate = useNavigate();
+  const _qp = new URLSearchParams(window.location.search);
+  const qualtricsIdRef = useRef(_qp.get('qualtricsId') || null);
+  const _urlStudentLabel = _qp.get('studentEmail') || _qp.get('studentName') || null;
+  const _savedGuest = (() => { try { return JSON.parse(localStorage.getItem('guestInfo') || 'null'); } catch { return null; } })();
+  const studentLabelRef = useRef(_urlStudentLabel || _savedGuest?.name || null);
   const { variant } = useVariant();
   
   // --- STATE ---
@@ -277,6 +282,11 @@ const ChatPage = () => {
   const [pendingImages, setPendingImages] = useState([]);
   const libraryLoadedRef = useRef(false);
 
+  // Personal config settings panel (students)
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({ bot_name: '', model_name: '', instructions: '' });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
   // --- REFS (The "Brain" of the component) ---
   const currentChatIdRef = useRef(chatId); // Tracks the session ID across renders
   const userFetchRef = useRef(false);
@@ -290,6 +300,21 @@ const ChatPage = () => {
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
+
+  const [guestInfo, setGuestInfo] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
+  });
+  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: true });
+  const [guestFormError, setGuestFormError] = useState('');
+
+  const submitGuestForm = () => {
+    if (!guestForm.name.trim()) { setGuestFormError('Name is required.'); return; }
+    if (!guestForm.email.trim() || !/\S+@\S+\.\S+/.test(guestForm.email)) { setGuestFormError('A valid email is required.'); return; }
+    const info = { name: guestForm.name.trim(), email: guestForm.email.trim(), marketingOptIn: guestForm.marketingOptIn };
+    localStorage.setItem('guestInfo', JSON.stringify(info));
+    studentLabelRef.current = info.name;
+    setGuestInfo(info);
+  };
 
   // Sync Ref with URL param
   useEffect(() => {
@@ -372,6 +397,29 @@ const ChatPage = () => {
     fetchConfig();
     return () => { isMounted = false; };
   }, [configId]);
+
+  useEffect(() => {
+    if (config?.is_personal) {
+      setSettingsForm({
+        bot_name: config.bot_name || '',
+        model_name: config.model_name || 'gpt-4o-mini',
+        instructions: config.instructions || '',
+      });
+    }
+  }, [config]);
+
+  const savePersonalSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      await apiClient.patch('/student/personal-config', settingsForm);
+      setConfig(prev => ({ ...prev, ...settingsForm }));
+      setShowSettings(false);
+    } catch (e) {
+      console.error('Failed to save settings', e);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   // --- 3. SESSION LIST MANAGEMENT ---
   const fetchSessions = useCallback(async (force = false) => {
@@ -696,6 +744,10 @@ const ChatPage = () => {
           selected_file_ids: variant === 'A' ? selectedFileIds : [],
           attached_files: attachedFiles,
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
+          ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
+          ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
+          ...(guestInfo?.email ? { student_email: guestInfo.email } : {}),
+          ...(guestInfo && !isAuthenticated ? { marketing_opt_in: guestInfo.marketingOptIn } : {}),
         })
       });
 
@@ -906,6 +958,55 @@ const ChatPage = () => {
     </div>
   );
 
+  if (!isAuthenticated && config?.is_public && !guestInfo) return (
+    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] px-4">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
+        <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
+        <p className="text-sm text-gray-500 mb-6">Enter your info to get started.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input
+              type="text"
+              value={guestForm.name}
+              onChange={e => setGuestForm(p => ({ ...p, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && submitGuestForm()}
+              placeholder="Your name"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#FA6C43]"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={guestForm.email}
+              onChange={e => setGuestForm(p => ({ ...p, email: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && submitGuestForm()}
+              placeholder="you@example.com"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#FA6C43]"
+            />
+          </div>
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={guestForm.marketingOptIn}
+              onChange={e => setGuestForm(p => ({ ...p, marketingOptIn: e.target.checked }))}
+              className="mt-0.5 accent-[#FA6C43]"
+            />
+            <span className="text-sm text-gray-600">I'd like to receive updates and research-related communications. <span className="text-gray-400">(Uncheck to opt out)</span></span>
+          </label>
+          {guestFormError && <p className="text-xs text-red-500">{guestFormError}</p>}
+          <button
+            onClick={submitGuestForm}
+            className="w-full bg-[#FA6C43] hover:bg-[#e85a30] text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+          >
+            Start Chat
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const isAvatarMode = config?.bot_type === 'avatar';
   const showAvatar = isAvatarMode && !avatarError;
   const isCallMode = config?.bot_type === 'audio_call';
@@ -986,7 +1087,79 @@ const ChatPage = () => {
                     {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{getModelDisplayName(config.model_name)}</p>}
                 </div>
             </div>
+            {config?.is_personal && (
+              <button
+                type="button"
+                onClick={() => setShowSettings(s => !s)}
+                className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-[#FA6C43] text-white' : 'text-gray-400 hover:bg-[#F0F6FB] hover:text-[#FA6C43]'}`}
+                aria-label="Assistant settings"
+                title="Customize your assistant"
+              >
+                <FiSettings className="w-5 h-5" />
+              </button>
+            )}
         </header>
+
+        {config?.is_personal && showSettings && (
+          <div className="border-b border-gray-200 bg-white px-4 sm:px-6 py-4 space-y-3 z-10 animate-in slide-in-from-top-2 duration-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Assistant name</label>
+                <input
+                  type="text"
+                  value={settingsForm.bot_name}
+                  onChange={e => setSettingsForm(f => ({ ...f, bot_name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  placeholder="My Assistant"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Model</label>
+                <select
+                  value={settingsForm.model_name}
+                  onChange={e => setSettingsForm(f => ({ ...f, model_name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all bg-white"
+                >
+                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="gpt-4.1">GPT-4.1</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="deepseek-chat">Deepseek Chat</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">System prompt</label>
+              <textarea
+                value={settingsForm.instructions}
+                onChange={e => setSettingsForm(f => ({ ...f, instructions: e.target.value }))}
+                rows={3}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all resize-none"
+                placeholder="Describe how your assistant should behave…"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={savePersonalSettings}
+                disabled={settingsSaving}
+                className="px-4 py-2 text-sm font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] rounded-lg transition-colors disabled:opacity-60 flex items-center gap-2"
+              >
+                {settingsSaving && <FaSpinner className="animate-spin text-xs" />}
+                Save
+              </button>
+            </div>
+          </div>
+        )}
 
         {avatarError && isAvatarMode && (
            <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 flex items-center justify-center gap-2 text-red-400 text-sm">

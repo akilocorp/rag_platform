@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage';
 import LandingV2 from './pages/LandingV2';
 import AboutPage from './pages/AboutPage';
 import RegisterPage from './pages/RegistrationPage';
+import StudentRegistrationPage from './pages/StudentRegistrationPage';
 import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
 import ChatPage from './pages/ChatPage';
@@ -16,9 +17,19 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
+import ResponsesPage from './pages/ResponsesPage';
+import AdminPage from './pages/AdminPage';
+import StudentChatPage from './pages/StudentChatPage';
+import VideoUploadPage from './pages/VideoUploadPage';
+import VideoResultsPage from './pages/VideoResultsPage';
+import VideoComparePage from './pages/VideoComparePage';
+import VideoDashboardPage from './pages/VideoDashboardPage';
+import JoinPage from './pages/JoinPage';
+import StudentDashboardPage from './pages/StudentDashboardPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
+import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
 import { VariantProvider } from './context/VariantContext';
 
@@ -40,6 +51,8 @@ function App() {
 
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/student-register" element={<StudentRegistrationPage />} />
+          <Route path="/student-chat" element={<StudentChatPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -50,13 +63,29 @@ function App() {
           <Route element={<PublicChatRoute />}>
             <Route path="/chat/:configId/:chatId?" element={<ChatPage />} />
             <Route path="/chat/:configId/:chatId/:qualtricsId" element={<ChatPage />} />
+            <Route path="/video-upload/:configId" element={<VideoUploadPage />} />
           </Route>
 
-          {/* Protected Routes - Requires authentication */}
+          {/* Video results / compare — accessible via one-time token (anonymous) or logged-in owner/prof */}
+          <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
+          <Route path="/video/compare/:configId" element={<VideoComparePage />} />
+
+          {/* Join link — public, redirects to register/login with class code */}
+          <Route path="/join/:classCode" element={<JoinPage />} />
+
+          {/* Student dashboard — requires login */}
           <Route element={<ProtectedRoute />}>
+            <Route path="/student-dashboard" element={<StudentDashboardPage />} />
+          </Route>
+
+          {/* Protected Routes - Professor only */}
+          <Route element={<ProfessorRoute />}>
             <Route path="/config_list" element={<ConfigList />} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
+            <Route path="/responses/:configId" element={<ResponsesPage />} />
+            <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
+            <Route path="/admin" element={<AdminPage />} />
           </Route>
 
         </Routes>

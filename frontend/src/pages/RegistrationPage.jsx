@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaEye, FaEyeSlash, FaCheckCircle } from 'react-icons/fa';
 import logo from '../assets/logo.png';
@@ -27,9 +27,14 @@ const slides = [
 ];
 
 const RegistrationPage = () => {
+  const [searchParams] = useSearchParams();
+  const classCode = searchParams.get('class') || '';
+  const roleParam = searchParams.get('role') || '';
+
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState(roleParam === 'student' ? 'student' : 'professor');
   const [errors, setErrors] = useState({});
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,7 +84,11 @@ const RegistrationPage = () => {
 
     setIsLoading(true);
     try {
-      await apiClient.post('/auth/register', { email, username, password });
+      if (classCode || role === 'student') {
+        await apiClient.post('/auth/student-register', { email, username, password, class_code: classCode || undefined });
+      } else {
+        await apiClient.post('/auth/register', { email, username, password, role });
+      }
       setRegistrationSuccess(true);
     } catch (error) {
       console.error('Registration error:', error);
@@ -154,6 +163,12 @@ const RegistrationPage = () => {
                 </div>
               )}
 
+              {classCode && (
+                <div className="mb-4 px-4 py-3 bg-[#FFF5F2] border border-[#FA6C43]/30 rounded-xl flex items-center gap-2">
+                  <span className="text-[#FA6C43] text-sm">🎓</span>
+                  <span className="text-sm text-[#FA6C43] font-semibold">Joining class: <span className="uppercase">{classCode}</span></span>
+                </div>
+              )}
               <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
                 <div>
                   <label htmlFor="email" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
@@ -249,6 +264,28 @@ const RegistrationPage = () => {
 
                   {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
                 </div>
+
+                {!classCode && (
+                  <div>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">I am a</label>
+                    <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setRole('professor')}
+                        className={`flex-1 py-2.5 text-sm font-bold transition-colors ${role === 'professor' ? 'bg-[#FA6C43] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Professor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRole('student')}
+                        className={`flex-1 py-2.5 text-sm font-bold transition-colors border-l border-gray-200 ${role === 'student' ? 'bg-[#FA6C43] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Student
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"

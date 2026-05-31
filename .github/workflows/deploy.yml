@@ -74,9 +74,10 @@ jobs:
           echo "Using compose file: $COMPOSE_FILE"
           echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-          # Remove stopped containers and dangling images to free disk.
-          # Do NOT prune the builder cache — that's the pip wheel cache.
+          # Stop running containers, then prune stopped/dangling, then rebuild.
+          compose -f $COMPOSE_FILE down --remove-orphans || true
           sudo docker system prune -f || true
+          sudo docker builder prune -f || true
 
           compose -f $COMPOSE_FILE up -d --build --remove-orphans
           compose -f $COMPOSE_FILE ps
@@ -147,9 +148,10 @@ jobs:
                   echo "Using compose file: $COMPOSE_FILE"
                   echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-                  # Remove stopped containers and dangling images to free disk.
-                  # Do NOT prune the builder cache — that's the pip wheel cache.
+                  # Stop running containers, then prune stopped/dangling, then rebuild.
+                  compose -f $COMPOSE_FILE down --remove-orphans || true
                   sudo docker system prune -f || true
+                  sudo docker builder prune -f || true
 
                   compose -f $COMPOSE_FILE up -d --build --remove-orphans
                   compose -f $COMPOSE_FILE ps

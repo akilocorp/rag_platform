@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import logo from '../assets/logo.png';
@@ -27,6 +27,9 @@ import Navbar from './NavBar';
 ];
 
 const LoginPage = () => {
+  const [searchParams] = useSearchParams();
+  const classCode = searchParams.get('class') || '';
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -74,9 +77,16 @@ const LoginPage = () => {
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
+        const userRole = response.data.user?.role || 'professor';
+        localStorage.setItem('userRole', userRole);
         setErrors({});
         setFormError(null);
-        navigate('/config_list', { replace: true });
+        if (userRole === 'student' && classCode) {
+          await apiClient.post('/student/enroll', { class_code: classCode }).catch(() => {});
+          navigate('/student-dashboard', { replace: true });
+        } else {
+          navigate(userRole === 'student' ? '/student-dashboard' : '/config_list', { replace: true });
+        }
       } else {
         setFormError('Login failed: No authentication token received.');
       }

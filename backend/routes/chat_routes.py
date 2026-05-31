@@ -261,6 +261,91 @@ def get_chat_list(config_id):
         return jsonify({"message": "An internal server error occurred."}), 500
 
 
+@chat_bp.route('/config/<string:config_id>/sessions', methods=['GET'])
+@jwt_required()
+def get_config_sessions(config_id):
+    """Returns all chat sessions for a config. Only accessible by the config owner."""
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+
+        config_doc = db["config_collections"].find_one({"_id": ObjectId(config_id)})
+        if not config_doc:
+            return jsonify({"message": "Config not found"}), 404
+        if str(config_doc.get("user_id", "")) != user_id:
+            return jsonify({"message": "Forbidden"}), 403
+
+        metadata_collection = db["chat_session_metadata"]
+        users_collection = current_app.config['MONGO_COLLECTION']
+
+        pipeline = [
+            {"$match": {"config_id": config_id}},
+            {
+                "$lookup": {
+                    "from": users_collection.name,
+                    "let": {"uid": "$user_id"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        {"$ne": ["$$uid", "anonymous"]},
+                                        {"$eq": [{"$toString": "$_id"}, "$$uid"]}
+                                    ]
+                                }
+                            }
+                        },
+                        {"$project": {"email": 1, "_id": 0}}
+                    ],
+                    "as": "user_info"
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "chat_histories",
+                    "let": {"sid": "$session_id"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$SessionId", "$$sid"]}}},
+                        {"$count": "n"}
+                    ],
+                    "as": "msg_count"
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "session_id": 1,
+                    "title": 1,
+                    "timestamp": {
+                        "$cond": {
+                            "if": "$timestamp",
+                            "then": {
+                                "$dateToString": {
+                                    "format": "%Y-%m-%dT%H:%M:%SZ",
+                                    "date": {"$toDate": {"$multiply": ["$timestamp", 1000]}}
+                                }
+                            },
+                            "else": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:%SZ", "date": "$_id"}}
+                        }
+                    },
+                    "user_email": {"$ifNull": [{"$arrayElemAt": ["$user_info.email", 0]}, None]},
+                    "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]},
+                    "qualtrics_id": 1,
+                    "student_label": 1,
+                    "student_email": 1
+                }
+            },
+            {"$sort": {"timestamp": -1}}
+        ]
+
+        sessions = list(metadata_collection.aggregate(pipeline))
+        return jsonify({"sessions": sessions, "total": len(sessions)}), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching sessions for config {config_id}: {e}", exc_info=True)
+        return jsonify({"message": "An internal server error occurred."}), 500
+
+
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['DELETE'])
 @jwt_required()
 def delete_chat(config_id, chat_id):
@@ -334,7 +419,9 @@ def _generate_chat_title(text: str) -> str:
         return title or text[:55]
 
 
-def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None) -> _AttachedFilesMongoHistory:
+def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None,
+                        qualtrics_id: str = None, student_label: str = None,
+                        student_email: str = None, marketing_opt_in: bool = None) -> _AttachedFilesMongoHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
 
@@ -348,7 +435,41 @@ def get_session_history(session_id: str, user_id: str, config_id: str, user_inpu
         }
         if user_input:
             doc["title"] = _generate_chat_title(user_input)
+        if qualtrics_id:
+            doc["qualtrics_id"] = qualtrics_id
+        if student_label:
+            doc["student_label"] = student_label
+        if student_email:
+            doc["student_email"] = student_email
+        if marketing_opt_in is not None:
+            doc["marketing_opt_in"] = marketing_opt_in
         metadata_collection.insert_one(doc)
+        if student_email:
+            db["potential_users"].update_one(
+                {"email": student_email},
+                {"$set": {
+                    "email": student_email,
+                    "name": student_label or "",
+                    "marketing_opt_in": marketing_opt_in if marketing_opt_in is not None else True,
+                    "last_seen": time.time(),
+                }, "$setOnInsert": {"first_seen": time.time()}},
+                upsert=True,
+            )
+    elif qualtrics_id or student_label or student_email:
+        # Update existing session if we now have identity info we didn't before
+        update = {}
+        if qualtrics_id:
+            update["qualtrics_id"] = qualtrics_id
+        if student_label:
+            update["student_label"] = student_label
+        if student_email:
+            update["student_email"] = student_email
+        if marketing_opt_in is not None:
+            update["marketing_opt_in"] = marketing_opt_in
+        metadata_collection.update_one(
+            {"session_id": session_id, "qualtrics_id": {"$exists": False}},
+            {"$set": update}
+        )
 
     return _AttachedFilesMongoHistory(
         session_id=session_id,
@@ -450,7 +571,8 @@ def _parse_image_blocks(images):
 
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
-                     attached_files, images=None):
+                     attached_files, images=None, qualtrics_id=None, student_label=None,
+                     student_email=None, marketing_opt_in=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -463,6 +585,10 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             user_id=user_id_for_history,
             config_id=config_id,
             user_input=user_input,
+            qualtrics_id=qualtrics_id,
+            student_label=student_label,
+            student_email=student_email,
+            marketing_opt_in=marketing_opt_in,
         )
         history_messages = _load_anthropic_history(history_obj)
 
@@ -544,6 +670,12 @@ def chat(config_id, chat_id):
     # persisted on the user message so the chips survive a history reload.
     attached_files = data.get('attached_files', []) or []
     images = data.get('images', []) or []
+    qualtrics_id = data.get('qualtrics_id') or None
+    student_label = data.get('student_label') or None
+    student_email = data.get('student_email') or None
+    marketing_opt_in = data.get('marketing_opt_in')
+    if marketing_opt_in is not None:
+        marketing_opt_in = bool(marketing_opt_in)
 
     # 2. Config Fetch
     config_doc = current_app.config['MONGO_DB']['config_collections'].find_one(
@@ -586,6 +718,10 @@ def chat(config_id, chat_id):
                 selected_file_ids=selected_file_ids,
                 attached_files=attached_files,
                 images=images,
+                qualtrics_id=qualtrics_id,
+                student_label=student_label,
+                student_email=student_email,
+                marketing_opt_in=marketing_opt_in,
             )),
             mimetype='application/x-ndjson',
         )
@@ -749,6 +885,10 @@ def chat(config_id, chat_id):
                     user_id=user_id_for_history,
                     config_id=config_id,
                     user_input=user_input,
+                    qualtrics_id=qualtrics_id,
+                    student_label=student_label,
+                    student_email=student_email,
+                    marketing_opt_in=marketing_opt_in,
                 )
                 if attached_files:
                     h.pending_attached_files = attached_files

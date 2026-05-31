@@ -28,3 +28,6 @@ anthropic
 hume
 pymupdf
 Flask-SocketIO
+imageio-ffmpeg
+assemblyai==0.64.4
+opencv-python-headless

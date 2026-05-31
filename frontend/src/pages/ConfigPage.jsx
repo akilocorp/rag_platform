@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
+import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
+import VideoScoringEditor from '../components/VideoScoringEditor';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -124,11 +126,11 @@ const ConfigModal = ({ isOpen, onClose }) => {
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash', desc: 'Fast and accurate' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 pro', desc: 'Advanced reasoning' },
-    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-    { id: 'gpt-4', name: 'GPT-4' },
-    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-    { id: 'gpt-4.1', name: 'GPT-4.1', desc: 'Fastest, great for TAs' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    // { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    // { id: 'gpt-4', name: 'GPT-4' },
+    // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+    // { id: 'gpt-4.1', name: 'GPT-4.1', desc: 'Fastest, great for TAs' },
+    // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', desc: 'Balanced Claude model' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', desc: 'Fast, lightweight Claude' }
   ];
@@ -138,7 +140,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     associated_course: '',
     bot_type: 'chat',
     heygen_avatar_id: '',
-    model_name: 'gpt-3.5-turbo',
+    model_name: 'claude-sonnet-4-6',
     instructions: '',
     prompt_template: '',
     temperature: 0.7,
@@ -150,11 +152,15 @@ const ConfigModal = ({ isOpen, onClose }) => {
     hume_config_id: '',
     bot_avatar: 'robot',
     introduction: '',
+    // Video Analysis Specifics
+    assignment_type: '',
+    scoring_spec: null,
+    class_code: '',
     // Group Chat Specifics
     group_size: 3,
     group_duration: 15,
     bots: [
-      { name: 'Assistant', prompt: '', model_name: 'gpt-3.5-turbo', temperature: 0.7 }
+      { name: 'Assistant', prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }
     ]
   });
   
@@ -163,6 +169,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const [fileUploadKey, setFileUploadKey] = useState(Date.now());
   const [heygenAvatars, setHeygenAvatars] = useState([]);
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(null);
+
+  const applyTemplate = (template) => {
+    setConfig(prev => ({
+      ...prev,
+      bot_name: prev.bot_name.trim() ? prev.bot_name : template.bot_name,
+      instructions: template.instructions,
+      temperature: template.temperature,
+      introduction: prev.introduction.trim() ? prev.introduction : template.introduction,
+    }));
+    setPromptMode('instructions');
+    setSelectedTemplateId(template.id);
+  };
 
   useEffect(() => {
     if (config.bot_type === 'avatar' && heygenAvatars.length === 0) {
@@ -230,7 +249,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
       newErrors.bot_name = 'Name is required';
     }
     if (step === 4) {
-      if (config.bot_type === 'group_chat') {
+      if (config.bot_type === 'video_analysis') {
+        if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
+      } else if (config.bot_type === 'group_chat') {
         config.bots.forEach((bot, idx) => {
           if (!bot.name.trim()) newErrors[`bot_${idx}_name`] = 'Required';
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
@@ -249,13 +270,20 @@ const ConfigModal = ({ isOpen, onClose }) => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Visible wizard steps per bot_type. Group chat skips the model picker (lobby
+  // AI is fixed); video analysis skips model + knowledge base (no chat model, no RAG).
+  const stepsFor = (botType) => {
+    if (botType === 'group_chat') return [1, 3, 4, 5];
+    if (botType === 'video_analysis') return [1, 4, 5];
+    return [1, 2, 3, 4, 5];
+  };
+
   const handleNext = () => {
     if (validateStep()) {
-      if (step < 5) {
-        // Group chat skips step 2 (model picker) — the lobby AI is fixed at
-        // gpt-3.5-turbo (set in initial config). Per-bot models are picked on step 4.
-        const skipModel = config.bot_type === 'group_chat' && step + 1 === 2;
-        setStep(skipModel ? 3 : step + 1);
+      const steps = stepsFor(config.bot_type);
+      const idx = steps.indexOf(step);
+      if (idx < steps.length - 1) {
+        setStep(steps[idx + 1]);
       } else {
         handleSubmit();
       }
@@ -263,9 +291,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
   };
 
   const handleBack = () => {
-    if (step > 1) {
-      const skipModel = config.bot_type === 'group_chat' && step - 1 === 2;
-      setStep(skipModel ? 1 : step - 1);
+    const steps = stepsFor(config.bot_type);
+    const idx = steps.indexOf(step);
+    if (idx > 0) {
+      setStep(steps[idx - 1]);
     } else if (onClose) {
       onClose();
     }
@@ -299,11 +328,17 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (configToSend.bot_type === 'group_chat') {
       // 1. Stringify the bots array for the backend
       configToSend.bots = JSON.stringify(configToSend.bots);
-      
+
       // 2. Inject a dummy instruction to satisfy the backend's validation requirement
       configToSend.instructions = "Group Space: Managing multiple AI agents.";
       delete configToSend.prompt_template;
-      
+
+    } else if (configToSend.bot_type === 'video_analysis') {
+      // No chat model / RAG; scoring_spec + assignment_type drive the feature.
+      configToSend.bots = [];
+      // Dummy instruction satisfies the backend's instructions-or-template check.
+      configToSend.instructions = `Video analysis assignment: ${configToSend.assignment_type}`;
+      delete configToSend.prompt_template;
     } else {
       // Standard Chat / Avatar Chat logic
       configToSend.bots = [];
@@ -336,6 +371,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
       
       if (configToSend.bot_type === 'group_chat') {
         navigate(`/group-chat/${newConfigId}`);
+      } else if (configToSend.bot_type === 'video_analysis') {
+        navigate(`/video-dashboard/${newConfigId}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -366,7 +403,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               progress bar has 4 segments instead of 5. A segment lights up
               when its step number is <= current step. */}
           <div className="flex justify-between space-x-2 mb-6 pl-4 pr-14 flex-shrink-0">
-            {(config.bot_type === 'group_chat' ? [1, 3, 4, 5] : [1, 2, 3, 4, 5]).map(i => (
+            {stepsFor(config.bot_type).map(i => (
               <div key={i} className={`h-2 flex-1 rounded-full transition-colors duration-300 ${i <= step ? 'bg-[#FA6C43]' : 'bg-gray-200'}`} />
             ))}
           </div>
@@ -393,7 +430,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-2">Space Type</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="chat" checked={config.bot_type === 'chat'} onChange={handleChange} className="hidden" />
                       <FaComments className={`text-2xl mb-2 ${config.bot_type === 'chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
@@ -401,25 +438,32 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Text</p>
                     </label>
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'avatar' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'avatar' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="avatar" checked={config.bot_type === 'avatar'} onChange={handleChange} className="hidden" />
                       <FaVideo className={`text-2xl mb-2 ${config.bot_type === 'avatar' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Avatar Bot</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Video</p>
-                    </label>
+                    </label> */}
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="audio_call" checked={config.bot_type === 'audio_call'} onChange={handleChange} className="hidden" />
                       <FaPhoneAlt className={`text-2xl mb-2 ${config.bot_type === 'audio_call' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Audio Call</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Voice + Transcript</p>
-                    </label>
+                    </label> */}
 
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="group_chat" checked={config.bot_type === 'group_chat'} onChange={handleChange} className="hidden" />
                       <FaUsers className={`text-2xl mb-2 ${config.bot_type === 'group_chat' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Group Chat</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Multi-User & Multi-AI</p>
+                    </label> */}
+
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'video_analysis' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="video_analysis" checked={config.bot_type === 'video_analysis'} onChange={handleChange} className="hidden" />
+                      <FaFilm className={`text-2xl mb-2 ${config.bot_type === 'video_analysis' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Video Analysis</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Upload & Score</p>
                     </label>
                   </div>
                 </div>
@@ -464,7 +508,34 @@ const ConfigModal = ({ isOpen, onClose }) => {
             {/* STEP 4: AI Behavior OR Group Configuration */}
             {step === 4 && (
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4 pb-4">
-                {config.bot_type === 'group_chat' ? (
+                {config.bot_type === 'video_analysis' ? (
+                  // ==============================
+                  // VIDEO ANALYSIS — assignment type + editable scoring spec
+                  // ==============================
+                  <>
+                    <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Define the Rubric</h2>
+                    <VideoScoringEditor
+                      assignmentType={config.assignment_type}
+                      scoringSpec={config.scoring_spec}
+                      onChange={({ assignment_type, scoring_spec }) =>
+                        setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
+                    />
+                    <div className="mt-4">
+                      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                        Class Code <span className="font-normal text-gray-400">(optional - lets students join via invite link)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={config.class_code}
+                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                        maxLength={20}
+                        placeholder="e.g. actr101"
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
+                    </div>
+                  </>
+                ) : config.bot_type === 'group_chat' ? (
                   // ==============================
                   // GROUP CHAT CONFIGURATION DASHBOARD
                   // ==============================
@@ -548,7 +619,34 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   // ==============================
                   <>
                     <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Customize AI Behavior</h2>
-                    
+
+                    {/* Template Gallery */}
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[13px] font-semibold text-gray-700">Start from a template <span className="font-normal text-gray-400">(optional)</span></p>
+                        {selectedTemplateId && (
+                          <button type="button" onClick={() => setSelectedTemplateId(null)} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {SIMULATION_TEMPLATES.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => applyTemplate(t)}
+                            className={`text-left p-3 rounded-xl border-2 transition-all ${selectedTemplateId === t.id ? 'border-[#FA6C43] bg-[#F9D0C4]/20' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">{t.icon}</span>
+                              <span className="text-sm font-bold text-[#222]">{t.title}</span>
+                              {selectedTemplateId === t.id && <span className="ml-auto text-[10px] font-bold text-[#FA6C43] bg-[#F9D0C4]/50 px-1.5 py-0.5 rounded-full">Active</span>}
+                            </div>
+                            <p className="text-[11px] text-gray-500 leading-snug">{t.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="space-y-4">
                       <div className="flex space-x-3 w-fit mb-4">
                         <button type="button" onClick={() => setPromptMode('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Simple Instructions</button>
@@ -602,7 +700,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && (
+                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && config.bot_type !== 'video_analysis' && (
                   <div>
                     <label className="block text-[13px] font-semibold text-gray-700 mb-2">
                       {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}

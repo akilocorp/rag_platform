@@ -18,7 +18,7 @@ from src.utils.config import load_secrets
 from src.backend.database.mongo_utils import get_mongo_db_connection
 
 from routes.auth import auth_bp
-from routes.bug_routes import bug_bp # <--- NEW IMPORT
+from routes.bug_routes import bug_bp
 from routes.config_routes import config_bp
 from routes.chat_routes import chat_bp
 from routes.edit_config_routes import edit_config_bp
@@ -26,6 +26,10 @@ from routes.user_files import user_files_bp
 from routes.group_chat_sockets import register_socket_events
 from routes.audio import audio_bp
 from routes.audio_clm import audio_clm_bp
+from routes.admin_routes import admin_bp
+from routes.student_routes import student_bp
+from routes.analysis_routes import analysis_bp
+from routes.video_routes import video_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -71,8 +75,10 @@ def create_app():
     app.config['MONGO_COLLECTION'] = mongo_collection
     app.config['MONGO_DB'] = db
     
+    # OpenAI is used ONLY for embeddings (RAG vector search).
+    # Chat models are configured per-bot (Claude, Deepseek, Gemini, etc.).
     app.config['EMBEDDINGS'] = OpenAIEmbeddings(
-        model="text-embedding-3-large", 
+        model="text-embedding-3-large",
         api_key=app.config["OPENAI_API_KEY"]
     )
     app.config['RAG_CHAIN_CACHE'] = {}
@@ -85,6 +91,10 @@ def create_app():
     app.register_blueprint(bug_bp, url_prefix='/api/bugs')
     app.register_blueprint(audio_bp, url_prefix='/api')
     app.register_blueprint(audio_clm_bp, url_prefix='/api')
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(student_bp, url_prefix='/api/student')
+    app.register_blueprint(analysis_bp, url_prefix='/api')
+    app.register_blueprint(video_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 
