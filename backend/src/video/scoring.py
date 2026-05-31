@@ -1,5 +1,6 @@
 """Scoring layer — turns raw collected data + a config's scoring_spec into the
 three composite scores (Confidence / Competence / Passion) plus LLM feedback.
+# 2026-05-31: hume_enthusiasm weight raised to 25% in passion composite.
 
 DECOUPLED from collection: reads `video_collected_data`, never invokes
 Whisper/Hume. Re-runnable (rescore) reads the same collected data.
