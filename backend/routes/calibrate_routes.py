@@ -242,10 +242,14 @@ def list_configs():
 @calibrate_bp.route('/api/calibrate/submissions/<config_id>', methods=['GET'])
 def calibrate_submissions(config_id):
     db = current_app.config['MONGO_DB']
+    try:
+        limit = max(1, int(request.args.get("limit", 50)))
+    except (ValueError, TypeError):
+        limit = 50
     subs = list(db['video_submissions'].find(
         {"config_id": config_id, "status": "scored"},
         {"_id": 1, "submitter_name": 1, "submitter_email": 1}
-    ).sort("created_at", -1))
+    ).sort("created_at", -1).limit(limit))
 
     out = []
     for s in subs:
@@ -431,8 +435,22 @@ td input[type=number]:focus{outline:2px solid #FA6C43;border-color:transparent}
   <!-- Step 1: pick config -->
   <div class="card">
     <h2>Step 1 — Select assignment</h2>
-    <label for="configSelect">Assignment / config</label>
-    <select id="configSelect"><option value="">Loading…</option></select>
+    <div style="display:flex;gap:16px;align-items:flex-end">
+      <div style="flex:1">
+        <label for="configSelect">Assignment / config</label>
+        <select id="configSelect"><option value="">Loading…</option></select>
+      </div>
+      <div style="width:130px">
+        <label for="limitInput">Last N videos</label>
+        <select id="limitInput" style="width:100%">
+          <option value="5">5</option>
+          <option value="7" selected>7</option>
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="50">All (50)</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <!-- Step 2: enter professor targets -->
@@ -522,7 +540,8 @@ async function loadSubmissions(cid) {
   document.getElementById('step2Card').classList.add('hidden');
   document.getElementById('resultsSection').classList.add('hidden');
   if (!cid) return;
-  const res = await fetch(`${API}/api/calibrate/submissions/${cid}`);
+  const limit = document.getElementById('limitInput').value;
+  const res = await fetch(`${API}/api/calibrate/submissions/${cid}?limit=${limit}`);
   const data = await res.json();
   submissions = data.submissions || [];
   currentWeights = data.current_weights || {};
@@ -564,6 +583,7 @@ document.getElementById('fillCurrentBtn').addEventListener('click', () => {
 });
 
 document.getElementById('configSelect').addEventListener('change', e => loadSubmissions(e.target.value));
+document.getElementById('limitInput').addEventListener('change', () => { if (configId) loadSubmissions(configId); });
 
 document.getElementById('optimizeBtn').addEventListener('click', async () => {
   const targets = {};
