@@ -9,42 +9,40 @@ from flask import Blueprint, jsonify, request, current_app, render_template_stri
 
 calibrate_bp = Blueprint('calibrate', __name__)
 
-# ── defaults (mirrors rubrics/base.py) ──────────────────────────────────────
-DEFAULT_PASSION_WEIGHTS = {
-    "vocal_control":       0.27,
-    "energy_dynamics":     0.20,
-    "pitch_variation":     0.14,
-    "facial_expressivity": 0.14,
-    "hume_enthusiasm":     0.25,
-}
+# ── defaults (mirrors rubrics/base.py and scoring.py) ───────────────────────
+# Competence uses _rollup with these weights.
 DEFAULT_COMPETENCE_WEIGHTS = {
-    "llm_content":       0.43,
-    "filler_rate":       0.33,
-    "pacing_smoothness": 0.14,
-    "vocabulary":        0.10,
+    "fundamentals_coverage": 0.45,
+    "technical_depth":       0.35,
+    "filler_rate":           0.12,
+    "pacing_smoothness":     0.08,
+}
+# Passion uses _compute_passion() formula — NOT _rollup.
+# These are the formula coefficients: core term weights + penalty k.
+DEFAULT_PASSION_FORMULA = {
+    "w_enthusiasm": 0.50,
+    "w_variation":  0.22,
+    "w_valence":    0.15,
+    "w_contour":    0.13,
+    "k_penalty":    0.30,
 }
 SUBMETRIC_LABELS = {
-    "vocal_control":       "Delivery control",
-    "energy_dynamics":     "Vocal energy",
-    "pitch_variation":     "Vocal variation",
-    "facial_expressivity": "Facial expressivity",
-    "hume_enthusiasm":     "Vocal enthusiasm",
-    "llm_content":         "Content quality (LLM)",
-    "filler_rate":         "Filler words",
-    "pacing_smoothness":   "Pacing smoothness",
-    "vocabulary":          "Vocabulary",
-    "pace":                "Speaking pace",
-    "hedging":             "Hedging language",
-    "face_composure":      "Facial composure",
-    "prosody_confidence":  "Vocal confidence",
-    "volume_steadiness":   "Delivery steadiness",
-    "face_coverage":       "Face coverage",
+    "fundamentals_coverage": "Fundamentals coverage",
+    "technical_depth":       "Technical depth",
+    "filler_rate":           "Filler words",
+    "pacing_smoothness":     "Pacing smoothness",
+    "hume_enthusiasm":       "Vocal enthusiasm",
+    "pitch_variation":       "Vocal variation",
+    "valence_score":         "Emotional valence",
+    "phrase_pitch_contour":  "Phrase-final contour",
+    "vocal_control":         "Delivery control",
+    "energy_dynamics":       "Vocal energy",
+    "prosody_confidence":    "Vocal confidence",
+    "face_composure":        "Facial composure",
+    "volume_steadiness":     "Delivery steadiness",
 }
-# Submetrics computed but not currently used in any composite —
-# candidates the system can suggest adding.
 CANDIDATE_SUBMETRICS = {
-    "passion":    ["pace", "prosody_confidence", "volume_steadiness"],
-    "competence": ["hedging", "pace"],
+    "competence": ["hedging", "pacing_smoothness"],
 }
 
 
@@ -112,6 +110,75 @@ def _r2(weights, keys, rows):
     mean_t = sum(targets) / len(targets)
     ss_tot = sum((t - mean_t) ** 2 for t in targets)
     ss_res = sum((p - t) ** 2 for p, t in zip(preds, targets))
+    return round(1 - ss_res / ss_tot, 3) if ss_tot > 0 else 1.0
+
+
+def _get(sm, k):
+    s = sm.get(k)
+    return s["score"] if (s and s.get("available") and s.get("score") is not None) else None
+
+
+def _predict_passion_formula(params, sm):
+    """Mirrors scoring._compute_passion but with optimizable coefficients."""
+    w_e  = max(0.0, params[0])
+    w_v  = max(0.0, params[1])
+    w_val = max(0.0, params[2])
+    w_c  = max(0.0, params[3])
+    k    = max(0.0, params[4])
+
+    enth    = _get(sm, "hume_enthusiasm")
+    if enth is None:
+        return 50.0
+    variation = _get(sm, "pitch_variation")
+    valence   = _get(sm, "valence_score")
+    contour   = _get(sm, "phrase_pitch_contour")
+    control   = _get(sm, "vocal_control")
+    energy    = _get(sm, "energy_dynamics")
+
+    parts = [(w_e, enth)]
+    if variation is not None: parts.append((w_v, variation))
+    if valence   is not None: parts.append((w_val, valence))
+    if contour   is not None: parts.append((w_c, contour))
+    tw = sum(w for w, _ in parts)
+    core = sum(w * v for w, v in parts) / tw if tw > 0 else 50.0
+
+    polish_vals = [v for v in [control, energy] if v is not None]
+    penalty = k * max(0.0, (sum(polish_vals) / len(polish_vals)) - enth) if polish_vals else 0.0
+    return max(0.0, min(100.0, core - penalty))
+
+
+def _optimize_passion(current_formula: dict, rows: list, steps=1000, lr=0.005) -> dict:
+    """Gradient descent on 5 passion formula params: [w_e, w_v, w_val, w_c, k_penalty]."""
+    keys_order = ["w_enthusiasm", "w_variation", "w_valence", "w_contour", "k_penalty"]
+    p = [current_formula[k] for k in keys_order]
+
+    for _ in range(steps):
+        grad = [0.0] * 5
+        for sm, target in rows:
+            pred = _predict_passion_formula(p, sm)
+            err = pred - target
+            eps = 1.0
+            for i in range(5):
+                p2 = p[:]
+                p2[i] += eps
+                grad[i] += 2 * err * (_predict_passion_formula(p2, sm) - pred) / eps
+        p = [max(1e-4 if i < 4 else 0.0, p[i] - lr * grad[i] / len(rows)) for i in range(5)]
+
+    # Normalize core weights (first 4) to sum to 1, keep k as-is
+    core_sum = sum(max(0, p[i]) for i in range(4)) or 1.0
+    result = {keys_order[i]: round(p[i] / core_sum, 4) for i in range(4)}
+    result["k_penalty"] = round(max(0.0, p[4]), 4)
+    return result
+
+
+def _r2_passion(formula, rows):
+    params = [formula["w_enthusiasm"], formula["w_variation"], formula["w_valence"],
+              formula["w_contour"], formula["k_penalty"]]
+    preds   = [_predict_passion_formula(params, sm) for sm, _ in rows]
+    targets = [t for _, t in rows]
+    mean_t  = sum(targets) / len(targets)
+    ss_tot  = sum((t - mean_t) ** 2 for t in targets)
+    ss_res  = sum((p - t) ** 2 for p, t in zip(preds, targets))
     return round(1 - ss_res / ss_tot, 3) if ss_tot > 0 else 1.0
 
 
@@ -214,8 +281,8 @@ def calibrate_submissions(config_id):
             "submetrics": all_sm,
         })
     return jsonify({"submissions": out, "current_weights": {
-        "passion":    DEFAULT_PASSION_WEIGHTS,
-        "competence": DEFAULT_COMPETENCE_WEIGHTS,
+        "passion_formula": DEFAULT_PASSION_FORMULA,
+        "competence":      DEFAULT_COMPETENCE_WEIGHTS,
     }})
 
 
@@ -235,8 +302,32 @@ def optimize_weights():
         return jsonify({"error": "Need at least 2 videos with targets to optimize."}), 400
 
     results = {}
+
+    # ── Passion: optimize formula coefficients, not _rollup weights ──────────
+    passion_rows = [(sm_map[sid], float(t["passion"]))
+                    for sid, t in targets.items()
+                    if t.get("passion") is not None and sid in sm_map]
+    if len(passion_rows) < 2:
+        results["passion"] = {"error": "Not enough passion targets"}
+    else:
+        opt_formula = _optimize_passion(DEFAULT_PASSION_FORMULA, passion_rows)
+        r2_p = _r2_passion(opt_formula, passion_rows)
+        params = [opt_formula["w_enthusiasm"], opt_formula["w_variation"],
+                  opt_formula["w_valence"], opt_formula["w_contour"], opt_formula["k_penalty"]]
+        per_video_p = []
+        for sid, (sm, target) in zip([s for s in targets if targets[s].get("passion") is not None], passion_rows):
+            pred = _predict_passion_formula(params, sm)
+            per_video_p.append({"id": sid, "target": round(target, 1),
+                                 "predicted": round(pred, 1), "error": round(pred - target, 1)})
+        results["passion"] = {
+            "optimized_weights": opt_formula,   # these are formula params, not _rollup weights
+            "default_weights":   DEFAULT_PASSION_FORMULA,
+            "is_formula":        True,           # flag for frontend to label correctly
+            "r2": r2_p, "per_video": per_video_p, "recommendations": [],
+        }
+
+    # ── Competence: standard _rollup weight optimization ─────────────────────
     for dim, default_w, candidates in [
-        ("passion",    DEFAULT_PASSION_WEIGHTS,    CANDIDATE_SUBMETRICS["passion"]),
         ("competence", DEFAULT_COMPETENCE_WEIGHTS, CANDIDATE_SUBMETRICS["competence"]),
     ]:
         rows = []
@@ -525,22 +616,24 @@ function renderWeights(containerId, dimResult) {
   }
   const r2 = dimResult.r2;
   const r2html = `<span class="r2-badge" style="background:${r2Color(r2)}20;color:${r2Color(r2)}">R² = ${r2}</span>`;
+  const LABELS = {
+    fundamentals_coverage:'Fundamentals coverage',technical_depth:'Technical depth',
+    filler_rate:'Filler words',pacing_smoothness:'Pacing smoothness',
+    w_enthusiasm:'Enthusiasm weight',w_variation:'Variation weight',
+    w_valence:'Valence weight',w_contour:'Contour weight',k_penalty:'Penalty k (polish gap)'
+  };
+  const isFormula = !!dimResult.is_formula;
   const rows = Object.entries(dimResult.optimized_weights).map(([k, v]) => {
     const old = dimResult.default_weights[k];
-    const label = {
-      vocal_control:'Delivery control',energy_dynamics:'Vocal energy',
-      pitch_variation:'Vocal variation',facial_expressivity:'Facial expressivity',
-      hume_enthusiasm:'Vocal enthusiasm',llm_content:'Content quality (LLM)',
-      filler_rate:'Filler words',pacing_smoothness:'Pacing smoothness',vocabulary:'Vocabulary'
-    }[k] || k;
-    const pct = (v*100).toFixed(1)+'%';
-    const oldPct = (old*100).toFixed(1)+'%';
+    const label = LABELS[k] || k;
+    const fmt = x => isFormula ? x.toFixed(3) : (x*100).toFixed(1)+'%';
     return `<div class="weight-row">
       <span class="weight-label">${label}</span>
-      <span class="weight-vals"><span class="weight-old">${oldPct}</span><span class="weight-new">${pct}</span></span>
+      <span class="weight-vals"><span class="weight-old">${fmt(old)}</span><span class="weight-new">${fmt(v)}</span></span>
     </div>`;
   }).join('');
-  el.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">${r2html}</div>${rows}`;
+  const note = isFormula ? '<p style="font-size:.75rem;color:#6b7280;margin-bottom:8px">Passion uses a formula, not weighted average — these are formula coefficients.</p>' : '';
+  el.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">${r2html}</div>${note}${rows}`;
   if (r2 < 0.6) {
     el.innerHTML += `<div class="rec-box" style="margin-top:12px">⚠️ Low R² (${r2}) — the current signals can't fully explain the professor's scores. See recommendations below.</div>`;
   }
@@ -585,12 +678,13 @@ function renderResults(data, targets) {
   }).join('');
 
   // MongoDB update command
-  const pw = data.passion?.optimized_weights || {};
+  const pf = data.passion?.optimized_weights || {};
   const cw = data.competence?.optimized_weights || {};
+  // Passion uses a formula — written to scoring_spec.passion_formula, NOT submetric_weights
   const cmd = `db.config_collections.updateOne(
   { _id: ObjectId("${configId}") },
   { $set: {
-      "scoring_spec.submetric_weights.passion": ${JSON.stringify(pw, null, 4)},
+      "scoring_spec.passion_formula": ${JSON.stringify(pf, null, 4)},
       "scoring_spec.submetric_weights.competence": ${JSON.stringify(cw, null, 4)}
   }}
 )`;

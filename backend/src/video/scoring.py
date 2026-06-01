@@ -353,22 +353,29 @@ def _vocal_control(arousal_series: list):
     return _clamp(100.0 - spike_penalty - opening_penalty)
 
 
-def _compute_passion(sm: dict) -> float | None:
+def _compute_passion(sm: dict, formula: dict = None) -> float | None:
     """Formula-based passion composite.
 
-    Core = 0.50·enthusiasm + 0.22·variation + 0.15·valence + 0.13·contour
+    Core = w_e·enthusiasm + w_v·variation + w_val·valence + w_c·contour  (renormalized)
     Penalty = k · max(0, polish − enthusiasm)   where polish = mean(control, energy)
 
-    High polish with low genuine enthusiasm signals performativity → the gap
-    actively reduces the score instead of being averaged away.
+    Default coefficients come from scoring constants; per-config overrides live in
+    scoring_spec.passion_formula (written by the calibration tool).
     """
-    def get(k):
-        m = sm.get(k)
+    f = formula or {}
+    w_e   = float(f.get("w_enthusiasm", 0.50))
+    w_v   = float(f.get("w_variation",  0.22))
+    w_val = float(f.get("w_valence",    0.15))
+    w_c   = float(f.get("w_contour",    0.13))
+    k     = float(f.get("k_penalty",    _POLISH_PENALTY_K))
+
+    def get(key):
+        m = sm.get(key)
         return m["score"] if (m and m.get("available") and m.get("score") is not None) else None
 
     enth = get("hume_enthusiasm")
     if enth is None:
-        return None  # can't score without the primary signal
+        return None
 
     variation = get("pitch_variation")
     valence   = get("valence_score")
@@ -376,20 +383,15 @@ def _compute_passion(sm: dict) -> float | None:
     control   = get("vocal_control")
     energy    = get("energy_dynamics")
 
-    # Core: weighted sum over available terms, renormalized
-    core_parts = [(0.50, enth)]
-    if variation is not None: core_parts.append((0.22, variation))
-    if valence   is not None: core_parts.append((0.15, valence))
-    if contour   is not None: core_parts.append((0.13, contour))
+    core_parts = [(w_e, enth)]
+    if variation is not None: core_parts.append((w_v, variation))
+    if valence   is not None: core_parts.append((w_val, valence))
+    if contour   is not None: core_parts.append((w_c, contour))
     total_w = sum(w for w, _ in core_parts)
     core = sum(w * v for w, v in core_parts) / total_w
 
-    # Performativity penalty: polished delivery with low genuine enthusiasm
     polish_vals = [v for v in [control, energy] if v is not None]
-    penalty = 0.0
-    if polish_vals:
-        polish = sum(polish_vals) / len(polish_vals)
-        penalty = _POLISH_PENALTY_K * max(0.0, polish - enth)
+    penalty = k * max(0.0, sum(polish_vals) / len(polish_vals) - enth) if polish_vals else 0.0
 
     return round(_clamp(core - penalty), 1)
 
@@ -916,7 +918,7 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     composites = {}
     for dim in ("confidence", "competence", "passion"):
         if dim == "passion":
-            val = _compute_passion(sm)
+            val = _compute_passion(sm, scoring_spec.get("passion_formula"))
         else:
             val = _rollup(sm, weights.get(dim) or {})
         # submetrics shown in UI: use weight keys for competence/confidence, passion-specific set
