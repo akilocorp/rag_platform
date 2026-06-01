@@ -37,28 +37,25 @@ ASSIGNMENT_PRESETS: Dict[str, Dict[str, Any]] = {}
 # MediaPipe is wired; the roll-up ignores absent submetrics.
 DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
     "confidence": {
-        "prosody_confidence": 0.45,
-        "face_composure":     0.30,
-        "volume_steadiness":  0.25,
-        # face_coverage / lighting_quality removed: ceiling features, no discriminating power
+        # prosody_confidence dominates; face/steadiness sit near 50 for most clips
+        "prosody_confidence": 0.65,
+        "face_composure":     0.20,
+        "volume_steadiness":  0.15,
     },
     "competence": {
-        # Content-driven: fundamentals coverage + technical depth dominate
-        "fundamentals_coverage": 0.45,
-        "technical_depth":       0.35,
-        "filler_rate":           0.12,
+        # fundamentals_coverage is the primary driver (were all 7 components covered?)
+        # technical_depth is secondary; filler/pacing are minor
+        "fundamentals_coverage": 0.62,
+        "technical_depth":       0.15,
+        "filler_rate":           0.15,
         "pacing_smoothness":     0.08,
-        # vocabulary and llm_content removed: gameable / not content-specific
     },
     "passion": {
-        # Weights here are for UI display only — actual score uses _compute_passion()
-        # which applies the polish-penalty formula instead of a plain weighted average.
-        "hume_enthusiasm":     0.50,
-        "pitch_variation":     0.22,
-        "valence_score":       0.15,
-        "phrase_pitch_contour": 0.13,
-        # vocal_control / energy_dynamics / facial_expressivity removed from core;
-        # they feed the penalty term in _compute_passion, not the score directly.
+        # Display-only weights — actual score uses _compute_passion() (valence-primary formula)
+        "valence_score":        0.70,
+        "hume_enthusiasm":      0.20,
+        "pitch_variation":      0.10,
+        # vocal_control / energy_dynamics feed the gated penalty, not the core score
     },
 }
 

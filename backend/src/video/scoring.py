@@ -354,44 +354,55 @@ def _vocal_control(arousal_series: list):
 
 
 def _compute_passion(sm: dict, formula: dict = None) -> float | None:
-    """Formula-based passion composite.
+    """Formula-based passion: intensity × appropriateness.
 
-    Core = w_e·enthusiasm + w_v·variation + w_val·valence + w_c·contour  (renormalized)
-    Penalty = k · max(0, polish − enthusiasm)   where polish = mean(control, energy)
+    Valence (positive vs hostile emotional delivery) is the primary driver.
+    Enthusiasm and variation are minor modifiers.
+    Penalty is gated by (1 − valence/100) so it only fires on hostile delivery —
+    a composed professional with high valence incurs near-zero penalty.
 
-    Default coefficients come from scoring constants; per-config overrides live in
-    scoring_spec.passion_formula (written by the calibration tool).
+    Per-config overrides live in scoring_spec.passion_formula (calibration tool).
     """
     f = formula or {}
-    w_e   = float(f.get("w_enthusiasm", 0.50))
-    w_v   = float(f.get("w_variation",  0.22))
-    w_val = float(f.get("w_valence",    0.15))
-    w_c   = float(f.get("w_contour",    0.13))
-    k     = float(f.get("k_penalty",    _POLISH_PENALTY_K))
+    w_val = float(f.get("w_valence",    0.70))  # appropriateness — primary
+    w_e   = float(f.get("w_enthusiasm", 0.20))  # genuine animation — secondary
+    w_v   = float(f.get("w_variation",  0.10))  # delivery dynamics — minor
+    k     = float(f.get("k_penalty",    0.15))  # lower k; gate handles hostile clips
 
     def get(key):
         m = sm.get(key)
         return m["score"] if (m and m.get("available") and m.get("score") is not None) else None
 
-    enth = get("hume_enthusiasm")
-    if enth is None:
+    valence = get("valence_score")
+    enth    = get("hume_enthusiasm")
+
+    # Need at least one prosody signal
+    if valence is None and enth is None:
         return None
 
     variation = get("pitch_variation")
-    valence   = get("valence_score")
-    contour   = get("phrase_pitch_contour")
     control   = get("vocal_control")
     energy    = get("energy_dynamics")
 
-    core_parts = [(w_e, enth)]
-    if variation is not None: core_parts.append((w_v, variation))
+    # Core: valence anchors the score; enthusiasm/variation modulate ±
+    core_parts = []
     if valence   is not None: core_parts.append((w_val, valence))
-    if contour   is not None: core_parts.append((w_c, contour))
+    if enth      is not None: core_parts.append((w_e, enth))
+    if variation is not None: core_parts.append((w_v, variation))
+    if not core_parts:
+        return None
     total_w = sum(w for w, _ in core_parts)
     core = sum(w * v for w, v in core_parts) / total_w
 
+    # Penalty: gated by (1 − valence/100)
+    #   valence=100 (purely positive) → gate≈0 → no penalty
+    #   valence=0   (purely hostile)  → gate=1  → full penalty
     polish_vals = [v for v in [control, energy] if v is not None]
-    penalty = k * max(0.0, sum(polish_vals) / len(polish_vals) - enth) if polish_vals else 0.0
+    penalty = 0.0
+    if polish_vals and enth is not None:
+        polish   = sum(polish_vals) / len(polish_vals)
+        val_gate = 1.0 - (valence if valence is not None else 50.0) / 100.0
+        penalty  = k * max(0.0, polish - enth) * val_gate
 
     return round(_clamp(core - penalty), 1)
 
@@ -784,20 +795,21 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
 }}
 
 Scoring rules:
-- Explicit clarity rewarded; vague or implied content penalized.
+- key_components COVERAGE anchoring (scores feed fundamentals_coverage, not depth):
+  * Score 8-9 if the component is clearly addressed, mentioned, or reasonably implied.
+  * Score 5-7 if touched on superficially or only partially.
+  * Score 1-4 ONLY if completely absent or never mentioned.
+  * Do NOT penalise lack of depth here — depth is captured by technical_depth separately.
 - opening_gambit: score 0 if the speaker launches straight into the pitch with no hook. Score 1-4 if there is a weak or accidental hook. Score 5-6 for a recognizable but flat gambit. Score 7-10 for a deliberate, attention-grabbing opener.
-- opening_gambit comment: always name the gambit type (e.g. "Factoid gambit") or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch (e.g. "Try opening with: 'Did you know 40% of athletes overtrain and never recover?'").
-- technical_depth: strict. Score 1-3 if pitch is entirely vague ("big market", "great team", no numbers). Score 4-6 if some specifics exist but major gaps remain. Score 7-10 only if the speaker cites concrete data, mechanisms, unit economics, or specific market figures.
-- Competence: driven by fundamentals coverage (did they address all 7 components?) and technical depth. A pitch that mentions all components shallowly scores 5-6. Missing components or no technical depth scores 1-4. Score 7+ only if both coverage AND depth are strong.
-- Passion scoring is STRICT about genuineness vs performance:
-  * The primary signal is VOCAL ENTHUSIASM measured by audio analysis (provided above as pitch_variation score).
-  * If vocal enthusiasm is below 40/100, passion CANNOT exceed 4 regardless of transcript content.
-  * If vocal enthusiasm is 40-60, passion maximum is 6.
-  * Forced, performative, or cheerleader enthusiasm = cap at 3 and note explicitly.
-  * "Sounds excited" is NOT the same as genuine passion. Read the word choices: hedging, weak qualifiers, and performative phrases ("This is SO amazing!") signal inauthenticity.
-  * Genuine passion = the speaker clearly understands and believes in what they are saying. It shows in precision of language and natural (not theatrical) variation.
-  * Monotone delivery regardless of transcript = 1-2.
-- Passion < 4 must pull overall_score below key_components average.
+- opening_gambit comment: always name the gambit type or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch.
+- technical_depth: strict. Score 1-3 if pitch is entirely vague (no numbers, no mechanisms). Score 4-6 if some specifics exist but major gaps remain. Score 7-10 only if the speaker cites concrete data, unit economics, or specific market figures.
+- Competence: primarily whether all 7 components were covered. Clearly covering all 7 even shallowly = 7-8. Missing 2+ components = ≤5. Technical depth can push to 9-10 or pull down to 4.
+- Passion comment (your numerical score is advisory — describe delivery quality):
+  * Primary signal: EMOTIONAL VALENCE provided above (positive/warm vs hostile/angry/flat).
+  * High valence (positive, warm, animated) = genuine passion regardless of raw enthusiasm level.
+  * Low valence (angry, hostile, tense) = low passion even if the speaker is energetic.
+  * Forced or performative enthusiasm with neutral/negative valence = note explicitly as "performative".
+  * Describe whether the delivery felt genuine vs performed, and whether emotional tone matched content.
 - areas_of_improvement: 2 to 5 items.
 - follow_up_questions: 2 to 3 tough questions the audience would likely ask based on gaps in this pitch.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
@@ -905,15 +917,23 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     for stale in ("energy_dynamics", "facial_expressivity", "vocal_control", "face_coverage"):
         weights.get("passion", {}).pop(stale, None)
 
-    # Inject new keys that may be absent from configs saved before this version
-    comp_w = weights.setdefault("competence", {})
-    if "fundamentals_coverage" not in comp_w:
-        comp_w["fundamentals_coverage"] = 0.45
-    if "technical_depth" not in comp_w:
-        comp_w["technical_depth"] = 0.35
-    conf_w = weights.setdefault("confidence", {})
-    for k, w in {"prosody_confidence": 0.45, "face_composure": 0.30, "volume_steadiness": 0.25}.items():
-        conf_w.setdefault(k, w)
+    # Confidence: system-controlled weights; always force-set to migrate existing stored specs.
+    # prosody_confidence dominates — face/steadiness sit near 50 for most clips.
+    weights["confidence"] = {
+        "prosody_confidence": 0.65,
+        "face_composure":     0.20,
+        "volume_steadiness":  0.15,
+    }
+
+    # Competence: fundamentals_coverage is the primary driver; technical_depth demoted.
+    # Preserve prof-calibrated filler/pacing values if present.
+    comp_w = weights.get("competence") or {}
+    weights["competence"] = {
+        "fundamentals_coverage": 0.62,
+        "technical_depth":       0.15,
+        "filler_rate":           comp_w.get("filler_rate",       0.15),
+        "pacing_smoothness":     comp_w.get("pacing_smoothness", 0.08),
+    }
 
     composites = {}
     for dim in ("confidence", "competence", "passion"):
@@ -933,6 +953,10 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
             "label": _label_for(val),
             "submetrics": sub_display,
         }
+
+    # Resolve dual-passion path: formula score is authoritative; LLM comment kept for context
+    if composites["passion"]["value"] is not None:
+        pccp_eval.setdefault("passion", {})["score"] = composites["passion"]["value"]
 
     cw = scoring_spec.get("composite_weights") or {}
     present = [(cw.get(d, 0.0), composites[d]["value"]) for d in ("confidence", "competence", "passion")
