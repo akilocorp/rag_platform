@@ -222,7 +222,7 @@ def compute_submetrics(collected: dict) -> dict:
                            for f, ar in zip(prosody_frames, arousal_series)]
         boundaries = [words[i - 1].get("end", 0.0)
                       for i in range(1, len(words))
-                      if words[i].get("start", 0.0) - words[i - 1].get("end", 0.0) > 0.5] if words else []
+                      if words[i].get("start", 0.0) - words[i - 1].get("end", 0.0) > 0.3] if words else []
         if boundaries:
             falling_n = measured_n = 0
             for t_end in boundaries:
@@ -894,13 +894,24 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
 
     import copy as _copy
     weights = _copy.deepcopy(scoring_spec.get("submetric_weights") or {})
-    # Migration: strip ceiling features that can't discriminate from confidence/passion weights
-    for stale in ("filler_rate", "lighting_quality"):
+
+    # Migration: strip ceiling/stale features from stored specs
+    for stale in ("filler_rate", "lighting_quality", "face_coverage"):
         weights.get("confidence", {}).pop(stale, None)
     for stale in ("vocabulary", "llm_content"):
         weights.get("competence", {}).pop(stale, None)
     for stale in ("energy_dynamics", "facial_expressivity", "vocal_control", "face_coverage"):
         weights.get("passion", {}).pop(stale, None)
+
+    # Inject new keys that may be absent from configs saved before this version
+    comp_w = weights.setdefault("competence", {})
+    if "fundamentals_coverage" not in comp_w:
+        comp_w["fundamentals_coverage"] = 0.45
+    if "technical_depth" not in comp_w:
+        comp_w["technical_depth"] = 0.35
+    conf_w = weights.setdefault("confidence", {})
+    for k, w in {"prosody_confidence": 0.45, "face_composure": 0.30, "volume_steadiness": 0.25}.items():
+        conf_w.setdefault(k, w)
 
     composites = {}
     for dim in ("confidence", "competence", "passion"):
