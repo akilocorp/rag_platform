@@ -109,7 +109,7 @@ def dashboard():
     for code in classes:
         config = db['config_collections'].find_one(
             {'class_code': code},
-            {'bot_name': 1, 'assignment_type': 1}
+            {'bot_name': 1, 'assignment_type': 1, 'upload_locked_until': 1}
         )
         if not config:
             continue
