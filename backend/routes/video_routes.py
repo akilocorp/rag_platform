@@ -117,6 +117,12 @@ def create_submission():
     if config.get('bot_type') != 'video_analysis':
         return jsonify({"error": "This config is not a video-analysis assignment"}), 400
 
+    locked_until = config.get('upload_locked_until')
+    if locked_until and time.time() < locked_until:
+        import datetime
+        until_str = datetime.datetime.fromtimestamp(locked_until).strftime('%B %d at %I:%M %p')
+        return jsonify({"error": f"Video uploads are closed until {until_str}."}), 403
+
     user_id = _resolve_user_id()
     # Logged-in: trust the account email over a typed one.
     if user_id:
