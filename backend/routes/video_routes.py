@@ -429,7 +429,16 @@ def list_submissions(config_id):
     out = []
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "scores": 1, "overall": 1})
+                                            {"_id": 0, "scores": 1, "overall": 1, "pccp_eval": 1})
+        display_scores = None
+        if score:
+            pccp = score.get("pccp_eval") or {}
+            raw  = score.get("scores") or {}
+            display_scores = {
+                dim: {"value": (pccp.get(dim) or {}).get("score") if (pccp.get(dim) or {}).get("score") is not None
+                               else (raw.get(dim) or {}).get("value")}
+                for dim in ("confidence", "competence", "passion")
+            }
         out.append({
             "id": str(s["_id"]),
             "name": s.get("submitter_name"),
@@ -437,7 +446,7 @@ def list_submissions(config_id):
             "status": s.get("status"),
             "created_at": s.get("created_at"),
             "overall": (score or {}).get("overall"),
-            "scores": (score or {}).get("scores"),
+            "scores": display_scores,
         })
     return jsonify({"submissions": out})
 
