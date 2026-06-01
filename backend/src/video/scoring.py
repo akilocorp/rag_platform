@@ -89,6 +89,11 @@ AROUSAL = ["Excitement", "Joy", "Determination", "Triumph", "Interest"]
 
 # Heuristic scale: Hume emotion means are small; multiply bundle means into 0-100.
 BUNDLE_SCALE = 280.0
+# Enthusiasm and variation use separate scales — professional presenters score low
+# on raw excitement/ecstasy (enth ~0.13), and have small arousal stddev (~0.06).
+# These scales map those realistic values to the 50-75 range for a normal speaker.
+ENTHUSIASM_SCALE = 420.0   # enth=0.13 → ~55, enth=0.20 → ~84
+VARIATION_SCALE  = 900.0   # stddev=0.06 → ~54, stddev=0.10 → ~90
 
 
 def _clamp(x, lo=0.0, hi=100.0):
@@ -180,14 +185,14 @@ def compute_submetrics(collected: dict) -> dict:
         sm["prosody_confidence"] = _sm(_clamp((conf_pos - conf_neg) * BUNDLE_SCALE + 50.0),
                                        round(conf_pos - conf_neg, 4), True, "Vocal confidence")
         enth = _mean(_frame_bundle_series(prosody_frames, ENTHUSIASM))
-        sm["hume_enthusiasm"] = _sm(_clamp(enth * BUNDLE_SCALE), round(enth, 4), True, "Vocal enthusiasm")
+        sm["hume_enthusiasm"] = _sm(_clamp(enth * ENTHUSIASM_SCALE), round(enth, 4), True, "Vocal enthusiasm")
 
         arousal_series = _frame_bundle_series(prosody_frames, AROUSAL)
         mean_ar = _mean(arousal_series)
         # Goldilocks: adequate energy = 100, flat = 0, aggressive/shouting = 0
         sm["energy_dynamics"] = _sm(_clamp(_energy_adequacy(mean_ar)), round(mean_ar, 4), True, "Vocal energy (adequate range)")
         var = _stddev(arousal_series)
-        sm["pitch_variation"] = _sm(_clamp(var * BUNDLE_SCALE * 2.0), round(var, 4), True, "Vocal variation")
+        sm["pitch_variation"] = _sm(_clamp(var * VARIATION_SCALE), round(var, 4), True, "Vocal variation")
         # Delivery control: penalise aggressive opener and sudden spikes
         vc = _vocal_control(arousal_series)
         sm["vocal_control"] = _sm(vc, round(mean_ar, 4) if vc is not None else None, vc is not None, "Delivery control")

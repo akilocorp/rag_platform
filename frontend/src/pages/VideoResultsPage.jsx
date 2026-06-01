@@ -48,7 +48,6 @@ function PccpCard({ label, blurb, data, evalScore, evalComment, pinnedSignals })
         </div>
         <div className="text-right ml-4 shrink-0">
           <span className="text-3xl font-extrabold" style={{ color: C(v) }}>{fmt(v)}</span>
-          <p className="text-[10px] font-bold uppercase tracking-wide mt-0.5" style={{ color: C(v) }}>{data?.label || ''}</p>
         </div>
       </div>
       <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
