@@ -166,7 +166,7 @@ def list_configs():
     # configs that have at least one scored video submission
     scored_ids = db['video_scores'].distinct('config_id')
     configs = list(db['config_collections'].find(
-        {"_id": {"$in": [__import__('bson').ObjectId(cid) for cid in scored_ids if cid]}, "bot_type": "video"},
+        {"_id": {"$in": [__import__('bson').ObjectId(cid) for cid in scored_ids if cid]}, "bot_type": "video_analysis"},
         {"bot_name": 1, "_id": 1}
     ))
     return jsonify([{"id": str(c["_id"]), "name": c.get("bot_name", "Unnamed")} for c in configs])
@@ -360,6 +360,7 @@ td input[type=number]:focus{outline:2px solid #FA6C43;border-color:transparent}
         <th>Current Conf</th><th>Current Comp</th><th>Current Pass</th>
         <th style="color:#FA6C43">Target Competence</th>
         <th style="color:#FA6C43">Target Passion</th>
+        <th style="color:#FA6C43">Prof reasoning (optional)</th>
       </tr></thead>
       <tbody id="subTable"></tbody>
     </table>
@@ -392,6 +393,7 @@ td input[type=number]:focus{outline:2px solid #FA6C43;border-color:transparent}
           <th>Student</th>
           <th>Target Comp</th><th>Predicted Comp</th><th>Error</th>
           <th>Target Pass</th><th>Predicted Pass</th><th>Error</th>
+          <th>Prof reasoning</th>
         </tr></thead>
         <tbody id="perVideoTable"></tbody>
       </table>
@@ -455,6 +457,7 @@ function renderTable() {
       <td>${chip(s.current.passion)}</td>
       <td><input type="number" min="0" max="100" step="1" class="t-comp" placeholder="e.g. 65"/></td>
       <td><input type="number" min="0" max="100" step="1" class="t-pass" placeholder="e.g. 72"/></td>
+      <td><input type="text" class="t-reason" placeholder="e.g. great energy but shallow content" style="width:220px;font-size:.78rem"/></td>
     </tr>`).join('');
 }
 
@@ -479,10 +482,12 @@ document.getElementById('optimizeBtn').addEventListener('click', async () => {
     if (!s) return;
     const tc = tr.querySelector('.t-comp').value.trim();
     const tp = tr.querySelector('.t-pass').value.trim();
+    const tr2 = tr.querySelector('.t-reason').value.trim();
     if (!tc && !tp) return;
     targets[s.id] = {};
     if (tc) targets[s.id].competence = parseFloat(tc);
     if (tp) targets[s.id].passion    = parseFloat(tp);
+    if (tr2) targets[s.id].reasoning = tr2;
     smMap[s.id] = s.submetrics;
   });
 
@@ -566,6 +571,7 @@ function renderResults(data, targets) {
     const cp = compPV[sid], pp = passPV[sid];
     const errCls = e => Math.abs(e) <= 5 ? 'err-ok' : e > 0 ? 'err-pos' : 'err-neg';
     const errFmt = e => (e > 0 ? '+' : '') + e;
+    const reasoning = (targets[sid] || {}).reasoning || '';
     return `<tr class="per-video-row">
       <td><strong>${name}</strong></td>
       <td>${cp ? cp.target : '—'}</td>
@@ -574,6 +580,7 @@ function renderResults(data, targets) {
       <td>${pp ? pp.target : '—'}</td>
       <td>${pp ? pp.predicted : '—'}</td>
       <td class="${pp ? errCls(pp.error) : ''}">${pp ? errFmt(pp.error) : '—'}</td>
+      <td style="font-size:.75rem;color:#6b7280;max-width:180px">${reasoning || '<span style="color:#d1d5db">—</span>'}</td>
     </tr>`;
   }).join('');
 
