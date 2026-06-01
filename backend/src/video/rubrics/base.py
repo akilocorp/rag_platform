@@ -37,24 +37,28 @@ ASSIGNMENT_PRESETS: Dict[str, Dict[str, Any]] = {}
 # MediaPipe is wired; the roll-up ignores absent submetrics.
 DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
     "confidence": {
-        "prosody_confidence": 0.37,
-        "face_composure": 0.25,
-        "volume_steadiness": 0.20,
-        "face_coverage": 0.12,
-        "lighting_quality": 0.06,
+        "prosody_confidence": 0.45,
+        "face_composure":     0.30,
+        "volume_steadiness":  0.25,
+        # face_coverage / lighting_quality removed: ceiling features, no discriminating power
     },
     "competence": {
-        "llm_content":       0.43,
-        "filler_rate":       0.33,
-        "pacing_smoothness": 0.14,
-        "vocabulary":        0.10,
+        # Content-driven: fundamentals coverage + technical depth dominate
+        "fundamentals_coverage": 0.45,
+        "technical_depth":       0.35,
+        "filler_rate":           0.12,
+        "pacing_smoothness":     0.08,
+        # vocabulary and llm_content removed: gameable / not content-specific
     },
     "passion": {
-        "vocal_control":      0.27,
-        "energy_dynamics":    0.20,
-        "pitch_variation":    0.14,
-        "facial_expressivity": 0.14,
-        "hume_enthusiasm":    0.25,
+        # Weights here are for UI display only — actual score uses _compute_passion()
+        # which applies the polish-penalty formula instead of a plain weighted average.
+        "hume_enthusiasm":     0.50,
+        "pitch_variation":     0.22,
+        "valence_score":       0.15,
+        "phrase_pitch_contour": 0.13,
+        # vocal_control / energy_dynamics / facial_expressivity removed from core;
+        # they feed the penalty term in _compute_passion, not the score directly.
     },
 }
 
