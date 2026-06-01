@@ -86,6 +86,8 @@ COMPOSURE_POS = ["Calmness", "Contentment", "Concentration"]
 COMPOSURE_NEG = ["Anxiety", "Distress", "Fear", "Awkwardness", "Confusion"]
 EXPRESSIVITY = ["Joy", "Excitement", "Interest", "Surprise (positive)", "Amusement"]
 AROUSAL = ["Excitement", "Joy", "Determination", "Triumph", "Interest"]
+VALENCE_POS = ["Joy", "Excitement", "Contentment", "Interest", "Amusement"]
+VALENCE_NEG = ["Anxiety", "Distress", "Fear", "Anger", "Contempt"]
 
 # Heuristic scale: Hume emotion means are small; multiply bundle means into 0-100.
 BUNDLE_SCALE = 280.0
@@ -94,6 +96,9 @@ BUNDLE_SCALE = 280.0
 # These scales map those realistic values to the 50-75 range for a normal speaker.
 ENTHUSIASM_SCALE = 420.0   # enth=0.13 → ~55, enth=0.20 → ~84
 VARIATION_SCALE  = 900.0   # stddev=0.06 → ~54, stddev=0.10 → ~90
+
+# Passion penalty coefficient: gap between polish and genuine enthusiasm
+_POLISH_PENALTY_K = 0.30
 
 
 def _clamp(x, lo=0.0, hi=100.0):
@@ -160,8 +165,9 @@ def compute_submetrics(collected: dict) -> dict:
         sm["hedging"] = _sm(_clamp(100.0 * (1.0 - max(0, hedge_n - 3) / 5.0)),
                             hedge_n, True, f"{hedge_n} hedge{'s' if hedge_n != 1 else ''}")
         unique_ratio = len(set(tokens)) / len(tokens)
-        sm["vocabulary"] = _sm(_clamp(100.0 * min(unique_ratio / 0.40, 1.0)),
-                               round(unique_ratio, 4), True, f"{round(unique_ratio * 100)}% unique words")
+        # vocabulary is computed for analytics display but excluded from composite scoring
+        # (gameable metric: reading from notes inflates it without reflecting genuine skill)
+        sm["vocabulary"] = _sm(None, round(unique_ratio, 4), False, f"{round(unique_ratio * 100)}% unique words")
     else:
         sm["filler_rate"] = _sm(None, None, False, "No transcript")
         sm["hedging"] = _sm(None, None, False, "No transcript")
@@ -203,10 +209,42 @@ def compute_submetrics(collected: dict) -> dict:
                                           round(_mean(deltas), 4), True, "Delivery steadiness")
         else:
             sm["volume_steadiness"] = _sm(None, None, False, "Insufficient audio")
+
+        # Valence: positive mood minus negative (joy/excitement vs anxiety/anger)
+        val_pos = _mean(_frame_bundle_series(prosody_frames, VALENCE_POS))
+        val_neg = _mean(_frame_bundle_series(prosody_frames, VALENCE_NEG))
+        sm["valence_score"] = _sm(_clamp((val_pos - val_neg) * BUNDLE_SCALE + 50.0),
+                                   round(val_pos - val_neg, 4), True, "Emotional valence")
+
+        # Phrase-final pitch contour: falling endings = authoritative/genuine, rising = performative
+        # Proxy: at each inter-word gap > 0.5s, check if arousal trends downward in the preceding 1.5s
+        ar_series_timed = [(f.get("time_start", 0.0), ar)
+                           for f, ar in zip(prosody_frames, arousal_series)]
+        boundaries = [words[i - 1].get("end", 0.0)
+                      for i in range(1, len(words))
+                      if words[i].get("start", 0.0) - words[i - 1].get("end", 0.0) > 0.5] if words else []
+        if boundaries:
+            falling_n = measured_n = 0
+            for t_end in boundaries:
+                window = [ar for t, ar in ar_series_timed if t_end - 1.5 <= t <= t_end + 0.1]
+                if len(window) >= 2:
+                    measured_n += 1
+                    if window[-1] < window[0] * 0.97:  # clear downward trend
+                        falling_n += 1
+            if measured_n > 0:
+                contour_pct = falling_n / measured_n
+                sm["phrase_pitch_contour"] = _sm(_clamp(contour_pct * 100.0),
+                                                  round(contour_pct, 4), True,
+                                                  "Phrase-final contour (falling=genuine)")
+            else:
+                sm["phrase_pitch_contour"] = _sm(None, None, False, "Insufficient phrase windows")
+        else:
+            sm["phrase_pitch_contour"] = _sm(None, None, False, "Too few phrase boundaries")
     else:
         for k, lbl in (("prosody_confidence", "Vocal confidence"), ("hume_enthusiasm", "Vocal enthusiasm"),
                        ("energy_dynamics", "Vocal energy"), ("pitch_variation", "Vocal variation"),
-                       ("volume_steadiness", "Delivery steadiness"), ("vocal_control", "Delivery control")):
+                       ("volume_steadiness", "Delivery steadiness"), ("vocal_control", "Delivery control"),
+                       ("valence_score", "Emotional valence"), ("phrase_pitch_contour", "Phrase-final contour")):
             sm[k] = _sm(None, None, False, "No prosody data")
 
     # ---- Hume face-derived ----
@@ -260,19 +298,11 @@ def compute_submetrics(collected: dict) -> dict:
         sm["face_centering"] = _sm(None, None, False, "No face data")
         sm["face_distance"] = _sm(None, None, False, "No face data")
 
-    # ---- lighting quality (from visual analysis) ----
+    # lighting_quality excluded from composite scoring (video quality ≠ delivery trait)
+    # kept as raw value for analytics display only
     mean_brightness = visual.get("mean_brightness")
-    if mean_brightness is not None:
-        if IDEAL_BRIGHTNESS_LOW <= mean_brightness <= IDEAL_BRIGHTNESS_HIGH:
-            brightness_score = 100.0
-        elif mean_brightness < IDEAL_BRIGHTNESS_LOW:
-            brightness_score = _clamp(100.0 * (mean_brightness / IDEAL_BRIGHTNESS_LOW))
-        else:
-            brightness_score = _clamp(100.0 * (1.0 - (mean_brightness - IDEAL_BRIGHTNESS_HIGH) / (255.0 - IDEAL_BRIGHTNESS_HIGH)))
-        sm["lighting_quality"] = _sm(brightness_score, round(mean_brightness, 1), True,
-                                     f"Brightness {round(mean_brightness)}/255")
-    else:
-        sm["lighting_quality"] = _sm(None, None, False, "No video frame data")
+    sm["lighting_quality"] = _sm(None, round(mean_brightness, 1) if mean_brightness is not None else None,
+                                  False, f"Brightness {round(mean_brightness)}/255" if mean_brightness else "No video frame data")
 
     return sm
 
@@ -321,6 +351,47 @@ def _vocal_control(arousal_series: list):
     opening_penalty = min(40.0, max(0.0, (aggression_ratio - 1.8) * 30.0))
 
     return _clamp(100.0 - spike_penalty - opening_penalty)
+
+
+def _compute_passion(sm: dict) -> float | None:
+    """Formula-based passion composite.
+
+    Core = 0.50·enthusiasm + 0.22·variation + 0.15·valence + 0.13·contour
+    Penalty = k · max(0, polish − enthusiasm)   where polish = mean(control, energy)
+
+    High polish with low genuine enthusiasm signals performativity → the gap
+    actively reduces the score instead of being averaged away.
+    """
+    def get(k):
+        m = sm.get(k)
+        return m["score"] if (m and m.get("available") and m.get("score") is not None) else None
+
+    enth = get("hume_enthusiasm")
+    if enth is None:
+        return None  # can't score without the primary signal
+
+    variation = get("pitch_variation")
+    valence   = get("valence_score")
+    contour   = get("phrase_pitch_contour")
+    control   = get("vocal_control")
+    energy    = get("energy_dynamics")
+
+    # Core: weighted sum over available terms, renormalized
+    core_parts = [(0.50, enth)]
+    if variation is not None: core_parts.append((0.22, variation))
+    if valence   is not None: core_parts.append((0.15, valence))
+    if contour   is not None: core_parts.append((0.13, contour))
+    total_w = sum(w for w, _ in core_parts)
+    core = sum(w * v for w, v in core_parts) / total_w
+
+    # Performativity penalty: polished delivery with low genuine enthusiasm
+    polish_vals = [v for v in [control, energy] if v is not None]
+    penalty = 0.0
+    if polish_vals:
+        polish = sum(polish_vals) / len(polish_vals)
+        penalty = _POLISH_PENALTY_K * max(0.0, polish - enth)
+
+    return round(_clamp(core - penalty), 1)
 
 
 def _rollup(sm: dict, weights: dict):
@@ -620,7 +691,7 @@ def _parse_json(text):
     return json.loads(text)
 
 
-def _analytics_brief(analytics: dict, tone_tags: list) -> str:
+def _analytics_brief(analytics: dict, tone_tags: list, sm: dict = None) -> str:
     """Compact delivery brief for the LLM — covers all signals needed for PCCP scoring."""
     wc = analytics.get("word_choice", {})
     dl = analytics.get("delivery", {})
@@ -650,6 +721,8 @@ def _analytics_brief(analytics: dict, tone_tags: list) -> str:
         f"- Long pauses: {dl.get('pauses', {}).get('count', 0)} (longest {dl.get('pauses', {}).get('longest_sec', 0):.1f}s)\n"
         f"- Vocal energy adequacy (0=flat or too aggressive, 100=appropriate level): {round(energy) if energy is not None else 'N/A'}/100\n"
         f"- Pitch variation (0=monotone, 100=dynamic): {round(pitch_var) if pitch_var is not None else 'N/A'}/100\n"
+        f"- Vocal enthusiasm/genuineness (audio-measured, 0=flat/performative, 100=genuinely animated): {round((sm or {}).get('hume_enthusiasm', {}).get('score') or 0) if isinstance((sm or {}).get('hume_enthusiasm'), dict) else 'N/A'}/100\n"
+        f"- Emotional valence (positive vs negative prosody signals): {round((sm or {}).get('valence_score', {}).get('score') or 0) if isinstance((sm or {}).get('valence_score'), dict) else 'N/A'}/100\n"
         f"- Facial expressivity: {round(expressivity) if expressivity is not None else 'N/A'}/100\n"
         f"- Composure/confidence signals: {round(composure) if composure is not None else 'N/A'}/100\n"
         f"- Detected tone: {active_tones}\n"
@@ -695,6 +768,7 @@ Return ONLY a valid JSON object (no markdown, no prose outside JSON):
     "summary_sentence": {{"score": <1-10>, "comment": "<short specific note>"}}
   }},
   "opening_gambit": {{"score": <0-10 — 0 if no recognizable gambit present>, "comment": "<gambit type used or 'No gambit detected'; if score < 7 include one concrete example of a stronger opening for this specific pitch>"}},
+  "technical_depth": {{"score": <1-10>, "comment": "<note on depth: specific numbers/data/mechanisms cited vs vague claims>"}},
   "pccp": {{
     "competence": {{"score": <1-10>, "comment": "<short note>"}},
     "confidence": {{"score": <1-10>, "comment": "<short note>"}},
@@ -711,13 +785,17 @@ Scoring rules:
 - Explicit clarity rewarded; vague or implied content penalized.
 - opening_gambit: score 0 if the speaker launches straight into the pitch with no hook. Score 1-4 if there is a weak or accidental hook. Score 5-6 for a recognizable but flat gambit. Score 7-10 for a deliberate, attention-grabbing opener.
 - opening_gambit comment: always name the gambit type (e.g. "Factoid gambit") or write "No gambit detected". If score < 7, include one concrete rewrite example tailored to this pitch (e.g. "Try opening with: 'Did you know 40% of athletes overtrain and never recover?'").
-- Passion scoring is CONTEXT-AWARE: first read the transcript to assess whether the subject matter is inherently dry/technical or naturally exciting. A calm, steady speaker pitching a dry topic who clearly believes in it should score 7-9. A speaker pitching an exciting idea who matches that with proportionate energy should also score 7-9. Both can be a 10 if the delivery is masterful.
-- Good passion = conviction + adequate vocal energy + natural variation. It does NOT mean loudness or high raw energy. Shouting is not passion.
-- Aggressive or loud opener (jumping straight to high energy in the first few sentences) = deduct 1-2 points. Sustained shouting or over-the-top delivery throughout = cap at 5.
-- Silly, forced, or performative enthusiasm (cheerleader-like, unnaturally hyper) = cap at 5, note why.
-- Monotone with zero engagement, regardless of topic = 1-3.
-- Passion < 4 (completely flat or unprofessional) must pull overall_score below key_components average.
-- Passion > 8 requires controlled, appropriate energy — never awarded for raw loudness or aggressive delivery alone.
+- technical_depth: strict. Score 1-3 if pitch is entirely vague ("big market", "great team", no numbers). Score 4-6 if some specifics exist but major gaps remain. Score 7-10 only if the speaker cites concrete data, mechanisms, unit economics, or specific market figures.
+- Competence: driven by fundamentals coverage (did they address all 7 components?) and technical depth. A pitch that mentions all components shallowly scores 5-6. Missing components or no technical depth scores 1-4. Score 7+ only if both coverage AND depth are strong.
+- Passion scoring is STRICT about genuineness vs performance:
+  * The primary signal is VOCAL ENTHUSIASM measured by audio analysis (provided above as pitch_variation score).
+  * If vocal enthusiasm is below 40/100, passion CANNOT exceed 4 regardless of transcript content.
+  * If vocal enthusiasm is 40-60, passion maximum is 6.
+  * Forced, performative, or cheerleader enthusiasm = cap at 3 and note explicitly.
+  * "Sounds excited" is NOT the same as genuine passion. Read the word choices: hedging, weak qualifiers, and performative phrases ("This is SO amazing!") signal inauthenticity.
+  * Genuine passion = the speaker clearly understands and believes in what they are saying. It shows in precision of language and natural (not theatrical) variation.
+  * Monotone delivery regardless of transcript = 1-2.
+- Passion < 4 must pull overall_score below key_components average.
 - areas_of_improvement: 2 to 5 items.
 - follow_up_questions: 2 to 3 tough questions the audience would likely ask based on gaps in this pitch.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
@@ -737,11 +815,12 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     # LLM coaching — Prof. Nason's PCCP rubric (1-10 scale, converted to 0-100 internally).
     llm_content_score = None
     llm_overall = None
+    llm_technical_depth = None
     content_checks = []
     pccp_eval = {}
     coaching = {"strength": "", "growth_areas": [], "follow_up_questions": [], "summary": []}
     try:
-        ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags))
+        ev = _llm_coaching(openai_api_key, scoring_spec, transcript_text, _analytics_brief(analytics, tone_tags, sm))
 
         # Convert 1-10 scores → 0-100 for internal consistency
         label_map = {c["id"]: c.get("label", c["id"]) for c in (scoring_spec.get("content_checks") or [])}
@@ -778,7 +857,11 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
 
         os_raw = ev.get("overall_score")
         llm_overall = round(os_raw * 10) if os_raw is not None else None
-        llm_content_score = llm_overall  # feeds the competence sub-metric
+        llm_content_score = llm_overall  # kept for backward compat, no longer in composite weights
+
+        # technical_depth: strict LLM score for specificity of content
+        td_raw = (ev.get("technical_depth") or {}).get("score")
+        llm_technical_depth = round(td_raw * 10) if td_raw is not None else None
 
         coaching = {
             "strength": "",
@@ -794,21 +877,48 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
         logger.error("LLM coaching failed: %s", e, exc_info=True)
         coaching["strength"] = "Automated coaching was unavailable for this submission."
 
-    # Inject the LLM content score as the competence content sub-metric.
+    # Inject LLM-derived submetrics
     sm["llm_content"] = _sm(llm_content_score, llm_content_score, llm_content_score is not None, "Content quality (LLM)")
+    sm["technical_depth"] = _sm(llm_technical_depth, llm_technical_depth, llm_technical_depth is not None, "Technical depth")
+
+    # fundamentals_coverage: mean score of the 7 key pitch components (0-100)
+    # Measures whether the speaker addressed all required elements, not just a few.
+    kc_scores = [c["score"] for c in content_checks if c.get("id") in
+                 {"pain", "solution", "customer", "competition", "deal", "team", "summary_sentence"}
+                 and c.get("score") is not None]
+    if kc_scores:
+        fc_val = round(sum(kc_scores) / len(kc_scores), 1)
+        sm["fundamentals_coverage"] = _sm(fc_val, fc_val, True, f"Fundamentals coverage ({len(kc_scores)}/7 components)")
+    else:
+        sm["fundamentals_coverage"] = _sm(None, None, False, "No LLM component scores")
 
     import copy as _copy
     weights = _copy.deepcopy(scoring_spec.get("submetric_weights") or {})
-    # Migration: filler_rate belongs in competence only — strip from confidence if stored spec is stale
-    if "filler_rate" in (weights.get("confidence") or {}):
-        del weights["confidence"]["filler_rate"]
+    # Migration: strip ceiling features that can't discriminate from confidence/passion weights
+    for stale in ("filler_rate", "lighting_quality"):
+        weights.get("confidence", {}).pop(stale, None)
+    for stale in ("vocabulary", "llm_content"):
+        weights.get("competence", {}).pop(stale, None)
+    for stale in ("energy_dynamics", "facial_expressivity", "vocal_control", "face_coverage"):
+        weights.get("passion", {}).pop(stale, None)
+
     composites = {}
     for dim in ("confidence", "competence", "passion"):
-        val = _rollup(sm, weights.get(dim) or {})
+        if dim == "passion":
+            val = _compute_passion(sm)
+        else:
+            val = _rollup(sm, weights.get(dim) or {})
+        # submetrics shown in UI: use weight keys for competence/confidence, passion-specific set
+        if dim == "passion":
+            passion_display_keys = ["hume_enthusiasm", "pitch_variation", "valence_score",
+                                    "phrase_pitch_contour", "vocal_control", "energy_dynamics"]
+            sub_display = {k: sm[k] for k in passion_display_keys if k in sm}
+        else:
+            sub_display = {k: sm[k] for k in (weights.get(dim) or {}) if k in sm}
         composites[dim] = {
             "value": val,
             "label": _label_for(val),
-            "submetrics": {k: sm[k] for k in (weights.get(dim) or {}) if k in sm},
+            "submetrics": sub_display,
         }
 
     cw = scoring_spec.get("composite_weights") or {}
