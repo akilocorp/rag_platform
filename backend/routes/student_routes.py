@@ -151,6 +151,7 @@ def dashboard():
             'best_score': best_score,
             'latest_scored_id': latest_scored_id,
             'can_submit': len(subs) < 5,
+            'upload_locked_until': config.get('upload_locked_until'),
         })
 
     return jsonify({'assignments': result}), 200

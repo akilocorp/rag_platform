@@ -5,6 +5,11 @@ import apiClient from '../api/apiClient';
 
 const C = v => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
 const fmt = v => v != null ? (v / 10).toFixed(1) : null;
+const isLocked = ts => ts && Date.now() / 1000 < ts;
+const lockMsg = ts => {
+  const d = new Date(ts * 1000);
+  return `Results available ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+};
 
 export default function StudentDashboardPage() {
   const navigate = useNavigate();
@@ -83,13 +88,16 @@ export default function StudentDashboardPage() {
                     Submit Video
                   </button>
                 )}
-                {a.latest_scored_id && (
+                {a.latest_scored_id && !isLocked(a.upload_locked_until) && (
                   <button
                     onClick={() => navigate(`/video-results/${a.latest_scored_id}`)}
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-semibold text-[#FA6C43] border border-[#FA6C43]/30 hover:border-[#FA6C43] text-sm transition-colors"
                   >
                     View Results <FaArrowRight className="text-xs" />
                   </button>
+                )}
+                {a.latest_scored_id && isLocked(a.upload_locked_until) && (
+                  <p className="text-xs text-gray-400 py-2">{lockMsg(a.upload_locked_until)}</p>
                 )}
                 {!a.can_submit && !a.latest_scored_id && (
                   <p className="text-xs text-gray-400 py-2">Maximum submissions reached</p>
