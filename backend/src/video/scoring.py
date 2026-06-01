@@ -223,9 +223,13 @@ def compute_submetrics(collected: dict) -> dict:
         sm["facial_expressivity"] = _sm(None, None, False, "No face data")
 
     # ---- face coverage / centering / distance (from Hume bbox) ----
+    # Hume returns emotion data for every detected face frame but sometimes omits
+    # the bbox field (observed in batch API responses). Use emotion presence as the
+    # true "face detected" signal; bbox is only needed for centering/size signals.
     bbox_frames = [f for f in face_frames if f.get("bbox")]
+    detected_frames = [f for f in face_frames if f.get("emotions")]
     if face_frames:
-        coverage = len(bbox_frames) / len(face_frames)
+        coverage = len(detected_frames) / len(face_frames)
         sm["face_coverage"] = _sm(_clamp(coverage * 100.0), round(coverage, 4), True,
                                   f"Face visible {round(coverage * 100)}% of time")
         fw = visual.get("frame_width") or 0
