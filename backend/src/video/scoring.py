@@ -895,14 +895,23 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     sm["llm_content"] = _sm(llm_content_score, llm_content_score, llm_content_score is not None, "Content quality (LLM)")
     sm["technical_depth"] = _sm(llm_technical_depth, llm_technical_depth, llm_technical_depth is not None, "Technical depth")
 
-    # fundamentals_coverage: mean score of the 7 key pitch components (0-100)
-    # Measures whether the speaker addressed all required elements, not just a few.
+    # fundamentals_coverage: opening gambit (25%) + mean of the 7 key pitch components (75%).
+    # The opening gambit carries outsized weight — a weak or absent opening signals poor
+    # competence (an awful start drags the whole composite down).
     kc_scores = [c["score"] for c in content_checks if c.get("id") in
                  {"pain", "solution", "customer", "competition", "deal", "team", "summary_sentence"}
                  and c.get("score") is not None]
+    gambit_score = next((c["score"] for c in content_checks
+                         if c.get("id") == "gambit" and c.get("score") is not None), None)
     if kc_scores:
-        fc_val = round(sum(kc_scores) / len(kc_scores), 1)
-        sm["fundamentals_coverage"] = _sm(fc_val, fc_val, True, f"Fundamentals coverage ({len(kc_scores)}/7 components)")
+        components_mean = sum(kc_scores) / len(kc_scores)
+        if gambit_score is not None:
+            fc_val = round(0.25 * gambit_score + 0.75 * components_mean, 1)
+            label = f"Fundamentals coverage (gambit + {len(kc_scores)}/7 components)"
+        else:
+            fc_val = round(components_mean, 1)
+            label = f"Fundamentals coverage ({len(kc_scores)}/7 components)"
+        sm["fundamentals_coverage"] = _sm(fc_val, fc_val, True, label)
     else:
         sm["fundamentals_coverage"] = _sm(None, None, False, "No LLM component scores")
 
