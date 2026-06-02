@@ -962,9 +962,13 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
             "submetrics": sub_display,
         }
 
-    # Resolve dual-passion path: formula score is authoritative; LLM comment kept for context
-    if composites["passion"]["value"] is not None:
-        pccp_eval.setdefault("passion", {})["score"] = composites["passion"]["value"]
+    # The computed composite (submetric rollup / passion formula) is authoritative for the
+    # headline PCCP score; the LLM's pccp comment is kept for context. Without this the
+    # dashboard showed the LLM's raw competence/confidence number while the submetric bars
+    # came from the rollup, so the two disagreed (e.g. headline 60 over bars rolling up to ~40).
+    for dim in ("confidence", "competence", "passion"):
+        if composites[dim]["value"] is not None:
+            pccp_eval.setdefault(dim, {})["score"] = composites[dim]["value"]
 
     cw = scoring_spec.get("composite_weights") or {}
     present = [(cw.get(d, 0.0), composites[d]["value"]) for d in ("confidence", "competence", "passion")
