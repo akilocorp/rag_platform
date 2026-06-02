@@ -934,14 +934,13 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
         "volume_steadiness":  0.15,
     }
 
-    # Competence: fundamentals_coverage is the primary driver; technical_depth demoted.
-    # Preserve prof-calibrated filler/pacing values if present.
-    comp_w = weights.get("competence") or {}
+    # Competence: system-controlled weights; always force-set to migrate stored specs.
+    # fundamentals_coverage + technical_depth carry content; filler/pauses are minor delivery.
     weights["competence"] = {
-        "fundamentals_coverage": 0.62,
-        "technical_depth":       0.15,
-        "filler_rate":           comp_w.get("filler_rate",       0.15),
-        "pacing_smoothness":     comp_w.get("pacing_smoothness", 0.08),
+        "fundamentals_coverage": 0.45,
+        "technical_depth":       0.35,
+        "filler_rate":           0.15,
+        "pacing_smoothness":     0.05,
     }
 
     composites = {}
