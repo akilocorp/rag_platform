@@ -804,7 +804,9 @@ Scoring rules:
 - follow_up_questions: 2 to 3 tough questions the audience would likely ask based on gaps in this pitch.
 - additional_points: 0 to 3 items; use [] if nothing notable."""
 
-    llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4000)
+    # temperature=0 + fixed seed so a rescore of unchanged data grades reproducibly
+    # (default temp 0.7 made competence/coaching wobble several points each rescore).
+    llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4000, temperature=0, seed=42)
     raw = llm.invoke([HumanMessage(content=prompt)]).content
     return _parse_json(raw)
 
