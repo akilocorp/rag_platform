@@ -354,46 +354,48 @@ def _vocal_control(arousal_series: list):
 
 
 def _compute_passion(sm: dict, formula: dict = None) -> float | None:
-    """Linear passion on a 0-14 intensity scale with an over-passion penalty.
+    """Face-value passion (blend / 10) with an over-passion penalty above 10.
 
-    Blends the three intensity/genuineness signals — valence (anchor),
-    enthusiasm, variation — into a 0-100 score, stretches it onto a 0-14
-    intensity scale, then applies a tent peaking at 10: intensity <= 10 maps
-    straight through; above 10 it is penalized symmetrically (11->9, 12->8, ...
-    14->6) so over-the-top delivery is docked. A ~71% blend hits a clean 10.
+    Blends three signals — valence (warmth anchor), enthusiasm, variation —
+    weighted, then reads the result at face value: a 54 blend scores 5.4.
 
-    Energy and delivery control are deliberately excluded from the blend: they
-    detect excess directly and would paradoxically rescue over-the-top speakers
-    if blended in (their low scores drag the blend below the penalty zone).
+    Enthusiasm and variation are taken UNCAPPED (raw mean x scale, not the
+    0-100-clamped submetric), so over-the-top delivery overflows past 100 and
+    pushes intensity above 10 into the penalty zone. Valence stays on its
+    bounded 0-100 scale — warmth has no "too much".
+
+    Tent: intensity <= 10 maps straight through (normal range); above 10 it is
+    penalized symmetrically (11->9, 12->8, ... 14->6), with intensity capped at
+    the ceiling so the worst over-passion floors at score 6.
 
     Per-config overrides live in scoring_spec.passion_formula (calibration tool).
     """
     f = formula or {}
-    w_val = float(f.get("w_valence",    0.45))   # genuine warmth — anchor
-    w_e   = float(f.get("w_enthusiasm", 0.30))   # animation
-    w_v   = float(f.get("w_variation",  0.25))   # delivery dynamics
-    scale = float(f.get("intensity_scale", 14.0))  # blend 100% -> this many intensity points
-    peak  = float(f.get("intensity_peak",  10.0))  # appropriate level; above this is penalized
+    w_val = float(f.get("w_valence",    0.45))     # genuine warmth — anchor
+    w_e   = float(f.get("w_enthusiasm", 0.30))     # animation
+    w_v   = float(f.get("w_variation",  0.25))     # delivery dynamics
+    peak  = float(f.get("intensity_peak",    10.0))  # normal max; above this is penalized
+    ceil  = float(f.get("intensity_ceiling", 14.0))  # worst over-passion (score floor = 2*peak-ceil)
 
-    def get(key):
+    def avail(key):
         m = sm.get(key)
-        return m["score"] if (m and m.get("available") and m.get("score") is not None) else None
+        return m if (m and m.get("available") and m.get("score") is not None) else None
 
-    valence   = get("valence_score")
-    enth      = get("hume_enthusiasm")
-    variation = get("pitch_variation")
+    val_m  = avail("valence_score")
+    enth_m = avail("hume_enthusiasm")
+    var_m  = avail("pitch_variation")
 
     parts = []
-    if valence   is not None: parts.append((w_val, valence))
-    if enth      is not None: parts.append((w_e, enth))
-    if variation is not None: parts.append((w_v, variation))
+    if val_m  is not None: parts.append((w_val, val_m["score"]))                      # bounded 0-100
+    if enth_m is not None: parts.append((w_e, (enth_m["raw"] or 0.0) * ENTHUSIASM_SCALE))  # uncapped
+    if var_m  is not None: parts.append((w_v, (var_m["raw"] or 0.0) * VARIATION_SCALE))    # uncapped
     if not parts:
         return None
     total_w = sum(w for w, _ in parts)
-    blend = sum(w * v for w, v in parts) / total_w  # 0-100
+    blend = sum(w * v for w, v in parts) / total_w  # 0-~140
 
-    intensity = blend / 100.0 * scale                              # 0-scale
-    score10 = intensity if intensity <= peak else (2 * peak - intensity)  # tent peaking at `peak`
+    intensity = _clamp(blend / 10.0, 0.0, ceil)                            # face value, capped at ceiling
+    score10 = intensity if intensity <= peak else (2 * peak - intensity)   # tent peaking at `peak`
     return round(_clamp(score10 * 10.0), 1)
 
 
