@@ -354,57 +354,47 @@ def _vocal_control(arousal_series: list):
 
 
 def _compute_passion(sm: dict, formula: dict = None) -> float | None:
-    """Formula-based passion: intensity × appropriateness.
+    """Linear passion on a 0-14 intensity scale with an over-passion penalty.
 
-    Valence (positive vs hostile emotional delivery) is the primary driver.
-    Enthusiasm and variation are minor modifiers.
-    Penalty is gated by (1 − valence/100) so it only fires on hostile delivery —
-    a composed professional with high valence incurs near-zero penalty.
+    Blends the three intensity/genuineness signals — valence (anchor),
+    enthusiasm, variation — into a 0-100 score, stretches it onto a 0-14
+    intensity scale, then applies a tent peaking at 10: intensity <= 10 maps
+    straight through; above 10 it is penalized symmetrically (11->9, 12->8, ...
+    14->6) so over-the-top delivery is docked. A ~71% blend hits a clean 10.
+
+    Energy and delivery control are deliberately excluded from the blend: they
+    detect excess directly and would paradoxically rescue over-the-top speakers
+    if blended in (their low scores drag the blend below the penalty zone).
 
     Per-config overrides live in scoring_spec.passion_formula (calibration tool).
     """
     f = formula or {}
-    w_val = float(f.get("w_valence",    0.70))  # appropriateness — primary
-    w_e   = float(f.get("w_enthusiasm", 0.20))  # genuine animation — secondary
-    w_v   = float(f.get("w_variation",  0.10))  # delivery dynamics — minor
-    k     = float(f.get("k_penalty",    0.15))  # lower k; gate handles hostile clips
+    w_val = float(f.get("w_valence",    0.45))   # genuine warmth — anchor
+    w_e   = float(f.get("w_enthusiasm", 0.30))   # animation
+    w_v   = float(f.get("w_variation",  0.25))   # delivery dynamics
+    scale = float(f.get("intensity_scale", 14.0))  # blend 100% -> this many intensity points
+    peak  = float(f.get("intensity_peak",  10.0))  # appropriate level; above this is penalized
 
     def get(key):
         m = sm.get(key)
         return m["score"] if (m and m.get("available") and m.get("score") is not None) else None
 
-    valence = get("valence_score")
-    enth    = get("hume_enthusiasm")
-
-    # Need at least one prosody signal
-    if valence is None and enth is None:
-        return None
-
+    valence   = get("valence_score")
+    enth      = get("hume_enthusiasm")
     variation = get("pitch_variation")
-    control   = get("vocal_control")
-    energy    = get("energy_dynamics")
 
-    # Core: valence anchors the score; enthusiasm/variation modulate ±
-    core_parts = []
-    if valence   is not None: core_parts.append((w_val, valence))
-    if enth      is not None: core_parts.append((w_e, enth))
-    if variation is not None: core_parts.append((w_v, variation))
-    if not core_parts:
+    parts = []
+    if valence   is not None: parts.append((w_val, valence))
+    if enth      is not None: parts.append((w_e, enth))
+    if variation is not None: parts.append((w_v, variation))
+    if not parts:
         return None
-    total_w = sum(w for w, _ in core_parts)
-    core = sum(w * v for w, v in core_parts) / total_w
+    total_w = sum(w for w, _ in parts)
+    blend = sum(w * v for w, v in parts) / total_w  # 0-100
 
-    # Penalty: gated by (1 − valence/100)
-    #   valence=100 (purely positive) → gate≈0 → no penalty
-    #   valence=0   (purely hostile)  → gate=1  → full penalty
-    polish_vals = [v for v in [control, energy] if v is not None]
-    penalty = 0.0
-    if polish_vals and enth is not None:
-        polish   = sum(polish_vals) / len(polish_vals)
-        val_gate = 1.0 - (valence if valence is not None else 50.0) / 100.0
-        penalty  = k * max(0.0, polish - enth) * val_gate
-
-    return round(_clamp(core - penalty), 1)
+    intensity = blend / 100.0 * scale                              # 0-scale
+    score10 = intensity if intensity <= peak else (2 * peak - intensity)  # tent peaking at `peak`
+    return round(_clamp(score10 * 10.0), 1)
 
 
 def _rollup(sm: dict, weights: dict):
@@ -952,7 +942,7 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
         # submetrics shown in UI: use weight keys for competence/confidence, passion-specific set
         if dim == "passion":
             passion_display_keys = ["hume_enthusiasm", "pitch_variation", "valence_score",
-                                    "phrase_pitch_contour", "vocal_control", "energy_dynamics"]
+                                    "phrase_pitch_contour", "vocal_control"]
             sub_display = {k: sm[k] for k in passion_display_keys if k in sm}
         else:
             sub_display = {k: sm[k] for k in (weights.get(dim) or {}) if k in sm}
