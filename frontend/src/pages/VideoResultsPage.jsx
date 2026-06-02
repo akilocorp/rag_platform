@@ -32,12 +32,14 @@ const mmss = (s) => { if (!s) return ''; const m = Math.floor(s / 60); return `$
 function PccpCard({ label, blurb, data, evalScore, evalComment, pinnedSignals }) {
   const [open, setOpen] = useState(false);
   const v = evalScore != null ? evalScore : data?.value;
-  // Exclude keys that are already shown as pinnedSignals
+  // Exclude keys that are already shown as pinnedSignals, plus signals that carry
+  // no weight in the passion blend (kept in the data but hidden from the card).
   const pinnedKeys = new Set((pinnedSignals || []).map(s => s.key).filter(Boolean));
+  const hiddenKeys = new Set(['vocal_control', 'phrase_pitch_contour']);
   const subs = Object.entries(data?.submetrics || {})
-    .filter(([k, m]) => m?.available && m?.score != null && !pinnedKeys.has(k));
+    .filter(([k, m]) => m?.available && m?.score != null && !pinnedKeys.has(k) && !hiddenKeys.has(k));
   const pending = Object.entries(data?.submetrics || {})
-    .filter(([k, m]) => !m?.available && !pinnedKeys.has(k));
+    .filter(([k, m]) => !m?.available && !pinnedKeys.has(k) && !hiddenKeys.has(k));
   const hasCollapsible = subs.length > 0 || pending.length > 0;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
