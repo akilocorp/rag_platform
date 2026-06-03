@@ -217,43 +217,52 @@ const SyllabusMockup = () => (
 );
 
 // Three audience panels for the horizontal accordion. One is expanded at
-// a time; the others collapse to a narrow vertical-label rail. Body copy
-// is intentionally placeholder (lorem ipsum) — to be replaced with real
-// audience pitches.
+// a time; the others collapse to a narrow vertical-label rail. Each
+// expanded panel renders a real testimonial: name, role + university
+// pill, contextual quote, and an autoplay portrait video of the person
+// speaking. Drop a recording at /testimonials/<id>.mp4 (with matching
+// .jpg poster) and it lights up — the dark frame bg keeps an empty
+// video looking intentional until the file lands.
 // Panel bg colors match the bento tile pastels for visual cohesion.
 const TESTIMONIAL_PANELS = [
   {
     id: 'students',
     title: 'Students',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
-    icon: '/illustrations/icon-question.png',
-    iconAlt: 'Question mark',
+    name: 'Sarah Chen',
+    role: 'MS Biology',
+    university: 'UC Berkeley',
+    quote:
+      'Most chatbots speak in generalities. Mine quotes the slide my professor uploaded last Tuesday — and that’s the difference between cramming and actually learning.',
+    videoSrc: '/testimonials/students.mp4',
+    posterSrc: '/testimonials/students.jpg',
     bg: '#FDE3D8',
     accent: '#C8472A',
-    metric: '1,420 ACTIVE',
   },
   {
     id: 'teachers',
     title: 'Teachers',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.',
-    icon: '/illustrations/icon-pencil.png',
-    iconAlt: 'Pencil',
+    name: 'Dr. Marcus Webb',
+    role: 'Lecturer in Economics',
+    university: 'Tufts University',
+    quote:
+      'I wanted my 300-person lecture to feel like a seminar. ACTRLabs gave every student a teaching assistant who knows my reading list as well as I do.',
+    videoSrc: '/testimonials/teachers.mp4',
+    posterSrc: '/testimonials/teachers.jpg',
     bg: '#F4ECD8',
     accent: '#A8832D',
-    metric: '84 BOTS BUILT',
   },
   {
     id: 'researchers',
     title: 'Researchers',
-    body:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Sunt in culpa qui officia deserunt mollit anim id est laborum.',
-    icon: '/illustrations/icon-glasses.png',
-    iconAlt: 'Glasses',
+    name: 'Dr. Priya Patel',
+    role: 'Learning Sciences',
+    university: 'Stanford University',
+    quote:
+      'For the first time, I can watch students actually reason with AI — not in a focus group, but inside the coursework itself. That kind of visibility didn’t exist before.',
+    videoSrc: '/testimonials/researchers.mp4',
+    posterSrc: '/testimonials/researchers.jpg',
     bg: '#D9E5F2',
     accent: '#3E6493',
-    metric: '27 STUDIES',
   },
 ];
 
@@ -318,6 +327,40 @@ const LandingV2 = () => {
     }, 7000);
     return () => clearInterval(id);
   }, [activePanel]);
+
+  // Testimonial-video autoplay. Each panel renders a <video> whose ref
+  // lands in this array. We only play the *active* panel's video, and
+  // only when the accordion section is in view — otherwise off-screen
+  // tabs would silently burn bandwidth on page load. Browser autoplay
+  // requires muted + playsInline, both set on the <video> below.
+  const videoRefs = useRef([]);
+  const accordionSectionRef = useRef(null);
+  const [accordionInView, setAccordionInView] = useState(false);
+  useEffect(() => {
+    const el = accordionSectionRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setAccordionInView(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => setAccordionInView(e.isIntersecting)),
+      { threshold: 0.2 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    videoRefs.current.forEach((v, i) => {
+      if (!v) return;
+      if (accordionInView && i === activePanel) {
+        try { v.currentTime = 0; } catch (_) {}
+        const p = v.play();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } else {
+        v.pause();
+      }
+    });
+  }, [activePanel, accordionInView]);
 
   // Hero composer attach-menu state. Outside-click closes the menu.
   const [attachOpen, setAttachOpen] = useState(false);
@@ -1281,8 +1324,11 @@ const LandingV2 = () => {
           (`calc(100% - 212px)` wide); the other two collapse to a 90px
           rail showing a vertical-text label. Auto-rotates every 7s; the
           interval restarts on click via the activePanel dep on the
-          useEffect. Width transitions are pure CSS — no layout libs. */}
+          useEffect. Width transitions are pure CSS — no layout libs.
+          Section ref drives the IntersectionObserver that gates video
+          autoplay — videos stay paused until this section enters view. */}
       <section
+        ref={accordionSectionRef}
         className="relative px-6 lg:px-10 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
@@ -1352,55 +1398,106 @@ const LandingV2 = () => {
                     </span>
                   </div>
 
-                  {/* Expanded view — visible when active. */}
+                  {/* Expanded view — visible when active. Two-column
+                      layout: name + pill + divider + quote + metric on the
+                      left, autoplay portrait video on the right, fully-black
+                      A logo pinned above the video in the top-right padding. */}
                   <div
-                    className="absolute inset-0 p-10 lg:p-12 flex flex-col transition-opacity duration-500"
+                    className="absolute inset-0 p-8 lg:p-10 flex flex-col transition-opacity duration-500"
                     style={{
                       opacity: isActive ? 1 : 0,
                       pointerEvents: isActive ? 'auto' : 'none',
                     }}
                   >
-                    <h3
-                      className="text-4xl lg:text-5xl tracking-tight leading-[1.05] mb-6"
-                      style={{
-                        color: '#1F1F1F',
-                        fontFamily: FONT_DISPLAY,
-                        fontWeight: 800,
-                        letterSpacing: '-0.02em',
-                      }}
-                    >
-                      {p.title}
-                    </h3>
-                    <p
-                      className="text-base lg:text-lg leading-relaxed max-w-xl"
-                      style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                    >
-                      {p.body}
-                    </p>
-                    <div className="mt-auto">
-                      <span
-                        className="inline-block px-3 py-1.5 rounded-full text-[10px] font-bold uppercase"
-                        style={{
-                          backgroundColor: 'rgba(31,31,31,0.06)',
-                          border: '1px solid rgba(31,31,31,0.10)',
-                          color: '#1F1F1F',
-                          letterSpacing: '0.18em',
-                          fontFamily: FONT_BODY,
-                        }}
-                      >
-                        {p.metric}
-                      </span>
-                    </div>
+                    {/* Brand mark — sits above the video frame, not on it. */}
                     <img
-                      src={p.icon}
-                      alt={p.iconAlt}
+                      src="/logo-A.svg"
+                      alt=""
                       aria-hidden
-                      className="absolute right-10 lg:right-16 top-1/2 w-36 h-36 lg:w-48 lg:h-48 object-contain pointer-events-none"
-                      style={{
-                        transform: 'translateY(-50%) rotate(-12deg)',
-                        opacity: 0.78,
-                      }}
+                      draggable={false}
+                      className="absolute pointer-events-none select-none"
+                      style={{ top: '22px', right: '26px', width: '32px', height: 'auto' }}
                     />
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-center">
+                      {/* Left column: name → role + university pill → divider →
+                          quote → metric. University pill borrows the
+                          "Fetches Canvas Files" treatment but in the
+                          researcher-accent blue so it reads as branded. */}
+                      <div className="flex flex-col justify-center">
+                        <h3
+                          className="text-4xl lg:text-5xl tracking-tight leading-[1.0] mb-3"
+                          style={{
+                            color: '#1F1F1F',
+                            fontFamily: FONT_DISPLAY,
+                            fontWeight: 800,
+                            letterSpacing: '-0.02em',
+                          }}
+                        >
+                          {p.name}
+                        </h3>
+                        <div
+                          className="mb-6 leading-snug"
+                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, fontSize: '1.05rem' }}
+                        >
+                          <span>{p.role}</span>
+                          <span className="mx-2" aria-hidden style={{ opacity: 0.4 }}>·</span>
+                          <span
+                            style={{
+                              backgroundColor: '#3E6493',
+                              color: '#FFFFFF',
+                              padding: '0.25em 0.4em',
+                              borderRadius: '12px',
+                              fontFamily: FONT_DISPLAY,
+                              fontWeight: 800,
+                              letterSpacing: '-0.01em',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-block',
+                            }}
+                          >
+                            {p.university}
+                          </span>
+                        </div>
+                        <div
+                          className="h-px w-14 mb-6"
+                          style={{ backgroundColor: 'rgba(31,31,31,0.28)' }}
+                          aria-hidden
+                        />
+                        <p
+                          className="text-base lg:text-lg leading-relaxed max-w-xl"
+                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
+                        >
+                          {p.quote}
+                        </p>
+                      </div>
+
+                      {/* Right column: portrait testimonial video. Autoplays
+                          muted on panel activation (videoRefs effect above);
+                          paused + reset on collapse or when section leaves
+                          viewport. */}
+                      <div className="flex justify-center lg:justify-end">
+                        <div
+                          className="relative overflow-hidden w-full max-w-[320px]"
+                          style={{
+                            aspectRatio: '4 / 5',
+                            backgroundColor: '#1F1F1F',
+                            borderRadius: '24px',
+                            boxShadow: '0 18px 48px rgba(31,31,31,0.22)',
+                          }}
+                        >
+                          <video
+                            ref={(el) => { videoRefs.current[i] = el; }}
+                            src={p.videoSrc}
+                            poster={p.posterSrc}
+                            muted
+                            playsInline
+                            loop
+                            preload="metadata"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </button>
               );
