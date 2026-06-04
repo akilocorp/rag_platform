@@ -19,6 +19,11 @@ const AdminPage = () => {
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState({});   // { userId: true }
   const [toast, setToast] = useState(null);   // { message, type }
+  const [settings, setSettings] = useState(null);     // usage limits config
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [newTier, setNewTier] = useState({ name: '', messages_per_student: '' });
+
+  const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('jwtToken')}` } });
 
   useEffect(() => {
     const token = localStorage.getItem('jwtToken');
@@ -34,9 +39,58 @@ const AdminPage = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    apiClient.get('/admin/usage/settings', authHeaders())
+      .then(res => setSettings(res.data))
+      .catch(() => {});
+  }, []);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const saveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const res = await apiClient.put('/admin/usage/settings', {
+        anon_lifetime_cap: Number(settings.anon_lifetime_cap),
+        student_default_cap: Number(settings.student_default_cap),
+        professor_default_cap: Number(settings.professor_default_cap),
+        warn_threshold: Number(settings.warn_threshold),
+      }, authHeaders());
+      setSettings(res.data);
+      showToast('Usage settings saved');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to save settings', 'error');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const addTier = async () => {
+    if (!newTier.name.trim() || !newTier.messages_per_student) return;
+    try {
+      const res = await apiClient.post('/admin/usage/tiers', {
+        name: newTier.name.trim(),
+        messages_per_student: Number(newTier.messages_per_student),
+      }, authHeaders());
+      setSettings(res.data);
+      setNewTier({ name: '', messages_per_student: '' });
+      showToast('Tier added');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to add tier', 'error');
+    }
+  };
+
+  const deleteTier = async (id) => {
+    try {
+      const res = await apiClient.delete(`/admin/usage/tiers/${id}`, authHeaders());
+      setSettings(res.data);
+      showToast('Tier removed');
+    } catch (err) {
+      showToast('Failed to remove tier', 'error');
+    }
   };
 
   const handleRoleChange = async (userId, newRole) => {
@@ -163,6 +217,91 @@ const AdminPage = () => {
                 ))
               )}
             </div>
+
+            {/* Usage Limits */}
+            {settings && (
+              <div className="mt-8 bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6">
+                <h2 className="text-lg font-bold text-[#222] mb-1">Usage Limits</h2>
+                <p className="text-xs text-gray-400 font-medium mb-5">
+                  Message caps (1 message = one model reply). Caps apply across all models.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                  {[
+                    { key: 'anon_lifetime_cap', label: 'Anonymous (lifetime)' },
+                    { key: 'student_default_cap', label: 'Student default' },
+                    { key: 'professor_default_cap', label: 'Professor default' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+                      <input
+                        type="number" min="0"
+                        value={settings[key]}
+                        onChange={e => setSettings(s => ({ ...s, [key]: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Warn at (0–1)</label>
+                    <input
+                      type="number" min="0" max="1" step="0.05"
+                      value={settings.warn_threshold}
+                      onChange={e => setSettings(s => ({ ...s, warn_threshold: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={saveSettings}
+                  disabled={savingSettings}
+                  className="mb-8 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-60 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors"
+                >
+                  {savingSettings ? 'Saving…' : 'Save settings'}
+                </button>
+
+                <h3 className="text-sm font-bold text-[#222] mb-1">Class tiers</h3>
+                <p className="text-xs text-gray-400 font-medium mb-3">
+                  Professors pick a tier per class. Pool = messages/student × number of students.
+                </p>
+                <div className="space-y-2 mb-4">
+                  {(settings.tiers || []).map(t => (
+                    <div key={t.id} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="text-sm font-semibold text-[#222] flex-1">{t.name}</span>
+                      <span className="text-xs text-gray-500">{t.messages_per_student} msg / student</span>
+                      <button onClick={() => deleteTier(t.id)} className="text-xs font-semibold text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                  ))}
+                  {(settings.tiers || []).length === 0 && (
+                    <p className="text-xs text-gray-400">No tiers yet.</p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Tier name (e.g. Small)"
+                    value={newTier.name}
+                    onChange={e => setNewTier(t => ({ ...t, name: e.target.value }))}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                  />
+                  <input
+                    type="number" min="1"
+                    placeholder="msg / student"
+                    value={newTier.messages_per_student}
+                    onChange={e => setNewTier(t => ({ ...t, messages_per_student: e.target.value }))}
+                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                  />
+                  <button
+                    onClick={addTier}
+                    className="bg-gray-900 hover:bg-gray-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

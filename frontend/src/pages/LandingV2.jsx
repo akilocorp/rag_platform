@@ -18,6 +18,17 @@ const HERO_PROMPTS = [
   'Derive the Black-Scholes equation',
 ];
 
+// Models a free user can pick straight from the composer. Subset of the
+// backend ALLOWED_MODELS (usage/limits.py) — sent as model_override.
+const MODEL_OPTIONS = [
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { id: 'gpt-4.1', label: 'GPT-4.1' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { id: 'deepseek-chat', label: 'Deepseek Chat' },
+];
+
 const UVPS = [
   {
     id: 'syllabus',
@@ -378,14 +389,29 @@ const LandingV2 = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, [attachOpen]);
 
-  // Hero composer input value + register-gate modal. Submit (Enter or
-  // send button) opens the modal instead of routing anywhere — anonymous
-  // visitors have to register before they can chat.
+  // Hero composer: input value + chosen model. Submit starts a real free
+  // chat against the shared playground bot, carrying the typed prompt + model
+  // into ChatPage. Usage caps (warn nudge + create-account block) are enforced
+  // there. The register modal remains only as a fallback if the bot can't load.
   const [promptValue, setPromptValue] = useState('');
+  const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0].id);
+  const [composerSending, setComposerSending] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const handleComposerSubmit = (e) => {
+  const handleComposerSubmit = async (e) => {
     if (e) e.preventDefault();
-    setShowRegisterModal(true);
+    const text = promptValue.trim();
+    if (!text || composerSending) return;
+    setComposerSending(true);
+    try {
+      const res = await fetch('/api/config/playground', { credentials: 'include' });
+      if (!res.ok) throw new Error('playground unavailable');
+      const { config_id } = await res.json();
+      const chatId = `chat_${Date.now()}`;
+      navigate(`/chat/${config_id}/${chatId}`, { state: { firstMessage: text, model: selectedModel } });
+    } catch (err) {
+      setComposerSending(false);
+      setShowRegisterModal(true);
+    }
   };
   useEffect(() => {
     if (!showRegisterModal) return;
@@ -995,6 +1021,20 @@ const LandingV2 = () => {
                     />
                   </svg>
                 </button>
+
+                {/* Model picker — choose the model before sending */}
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  aria-label="Model"
+                  className="ml-1 text-xs font-semibold rounded-full px-2.5 py-1.5 outline-none cursor-pointer transition-colors hover:bg-gray-100"
+                  style={{ color: '#1F1F1F', fontFamily: FONT_BODY, backgroundColor: '#F5F3EE', border: '1px solid rgba(31,31,31,0.08)' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {MODEL_OPTIONS.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Send button — circular, orange, slim white up-arrow */}

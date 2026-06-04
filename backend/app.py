@@ -5,6 +5,7 @@ from typing import Dict, Any
 from extenstions import mail, jwt, bcrypt
 from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_jwt_extended import JWTManager, get_jwt_identity, jwt_required, create_access_token
 from flask_mail import Mail
 from langchain_openai.embeddings import OpenAIEmbeddings
@@ -38,6 +39,9 @@ socketio = SocketIO(cors_allowed_origins="*")
 
 def create_app():
     app = Flask(__name__)
+    # Behind nginx: trust one proxy hop so request.remote_addr / is_secure
+    # reflect the real client (needed for per-IP anon usage limits + secure cookie).
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
     secrets = load_secrets()
     app.config.from_mapping(secrets)
     app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024

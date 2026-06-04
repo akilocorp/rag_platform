@@ -26,6 +26,12 @@ const EditConfigPage = () => {
   const [heygenAvatars, setHeygenAvatars] = useState([]);
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
 
+  // Class rollout usage tiers
+  const [usageTiers, setUsageTiers] = useState([]);
+  useEffect(() => {
+    apiClient.get('/usage/tiers').then(res => setUsageTiers(res.data.tiers || [])).catch(() => {});
+  }, []);
+
   const aiModels = [
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash' },
@@ -282,6 +288,42 @@ const EditConfigPage = () => {
     }
   };
 
+  const _selectedTier = usageTiers.find(t => t.id === config.usage_tier);
+  const _computedPool = _selectedTier && config.student_count
+    ? _selectedTier.messages_per_student * Number(config.student_count) : null;
+  const classUsageFields = config.class_code ? (
+    <div className="grid grid-cols-2 gap-4 mt-3">
+      <div>
+        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Usage tier</label>
+        <select
+          value={config.usage_tier || ''}
+          onChange={e => setConfig(prev => ({ ...prev, usage_tier: e.target.value }))}
+          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
+        >
+          <option value="">Select a tier…</option>
+          {usageTiers.map(t => (
+            <option key={t.id} value={t.id}>{t.name} ({t.messages_per_student}/student)</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Number of students</label>
+        <input
+          type="number" min="1"
+          value={config.student_count || ''}
+          onChange={e => setConfig(prev => ({ ...prev, student_count: e.target.value }))}
+          placeholder="e.g. 40"
+          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
+        />
+      </div>
+      {_computedPool != null && (
+        <p className="col-span-2 text-[12px] text-gray-500">
+          Shared class pool: <span className="font-bold text-[#FA6C43]">{_computedPool.toLocaleString()}</span> messages
+        </p>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
@@ -410,6 +452,7 @@ const EditConfigPage = () => {
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
+                  {classUsageFields}
                 </div>
                 <p className="text-xs text-gray-400 mt-4">Editing weights or prompts applies to new submissions. Use "Rescore" on the dashboard to re-grade existing ones.</p>
               </div>
@@ -526,6 +569,23 @@ const EditConfigPage = () => {
                       <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
                     </label>
                   </div>
+                </div>
+
+                {/* Class rollout — optional class code + shared message pool */}
+                <div className="border-t border-gray-100 pt-8 mt-8">
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                    Class Code <span className="font-normal text-gray-400">(optional — roll this bot out to a class with a shared message pool)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.class_code || ''}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                    maxLength={20}
+                    placeholder="e.g. actr101"
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
+                  {classUsageFields}
                 </div>
 
               </>

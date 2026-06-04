@@ -8,7 +8,9 @@ from werkzeug.utils import secure_filename
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from models.config import Config
 from models.user import User
+from src.usage import limits as usage_limits
 
+import re
 import json
 from bson import ObjectId
 
@@ -22,6 +24,43 @@ config_bp = Blueprint('config_routes', __name__)
 def allowed_file(filename):
     """Checks if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def validate_class_usage(source, target, current_config_id=None):
+    """Validates a class rollout's code + usage tier and writes class_code,
+    usage_tier, student_count, usage_pool into `target`.
+
+    `source` is the incoming data (dict for create, request.form for edit).
+    Returns an error (response, status) tuple on failure, or None on success.
+    No class_code → nothing written (not a class bot).
+    """
+    raw_code = (source.get('class_code') or '').strip().lower()
+    if not raw_code:
+        return None
+    if not re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
+        return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
+    existing = Config.get_collection().find_one({"class_code": raw_code})
+    if existing and (current_config_id is None or str(existing['_id']) != str(current_config_id)):
+        return jsonify({"error": "Class code already taken. Choose a different one."}), 409
+    target['class_code'] = raw_code
+
+    tier_id = (source.get('usage_tier') or '').strip()
+    student_count = source.get('student_count')
+    if tier_id and student_count not in (None, ''):
+        try:
+            student_count = int(student_count)
+            if student_count < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({"error": "Number of students must be a positive integer"}), 400
+        tier = next((t for t in usage_limits.get_settings().get('tiers', [])
+                     if t.get('id') == tier_id), None)
+        if not tier:
+            return jsonify({"error": "Unknown usage tier"}), 400
+        target['usage_tier'] = tier_id
+        target['student_count'] = student_count
+        target['usage_pool'] = int(tier['messages_per_student']) * student_count
+    return None
 
 @config_bp.route('/config_list', methods=['GET'])
 @jwt_required()
@@ -272,16 +311,11 @@ Answer:"""
             config_document['assignment_type'] = assignment_type
             config_document['scoring_spec'] = scoring_spec
 
-            # Class code — optional, must be unique across all configs
-            raw_code = (config_data.get('class_code') or '').strip().lower()
-            if raw_code:
-                import re as _re
-                if not _re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
-                    return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
-                if mongo_collection.get_collection().find_one({"class_code": raw_code}):
-                    return jsonify({"error": "Class code already taken. Choose a different one."}), 409
-                config_document['class_code'] = raw_code
-        
+        # Class rollout — any bot type may carry a class_code + usage tier/pool.
+        err = validate_class_usage(config_data, config_document)
+        if err:
+            return err
+
         result = mongo_collection.get_collection().insert_one(config_document)
         config_id = result.inserted_id
         config_document['_id'] = str(config_id)
@@ -311,6 +345,46 @@ Answer:"""
     except Exception as e:
         current_app.logger.error(f"An error occurred in /config route: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/usage/tiers', methods=['GET'])
+@jwt_required()
+def list_usage_tiers():
+    """Tier menu for the class-rollout dropdown (any authenticated user)."""
+    return jsonify({"tiers": usage_limits.get_settings().get("tiers", [])}), 200
+
+
+@config_bp.route('/config/playground', methods=['GET'])
+def get_playground_config():
+    """Returns (creating on first call) the shared free playground config id.
+
+    Free users chat against this single public bot; the model is chosen
+    per-message via `model_override`. web_access is off so every model uses the
+    legacy chain regardless of which one is picked.
+    """
+    col = Config.get_collection()
+    doc = col.find_one({"is_playground": True}, {"_id": 1})
+    if doc:
+        return jsonify({"config_id": str(doc["_id"])}), 200
+    playground = {
+        "user_id": "system",
+        "bot_name": "AI Playground",
+        "bot_type": "chat",
+        "bot_avatar": "robot",
+        "introduction": "",
+        "collection_name": "",
+        "model_name": "gpt-4o-mini",
+        "prompt_template": "You are a helpful AI assistant. Answer questions clearly and concisely.",
+        "temperature": 0.7,
+        "response_timeout": 3,
+        "is_public": True,
+        "is_playground": True,
+        "web_access": False,
+        "config_type": "normal",
+        "documents": [],
+    }
+    doc_id = col.insert_one(playground).inserted_id
+    return jsonify({"config_id": str(doc_id)}), 200
 
 
 @config_bp.route('/config/by-class/<string:class_code>', methods=['GET'])
