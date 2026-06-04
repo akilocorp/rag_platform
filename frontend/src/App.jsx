@@ -26,6 +26,7 @@ import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
 import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
 import ProtectedRoute from './components/ProtectedRoute';
@@ -87,6 +88,9 @@ function App() {
             <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
+
+          {/* Catch-all 404 — must be the last route */}
+          <Route path="*" element={<NotFoundPage />} />
 
         </Routes>
       </div>
