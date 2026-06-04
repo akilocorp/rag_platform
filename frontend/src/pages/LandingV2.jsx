@@ -7,6 +7,8 @@ gsap.registerPlugin(ScrollTrigger);
 
 const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
+const FONT_SERIF = "'Newsreader', Georgia, serif";
+const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
 
 const HERO_PROMPTS = [
   'Explain the first law of thermodynamics',
@@ -1419,65 +1421,82 @@ const LandingV2 = () => {
                       style={{ top: '22px', right: '26px', width: '32px', height: 'auto' }}
                     />
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-center">
-                      {/* Left column: name → role + university pill → divider →
-                          quote → metric. University pill borrows the
-                          "Fetches Canvas Files" treatment but in the
-                          researcher-accent blue so it reads as branded. */}
-                      <div className="flex flex-col justify-center">
-                        <h3
-                          className="text-4xl lg:text-5xl tracking-tight leading-[1.0] mb-3"
-                          style={{
-                            color: '#1F1F1F',
-                            fontFamily: FONT_DISPLAY,
-                            fontWeight: 800,
-                            letterSpacing: '-0.02em',
-                          }}
-                        >
-                          {p.name}
-                        </h3>
-                        <div
-                          className="mb-6 leading-snug"
-                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, fontSize: '1.05rem' }}
-                        >
-                          <span>{p.role}</span>
-                          <span className="mx-2" aria-hidden style={{ opacity: 0.4 }}>·</span>
-                          <span
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-stretch">
+                      {/* Left column: editorial testimonial. Small ringed
+                          avatar at the top, serif quote in the middle, a
+                          handwritten signature + sans meta line at the
+                          bottom. No big bold name, no blue chip — the
+                          script signature carries the identity now. */}
+                      <div className="flex flex-col justify-between py-2">
+                        <div>
+                          <div
+                            className="rounded-full overflow-hidden mb-7"
                             style={{
-                              backgroundColor: '#3E6493',
-                              color: '#FFFFFF',
-                              padding: '0.25em 0.4em',
-                              borderRadius: '12px',
-                              fontFamily: FONT_DISPLAY,
-                              fontWeight: 800,
-                              letterSpacing: '-0.01em',
-                              whiteSpace: 'nowrap',
-                              display: 'inline-block',
+                              width: '56px',
+                              height: '56px',
+                              backgroundColor: '#1F1F1F',
+                              boxShadow: `0 0 0 2px ${p.bg}, 0 0 0 4px ${p.accent}`,
                             }}
                           >
-                            {p.university}
-                          </span>
+                            <img
+                              src={p.posterSrc}
+                              alt=""
+                              aria-hidden
+                              draggable={false}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.currentTarget.style.opacity = '0'; }}
+                            />
+                          </div>
+                          <p
+                            className="leading-snug max-w-xl"
+                            style={{
+                              color: '#1F1F1F',
+                              fontFamily: FONT_SERIF,
+                              fontSize: '1.35rem',
+                              lineHeight: 1.45,
+                              fontWeight: 400,
+                            }}
+                          >
+                            &ldquo;{p.quote}&rdquo;
+                          </p>
                         </div>
-                        <div
-                          className="h-px w-14 mb-6"
-                          style={{ backgroundColor: 'rgba(31,31,31,0.28)' }}
-                          aria-hidden
-                        />
-                        <p
-                          className="text-base lg:text-lg leading-relaxed max-w-xl"
-                          style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                        >
-                          {p.quote}
-                        </p>
+                        <div className="mt-8">
+                          <div
+                            style={{
+                              fontFamily: FONT_SCRIPT,
+                              fontWeight: 600,
+                              color: '#1F1F1F',
+                              fontSize: '2.4rem',
+                              lineHeight: 1,
+                              letterSpacing: '0.005em',
+                            }}
+                          >
+                            {p.name}
+                          </div>
+                          <div
+                            className="mt-1.5"
+                            style={{
+                              fontFamily: FONT_BODY,
+                              fontWeight: 500,
+                              fontSize: '0.92rem',
+                              color: 'rgba(31,31,31,0.6)',
+                              letterSpacing: '0.005em',
+                            }}
+                          >
+                            {p.role} at <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Right column: portrait testimonial video. Autoplays
                           muted on panel activation (videoRefs effect above);
                           paused + reset on collapse or when section leaves
-                          viewport. */}
+                          viewport. Bottom gradient + script overlay echo the
+                          editorial signature on the left so the video reads
+                          as the same card, just photographic. */}
                       <div className="flex justify-center lg:justify-end">
                         <div
-                          className="relative overflow-hidden w-full max-w-[320px]"
+                          className="relative overflow-hidden w-full max-w-[340px]"
                           style={{
                             aspectRatio: '4 / 5',
                             backgroundColor: '#1F1F1F',
@@ -1495,6 +1514,40 @@ const LandingV2 = () => {
                             preload="metadata"
                             className="w-full h-full object-cover"
                           />
+                          <div
+                            className="absolute inset-x-0 bottom-0 pointer-events-none"
+                            aria-hidden
+                            style={{
+                              height: '38%',
+                              background:
+                                'linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)',
+                            }}
+                          />
+                          <div className="absolute left-5 right-5 bottom-4">
+                            <div
+                              style={{
+                                fontFamily: FONT_SCRIPT,
+                                fontWeight: 600,
+                                color: '#FFFFFF',
+                                fontSize: '2rem',
+                                lineHeight: 1,
+                              }}
+                            >
+                              {p.name}
+                            </div>
+                            <div
+                              className="mt-1"
+                              style={{
+                                fontFamily: FONT_BODY,
+                                fontWeight: 500,
+                                fontSize: '0.82rem',
+                                color: 'rgba(255,255,255,0.82)',
+                                letterSpacing: '0.005em',
+                              }}
+                            >
+                              {p.role} &middot; {p.university}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
