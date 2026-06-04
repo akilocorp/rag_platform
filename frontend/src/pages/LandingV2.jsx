@@ -1367,13 +1367,13 @@ const LandingV2 = () => {
                   style={{
                     width: isActive ? 'calc(100% - 212px)' : '90px',
                     flexShrink: 0,
-                    backgroundColor: p.bg,
-                    border: '1px solid rgba(31,31,31,0.06)',
+                    backgroundColor: isActive ? '#FFFFFF' : p.bg,
+                    border: `1px solid ${isActive ? 'rgba(31,31,31,0.08)' : 'rgba(31,31,31,0.06)'}`,
                     minHeight: '480px',
                     transition:
-                      'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease',
+                      'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease, background-color 300ms ease',
                     boxShadow: isActive
-                      ? '0 24px 56px rgba(31,31,31,0.15), inset 0 1px 0 rgba(255,255,255,0.5)'
+                      ? '0 24px 56px rgba(31,31,31,0.12), inset 0 1px 0 rgba(255,255,255,0.6)'
                       : '0 12px 32px rgba(31,31,31,0.08), inset 0 1px 0 rgba(255,255,255,0.5)',
                   }}
                 >
@@ -1435,7 +1435,7 @@ const LandingV2 = () => {
                               width: '56px',
                               height: '56px',
                               backgroundColor: '#1F1F1F',
-                              boxShadow: `0 0 0 2px ${p.bg}, 0 0 0 4px ${p.accent}`,
+                              boxShadow: `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.accent}`,
                             }}
                           >
                             <img
