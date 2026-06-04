@@ -1377,7 +1377,7 @@ const LandingV2 = () => {
                 >
                   {/* Collapsed rail label — visible when not active. */}
                   <div
-                    className="absolute inset-0 flex items-center justify-center transition-opacity duration-500"
+                    className="absolute inset-0 flex items-center justify-center"
                     style={{
                       opacity: isActive ? 0 : 1,
                       pointerEvents: isActive ? 'none' : 'auto',
@@ -1403,7 +1403,7 @@ const LandingV2 = () => {
                       left, autoplay portrait video on the right, fully-black
                       A logo pinned above the video in the top-right padding. */}
                   <div
-                    className="absolute inset-0 p-8 lg:p-10 flex flex-col transition-opacity duration-500"
+                    className="absolute inset-0 p-8 lg:p-10 flex flex-col"
                     style={{
                       opacity: isActive ? 1 : 0,
                       pointerEvents: isActive ? 'auto' : 'none',
