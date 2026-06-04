@@ -1491,9 +1491,8 @@ const LandingV2 = () => {
                       {/* Right column: portrait testimonial video. Autoplays
                           muted on panel activation (videoRefs effect above);
                           paused + reset on collapse or when section leaves
-                          viewport. Bottom gradient + script overlay echo the
-                          editorial signature on the left so the video reads
-                          as the same card, just photographic. */}
+                          viewport. No overlay — the left column carries the
+                          identity, the video just plays. */}
                       <div className="flex justify-center lg:justify-end">
                         <div
                           className="relative overflow-hidden w-full max-w-[340px]"
@@ -1514,40 +1513,6 @@ const LandingV2 = () => {
                             preload="metadata"
                             className="w-full h-full object-cover"
                           />
-                          <div
-                            className="absolute inset-x-0 bottom-0 pointer-events-none"
-                            aria-hidden
-                            style={{
-                              height: '38%',
-                              background:
-                                'linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)',
-                            }}
-                          />
-                          <div className="absolute left-5 right-5 bottom-4">
-                            <div
-                              style={{
-                                fontFamily: FONT_SCRIPT,
-                                fontWeight: 600,
-                                color: '#FFFFFF',
-                                fontSize: '2rem',
-                                lineHeight: 1,
-                              }}
-                            >
-                              {p.name}
-                            </div>
-                            <div
-                              className="mt-1"
-                              style={{
-                                fontFamily: FONT_BODY,
-                                fontWeight: 500,
-                                fontSize: '0.82rem',
-                                color: 'rgba(255,255,255,0.82)',
-                                letterSpacing: '0.005em',
-                              }}
-                            >
-                              {p.role} &middot; {p.university}
-                            </div>
-                          </div>
                         </div>
                       </div>
                     </div>
