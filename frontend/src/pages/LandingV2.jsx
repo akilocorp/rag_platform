@@ -1421,7 +1421,7 @@ const LandingV2 = () => {
                       aria-hidden
                       draggable={false}
                       className="absolute pointer-events-none select-none"
-                      style={{ top: '22px', right: '26px', width: '32px', height: 'auto' }}
+                      style={{ top: '22px', right: '26px', width: '32px', height: 'auto', zIndex: 10 }}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-stretch">
