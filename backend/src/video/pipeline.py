@@ -46,6 +46,10 @@ TMP_DIR = "uploads/video_tmp"
 _MAX_CONCURRENT = int(os.getenv("VIDEO_MAX_CONCURRENT", "2"))
 _semaphore = threading.Semaphore(_MAX_CONCURRENT)
 RESULT_TOKEN_TTL_DAYS = 30
+# Bound the ffmpeg subprocesses — a slow/hung encode must never block the worker
+# forever. Transcode timeout is non-fatal (caller falls back to the original).
+_TRANSCODE_TIMEOUT = int(os.getenv("VIDEO_TRANSCODE_TIMEOUT", "240"))
+_AUDIO_TIMEOUT = int(os.getenv("VIDEO_AUDIO_TIMEOUT", "120"))
 
 
 def dispatch_pipeline(app, submission_id: str, job_id: str):
@@ -89,7 +93,8 @@ def _extract_audio(video_path: str) -> str:
     audio_path = video_path + ".mp3"
     cmd = [_ffmpeg_exe(), "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000",
            "-b:a", "64k", audio_path]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   timeout=_AUDIO_TIMEOUT)
     return audio_path
 
 
@@ -103,13 +108,20 @@ def _transcode_for_web(video_path: str) -> str:
     out = video_path + "_web.mp4"
     cmd = [
         _ffmpeg_exe(), "-y", "-i", video_path,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         "-pix_fmt", "yuv420p",
         out,
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # timeout → TimeoutExpired (an Exception); the caller catches it and falls
+    # back to the original upload, so a slow encode degrades instead of hanging.
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=_TRANSCODE_TIMEOUT)
+    except Exception:
+        _safe_unlink(out)  # drop the partial encode so timeouts don't leak disk
+        raise
     return out
 
 
