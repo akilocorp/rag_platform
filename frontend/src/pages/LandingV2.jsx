@@ -878,32 +878,13 @@ const LandingV2 = () => {
               attach (+ dropdown), voice, and a circular orange send
               button. Visual-only for now; routing lands later. */}
           <div
-            className="w-full max-w-2xl text-left rounded-[28px] p-5"
+            className="w-full max-w-2xl text-left rounded-[28px] p-4 sm:p-5"
             style={{
               backgroundColor: '#FFFFFF',
               boxShadow:
                 '0 28px 70px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
             }}
           >
-            {/* Top-left credits indicator */}
-            <div className="flex items-center gap-2.5 px-1 mb-4">
-              <div
-                className="relative h-1.5 rounded-full overflow-hidden"
-                style={{ width: '80px', backgroundColor: '#EFEFEF' }}
-              >
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full"
-                  style={{ width: '38%', backgroundColor: '#FA6C43' }}
-                />
-              </div>
-              <span
-                className="text-[11px] font-semibold"
-                style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
-              >
-                123 credits left
-              </span>
-            </div>
-
             {/* Input — placeholder cycles through HERO_PROMPTS via a
                 typewriter effect (see useEffect in component body).
                 Submit (Enter or the send button) opens the register-gate
@@ -914,7 +895,7 @@ const LandingV2 = () => {
               placeholder={typedPrompt}
               value={promptValue}
               onChange={(e) => setPromptValue(e.target.value)}
-              className="w-full bg-transparent outline-none border-none px-1 py-2 text-xl placeholder:text-gray-400"
+              className="w-full bg-transparent outline-none border-none px-1 py-2 text-lg sm:text-xl placeholder:text-gray-400"
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
             />
 
