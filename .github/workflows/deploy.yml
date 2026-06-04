@@ -57,33 +57,9 @@ jobs:
 
           cd ~/rag_platform
 
-          # Always regenerate backend/.env from GitHub Secrets so new secrets
-          # take effect on every deploy without manual SSH.
-          mkdir -p ./backend
-          cat > ./backend/.env <<'ENVEOF'
-          ENVEOF
-          echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> ./backend/.env
-          echo "MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}" >> ./backend/.env
-          echo "USER=${{ secrets.MONGO_USER_COLLECTION }}" >> ./backend/.env
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> ./backend/.env
-          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> ./backend/.env
-          echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> ./backend/.env
-          echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
-          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> ./backend/.env
-          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> ./backend/.env
-          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> ./backend/.env
-          echo "AWS_S3_BUCKET_NAME=${{ secrets.AWS_S3_BUCKET_NAME }}" >> ./backend/.env
-          echo "HUME_API_KEY=${{ secrets.HUME_API_KEY }}" >> ./backend/.env
-          echo "ASSEMBLYAI_API_KEY=${{ secrets.ASSEMBLYAI_API_KEY }}" >> ./backend/.env
-          echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}" >> ./backend/.env
-          echo "HEY_GEN_API_KEY=${{ secrets.HEY_GEN_API_KEY }}" >> ./backend/.env
-          echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> ./backend/.env
-          echo "MAIL_PORT=${{ secrets.MAIL_PORT }}" >> ./backend/.env
-          echo "MAIL_USE_TLS=${{ secrets.MAIL_USE_TLS }}" >> ./backend/.env
-          echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> ./backend/.env
-          echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> ./backend/.env
-          echo "MAIL_DEFAULT_SENDER=${{ secrets.MAIL_DEFAULT_SENDER }}" >> ./backend/.env
-          echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> ./backend/.env
+          # backend/.env is managed manually on the server — do NOT regenerate
+          # it from CI secrets. The SCP upload above never ships a .env (it's
+          # gitignored), so the existing server env file is left untouched.
 
           export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
           COMPOSE_FILE="docker-compose.remote.dev.yml"
@@ -149,33 +125,9 @@ jobs:
 
                   cd ~/rag_platform
 
-                  # Always regenerate backend/.env from GitHub Secrets so new secrets
-                  # take effect on every deploy without manual SSH.
-                  mkdir -p ./backend
-                  cat > ./backend/.env <<'ENVEOF'
-                  ENVEOF
-                  echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> ./backend/.env
-                  echo "MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}" >> ./backend/.env
-                  echo "USER=${{ secrets.MONGO_USER_COLLECTION }}" >> ./backend/.env
-                  echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> ./backend/.env
-                  echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> ./backend/.env
-                  echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> ./backend/.env
-                  echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
-                  echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> ./backend/.env
-                  echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> ./backend/.env
-                  echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> ./backend/.env
-                  echo "AWS_S3_BUCKET_NAME=${{ secrets.AWS_S3_BUCKET_NAME }}" >> ./backend/.env
-                  echo "HUME_API_KEY=${{ secrets.HUME_API_KEY }}" >> ./backend/.env
-                  echo "ASSEMBLYAI_API_KEY=${{ secrets.ASSEMBLYAI_API_KEY }}" >> ./backend/.env
-                  echo "TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}" >> ./backend/.env
-                  echo "HEY_GEN_API_KEY=${{ secrets.HEY_GEN_API_KEY }}" >> ./backend/.env
-                  echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> ./backend/.env
-                  echo "MAIL_PORT=${{ secrets.MAIL_PORT }}" >> ./backend/.env
-                  echo "MAIL_USE_TLS=${{ secrets.MAIL_USE_TLS }}" >> ./backend/.env
-                  echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> ./backend/.env
-                  echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> ./backend/.env
-                  echo "MAIL_DEFAULT_SENDER=${{ secrets.MAIL_DEFAULT_SENDER }}" >> ./backend/.env
-                  echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> ./backend/.env
+                  # backend/.env is managed manually on the server — do NOT regenerate
+                  # it from CI secrets. The SCP upload above never ships a .env (it's
+                  # gitignored), so the existing server env file is left untouched.
 
                   export FRONTEND_API_URL="http://ec2-18-119-159-35.us-east-2.compute.amazonaws.com:5000/api"
                   COMPOSE_FILE="docker-compose.remote.prod.yml"
