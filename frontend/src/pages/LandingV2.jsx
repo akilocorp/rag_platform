@@ -1409,6 +1409,9 @@ const LandingV2 = () => {
                     style={{
                       opacity: isActive ? 1 : 0,
                       pointerEvents: isActive ? 'auto' : 'none',
+                      transition: isActive
+                        ? 'opacity 0ms 700ms'
+                        : 'opacity 0ms 0ms',
                     }}
                   >
                     {/* Brand mark — sits above the video frame, not on it. */}
