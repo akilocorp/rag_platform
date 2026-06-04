@@ -44,7 +44,7 @@ const ChatComposer = ({
         onPaste={onPaste}
         placeholder="Type a message..."
         rows={1}
-        className="w-full min-h-[44px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-transparent text-[#222] placeholder-gray-400 border-none outline-none px-1 py-2 text-base sm:text-lg"
+        className="w-full min-h-[44px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-transparent text-[#222] placeholder-gray-400 border-none outline-none focus:outline-none focus:ring-0 focus:border-transparent focus:shadow-none px-1 py-2 text-base sm:text-lg"
         disabled={isLoading}
       />
 
