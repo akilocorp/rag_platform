@@ -244,7 +244,7 @@ def submission_status(sub_id):
     # Auto-fail stale processing submissions (lost pipeline worker)
     if sub.get("status") == "processing":
         updated_at = sub.get("updated_at") or 0
-        if time.time() - updated_at > 900:
+        if time.time() - updated_at > 300:
             db['video_submissions'].update_one(
                 {"_id": sub["_id"]},
                 {"$set": {"status": "failed", "error": "Processing timed out. Please try uploading again.", "updated_at": time.time()}}
@@ -306,7 +306,7 @@ def get_results(sub_id):
     # Auto-fail submissions stuck in "processing" for >15 minutes (lost pipeline worker)
     if sub.get("status") == "processing":
         updated_at = sub.get("updated_at") or 0
-        if time.time() - updated_at > 900:
+        if time.time() - updated_at > 300:
             db['video_submissions'].update_one(
                 {"_id": sub["_id"]},
                 {"$set": {"status": "failed", "error": "Processing timed out. Please try uploading again.", "updated_at": time.time()}}
