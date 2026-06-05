@@ -123,7 +123,7 @@ def dashboard():
                     {'owner_user_id': user_id},
                     {'submitter_email': student_email},
                 ],
-                'upload_status': {'$ne': 'upload_failed'},
+                'upload_status': {'$nin': ['upload_failed', 'awaiting_upload']},
                 'status': {'$ne': 'failed'},
             },
             {'_id': 1, 'status': 1, 'created_at': 1}
