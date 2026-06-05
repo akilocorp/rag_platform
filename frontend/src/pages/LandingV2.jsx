@@ -18,6 +18,11 @@ const HERO_PROMPTS = [
   'Derive the Black-Scholes equation',
 ];
 
+// Free credits we promise on the landing (1 message = 1 credit). The
+// backend's anon_lifetime_cap is the safety net (usually larger); this is
+// the smaller display cap that drives the credits bar + register-gate copy.
+const LANDING_FREE_CREDITS = 2;
+
 // Models a free user can pick straight from the composer. Subset of the
 // backend ALLOWED_MODELS (usage/limits.py) — sent as model_override.
 const MODEL_OPTIONS = [
@@ -71,7 +76,7 @@ const SmallFeatureTile = ({ title, body, className = '', layout = 'default' }) =
   const isSplit = layout === 'body-top-title-bottom';
   return (
     <div
-      className={`relative overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(31,31,31,0.08)] hover:scale-[1.012] hover:shadow-[0_20px_48px_rgba(31,31,31,0.15)] ${className}`}
+      className={`relative overflow-hidden shadow-[0_12px_32px_rgba(31,31,31,0.08)] ${className}`}
       style={{
         backgroundColor: '#D9E5F2',
         borderRadius: '32px',
@@ -291,20 +296,20 @@ const PHILOSOPHY_PARAGRAPHS = [
   ],
   [
     { text: 'Our platform is available on' },
-    { src: '/illustrations/ipad.png', alt: 'iPad' },
+    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPads' },
     { text: ',' },
-    { src: '/illustrations/icon-laptop.png', alt: 'laptop' },
+    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptops' },
     { text: ', and the' },
-    { src: '/illustrations/wifi-internet.svg', alt: 'web' },
+    { src: '/illustrations/wifi-internet.svg', alt: 'web', label: 'Web' },
     { text: '.' },
   ],
   [
     { text: "Whether you're the" },
-    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering' },
+    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering', label: 'Engineering' },
     { text: 'student breaking the grade curve, the' },
-    { src: '/illustrations/briefcase-business.svg', alt: 'business' },
+    { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
     { text: 'student building generational wealth, or the' },
-    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying' },
+    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
     { text: "student polling peers every day — our AI bot meets you right where you are." },
   ],
 ];
@@ -397,10 +402,37 @@ const LandingV2 = () => {
   const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0].id);
   const [composerSending, setComposerSending] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+
+  // Real credit count for the credits bar. Fetched once on mount from
+  // /api/usage/me, then clamped to LANDING_FREE_CREDITS. Population other
+  // than "anon" (logged-in) shows the full cap and defers to the in-chat
+  // limiter.
+  const [creditsRemaining, setCreditsRemaining] = useState(LANDING_FREE_CREDITS);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usage/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (data.population !== 'anon' || data.cap == null || data.remaining == null) {
+          setCreditsRemaining(LANDING_FREE_CREDITS);
+          return;
+        }
+        const used = Math.max(0, data.cap - data.remaining);
+        setCreditsRemaining(Math.max(0, LANDING_FREE_CREDITS - used));
+      })
+      .catch(() => { /* keep optimistic default */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleComposerSubmit = async (e) => {
     if (e) e.preventDefault();
     const text = promptValue.trim();
     if (!text || composerSending) return;
+    if (creditsRemaining <= 0) {
+      setShowRegisterModal(true);
+      return;
+    }
     setComposerSending(true);
     try {
       const res = await fetch('/api/config/playground', { credentials: 'include' });
@@ -878,29 +910,35 @@ const LandingV2 = () => {
               attach (+ dropdown), voice, and a circular orange send
               button. Visual-only for now; routing lands later. */}
           <div
-            className="w-full max-w-2xl text-left rounded-[28px] p-5"
+            className="w-full max-w-2xl text-left rounded-[28px] p-4 sm:p-5"
             style={{
               backgroundColor: '#FFFFFF',
               boxShadow:
                 '0 28px 70px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
             }}
           >
-            {/* Top-left credits indicator */}
+            {/* Credits counter — driven by /api/usage/me. At 0, the submit
+                handler opens the register modal instead of starting a chat. */}
             <div className="flex items-center gap-2.5 px-1 mb-4">
               <div
                 className="relative h-1.5 rounded-full overflow-hidden"
                 style={{ width: '80px', backgroundColor: '#EFEFEF' }}
               >
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full"
-                  style={{ width: '38%', backgroundColor: '#FA6C43' }}
+                  className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(creditsRemaining / LANDING_FREE_CREDITS) * 100}%`,
+                    backgroundColor: '#FA6C43',
+                  }}
                 />
               </div>
               <span
                 className="text-[11px] font-semibold"
                 style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
               >
-                123 credits left
+                {creditsRemaining === 0
+                  ? 'Out of credits — sign up'
+                  : `${creditsRemaining} ${creditsRemaining === 1 ? 'credit' : 'credits'} left`}
               </span>
             </div>
 
@@ -914,7 +952,7 @@ const LandingV2 = () => {
               placeholder={typedPrompt}
               value={promptValue}
               onChange={(e) => setPromptValue(e.target.value)}
-              className="w-full bg-transparent outline-none border-none px-1 py-2 text-xl placeholder:text-gray-400"
+              className="w-full bg-transparent outline-none border-none px-1 py-2 text-lg sm:text-xl placeholder:text-gray-400"
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
             />
 
@@ -1135,17 +1173,41 @@ const LandingV2 = () => {
                 {tokens.map((tok, ti) => {
                   if (tok.src) {
                     return (
-                      <img
+                      <span
                         key={`p${pi}-i${ti}`}
-                        src={tok.src}
-                        alt={tok.alt}
-                        className="inline-block align-middle mx-2"
-                        style={{
-                          height: '1em',
-                          width: 'auto',
-                          verticalAlign: '-0.15em',
-                        }}
-                      />
+                        className="group relative inline-block align-middle mx-2"
+                      >
+                        <img
+                          src={tok.src}
+                          alt={tok.alt}
+                          className="inline-block align-middle"
+                          style={{
+                            height: '1em',
+                            width: 'auto',
+                            verticalAlign: '-0.15em',
+                          }}
+                        />
+                        {tok.label && (
+                          <span
+                            role="tooltip"
+                            className="pointer-events-none absolute left-1/2 bottom-full mb-2 opacity-0 translate-y-1 -translate-x-1/2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 ease-out whitespace-nowrap z-20"
+                            style={{
+                              backgroundColor: '#FA6C43',
+                              color: '#FFFFFF',
+                              fontFamily: FONT_BODY,
+                              fontWeight: 600,
+                              fontSize: '0.7rem',
+                              letterSpacing: '0.05em',
+                              textTransform: 'uppercase',
+                              padding: '4px 10px',
+                              borderRadius: '8px',
+                              boxShadow: '0 6px 18px rgba(31,31,31,0.18)',
+                            }}
+                          >
+                            {tok.label}
+                          </span>
+                        )}
+                      </span>
                     );
                   }
                   if (tok.text) {
@@ -1200,7 +1262,7 @@ const LandingV2 = () => {
         >
           {/* TOP-LEFT — Canvas hero (lg: cols 1-3, row 1) */}
           <div
-            className="relative overflow-hidden lg:col-span-3 transition-all duration-300 shadow-[0_18px_48px_rgba(31,31,31,0.10)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(31,31,31,0.18)]"
+            className="relative overflow-hidden lg:col-span-3 shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
             style={{
               backgroundColor: '#FDE3D8',
               borderRadius: '40px',
@@ -1297,7 +1359,7 @@ const LandingV2 = () => {
               dot) overlaid on the left half as an inline SVG. */}
           <a
             href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center transition-all duration-300 shadow-[0_18px_48px_rgba(250,108,67,0.28)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(250,108,67,0.40)]"
+            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center shadow-[0_18px_48px_rgba(250,108,67,0.28)]"
             style={{
               backgroundColor: '#FA6C43',
               borderRadius: '40px',

@@ -1346,7 +1346,7 @@ const ChatPage = () => {
                      </div>
                 </main>
 
-                <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">
+                <footer className="p-4 sm:p-6 lg:px-12 xl:px-20">
                     <div className="w-full">
                         {(() => {
                             if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;
