@@ -354,6 +354,45 @@ def list_usage_tiers():
     return jsonify({"tiers": usage_limits.get_settings().get("tiers", [])}), 200
 
 
+@config_bp.route('/usage/me', methods=['GET'])
+def get_my_usage():
+    """Public read of the current visitor's usage status.
+
+    Guests: anon counter for IP + signed device cookie. Logged-in users get
+    their personal counter (class pools need a config doc, so they fall back
+    to the user-default cap here). Sets the device cookie when missing so
+    subsequent reads stay stable across page loads.
+    """
+    metering_user = None
+    try:
+        verify_jwt_in_request(optional=True)
+        uid = get_jwt_identity()
+        if uid:
+            metering_user = User.find_by_id(uid)
+    except Exception:
+        pass
+
+    ip = usage_limits.client_ip(request)
+    device_id, device_cookie = usage_limits.get_or_set_device_id(request)
+    identity = usage_limits.resolve_identity({}, metering_user, ip, device_id)
+    status = usage_limits.check(identity)
+
+    resp = jsonify({
+        "remaining": status.get("remaining"),
+        "cap": status.get("cap"),
+        "population": status.get("population"),
+    })
+    if device_cookie:
+        secure = bool(request.is_secure)
+        resp.set_cookie(
+            usage_limits.DEVICE_COOKIE, device_cookie,
+            max_age=usage_limits.DEVICE_COOKIE_MAX_AGE,
+            httponly=True, secure=secure,
+            samesite="None" if secure else "Lax",
+        )
+    return resp, 200
+
+
 @config_bp.route('/config/playground', methods=['GET'])
 def get_playground_config():
     """Returns (creating on first call) the shared free playground config id.

@@ -83,10 +83,10 @@ const VoiceRecordButton = ({ onTranscribed, disabled }) => {
       onClick={handleClick}
       disabled={disabled || isTranscribing}
       title={isRecording ? 'Stop and send' : isTranscribing ? 'Transcribing…' : 'Record voice message'}
-      className={`min-h-[52px] px-3 sm:px-3.5 rounded-2xl border transition-colors disabled:opacity-50 flex items-center justify-center shrink-0 ${
+      className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 shrink-0 ${
         isRecording
-          ? 'bg-red-500 hover:bg-red-600 text-white border-red-500'
-          : 'bg-white border-gray-200 hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43]'
+          ? 'bg-red-500 hover:bg-red-600 text-white'
+          : 'text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100'
       }`}
     >
       {isTranscribing ? (
