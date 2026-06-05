@@ -79,6 +79,7 @@ const LoginPage = () => {
         localStorage.setItem('refreshToken', refresh_token);
         const userRole = response.data.user?.role || 'professor';
         localStorage.setItem('userRole', userRole);
+        localStorage.setItem('isVerified', response.data.user?.is_verified ? 'true' : 'false');
         setErrors({});
         setFormError(null);
         if (userRole === 'student' && classCode) {
