@@ -114,6 +114,11 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             logger.error("Pipeline: submission %s not found", submission_id)
             return
 
+        # Human-readable tag for every log line — grep by name or email
+        _name  = sub.get("submitter_name") or "unknown"
+        _email = sub.get("submitter_email") or ""
+        tag = f"sub={submission_id} | {_name} <{_email}>"
+
         acquired = _semaphore.acquire(timeout=600)
         tmp_video = None
         tmp_audio = None
@@ -122,6 +127,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             if not acquired:
                 raise RuntimeError("Video worker pool busy — timed out waiting for a slot")
 
+            logger.info("[PIPELINE] START | %s | status=processing", tag)
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "processing", "updated_at": time.time()}})
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "processing", "updated_at": time.time()}})
             _emit(sio, sub, "video_job_progress", {"stage": "downloading", "job_id": job_id})
@@ -130,6 +136,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             os.makedirs(TMP_DIR, exist_ok=True)
             storage_key = sub["storage_key"]
             tmp_video = os.path.join(TMP_DIR, f"{uuid.uuid4().hex}_{os.path.basename(storage_key)}")
+            logger.info("[PIPELINE] downloading | %s", tag)
             get_s3_client().download_file(get_bucket(), storage_key, tmp_video)
 
             # 2. Transcode to H.264 MP4 (fixes HEVC/MOV phone videos for Hume + browsers).
@@ -172,7 +179,7 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 if face.get("frames"):
                     modalities.append("face")
             else:
-                logger.warning("Hume returned no data for submission %s — scoring on transcript only", submission_id)
+                logger.warning("[PIPELINE] Hume returned no data — scoring on transcript only | %s", tag)
 
             # 4. Merge → raw collected data (decoupled from scoring).
             _emit(sio, sub, "video_job_progress", {"stage": "saving", "job_id": job_id})
@@ -194,9 +201,11 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             cdata.replace_one({"submission_id": submission_id}, collected_doc, upsert=True)
             collected_doc = cdata.find_one({"submission_id": submission_id})
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "collected", "updated_at": time.time()}})
+            logger.info("[PIPELINE] collected | %s | modalities=%s", tag, modalities)
 
             # 5. Score (separate layer; reads config's scoring_spec).
             _emit(sio, sub, "video_job_progress", {"stage": "scoring", "job_id": job_id})
+            logger.info("[PIPELINE] scoring | %s", tag)
             scoring_spec = _resolve_scoring_spec(db, sub)
             score_doc = score_submission(sub, collected_doc, scoring_spec, openai_key)
             db["video_scores"].replace_one({"submission_id": submission_id}, score_doc, upsert=True)
@@ -209,10 +218,10 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 _issue_token_and_email(db, sub)
 
             _emit(sio, sub, "video_job_done", {"status": "done", "job_id": job_id})
-            logger.info("Pipeline complete | submission=%s", submission_id)
+            logger.info("[PIPELINE] DONE | %s | status=scored | overall=%.1f", tag, score_doc.get("overall", 0))
 
         except Exception as e:
-            logger.error("Pipeline failed | submission=%s err=%s", submission_id, e, exc_info=True)
+            logger.error("[PIPELINE] FAILED | %s | err=%s", tag, e, exc_info=True)
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}})
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}})
             _emit(sio, sub, "video_job_done", {"status": "failed", "error": str(e), "job_id": job_id})
