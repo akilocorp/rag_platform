@@ -457,7 +457,11 @@ def list_submissions(config_id):
     if err:
         return err
     db = current_app.config['MONGO_DB']
-    subs = list(db['video_submissions'].find({"config_id": config_id}).sort("created_at", -1))
+    subs = list(db['video_submissions'].find({
+        "config_id": config_id,
+        "status": {"$nin": ["failed"]},
+        "upload_status": {"$nin": ["upload_failed", "awaiting_upload"]},
+    }).sort("created_at", -1))
     out = []
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
