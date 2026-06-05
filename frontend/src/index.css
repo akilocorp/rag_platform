@@ -3,6 +3,13 @@
 @tailwind utilities;
 /* v2 */
 
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; }
+  .min-h-screen { min-height: unset !important; }
+  .bg-\[\#F0F6FB\] { background: white !important; }
+}
+
 @layer base {
   :root {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;

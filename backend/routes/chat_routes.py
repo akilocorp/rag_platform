@@ -21,9 +21,22 @@ from langchain_anthropic import ChatAnthropic
 
 from src.agentic.agent_runner import stream_agentic_response
 from src.agentic.tools.base import ToolContext
+from src.usage import limits as usage_limits
+from models.user import User
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint('chat_routes', __name__)
+
+
+def _set_device_cookie(resp, signed_value, request):
+    """Attach the signed device-id cookie. SameSite=None+Secure for the
+    Qualtrics iframe (cross-site); Lax fallback on plain-http dev."""
+    secure = bool(request.is_secure)
+    resp.set_cookie(
+        usage_limits.DEVICE_COOKIE, signed_value,
+        max_age=usage_limits.DEVICE_COOKIE_MAX_AGE,
+        httponly=True, secure=secure, samesite="None" if secure else "Lax",
+    )
 
 # Allowed template variables for the chat prompt - others are escaped to avoid LangChain errors
 ALLOWED_PROMPT_VARS = {"context", "history", "question"}
@@ -572,7 +585,7 @@ def _parse_image_blocks(images):
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
-                     student_email=None, marketing_opt_in=None):
+                     student_email=None, marketing_opt_in=None, identity=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -629,10 +642,14 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 final_stop_reason = event.get("stop_reason") or "end_turn"
                 # Don't ship assistant_blocks to the client (large + redundant
                 # with the token stream and individual tool events).
-                yield json.dumps({
-                    "type": "done",
-                    "stop_reason": final_stop_reason,
-                }) + "\n"
+                done_payload = {"type": "done", "stop_reason": final_stop_reason}
+                # Charge one message only on a successful turn.
+                if identity is not None and final_stop_reason != "error" and accumulated_text.strip():
+                    try:
+                        done_payload["usage"] = usage_limits.consume(identity, 1)
+                    except Exception as e:
+                        logger.error("usage consume (agentic) failed: %s", e)
+                yield json.dumps(done_payload) + "\n"
 
         # Persist this turn. User message first, then AI message with the
         # full trace so frontend replay can re-render the tool pills.
@@ -684,9 +701,10 @@ def chat(config_id, chat_id):
             "model_name": 1, "temperature": 1, "prompt_template": 1,
             "is_public": 1, "user_id": 1,
             "web_access": 1, "bot_name": 1, "instructions": 1,
+            "class_code": 1, "usage_pool": 1, "is_playground": 1, "is_personal": 1,
         }
     )
-    
+
     if not config_doc:
         return jsonify({"message": "Configuration not found"}), 404
 
@@ -703,11 +721,50 @@ def chat(config_id, chat_id):
             except Exception as e:
                 return jsonify({"message": "Authentication failed."}), 401
 
+    # 3b. Per-message model override — only honored on free playground / personal
+    # bots, never on a professor's class/standard bot.
+    model_override = (data.get('model_override') or '').strip()
+    if (model_override
+            and model_override in usage_limits.ALLOWED_MODELS
+            and (config_doc.get("is_playground") or config_doc.get("is_personal"))):
+        config_doc = {**config_doc, "model_name": model_override}
+
+    # 3c. Usage limiting — resolve which metered population this request belongs
+    # to, then hard-block before any model call if the budget is exhausted.
+    client_ip = usage_limits.client_ip(request)
+    device_id, device_cookie = usage_limits.get_or_set_device_id(request)
+    metering_user = None
+    if user_id_for_history and user_id_for_history != "anonymous":
+        metering_user = User.find_by_id(user_id_for_history)
+    else:
+        # Public config (e.g. playground): identify a logged-in user for metering
+        # without changing history attribution, so they draw their own budget.
+        try:
+            verify_jwt_in_request(optional=True)
+            _uid = get_jwt_identity()
+            if _uid:
+                metering_user = User.find_by_id(_uid)
+        except Exception:
+            pass
+    identity = usage_limits.resolve_identity(config_doc, metering_user, client_ip, device_id)
+
+    try:
+        pre = usage_limits.check(identity)
+    except Exception as e:
+        logger.error("usage check failed (fail-open): %s", e)
+        pre = {"status": "ok"}
+    if pre.get("status") == "blocked":
+        resp = jsonify({"error": "usage_limit", "usage": pre})
+        resp.status_code = 429
+        if device_cookie:
+            _set_device_cookie(resp, device_cookie, request)
+        return resp
+
     # 4a. Agentic branch — Claude bots with web_access enabled use the
     # tool-using runner. Everything else falls through to the legacy chain.
     model_name_check = (config_doc.get("model_name") or "").lower()
     if config_doc.get("web_access") and model_name_check.startswith("claude"):
-        return Response(
+        resp = Response(
             stream_with_context(_generate_agentic(
                 config_doc=config_doc,
                 user_input=user_input,
@@ -722,9 +779,13 @@ def chat(config_id, chat_id):
                 student_label=student_label,
                 student_email=student_email,
                 marketing_opt_in=marketing_opt_in,
+                identity=identity,
             )),
             mimetype='application/x-ndjson',
         )
+        if device_cookie:
+            _set_device_cookie(resp, device_cookie, request)
+        return resp
 
     # 4. Streaming Generator
     @stream_with_context
@@ -901,14 +962,29 @@ def chat(config_id, chat_id):
                 history_messages_key="history",
             )
 
+            got_any = False
             for chunk in chain_with_history.stream(
                 {"question": user_input, "context": context_text},
                 config={"configurable": {"session_id": chat_id}}
             ):
+                if chunk:
+                    got_any = True
                 yield json.dumps({"type": "token", "data": chunk}) + "\n"
+
+            # Charge one message only if the turn actually produced output.
+            done_payload = {"type": "done"}
+            if identity is not None and got_any:
+                try:
+                    done_payload["usage"] = usage_limits.consume(identity, 1)
+                except Exception as e:
+                    logger.error("usage consume (legacy) failed: %s", e)
+            yield json.dumps(done_payload) + "\n"
 
         except Exception as e:
             logger.error(f"Stream Error: {e}")
             yield json.dumps({"type": "error", "data": str(e)}) + "\n"
 
-    return Response(generate(), mimetype='application/x-ndjson')
+    resp = Response(generate(), mimetype='application/x-ndjson')
+    if device_cookie:
+        _set_device_cookie(resp, device_cookie, request)
+    return resp

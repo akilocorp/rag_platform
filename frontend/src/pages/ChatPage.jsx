@@ -1,15 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiPaperclip, FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiMoreVertical, FiImage, FiSettings } from 'react-icons/fi';
+import { FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
+import ChatComposer from '../components/ChatComposer';
 import EVIAudioControls from '../components/EVIAudioControls';
-import VoiceRecordButton from '../components/VoiceRecordButton';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
@@ -239,6 +239,12 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
 const ChatPage = () => {
   const { configId, chatId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Model picked in the v2 composer (carried via router state) or via the in-chat
+  // picker on playground/personal bots. Sent as model_override (backend honors it
+  // only on playground/personal bots).
+  const [sessionModel, setSessionModel] = useState(location.state?.model || null);
+  const pendingFirstMessageRef = useRef(location.state?.firstMessage || null);
   const _qp = new URLSearchParams(window.location.search);
   const qualtricsIdRef = useRef(_qp.get('qualtricsId') || null);
   const _urlStudentLabel = _qp.get('studentEmail') || _qp.get('studentName') || null;
@@ -281,6 +287,10 @@ const ChatPage = () => {
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [pendingImages, setPendingImages] = useState([]);
   const libraryLoadedRef = useRef(false);
+
+  // Usage limits: warn banner (approaching cap) + block modal (cap reached)
+  const [usageWarn, setUsageWarn] = useState(null);   // { remaining } | null
+  const [usageBlock, setUsageBlock] = useState(null); // { population, cta } | null
 
   // Personal config settings panel (students)
   const [showSettings, setShowSettings] = useState(false);
@@ -737,6 +747,7 @@ const ChatPage = () => {
       const token = getToken();
       const response = await fetch(`/api/chat/${configId}/${workingChatId}`, {
         method: 'POST',
+        credentials: 'include', // round-trip the anon device cookie
         headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           input: textInput,
@@ -744,12 +755,22 @@ const ChatPage = () => {
           selected_file_ids: variant === 'A' ? selectedFileIds : [],
           attached_files: attachedFiles,
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
+          ...(sessionModel ? { model_override: sessionModel } : {}),
           ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
           ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
           ...(guestInfo?.email ? { student_email: guestInfo.email } : {}),
           ...(guestInfo && !isAuthenticated ? { marketing_opt_in: guestInfo.marketingOptIn } : {}),
         })
       });
+
+      // Usage limit reached — no stream, show the block UI and drop the optimistic AI bubble.
+      if (response.status === 429) {
+        let usage = {};
+        try { usage = (await response.json()).usage || {}; } catch (_) {}
+        setUsageBlock({ population: usage.population, cta: usage.cta });
+        setMessages(prev => prev.slice(0, -1));
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -816,6 +837,16 @@ const ChatPage = () => {
                 };
                 return newMsgs;
               });
+            } else if (data.type === 'done' && data.usage) {
+              const u = data.usage;
+              if (u.status === 'warn' && typeof u.remaining === 'number') {
+                setUsageWarn({ remaining: u.remaining, cta: u.cta });
+              } else if (u.status === 'blocked') {
+                // Just consumed the last message — next send will hard-block.
+                setUsageWarn({ remaining: 0, cta: u.cta });
+              } else if (u.status === 'ok') {
+                setUsageWarn(null);
+              }
             }
           } catch (e) { /* partial JSON chunk */ }
         }
@@ -839,7 +870,18 @@ const ChatPage = () => {
       setIsLoading(false);
       isStreamingRef.current = false; // "Unlock" the history loader
     }
-  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles, pendingImages]);
+  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles, pendingImages, sessionModel]);
+
+  // Auto-send the message typed in the v2 composer once the config is ready.
+  useEffect(() => {
+    if (!isInitializing && config && pendingFirstMessageRef.current) {
+      const first = pendingFirstMessageRef.current;
+      pendingFirstMessageRef.current = null;
+      // Clear router state so a refresh doesn't replay the message.
+      navigate(location.pathname, { replace: true, state: {} });
+      handleMessageProcess(first);
+    }
+  }, [isInitializing, config, handleMessageProcess, navigate, location.pathname]);
 
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
 
@@ -1011,8 +1053,57 @@ const ChatPage = () => {
   const showAvatar = isAvatarMode && !avatarError;
   const isCallMode = config?.bot_type === 'audio_call';
 
+  const usageBlockCopy = (() => {
+    const cta = usageBlock?.cta;
+    if (cta === 'contact_professor') {
+      return { title: "Your class is out of messages", body: "Your class's shared message pool has been used up. Please contact your professor to extend it.", action: null };
+    }
+    if (cta === 'create_account') {
+      return { title: "You've reached the free limit", body: "Create a free account to keep chatting and unlock more messages.", action: { label: 'Create an account', to: '/register' } };
+    }
+    return { title: "You've reached your message limit", body: "You've used all your available messages.", action: null };
+  })();
+
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {usageBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
+            <h2 className="text-xl font-bold text-[#222] mb-2">{usageBlockCopy.title}</h2>
+            <p className="text-sm text-gray-600 mb-6">{usageBlockCopy.body}</p>
+            <div className="flex flex-col gap-2">
+              {usageBlockCopy.action && (
+                <button
+                  onClick={() => navigate(usageBlockCopy.action.to)}
+                  className="w-full bg-[#FA6C43] hover:bg-[#e85a30] text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+                >
+                  {usageBlockCopy.action.label}
+                </button>
+              )}
+              <button
+                onClick={() => setUsageBlock(null)}
+                className="w-full text-gray-500 hover:text-gray-700 font-medium py-2 text-sm"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {usageWarn && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-2 rounded-full shadow-sm flex items-center gap-3">
+          <span>
+            {usageWarn.remaining > 0
+              ? `${usageWarn.remaining} message${usageWarn.remaining === 1 ? '' : 's'} left`
+              : "This was your last message"}
+            {usageWarn.cta === 'create_account' && ' — sign up to keep going'}
+          </span>
+          {usageWarn.cta === 'create_account' && (
+            <button onClick={() => navigate('/register')} className="font-semibold underline">Sign up</button>
+          )}
+          <button onClick={() => setUsageWarn(null)} className="text-amber-500 hover:text-amber-700">✕</button>
+        </div>
+      )}
       {isAuthenticated && isMobileSidebarOpen && (
           <button
               type="button"
@@ -1391,106 +1482,30 @@ const ChatPage = () => {
                                 ))}
                             </div>
                         )}
-                        <div className="relative flex items-center gap-1.5 sm:gap-2">
-                            <button
-                                onClick={handleAttachPick}
-                                disabled={isUploading}
-                                title="Attach files"
-                                className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
-                            >
-                                {isUploading ? (
-                                    <FaSpinner className="animate-spin text-base" />
-                                ) : (
-                                    <FiPaperclip className="text-base" />
-                                )}
-                            </button>
-                            <input
-                                ref={attachInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={handleAttachChange}
-                                accept=".pdf,.txt,.md,.docx,.pptx"
-                            />
-                            <button
-                                onClick={() => imageInputRef.current?.click()}
-                                disabled={isUploading}
-                                title="Attach image"
-                                className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
-                            >
-                                <FiImage className="text-base" />
-                            </button>
-                            <input
-                                ref={imageInputRef}
-                                type="file"
-                                multiple
-                                accept="image/*"
-                                className="hidden"
-                                onChange={handleImageChange}
-                            />
-                            {(!config?.bot_type || config?.bot_type === 'chat') && (
-                                <VoiceRecordButton onTranscribed={handleVoiceTranscribed} disabled={isLoading} />
-                            )}
-                            <div className="relative shrink-0" ref={optionsRef}>
-                                <button
-                                    onClick={() => setShowOptions(v => !v)}
-                                    title="More options"
-                                    className="min-h-[52px] px-3 sm:px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors flex items-center justify-center"
-                                >
-                                    <FiMoreVertical className="text-base" />
-                                </button>
-                                {showOptions && (
-                                    <div className="absolute bottom-full left-0 mb-2 w-44 bg-white rounded-xl shadow-lg border border-gray-100 p-1 z-50">
-                                        <button
-                                            className="group w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-[#FFF5F2] rounded-lg transition-colors"
-                                            onClick={() => setShowOptions(false)}
-                                        >
-                                            <span className="inline-flex transition-transform duration-200 ease-out group-hover:rotate-[-15deg]">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FA6C43" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                                                    <line x1="12" y1="19" x2="12" y2="23"/>
-                                                    <line x1="8" y1="23" x2="16" y2="23"/>
-                                                </svg>
-                                            </span>
-                                            Live Drills
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                            <textarea
-                                ref={inputRef}
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSendWithAnimation();
-                                  }
-                                }}
-                                onPaste={handlePaste}
-                                placeholder="Type a message..."
-                                rows={1}
-                                className="flex-1 min-w-0 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
-                                disabled={isLoading}
-                            />
-                            <button
-                                onClick={handleSendWithAnimation}
-                                disabled={isLoading || !input.trim()}
-                                className="min-h-[52px] px-3 sm:px-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95 flex items-center justify-center shrink-0"
-                            >
-                                {isSending ? (
-                                    <FaPaperPlane
-                                        className="animate-send-launch text-lg"
-                                        onAnimationEnd={() => setIsSending(false)}
-                                    />
-                                ) : isLoading ? (
-                                    <FaSpinner className="animate-spin text-lg" />
-                                ) : (
-                                    <FaPaperPlane className="text-lg" />
-                                )}
-                            </button>
-                        </div>
+                        <ChatComposer
+                            input={input}
+                            setInput={setInput}
+                            inputRef={inputRef}
+                            onSend={handleSendWithAnimation}
+                            onPaste={handlePaste}
+                            isLoading={isLoading}
+                            isSending={isSending}
+                            onSendAnimationEnd={() => setIsSending(false)}
+                            onAttachPick={handleAttachPick}
+                            attachInputRef={attachInputRef}
+                            onAttachChange={handleAttachChange}
+                            isUploading={isUploading}
+                            imageInputRef={imageInputRef}
+                            onImageChange={handleImageChange}
+                            showVoice={!config?.bot_type || config?.bot_type === 'chat'}
+                            onVoiceTranscribed={handleVoiceTranscribed}
+                            showOptions={showOptions}
+                            setShowOptions={setShowOptions}
+                            optionsRef={optionsRef}
+                            showModelPicker={!!(config?.is_playground || config?.is_personal)}
+                            model={sessionModel || config?.model_name || ''}
+                            onModelChange={setSessionModel}
+                        />
                         {uploadError && (
                             <p className="text-xs text-red-500 mt-2 px-1">{uploadError}</p>
                         )}

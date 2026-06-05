@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const KEY_COMPONENTS = [
@@ -170,6 +170,15 @@ export default function VideoResultsPage() {
     // eslint-disable-next-line
   }, [data]);
 
+  const autoPrint = searchParams.get('print') === '1';
+  useEffect(() => {
+    if (autoPrint && data?.submission?.status === 'scored') {
+      const t = setTimeout(() => window.print(), 600);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line
+  }, [autoPrint, data?.submission?.status]);
+
   const wrap = inner => (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] py-10 px-4">
       <div className="max-w-3xl mx-auto">{inner}</div>
@@ -234,21 +243,29 @@ export default function VideoResultsPage() {
   return wrap(
     <>
       {/* ── Header ── */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-extrabold text-[#222]">Elevator Pitch Results</h1>
-        <p className="text-sm text-gray-500">{submission?.name}{talkTime ? ` · ${mmss(talkTime)}` : ''}</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-[#222]">Elevator Pitch Results</h1>
+          <p className="text-sm text-gray-500">{submission?.name}{talkTime ? ` · ${mmss(talkTime)}` : ''}</p>
+        </div>
+        <button
+          onClick={() => window.print()}
+          className="no-print shrink-0 flex items-center gap-2 text-xs font-semibold text-white bg-[#FA6C43] hover:bg-[#e85a30] px-3 py-2 rounded-lg transition-colors"
+        >
+          <FaFilePdf /> Export PDF
+        </button>
       </div>
 
       {/* ── Video player ── */}
       {videoUrl && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 mb-5">
+        <div className="no-print bg-white rounded-2xl border border-gray-100 shadow-sm p-3 mb-5">
           <video src={videoUrl} controls playsInline className="w-full rounded-xl bg-black max-h-[420px]" />
         </div>
       )}
 
       {/* ── Navigation strip ── */}
       {submission?.config_id && (
-        <div className="flex gap-3 mb-4">
+        <div className="no-print flex gap-3 mb-4">
           <button onClick={() => navigate(`/video-upload/${submission.config_id}`)}
             className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#FA6C43] transition-colors">
             ← Upload another

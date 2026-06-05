@@ -7,6 +7,7 @@ import json
 
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
+from routes.config_routes import validate_class_usage
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -134,15 +135,12 @@ def update_existing_config(config_id):
             if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
                 update_data['scoring_spec'] = scoring_spec
 
-        raw_code = (data.get('class_code') or '').strip().lower()
-        if raw_code:
-            import re as _re
-            if not _re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
-                return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
-            existing = Config.get_collection().find_one({"class_code": raw_code})
-            if existing and str(existing['_id']) != config_id:
-                return jsonify({"error": "Class code already taken. Choose a different one."}), 409
-            update_data['class_code'] = raw_code
+        # Class rollout — validate code + usage tier/pool (any bot type).
+        # Recomputes usage_pool; the existing class_pool counter is preserved so
+        # already-consumed messages stand and the new pool just changes the cap.
+        err = validate_class_usage(data, update_data, current_config_id=config_id)
+        if err:
+            return err
 
         # Update the document in the database
         Config.get_collection().update_one(

@@ -57,16 +57,9 @@ jobs:
 
           cd ~/rag_platform
 
-          # Backend env file
-          if [ ! -f ./backend/.env ]; then
-            mkdir -p ./backend
-            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > ./backend/.env
-            echo "MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}" >> ./backend/.env
-            echo "USER=${{ secrets.MONGO_USER_COLLECTION }}" >> ./backend/.env
-            echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> ./backend/.env
-            echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> ./backend/.env
-            echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
-          fi
+          # backend/.env is managed manually on the server — do NOT regenerate
+          # it from CI secrets. The SCP upload above never ships a .env (it's
+          # gitignored), so the existing server env file is left untouched.
 
           export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
           COMPOSE_FILE="docker-compose.remote.dev.yml"
@@ -131,17 +124,11 @@ jobs:
                   }
         
                   cd ~/rag_platform
-        
-                  if [ ! -f ./backend/.env ]; then
-                    mkdir -p ./backend
-                    echo "MONGO_URI=${{ secrets.MONGO_URI }}" > ./backend/.env
-                    echo "MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}" >> ./backend/.env
-                    echo "USER=${{ secrets.MONGO_USER_COLLECTION }}" >> ./backend/.env
-                    echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> ./backend/.env
-                    echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> ./backend/.env
-                    echo "SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}" >> ./backend/.env
-                  fi
-        
+
+                  # backend/.env is managed manually on the server — do NOT regenerate
+                  # it from CI secrets. The SCP upload above never ships a .env (it's
+                  # gitignored), so the existing server env file is left untouched.
+
                   export FRONTEND_API_URL="http://ec2-18-119-159-35.us-east-2.compute.amazonaws.com:5000/api"
                   COMPOSE_FILE="docker-compose.remote.prod.yml"
         

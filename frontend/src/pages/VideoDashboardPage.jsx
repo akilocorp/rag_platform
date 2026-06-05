@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaPlus } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaPlus, FaFilePdf } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const DIMS = [
@@ -123,7 +123,12 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
                   <ul className="list-disc ml-5 text-sm text-gray-700">{analysisData.improvements.map((s, i) => <li key={i}>{s}</li>)}</ul>
                 </div>
               )}
-              <Link to={`/video-results/${sub.id}`} className="text-xs font-semibold text-[#FA6C43] hover:underline">Open full results →</Link>
+              <div className="flex gap-3 pt-1">
+                <Link to={`/video-results/${sub.id}`} className="text-xs font-semibold text-[#FA6C43] hover:underline">Open full results →</Link>
+                <button onClick={() => window.open(`/video-results/${sub.id}?print=1`, '_blank')} className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] flex items-center gap-1">
+                  <FaFilePdf /> Export PDF
+                </button>
+              </div>
             </div>
           ) : !detail ? (
             <FaSpinner className="animate-spin text-gray-400" />
@@ -173,6 +178,9 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
               )}
               <div className="flex gap-3 pt-1">
                 <Link to={`/video-results/${sub.id}`} className="text-xs font-semibold text-[#FA6C43] hover:underline">Open full results →</Link>
+                <button onClick={() => window.open(`/video-results/${sub.id}?print=1`, '_blank')} className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] flex items-center gap-1">
+                  <FaFilePdf /> Export PDF
+                </button>
                 <button onClick={rescore} disabled={rescoring} className="text-xs font-semibold text-gray-500 hover:text-gray-700 flex items-center gap-1">
                   {rescoring ? <FaSpinner className="animate-spin" /> : <FaRedo />} Rescore
                 </button>
