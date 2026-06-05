@@ -296,20 +296,20 @@ const PHILOSOPHY_PARAGRAPHS = [
   ],
   [
     { text: 'Our platform is available on' },
-    { src: '/illustrations/ipad.png', alt: 'iPad' },
+    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPad' },
     { text: ',' },
-    { src: '/illustrations/icon-laptop.png', alt: 'laptop' },
+    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptop' },
     { text: ', and the' },
-    { src: '/illustrations/wifi-internet.svg', alt: 'web' },
+    { src: '/illustrations/wifi-internet.svg', alt: 'web', label: 'Web' },
     { text: '.' },
   ],
   [
     { text: "Whether you're the" },
-    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering' },
+    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering', label: 'Engineering' },
     { text: 'student breaking the grade curve, the' },
-    { src: '/illustrations/briefcase-business.svg', alt: 'business' },
+    { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
     { text: 'student building generational wealth, or the' },
-    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying' },
+    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
     { text: "student polling peers every day — our AI bot meets you right where you are." },
   ],
 ];
@@ -1173,17 +1173,41 @@ const LandingV2 = () => {
                 {tokens.map((tok, ti) => {
                   if (tok.src) {
                     return (
-                      <img
+                      <span
                         key={`p${pi}-i${ti}`}
-                        src={tok.src}
-                        alt={tok.alt}
-                        className="inline-block align-middle mx-2"
-                        style={{
-                          height: '1em',
-                          width: 'auto',
-                          verticalAlign: '-0.15em',
-                        }}
-                      />
+                        className="group relative inline-block align-middle mx-2"
+                      >
+                        <img
+                          src={tok.src}
+                          alt={tok.alt}
+                          className="inline-block align-middle"
+                          style={{
+                            height: '1em',
+                            width: 'auto',
+                            verticalAlign: '-0.15em',
+                          }}
+                        />
+                        {tok.label && (
+                          <span
+                            role="tooltip"
+                            className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-20"
+                            style={{
+                              backgroundColor: '#FA6C43',
+                              color: '#FFFFFF',
+                              fontFamily: FONT_BODY,
+                              fontWeight: 600,
+                              fontSize: '0.7rem',
+                              letterSpacing: '0.05em',
+                              textTransform: 'uppercase',
+                              padding: '4px 10px',
+                              borderRadius: '8px',
+                              boxShadow: '0 6px 18px rgba(31,31,31,0.18)',
+                            }}
+                          >
+                            {tok.label}
+                          </span>
+                        )}
+                      </span>
                     );
                   }
                   if (tok.text) {
