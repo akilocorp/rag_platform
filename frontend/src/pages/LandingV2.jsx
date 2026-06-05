@@ -296,9 +296,9 @@ const PHILOSOPHY_PARAGRAPHS = [
   ],
   [
     { text: 'Our platform is available on' },
-    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPad' },
+    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPads' },
     { text: ',' },
-    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptop' },
+    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptops' },
     { text: ', and the' },
     { src: '/illustrations/wifi-internet.svg', alt: 'web', label: 'Web' },
     { text: '.' },
@@ -1190,7 +1190,7 @@ const LandingV2 = () => {
                         {tok.label && (
                           <span
                             role="tooltip"
-                            className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-20"
+                            className="pointer-events-none absolute left-1/2 bottom-full mb-2 opacity-0 translate-y-1 -translate-x-1/2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 ease-out whitespace-nowrap z-20"
                             style={{
                               backgroundColor: '#FA6C43',
                               color: '#FFFFFF',
