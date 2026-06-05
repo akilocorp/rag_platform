@@ -240,6 +240,20 @@ def submission_status(sub_id):
         return jsonify({"error": "Invalid submission id"}), 400
     if not sub:
         return jsonify({"error": "Submission not found"}), 404
+
+    # Auto-fail stale processing submissions (lost pipeline worker)
+    if sub.get("status") == "processing":
+        updated_at = sub.get("updated_at") or 0
+        if time.time() - updated_at > 900:
+            db['video_submissions'].update_one(
+                {"_id": sub["_id"]},
+                {"$set": {"status": "failed", "error": "Processing timed out. Please try uploading again.", "updated_at": time.time()}}
+            )
+            current_app.logger.warning("[PIPELINE] auto-failed stale submission %s (stuck >15 min)", sub_id)
+            return jsonify({"submission_id": sub_id, "status": "failed",
+                            "upload_status": sub.get("upload_status"),
+                            "error": "Processing timed out. Please try uploading again."})
+
     return jsonify({
         "submission_id": sub_id,
         "status": sub.get("status"),
@@ -288,6 +302,18 @@ def get_results(sub_id):
     token = request.args.get("token")
     if not _can_view_results(sub, token):
         return jsonify({"error": "Forbidden"}), 403
+
+    # Auto-fail submissions stuck in "processing" for >15 minutes (lost pipeline worker)
+    if sub.get("status") == "processing":
+        updated_at = sub.get("updated_at") or 0
+        if time.time() - updated_at > 900:
+            db['video_submissions'].update_one(
+                {"_id": sub["_id"]},
+                {"$set": {"status": "failed", "error": "Processing timed out. Please try uploading again.", "updated_at": time.time()}}
+            )
+            sub["status"] = "failed"
+            sub["error"] = "Processing timed out. Please try uploading again."
+            current_app.logger.warning("[PIPELINE] auto-failed stale submission %s (stuck >15 min)", sub_id)
 
     scores = db['video_scores'].find_one({"submission_id": sub_id}, {"_id": 0})
     collected = db['video_collected_data'].find_one(
