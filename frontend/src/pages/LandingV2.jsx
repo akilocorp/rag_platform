@@ -76,7 +76,7 @@ const SmallFeatureTile = ({ title, body, className = '', layout = 'default' }) =
   const isSplit = layout === 'body-top-title-bottom';
   return (
     <div
-      className={`relative overflow-hidden transition-all duration-300 shadow-[0_12px_32px_rgba(31,31,31,0.08)] hover:scale-[1.012] hover:shadow-[0_20px_48px_rgba(31,31,31,0.15)] ${className}`}
+      className={`relative overflow-hidden shadow-[0_12px_32px_rgba(31,31,31,0.08)] ${className}`}
       style={{
         backgroundColor: '#D9E5F2',
         borderRadius: '32px',
@@ -1262,7 +1262,7 @@ const LandingV2 = () => {
         >
           {/* TOP-LEFT — Canvas hero (lg: cols 1-3, row 1) */}
           <div
-            className="relative overflow-hidden lg:col-span-3 transition-all duration-300 shadow-[0_18px_48px_rgba(31,31,31,0.10)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(31,31,31,0.18)]"
+            className="relative overflow-hidden lg:col-span-3 shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
             style={{
               backgroundColor: '#FDE3D8',
               borderRadius: '40px',
@@ -1359,7 +1359,7 @@ const LandingV2 = () => {
               dot) overlaid on the left half as an inline SVG. */}
           <a
             href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center transition-all duration-300 shadow-[0_18px_48px_rgba(250,108,67,0.28)] hover:scale-[1.005] hover:shadow-[0_28px_64px_rgba(250,108,67,0.40)]"
+            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center shadow-[0_18px_48px_rgba(250,108,67,0.28)]"
             style={{
               backgroundColor: '#FA6C43',
               borderRadius: '40px',
