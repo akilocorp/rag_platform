@@ -18,6 +18,11 @@ const HERO_PROMPTS = [
   'Derive the Black-Scholes equation',
 ];
 
+// Free-search count we promise on the landing. The backend's anon_lifetime_cap
+// is the safety net (usually larger); this is the smaller display cap that
+// drives the credits bar + register-gate copy.
+const LANDING_FREE_CAP = 2;
+
 // Models a free user can pick straight from the composer. Subset of the
 // backend ALLOWED_MODELS (usage/limits.py) — sent as model_override.
 const MODEL_OPTIONS = [
@@ -397,10 +402,36 @@ const LandingV2 = () => {
   const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0].id);
   const [composerSending, setComposerSending] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+
+  // Real free-search count for the credits bar. Fetched once on mount from
+  // /api/usage/me, then clamped to LANDING_FREE_CAP. Population other than
+  // "anon" (logged-in) shows the full cap and defers to the in-chat limiter.
+  const [freeRemaining, setFreeRemaining] = useState(LANDING_FREE_CAP);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usage/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (data.population !== 'anon' || data.cap == null || data.remaining == null) {
+          setFreeRemaining(LANDING_FREE_CAP);
+          return;
+        }
+        const used = Math.max(0, data.cap - data.remaining);
+        setFreeRemaining(Math.max(0, LANDING_FREE_CAP - used));
+      })
+      .catch(() => { /* keep optimistic default */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleComposerSubmit = async (e) => {
     if (e) e.preventDefault();
     const text = promptValue.trim();
     if (!text || composerSending) return;
+    if (freeRemaining <= 0) {
+      setShowRegisterModal(true);
+      return;
+    }
     setComposerSending(true);
     try {
       const res = await fetch('/api/config/playground', { credentials: 'include' });
@@ -885,6 +916,32 @@ const LandingV2 = () => {
                 '0 28px 70px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
             }}
           >
+            {/* Free-search counter — driven by /api/usage/me. At 0, the
+                submit handler opens the register modal instead of starting
+                a chat. */}
+            <div className="flex items-center gap-2.5 px-1 mb-4">
+              <div
+                className="relative h-1.5 rounded-full overflow-hidden"
+                style={{ width: '80px', backgroundColor: '#EFEFEF' }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(freeRemaining / LANDING_FREE_CAP) * 100}%`,
+                    backgroundColor: '#FA6C43',
+                  }}
+                />
+              </div>
+              <span
+                className="text-[11px] font-semibold"
+                style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
+              >
+                {freeRemaining === 0
+                  ? 'Sign up to keep going'
+                  : `${freeRemaining} free ${freeRemaining === 1 ? 'search' : 'searches'} left`}
+              </span>
+            </div>
+
             {/* Input — placeholder cycles through HERO_PROMPTS via a
                 typewriter effect (see useEffect in component body).
                 Submit (Enter or the send button) opens the register-gate
