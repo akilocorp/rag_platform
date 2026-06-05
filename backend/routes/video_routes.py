@@ -137,7 +137,7 @@ def create_submission():
     existing_count = db['video_submissions'].count_documents({
         "config_id": config_id,
         "submitter_email": email,
-        "upload_status": {"$ne": "upload_failed"},
+        "upload_status": {"$nin": ["upload_failed", "awaiting_upload"]},
         "status": {"$ne": "failed"},
     })
     if existing_count >= MAX_SUBMISSIONS_PER_STUDENT:
@@ -324,7 +324,7 @@ def student_history(config_id):
     db = current_app.config['MONGO_DB']
     subs = list(db['video_submissions'].find(
         {"config_id": config_id, "submitter_email": email,
-         "upload_status": {"$ne": "upload_failed"}, "status": {"$ne": "failed"}},
+         "upload_status": {"$nin": ["upload_failed", "awaiting_upload"]}, "status": {"$ne": "failed"}},
         {"_id": 1, "status": 1, "upload_status": 1, "created_at": 1},
     ).sort("created_at", 1))
     out = []

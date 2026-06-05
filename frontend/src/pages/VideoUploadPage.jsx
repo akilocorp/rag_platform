@@ -139,6 +139,13 @@ export default function VideoUploadPage() {
         else if (res.data.status === 'failed') finish(subId, 'failed', res.data.error);
       } catch (_) { /* ignore */ }
     }, 5000);
+
+    // After 10 minutes still processing → show an error so the student isn't stuck forever
+    setTimeout(() => {
+      if (pollRef.current) {
+        finish(subId, 'failed', 'Processing is taking too long. Please try uploading again or contact support.');
+      }
+    }, 10 * 60 * 1000);
   };
 
   const handleUpload = async () => {
@@ -151,6 +158,8 @@ export default function VideoUploadPage() {
     setProgress(0);
     const contentType = file.type || 'video/mp4';
 
+    let createdSubmissionId = null;
+    let uploadConfirmed = false;
     try {
       const res = await apiClient.post('/video/submissions', {
         config_id: configId,
@@ -160,6 +169,7 @@ export default function VideoUploadPage() {
         content_type: contentType,
       });
       const { submission_id, upload_url, content_type: signedType } = res.data;
+      createdSubmissionId = submission_id;
 
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -172,10 +182,18 @@ export default function VideoUploadPage() {
       });
 
       await apiClient.post(`/video/submissions/${submission_id}/uploaded`, {});
+      uploadConfirmed = true;
       setPhase('processing');
       setStage('downloading');
       watchProcessing(submission_id);
     } catch (e) {
+      // Clean up any orphaned submission doc so it doesn't count toward the limit
+      // or show as stuck "Processing" in history.
+      // Calling /uploaded lets the backend check S3 and mark it as upload_failed if
+      // the file never landed; if it did land, the pipeline starts (happy-path recovery).
+      if (createdSubmissionId && !uploadConfirmed) {
+        apiClient.post(`/video/submissions/${createdSubmissionId}/uploaded`, {}).catch(() => {});
+      }
       if (e.response?.status === 409 && e.response?.data?.limit_reached) {
         setLimitReached(true);
         await fetchHistory(email.trim());
