@@ -16,6 +16,7 @@ export default function StudentDashboardPage() {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const isVerified = localStorage.getItem('isVerified') !== 'false';
 
   useEffect(() => {
     apiClient.get('/student/dashboard')
@@ -33,6 +34,16 @@ export default function StudentDashboardPage() {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] py-10 px-4">
       <div className="max-w-2xl mx-auto">
+        {!isVerified && (
+          <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+            <span className="text-amber-500 text-lg mt-0.5">⚠</span>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Email not verified</p>
+              <p className="text-xs text-amber-700 mt-0.5">Please check your inbox for a verification link. Some features may be limited until your email is confirmed.</p>
+            </div>
+          </div>
+        )}
+
         <div className="mb-8">
           <h1 className="text-2xl font-extrabold text-[#222]">My Assignments</h1>
           <p className="text-sm text-gray-500 mt-1">Your enrolled video assignments</p>

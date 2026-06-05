@@ -140,6 +140,7 @@ def register():
             "is_verified": False,
             "role": role,
             "classes": [],
+            "university": (data.get('university') or '').strip() or None,
         }
         User.create(new_user)
 
@@ -183,6 +184,7 @@ def student_register():
             "is_verified": False,
             "role": "student",
             "classes": [class_code] if class_code else [],
+            "university": (data.get('university') or '').strip() or None,
         }
         User.create(new_user)
 
@@ -292,12 +294,8 @@ def login():
 
         # 1. Verify Credentials
         if user and bcrypt.check_password_hash(user['password'], password):
-            
-            # 2. Verify Email Status
-            if not user.get('is_verified', False):
-                return jsonify({"error": "Please verify your email address first."}), 403
 
-            # 3. Generate Tokens
+            # 2. Generate Tokens
             user_id = str(user['_id'])
             access_token = create_access_token(identity=user_id)
             refresh_token = create_refresh_token(identity=user_id)
@@ -308,7 +306,9 @@ def login():
                 "user": {
                     "username": user['username'],
                     "email": user['email'],
-                    "role": user.get('role', 'professor')
+                    "role": user.get('role', 'professor'),
+                    "is_verified": user.get('is_verified', False),
+                    "university": user.get('university'),
                 }
             })
 

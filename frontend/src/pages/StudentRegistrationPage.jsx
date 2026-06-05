@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaEye, FaEyeSlash, FaCheckCircle } from 'react-icons/fa';
 import logo from '../assets/logo.png';
 import Navbar from './NavBar';
+
+const HK_UNIVERSITIES = [
+  { id: 'hkust', name: 'HKUST', label: 'Hong Kong Univ. of Science & Technology', formats: ['@connect.ust.hk', '@ust.hk', '@gmail.com'] },
+  { id: 'hku',   name: 'HKU',   label: 'The University of Hong Kong', formats: ['@connect.hku.hk', '@hku.hk'] },
+  { id: 'polyu', name: 'PolyU', label: 'Hong Kong Polytechnic University', formats: ['@connect.polyu.hk', '@polyu.edu.hk'] },
+  { id: 'hkbu',  name: 'HKBU',  label: 'Hong Kong Baptist University', formats: ['@life.hkbu.edu.hk', '@hkbu.edu.hk'] },
+  { id: 'cuhk',  name: 'CUHK',  label: 'The Chinese University of Hong Kong', formats: ['@link.cuhk.edu.hk', '@cuhk.edu.hk'] },
+];
 
 const slides = [
   { line1: "Join your professor's", line2: "simulation,", prefix: "powered by ", highlight: "actrLabs" },
@@ -20,6 +28,15 @@ const StudentRegistrationPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [university, setUniversity] = useState(null);
+  const [uniSearch, setUniSearch] = useState('');
+  const [uniOpen, setUniOpen] = useState(false);
+  const uniRef = useRef(null);
+
+  const filteredUnis = HK_UNIVERSITIES.filter(u =>
+    u.name.toLowerCase().includes(uniSearch.toLowerCase()) ||
+    u.label.toLowerCase().includes(uniSearch.toLowerCase())
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentSlide(prev => (prev + 1) % slides.length), 4000);
@@ -43,7 +60,7 @@ const StudentRegistrationPage = () => {
     if (!validate()) return;
     setIsLoading(true);
     try {
-      await apiClient.post('/auth/student-register', { email, username, password });
+      await apiClient.post('/auth/student-register', { email, username, password, university: university?.name || null });
       setRegistrationSuccess(true);
     } catch (error) {
       const msg = error.response?.data?.error || 'Registration failed. Please try again.';
@@ -102,6 +119,34 @@ const StudentRegistrationPage = () => {
               )}
 
               <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
+                <div ref={uniRef} className="relative">
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">University</label>
+                  <input
+                    type="text"
+                    value={university ? `${university.name} — ${university.label}` : uniSearch}
+                    onChange={e => { setUniSearch(e.target.value); setUniversity(null); setUniOpen(true); }}
+                    onFocus={() => setUniOpen(true)}
+                    onBlur={() => setTimeout(() => setUniOpen(false), 150)}
+                    placeholder="Search your university..."
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  />
+                  {uniOpen && filteredUnis.length > 0 && (
+                    <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {filteredUnis.map(u => (
+                        <button key={u.id} type="button"
+                          onMouseDown={() => { setUniversity(u); setUniSearch(''); setUniOpen(false); }}
+                          className="w-full text-left px-4 py-2.5 hover:bg-[#FFF5F2] transition-colors text-sm">
+                          <span className="font-bold text-[#FA6C43]">{u.name}</span>
+                          <span className="text-gray-500"> — {u.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {university && (
+                    <p className="mt-1.5 text-xs text-gray-500">Accepted: <span className="font-medium text-gray-700">{university.formats.join(', ')}</span></p>
+                  )}
+                </div>
+
                 <div>
                   <label htmlFor="email" className="block text-[13px] font-semibold text-gray-700 mb-1.5">Email Address</label>
                   <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="off"
