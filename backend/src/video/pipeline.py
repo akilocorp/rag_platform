@@ -30,15 +30,31 @@ from src.video.rubrics import registry
 
 logger = logging.getLogger(__name__)
 
+
+def _dbg(submission_id, msg):
+    """Force-flushed stdout marker so we can trace pipeline progress in the
+    container logs even when the logging level filters INFO. Greppable prefix.
+    TODO: remove once the stuck-pipeline bug is diagnosed."""
+    try:
+        print(f"[VIDEO_DBG] sub={submission_id} | {msg}", flush=True)
+    except Exception:
+        pass
+
+
 TMP_DIR = "uploads/video_tmp"
 # Cap simultaneous heavy jobs so uploads can't exhaust the threading-mode server.
 _MAX_CONCURRENT = int(os.getenv("VIDEO_MAX_CONCURRENT", "2"))
 _semaphore = threading.Semaphore(_MAX_CONCURRENT)
 RESULT_TOKEN_TTL_DAYS = 30
+# Bound the ffmpeg subprocesses — a slow/hung encode must never block the worker
+# forever. Transcode timeout is non-fatal (caller falls back to the original).
+_TRANSCODE_TIMEOUT = int(os.getenv("VIDEO_TRANSCODE_TIMEOUT", "240"))
+_AUDIO_TIMEOUT = int(os.getenv("VIDEO_AUDIO_TIMEOUT", "120"))
 
 
 def dispatch_pipeline(app, submission_id: str, job_id: str):
     """Start the worker thread. Returns immediately."""
+    _dbg(submission_id, f"dispatch_pipeline called | job_id={job_id}")
     threading.Thread(
         target=_run_video_pipeline,
         kwargs={"app": app, "submission_id": submission_id, "job_id": job_id},
@@ -77,7 +93,8 @@ def _extract_audio(video_path: str) -> str:
     audio_path = video_path + ".mp3"
     cmd = [_ffmpeg_exe(), "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000",
            "-b:a", "64k", audio_path]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   timeout=_AUDIO_TIMEOUT)
     return audio_path
 
 
@@ -91,17 +108,25 @@ def _transcode_for_web(video_path: str) -> str:
     out = video_path + "_web.mp4"
     cmd = [
         _ffmpeg_exe(), "-y", "-i", video_path,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         "-pix_fmt", "yuv420p",
         out,
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # timeout → TimeoutExpired (an Exception); the caller catches it and falls
+    # back to the original upload, so a slow encode degrades instead of hanging.
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=_TRANSCODE_TIMEOUT)
+    except Exception:
+        _safe_unlink(out)  # drop the partial encode so timeouts don't leak disk
+        raise
     return out
 
 
 def _run_video_pipeline(app, submission_id: str, job_id: str):
+    _dbg(submission_id, "worker thread STARTED")
     with app.app_context():
         from flask import current_app
         db = current_app.config["MONGO_DB"]
@@ -112,9 +137,12 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
         sub = subs.find_one({"_id": ObjectId(submission_id)})
         if not sub:
             logger.error("Pipeline: submission %s not found", submission_id)
+            _dbg(submission_id, "ABORT: submission not found in DB")
             return
 
+        _dbg(submission_id, f"acquiring semaphore (max_concurrent={_MAX_CONCURRENT})…")
         acquired = _semaphore.acquire(timeout=600)
+        _dbg(submission_id, f"semaphore acquired={acquired}")
         tmp_video = None
         tmp_audio = None
         tmp_processed = None
@@ -130,11 +158,14 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             os.makedirs(TMP_DIR, exist_ok=True)
             storage_key = sub["storage_key"]
             tmp_video = os.path.join(TMP_DIR, f"{uuid.uuid4().hex}_{os.path.basename(storage_key)}")
+            _dbg(submission_id, f"downloading from S3 | key={storage_key}")
             get_s3_client().download_file(get_bucket(), storage_key, tmp_video)
+            _dbg(submission_id, f"download complete | size={os.path.getsize(tmp_video) if os.path.exists(tmp_video) else '??'} bytes")
 
             # 2. Transcode to H.264 MP4 (fixes HEVC/MOV phone videos for Hume + browsers).
             _emit(sio, sub, "video_job_progress", {"stage": "extracting_audio", "job_id": job_id})
             try:
+                _dbg(submission_id, "transcoding to H.264…")
                 tmp_processed = _transcode_for_web(tmp_video)
                 processed_key = re.sub(r'\.[^.]+$', '', storage_key) + "_processed.mp4"
                 get_s3_client().upload_file(tmp_processed, get_bucket(), processed_key,
@@ -142,24 +173,34 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 subs.update_one({"_id": sub["_id"]}, {"$set": {"processed_key": processed_key}})
                 media_url = generate_download_url(processed_key, expires_in=3600)
                 hume_source = tmp_processed
+                _dbg(submission_id, "transcode + upload complete")
             except Exception as tc_err:
                 logger.warning("Transcode failed, falling back to original: %s", tc_err)
+                _dbg(submission_id, f"transcode FAILED, using original | {type(tc_err).__name__}: {tc_err}")
                 media_url = generate_download_url(storage_key, expires_in=3600)
                 hume_source = tmp_video
+            _dbg(submission_id, "extracting audio…")
             tmp_audio = _extract_audio(hume_source)
+            _dbg(submission_id, "audio extracted")
 
             openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
             assemblyai_key = current_app.config.get("ASSEMBLYAI_API_KEY") or os.getenv("ASSEMBLYAI_API_KEY")
+            _dbg(submission_id, f"keys present | openai={bool(openai_key)} assemblyai={bool(assemblyai_key)}")
 
-            # 3. Run modalities in parallel.
+            # 3. Run modalities in parallel. Results fetched individually so the
+            #    logs reveal exactly which modality stalls (no timeout on these).
             _emit(sio, sub, "video_job_progress", {"stage": "analyzing", "job_id": job_id})
             with ThreadPoolExecutor(max_workers=4) as ex:
                 fut_whisper = ex.submit(transcribe_words, tmp_audio, assemblyai_key)
                 fut_hume = ex.submit(run_hume_batch, media_url)
                 fut_visual = ex.submit(analyze_video_frames, tmp_video)
+                _dbg(submission_id, "modalities submitted, waiting on transcript (AssemblyAI)…")
                 transcript = fut_whisper.result()
+                _dbg(submission_id, f"transcript DONE | duration={transcript.get('duration') if isinstance(transcript, dict) else '??'} | waiting on Hume…")
                 hume = fut_hume.result()
+                _dbg(submission_id, f"Hume DONE | got_data={bool(hume)} | waiting on visual…")
                 visual = fut_visual.result()
+                _dbg(submission_id, "visual DONE | all modalities complete")
 
             modalities = ["transcript"]
             prosody = {"frames": []}
@@ -194,12 +235,15 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             cdata.replace_one({"submission_id": submission_id}, collected_doc, upsert=True)
             collected_doc = cdata.find_one({"submission_id": submission_id})
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "collected", "updated_at": time.time()}})
+            _dbg(submission_id, f"collected data SAVED | modalities={modalities}")
 
             # 5. Score (separate layer; reads config's scoring_spec).
             _emit(sio, sub, "video_job_progress", {"stage": "scoring", "job_id": job_id})
+            _dbg(submission_id, "scoring…")
             scoring_spec = _resolve_scoring_spec(db, sub)
             score_doc = score_submission(sub, collected_doc, scoring_spec, openai_key)
             db["video_scores"].replace_one({"submission_id": submission_id}, score_doc, upsert=True)
+            _dbg(submission_id, f"scores SAVED | overall={score_doc.get('overall') if isinstance(score_doc, dict) else '??'}")
 
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "scored", "updated_at": time.time()}})
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "done", "updated_at": time.time()}})
@@ -210,9 +254,11 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
 
             _emit(sio, sub, "video_job_done", {"status": "done", "job_id": job_id})
             logger.info("Pipeline complete | submission=%s", submission_id)
+            _dbg(submission_id, "PIPELINE COMPLETE (status=scored)")
 
         except Exception as e:
             logger.error("Pipeline failed | submission=%s err=%s", submission_id, e, exc_info=True)
+            _dbg(submission_id, f"PIPELINE FAILED | {type(e).__name__}: {e}")
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}})
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}})
             _emit(sio, sub, "video_job_done", {"status": "failed", "error": str(e), "job_id": job_id})
