@@ -74,7 +74,7 @@ export default function StudentDashboardPage() {
                       {a.class_code}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400">{a.submission_count} / 5 attempt{a.submission_count !== 1 ? 's' : ''}</p>
+                  <p className="text-xs text-gray-400">{a.submission_count} / 15 attempt{a.submission_count !== 1 ? 's' : ''}</p>
                 </div>
                 {a.best_score != null && (
                   <div className="text-right shrink-0">

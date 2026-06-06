@@ -189,7 +189,7 @@ export default function VideoComparePage() {
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-[#222]">Your Attempts</h1>
-        <p className="text-sm text-gray-500">{configName} · {subs.length}/5 submissions</p>
+        <p className="text-sm text-gray-500">{configName} · {subs.length}/15 submissions</p>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">

@@ -38,7 +38,7 @@ video_bp = Blueprint('video_routes', __name__)
 
 ALLOWED_VIDEO_EXT = {'mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'}
 MAX_VIDEO_BYTES = int(os.getenv("MAX_VIDEO_BYTES", str(1024 * 1024 * 1024)))  # 1 GB
-MAX_SUBMISSIONS_PER_STUDENT = 5
+MAX_SUBMISSIONS_PER_STUDENT = 15
 
 
 def _resolve_user_id():

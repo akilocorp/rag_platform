@@ -197,7 +197,7 @@ export default function VideoUploadPage() {
       if (e.response?.status === 409 && e.response?.data?.limit_reached) {
         setLimitReached(true);
         await fetchHistory(email.trim());
-        setError('You have reached the maximum of 5 submissions for this assignment.');
+        setError('You have reached the maximum of 15 submissions for this assignment.');
         setPhase('form');
         return;
       }
@@ -321,7 +321,7 @@ export default function VideoUploadPage() {
         {history !== null && history.length > 0 && (
           <div className="border-t border-gray-100 pt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[13px] font-bold text-gray-700">Your submissions ({history.length}/5)</span>
+              <span className="text-[13px] font-bold text-gray-700">Your submissions ({history.length}/15)</span>
               {history.length > 1 && (
                 <button type="button"
                   onClick={() => navigate(`/video/compare/${configId}?email=${encodeURIComponent(email.trim())}`)}
@@ -340,7 +340,7 @@ export default function VideoUploadPage() {
         )}
         {limitReached && (
           <div className="p-3 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm">
-            You've used all 5 submissions for this assignment.
+            You've used all 15 submissions for this assignment.
           </div>
         )}
         <button onClick={handleUpload} disabled={!file || limitReached}
