@@ -22,6 +22,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from werkzeug.utils import secure_filename
 
+from models.user import User
 from src.utils.s3_client import (
     delete_object as s3_delete,
     generate_download_url,
@@ -35,6 +36,60 @@ from src.utils.vector_stores.store_vector_stores import (
     process_user_url_and_create_vectors,
 )
 from src.utils.web.fetch import fetch_url_as_documents, UnsafeURLError
+
+FACULTY_ROLES = ("professor", "admin")
+
+
+def _can_read_config(user_id: str, config_id: str) -> tuple[bool, str | None]:
+    """Gate for reading a bot's files/folders.
+
+    Allowed when the caller owns the config OR has at least one chat session
+    with it. Mirrors the rule defining the sidebar's "Bot Files" branch.
+    """
+    if not config_id:
+        return True, None
+    db = current_app.config['MONGO_DB']
+    try:
+        config_doc = db['config_collections'].find_one(
+            {"_id": ObjectId(config_id)}, {"user_id": 1}
+        )
+    except (InvalidId, Exception):
+        return False, "Invalid config_id"
+    if not config_doc:
+        return False, "Config not found"
+    if str(config_doc.get("user_id", "")) == user_id:
+        return True, None
+    has_session = db['chat_session_metadata'].find_one(
+        {"user_id": user_id, "config_id": config_id}, {"_id": 1}
+    )
+    if has_session:
+        return True, None
+    return False, "You do not have access to this bot"
+
+
+def _can_write_to_config(user_id: str, config_id: str) -> tuple[bool, str | None]:
+    """Gate for any write to a bot-scoped file/folder.
+
+    Allowed only when the caller owns the config AND has a faculty role.
+    Returns (ok, error_message_if_not).
+    """
+    if not config_id:
+        return True, None  # No config_id == personal "My Files" area; no gate.
+    db = current_app.config['MONGO_DB']
+    try:
+        config_doc = db['config_collections'].find_one(
+            {"_id": ObjectId(config_id)}, {"user_id": 1}
+        )
+    except (InvalidId, Exception):
+        return False, "Invalid config_id"
+    if not config_doc:
+        return False, "Config not found"
+    if str(config_doc.get("user_id", "")) != user_id:
+        return False, "You do not own this bot"
+    me = User.find_by_id(user_id)
+    if not me or me.get("role") not in FACULTY_ROLES:
+        return False, "Only faculty accounts can manage bot files"
+    return True, None
 
 logger = logging.getLogger(__name__)
 user_files_bp = Blueprint('user_files_routes', __name__)
@@ -84,6 +139,9 @@ def upload_file():
     folder_path = _normalize_path(request.form.get('folder_path', ''))
     # Variant B: caller passes config_id to scope files to a specific bot
     config_id = request.form.get('config_id') or None
+    ok, err = _can_write_to_config(user_id, config_id)
+    if not ok:
+        return jsonify({"message": err}), 403
     filename = secure_filename(f.filename)
     content_type = f.content_type or mimetypes.guess_type(filename)[0]
     ext = os.path.splitext(filename)[1].lower()
@@ -396,6 +454,9 @@ def upload_url():
 
     folder_path = _normalize_path(body.get('folder_path', ''))
     config_id = body.get('config_id') or None
+    ok, err = _can_write_to_config(user_id, config_id)
+    if not ok:
+        return jsonify({"message": err}), 403
 
     try:
         documents, title = fetch_url_as_documents(url)
@@ -455,16 +516,24 @@ def list_files():
     db = current_app.config['MONGO_DB']
     files_col = db['user_files']
 
-    query = {"user_id": user_id}
     raw_folder = request.args.get('folder_path')
+    config_id = request.args.get('config_id')
+
+    if config_id:
+        # Bot Files: namespace is per-config, shared across all users with access.
+        # The new sidebar lists files for any bot the caller has chatted with,
+        # so we no longer filter by user_id here.
+        ok, err = _can_read_config(user_id, config_id)
+        if not ok:
+            return jsonify({"message": err}), 403
+        query = {"config_id": config_id}
+    else:
+        # My Files: personal library, scoped to the caller and excluding any
+        # bot-tagged rows.
+        query = {"user_id": user_id, "config_id": {"$exists": False}}
+
     if raw_folder is not None:
         query['folder_path'] = _normalize_path(raw_folder)
-    config_id = request.args.get('config_id')
-    if config_id:
-        query['config_id'] = config_id
-    else:
-        # Variant A: only return library files (no bot-scoped files)
-        query['config_id'] = {'$exists': False}
 
     files = [_serialize(d) for d in files_col.find(query).sort("uploaded_at", -1)]
     return jsonify({"files": files}), 200
@@ -480,9 +549,19 @@ def download_file(file_id):
         return jsonify({"message": "Invalid file id"}), 400
 
     db = current_app.config['MONGO_DB']
-    doc = db['user_files'].find_one({"_id": oid, "user_id": user_id})
+    doc = db['user_files'].find_one({"_id": oid})
     if not doc:
         return jsonify({"message": "File not found"}), 404
+
+    file_config = doc.get('config_id')
+    if file_config:
+        ok, err = _can_read_config(user_id, file_config)
+        if not ok:
+            return jsonify({"message": err}), 403
+    elif doc.get('user_id') != user_id:
+        # Personal file owned by someone else — never downloadable.
+        return jsonify({"message": "File not found"}), 404
+
     if not doc.get('storage_key'):
         return jsonify({"message": "File not available for download"}), 410
 
@@ -505,6 +584,10 @@ def delete_file(file_id):
     doc = db['user_files'].find_one({"_id": oid, "user_id": user_id})
     if not doc:
         return jsonify({"message": "File not found"}), 404
+
+    ok, err = _can_write_to_config(user_id, doc.get('config_id'))
+    if not ok:
+        return jsonify({"message": err}), 403
 
     db['vector_collection'].delete_many({
         "source_file_id": str(oid),
@@ -610,6 +693,9 @@ def create_folder():
     config_id = body.get('config_id') or None
     if not path:
         return jsonify({"message": "Path is required"}), 400
+    ok, err = _can_write_to_config(user_id, config_id)
+    if not ok:
+        return jsonify({"message": err}), 403
 
     db = current_app.config['MONGO_DB']
     folders_col = db['user_folders']
@@ -641,15 +727,18 @@ def list_folders():
     db = current_app.config['MONGO_DB']
 
     config_id = request.args.get('config_id')
-    folder_query = {"user_id": user_id}
-    file_query = {"user_id": user_id}
     if config_id:
-        folder_query['config_id'] = config_id
-        file_query['config_id'] = config_id
+        # Bot Files: shared namespace per-config (folders ditto). Drop user_id
+        # filter so non-owners viewing the bot's tree see the same content.
+        ok, err = _can_read_config(user_id, config_id)
+        if not ok:
+            return jsonify({"message": err}), 403
+        folder_query = {"config_id": config_id}
+        file_query = {"config_id": config_id}
     else:
-        # Variant A (Global Library): exclude bot-scoped rows from both lists.
-        folder_query['config_id'] = {'$exists': False}
-        file_query['config_id'] = {'$exists': False}
+        # My Files: personal-only.
+        folder_query = {"user_id": user_id, "config_id": {"$exists": False}}
+        file_query = {"user_id": user_id, "config_id": {"$exists": False}}
 
     explicit = {
         d['path']
@@ -681,6 +770,9 @@ def delete_folder():
     config_id = request.args.get('config_id') or None
     if not path:
         return jsonify({"message": "path is required"}), 400
+    ok, err = _can_write_to_config(user_id, config_id)
+    if not ok:
+        return jsonify({"message": err}), 403
 
     db = current_app.config['MONGO_DB']
     prefix = re.escape(path)

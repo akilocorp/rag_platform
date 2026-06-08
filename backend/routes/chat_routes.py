@@ -274,6 +274,52 @@ def get_chat_list(config_id):
         return jsonify({"message": "An internal server error occurred."}), 500
 
 
+@chat_bp.route('/accessible_configs', methods=['GET'])
+@jwt_required()
+def get_accessible_configs():
+    """Bots the current user has ever had a 1:1 chat with.
+
+    Each entry carries `can_upload` — true only when the caller owns the bot
+    AND holds a faculty role (professor/admin). Drives the unified file-tree's
+    "Bot Files" branch in the chat sidebar.
+    """
+    user_id = get_jwt_identity()
+    db = current_app.config['MONGO_DB']
+
+    config_ids = db["chat_session_metadata"].distinct("config_id", {"user_id": user_id})
+    if not config_ids:
+        return jsonify({"configs": []}), 200
+
+    me = User.find_by_id(user_id)
+    is_faculty = bool(me) and me.get("role") in ("professor", "admin")
+
+    object_ids = []
+    for cid in config_ids:
+        try:
+            object_ids.append(ObjectId(cid))
+        except Exception:
+            continue
+
+    docs = db["config_collections"].find(
+        {"_id": {"$in": object_ids}},
+        {"bot_name": 1, "user_id": 1, "bot_type": 1},
+    )
+
+    result = []
+    for c in docs:
+        owner = str(c.get("user_id", ""))
+        result.append({
+            "_id": str(c["_id"]),
+            "bot_name": c.get("bot_name", "Bot"),
+            "bot_type": c.get("bot_type", "chat"),
+            "owner_user_id": owner,
+            "can_upload": is_faculty and owner == user_id,
+        })
+
+    result.sort(key=lambda x: x["bot_name"].lower())
+    return jsonify({"configs": result}), 200
+
+
 @chat_bp.route('/config/<string:config_id>/sessions', methods=['GET'])
 @jwt_required()
 def get_config_sessions(config_id):
