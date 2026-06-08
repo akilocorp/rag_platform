@@ -1199,8 +1199,8 @@ const LandingV2 = () => {
                               fontSize: '0.7rem',
                               letterSpacing: '0.05em',
                               textTransform: 'uppercase',
-                              padding: '4px 10px',
-                              borderRadius: '8px',
+                              padding: '2px 10px',
+                              borderRadius: '6px',
                               boxShadow: '0 6px 18px rgba(31,31,31,0.18)',
                             }}
                           >
