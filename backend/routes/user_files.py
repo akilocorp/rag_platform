@@ -644,9 +644,27 @@ def delete_file(file_id):
         "source_file_id": str(oid),
         "owner_user_id": user_id,
     })
+    # Legacy KB files (uploaded via the original config-page path) have chunks
+    # tagged with config_id + original_file instead of source_file_id, so the
+    # delete above misses them. Fall back to the legacy keys for those rows.
+    if doc.get('is_legacy') and doc.get('config_id'):
+        db['vector_collection'].delete_many({
+            "config_id": doc['config_id'],
+            "original_file": doc.get('filename'),
+        })
     if doc.get('storage_key'):
         s3_delete(doc['storage_key'])
     db['user_files'].delete_one({"_id": oid})
+    # Keep config_collections.documents in sync so legacy-path readers
+    # (edit page, list_files backfill) don't resurrect the row on next view.
+    if doc.get('is_legacy') and doc.get('config_id'):
+        try:
+            db['config_collections'].update_one(
+                {"_id": ObjectId(doc['config_id'])},
+                {"$pull": {"documents": doc.get('filename')}},
+            )
+        except (InvalidId, Exception):
+            pass
     return jsonify({"deleted": True}), 200
 
 
