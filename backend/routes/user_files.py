@@ -509,6 +509,56 @@ def upload_url():
     return jsonify({"file": doc}), 201
 
 
+def _backfill_legacy_kb_files(db, config_id):
+    """Mint user_files rows for filenames in config_collections.documents that
+    lack one. Configs whose knowledge base was uploaded via the original
+    config-create / edit-config path only recorded filenames on the config doc
+    — the Files panel reads user_files, so those files are invisible there
+    even though their chunks are still served by RAG (vector_collection rows
+    are tagged with config_id).
+    """
+    try:
+        config_doc = db['config_collections'].find_one(
+            {"_id": ObjectId(config_id)}, {"documents": 1, "user_id": 1}
+        )
+    except (InvalidId, Exception):
+        return
+    if not config_doc:
+        return
+    legacy_names = [n for n in (config_doc.get('documents') or []) if n]
+    if not legacy_names:
+        return
+    files_col = db['user_files']
+    existing = {
+        d['filename']
+        for d in files_col.find(
+            {"config_id": config_id, "filename": {"$in": legacy_names}},
+            {"filename": 1},
+        )
+    }
+    to_create = [n for n in legacy_names if n not in existing]
+    if not to_create:
+        return
+    owner_id = str(config_doc.get('user_id', ''))
+    now = time.time()
+    files_col.insert_many([
+        {
+            "user_id": owner_id,
+            "config_id": config_id,
+            "folder_path": "",
+            "filename": name,
+            "content_type": None,
+            "size_bytes": 0,
+            "uploaded_at": now,
+            "vector_ingested": True,
+            "ingest_status": "done",
+            "storage_key": None,
+            "is_legacy": True,
+        }
+        for name in to_create
+    ])
+
+
 @user_files_bp.route('/files', methods=['GET'])
 @jwt_required()
 def list_files():
@@ -526,6 +576,7 @@ def list_files():
         ok, err = _can_read_config(user_id, config_id)
         if not ok:
             return jsonify({"message": err}), 403
+        _backfill_legacy_kb_files(db, config_id)
         query = {"config_id": config_id}
     else:
         # My Files: personal library, scoped to the caller and excluding any
