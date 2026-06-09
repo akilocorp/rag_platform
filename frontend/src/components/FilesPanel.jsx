@@ -300,9 +300,9 @@ const FilesPanel = ({
             <button
               onClick={(e) => { e.stopPropagation(); setAddMenuOpen((v) => !v); }}
               className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm transition-colors"
-              style={{ backgroundColor: BRAND_ORANGE }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = BRAND_ORANGE_DEEP)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = BRAND_ORANGE)}
+              style={{ backgroundColor: addMenuOpen ? '#9CA3AF' : BRAND_ORANGE }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#6B7280' : BRAND_ORANGE_DEEP)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#9CA3AF' : BRAND_ORANGE)}
               title="Add files, folder, or link"
             >
               <FiPlus
