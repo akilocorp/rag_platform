@@ -334,6 +334,7 @@ const ChatPage = () => {
   const imageInputRef = useRef(null);
   const optionsRef = useRef(null);
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
+  const pathInitConfigRef = useRef(null); // Tracks which configId we've auto-set currentPath for
 
   const isAuthenticated = !!getToken();
 
@@ -489,13 +490,17 @@ const ChatPage = () => {
   // Default the sidebar's currentPath to the current bot's folder if the
   // caller has access to it. Otherwise leave it at "" (personal library root,
   // which also exposes the Bot Files virtual folder).
+  // Only auto-set once per configId via a ref — otherwise clicking up the
+  // breadcrumb back to "Files" would immediately bounce back to the bot folder.
   useEffect(() => {
-    if (currentPath) return;
     if (!configId) return;
+    if (pathInitConfigRef.current === configId) return;
+    if (!accessibleConfigs.length) return;
+    pathInitConfigRef.current = configId;
     if (accessibleConfigs.some((c) => c._id === configId)) {
       setCurrentPath(`bots/${configId}`);
     }
-  }, [configId, accessibleConfigs, currentPath]);
+  }, [configId, accessibleConfigs]);
 
   const loadLibrary = useCallback(async () => {
     if (!isAuthenticated) return;
