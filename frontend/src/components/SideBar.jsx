@@ -185,7 +185,7 @@ export const ChatSidebar = ({
   return (
     <aside
       className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm w-72 ${
-        isCollapsed ? 'md:w-20' : 'md:w-[40%]'
+        isCollapsed ? 'md:w-20' : 'md:w-[30%]'
       } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} left-0 top-0 pt-6 pr-2 pl-2`}
     >
       {/* Mobile close button */}
@@ -269,7 +269,7 @@ export const ChatSidebar = ({
           <div className="relative flex mb-4 bg-[#F0F6FB] rounded-xl p-1">
             <span
               aria-hidden
-              className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+              className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-sm pointer-events-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
                 activeTab === 'files' ? 'translate-x-full' : 'translate-x-0'
               }`}
             />

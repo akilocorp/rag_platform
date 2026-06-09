@@ -1218,7 +1218,7 @@ const ChatPage = () => {
           />
       )}
 
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-[40%]' : 'md:ml-20'}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-[30%]' : 'md:ml-20'}`}>
         
         <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
             <div className="flex items-center gap-3">

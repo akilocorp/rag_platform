@@ -302,7 +302,7 @@ const GroupChatPage = () => {
         />
       )}
 
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${userInfo ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-[40%]') : ''}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${userInfo ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-[30%]') : ''}`}>
         
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
