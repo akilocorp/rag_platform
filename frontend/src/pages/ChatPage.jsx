@@ -1467,8 +1467,8 @@ const ChatPage = () => {
                                                     <>
                                                         {f.folder_path.split('/').map((seg, i) => (
                                                             <React.Fragment key={i}>
-                                                                <span className="text-gray-500">{seg}</span>
-                                                                <FiChevronRight className="inline w-3 h-3 text-gray-400 mx-0.5" />
+                                                                <span className="text-[#222]">{seg}</span>
+                                                                <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
                                                             </React.Fragment>
                                                         ))}
                                                         {f.filename}
@@ -1509,8 +1509,8 @@ const ChatPage = () => {
                                                 <>
                                                     {f.folder_path.split('/').map((seg, i, arr) => (
                                                         <React.Fragment key={i}>
-                                                            <span className="text-gray-500">{seg}</span>
-                                                            <FiChevronRight className="inline w-3 h-3 text-gray-400 mx-0.5" />
+                                                            <span className="text-[#222]">{seg}</span>
+                                                            <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
                                                         </React.Fragment>
                                                     ))}
                                                     {f.filename}
