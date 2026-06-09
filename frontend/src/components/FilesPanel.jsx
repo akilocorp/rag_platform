@@ -305,7 +305,9 @@ const FilesPanel = ({
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = BRAND_ORANGE)}
               title="Add files, folder, or link"
             >
-              <FiPlus className="w-3.5 h-3.5" />
+              <FiPlus
+                className={`w-3.5 h-3.5 transition-transform duration-200 ease-out ${addMenuOpen ? 'rotate-45' : ''}`}
+              />
             </button>
             {addMenuOpen && (
               <div
