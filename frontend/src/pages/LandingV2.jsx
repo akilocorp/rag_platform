@@ -50,7 +50,7 @@ const UVPS = [
     iconAlt: 'Pencil',
     headline: 'Your Intelligence, Your Terms.',
     body:
-      'Stop paying for multiple subscriptions just to access the best tools. Actrlabs breaks the platform lock-in by giving you unified access to the leading state-of-the-art AI models—all in one place.',
+      'Stop paying for multiple subscriptions just to access the best tools. Actrlabs breaks the platform lock-in by giving you unified access to the leading state-of-the-art AI models, all in one place.',
     side: 'right',
   },
   {
@@ -250,7 +250,7 @@ const TESTIMONIAL_PANELS = [
     role: 'MS Biology',
     university: 'UC Berkeley',
     quote:
-      'Most chatbots speak in generalities. Mine quotes the slide my professor uploaded last Tuesday — and that’s the difference between cramming and actually learning.',
+      'Most chatbots speak in generalities. Mine quotes the slide my professor uploaded last Tuesday, and that’s the difference between cramming and actually learning.',
     videoSrc: '/testimonials/students.mp4',
     posterSrc: '/testimonials/students.jpg',
     bg: '#FDE3D8',
@@ -276,7 +276,7 @@ const TESTIMONIAL_PANELS = [
     role: 'Learning Sciences',
     university: 'Stanford University',
     quote:
-      'For the first time, I can watch students actually reason with AI — not in a focus group, but inside the coursework itself. That kind of visibility didn’t exist before.',
+      'For the first time, I can watch students actually reason with AI, not in a focus group, but inside the coursework itself. That kind of visibility didn’t exist before.',
     videoSrc: '/testimonials/researchers.mp4',
     posterSrc: '/testimonials/researchers.jpg',
     bg: '#D9E5F2',
@@ -292,7 +292,7 @@ const TESTIMONIAL_PANELS = [
 // the noun word is omitted when its icon is present.
 const PHILOSOPHY_PARAGRAPHS = [
   [
-    { text: 'ACTRlabs makes learning easier and more engaging — for teachers and students alike.' },
+    { text: 'ACTRlabs makes learning easier and more engaging for teachers and students alike.' },
   ],
   [
     { text: 'Our platform is available on' },
@@ -310,7 +310,7 @@ const PHILOSOPHY_PARAGRAPHS = [
     { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
     { text: 'student building generational wealth, or the' },
     { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
-    { text: "student polling peers every day — our AI bot meets you right where you are." },
+    { text: "student polling peers every day, and our AI bot meets you right where you are." },
   ],
 ];
 
@@ -750,7 +750,7 @@ const LandingV2 = () => {
         <Link to="/" className="flex items-center transition-opacity hover:opacity-80">
           <img
             src="/actrlabs-wordmark.jpg"
-            alt="ACTRLabs — Redefining Learning"
+            alt="ACTRLabs: Redefining Learning"
             className="h-8 w-auto select-none"
             draggable={false}
           />
@@ -902,7 +902,7 @@ const LandingV2 = () => {
               lineHeight: 1.55,
             }}
           >
-            Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust — trained on what you actually teach.
+            Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust, trained on what you actually teach.
           </p>
 
           {/* Composer — single white card. Top-left credits progress
@@ -937,7 +937,7 @@ const LandingV2 = () => {
                 style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
               >
                 {creditsRemaining === 0
-                  ? 'Out of credits — sign up'
+                  ? 'Out of credits, sign up'
                   : `${creditsRemaining} ${creditsRemaining === 1 ? 'credit' : 'credits'} left`}
               </span>
             </div>
@@ -1344,7 +1344,7 @@ const LandingV2 = () => {
               heading first and walks up to the supporting text. */}
           <SmallFeatureTile
             title="Any Model"
-            body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat — no extra subscriptions."
+            body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat. No extra subscriptions."
             layout="body-top-title-bottom"
           />
 
