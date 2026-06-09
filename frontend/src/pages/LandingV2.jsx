@@ -304,13 +304,13 @@ const PHILOSOPHY_PARAGRAPHS = [
     { text: '.' },
   ],
   [
-    { text: "Whether you're the" },
+    { text: "Our AI bot meets you right where you are, whether you're the" },
     { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering', label: 'Engineering' },
     { text: 'student breaking the grade curve, the' },
     { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
     { text: 'student building generational wealth, or the' },
     { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
-    { text: "student polling peers every day. Our AI bot meets you right where you are." },
+    { text: "student polling peers every day." },
   ],
 ];
 
