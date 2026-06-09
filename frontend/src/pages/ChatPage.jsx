@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
@@ -14,7 +14,6 @@ import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { useVariant } from '../context/VariantContext';
 import { marked } from 'marked';
 import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
 
@@ -250,8 +249,7 @@ const ChatPage = () => {
   const _urlStudentLabel = _qp.get('studentEmail') || _qp.get('studentName') || null;
   const _savedGuest = (() => { try { return JSON.parse(localStorage.getItem('guestInfo') || 'null'); } catch { return null; } })();
   const studentLabelRef = useRef(_urlStudentLabel || _savedGuest?.name || null);
-  const { variant } = useVariant();
-  
+
   // --- STATE ---
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -275,14 +273,22 @@ const ChatPage = () => {
 
   // File Library State
   const [sidebarTab, setSidebarTab] = useState('chats');
-  const [currentFolder, setCurrentFolder] = useState('');
+  // currentPath drives the unified sidebar file tree.
+  //   ""                       → root (shows Bot Files + My Files)
+  //   "bots"                   → list of accessible bot subfolders
+  //   "bots/<config_id>"       → that bot's root folder
+  //   "bots/<config_id>/a/b"   → subfolder a/b inside that bot
+  //   "me"                     → personal library root
+  //   "me/a/b"                 → personal library subfolder
+  const [currentPath, setCurrentPath] = useState('');
+  const [accessibleConfigs, setAccessibleConfigs] = useState([]);
   const [libraryFiles, setLibraryFiles] = useState([]);
   const [libraryFolders, setLibraryFolders] = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [sessionUploads, setSessionUploads] = useState([]);
-  // Variant A: tracks which library files are selected for this chat session
+  // Files explicitly selected for chat context (from My Files or current bot's folder)
   const [selectedFileIds, setSelectedFileIds] = useState([]);
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [pendingImages, setPendingImages] = useState([]);
@@ -291,6 +297,30 @@ const ChatPage = () => {
   // Usage limits: warn banner (approaching cap) + block modal (cap reached)
   const [usageWarn, setUsageWarn] = useState(null);   // { remaining } | null
   const [usageBlock, setUsageBlock] = useState(null); // { population, cta } | null
+
+  // Parse currentPath into the effective fetch/write scope. See currentPath
+  // shape comment above. canSelect: only files inside the *current* bot's
+  // subtree or My Files can be attached to this chat (spec).
+  const fileScope = useMemo(() => {
+    if (!currentPath) return { kind: 'root', configId: null, folderPath: '', canSelect: false };
+    const parts = currentPath.split('/');
+    const head = parts[0];
+    if (head === 'bots') {
+      if (parts.length === 1) return { kind: 'bots-list', configId: null, folderPath: '', canSelect: false };
+      const cid = parts[1];
+      const folderPath = parts.slice(2).join('/');
+      return {
+        kind: 'bot',
+        configId: cid,
+        folderPath,
+        canSelect: cid === configId,
+      };
+    }
+    if (head === 'me') {
+      return { kind: 'me', configId: null, folderPath: parts.slice(1).join('/'), canSelect: true };
+    }
+    return { kind: 'root', configId: null, folderPath: '', canSelect: false };
+  }, [currentPath, configId]);
 
   // Personal config settings panel (students)
   const [showSettings, setShowSettings] = useState(false);
@@ -445,14 +475,47 @@ const ChatPage = () => {
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   // --- 3b. FILE LIBRARY ---
+  // Fetch the bots the caller has chatted with — drives the "Bot Files" tree.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get('/accessible_configs');
+        if (!cancelled) setAccessibleConfigs(res.data.configs || []);
+      } catch (e) {
+        console.error('accessible_configs fetch failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+
+  // Default the sidebar's currentPath to the current bot's folder if the
+  // caller has access to it, otherwise to the personal library.
+  useEffect(() => {
+    if (currentPath) return;
+    if (!configId) return;
+    if (accessibleConfigs.some((c) => c._id === configId)) {
+      setCurrentPath(`bots/${configId}`);
+    } else {
+      setCurrentPath('me');
+    }
+  }, [configId, accessibleConfigs, currentPath]);
+
   const loadLibrary = useCallback(async () => {
     if (!isAuthenticated) return;
+    // Virtual views (root / bots-list) have nothing to fetch.
+    if (fileScope.kind !== 'bot' && fileScope.kind !== 'me') {
+      setLibraryFiles([]);
+      setLibraryFolders([]);
+      return;
+    }
     setFilesLoading(true);
     try {
-      const scope = variant === 'B' ? `?config_id=${configId}` : '';
+      const params = fileScope.configId ? `?config_id=${fileScope.configId}` : '';
       const [filesRes, foldersRes] = await Promise.all([
-        apiClient.get(`/files${scope}`),
-        apiClient.get(`/folders${scope}`),
+        apiClient.get(`/files${params}`),
+        apiClient.get(`/folders${params}`),
       ]);
       const visible = (filesRes.data.files || []).filter((f) => f.ingest_status !== 'failed');
       setLibraryFiles(visible);
@@ -472,7 +535,7 @@ const ChatPage = () => {
     } finally {
       setFilesLoading(false);
     }
-  }, [isAuthenticated, variant, configId]);
+  }, [isAuthenticated, fileScope.kind, fileScope.configId]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -491,8 +554,10 @@ const ChatPage = () => {
     return () => clearInterval(id);
   }, [hasPendingFiles, loadLibrary]);
 
-  const uploadFiles = useCallback(async (fileList, folderPath = currentFolder) => {
+  const uploadFiles = useCallback(async (fileList) => {
     if (!fileList || fileList.length === 0) return;
+    const folderPath = fileScope.folderPath || '';
+    const scopeConfigId = fileScope.configId;
     setIsUploading(true);
     setUploadError(null);
     const uploaded = [];
@@ -500,8 +565,8 @@ const ChatPage = () => {
       for (const file of fileList) {
         const form = new FormData();
         form.append('file', file);
-        form.append('folder_path', folderPath || '');
-        if (variant === 'B') form.append('config_id', configId);
+        form.append('folder_path', folderPath);
+        if (scopeConfigId) form.append('config_id', scopeConfigId);
         try {
           const res = await apiClient.post('/files', form, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -517,31 +582,33 @@ const ChatPage = () => {
       }
       if (uploaded.length) {
         setSessionUploads((prev) => [...prev, ...uploaded]);
-        // Variant A: auto-select newly uploaded files
-        if (variant === 'A') {
+        // Auto-select fresh uploads only when this scope is selectable for chat
+        if (fileScope.canSelect) {
           setSelectedFileIds((prev) => [...prev, ...uploaded.map((f) => f._id)]);
         }
       }
     } finally {
       setIsUploading(false);
     }
-  }, [currentFolder, variant, configId]);
+  }, [fileScope]);
 
-  const uploadUrl = useCallback(async (url, folderPath = currentFolder) => {
+  const uploadUrl = useCallback(async (url) => {
     if (!url || !url.trim()) return;
+    const folderPath = fileScope.folderPath || '';
+    const scopeConfigId = fileScope.configId;
     setIsUploading(true);
     setUploadError(null);
     try {
       const res = await apiClient.post('/files/url', {
         url: url.trim(),
-        folder_path: folderPath || '',
-        ...(variant === 'B' ? { config_id: configId } : {}),
+        folder_path: folderPath,
+        ...(scopeConfigId ? { config_id: scopeConfigId } : {}),
       });
       const f = res.data?.file;
       if (f) {
         setLibraryFiles((prev) => [f, ...prev]);
         setSessionUploads((prev) => [...prev, f]);
-        if (variant === 'A') {
+        if (fileScope.canSelect) {
           setSelectedFileIds((prev) => [...prev, f._id]);
         }
       }
@@ -551,7 +618,7 @@ const ChatPage = () => {
     } finally {
       setIsUploading(false);
     }
-  }, [currentFolder, variant, configId]);
+  }, [fileScope]);
 
   const deleteLibraryFile = useCallback(async (fileId) => {
     let prevLibrary, prevSession, prevSelected;
@@ -570,35 +637,37 @@ const ChatPage = () => {
   }, []);
 
   const createFolder = useCallback(async (path) => {
+    const scopeConfigId = fileScope.configId;
     try {
       const body = { path };
-      if (variant === 'B') body.config_id = configId;
+      if (scopeConfigId) body.config_id = scopeConfigId;
       await apiClient.post('/folders', body);
       setLibraryFolders((prev) => (prev.includes(path) ? prev : [...prev, path].sort()));
     } catch (e) {
       console.error('Create folder failed', e);
     }
-  }, [variant, configId]);
+  }, [fileScope]);
 
   const deleteFolder = useCallback(async (path) => {
+    const scopeConfigId = fileScope.configId;
     let prevFolders;
     setLibraryFolders((prev) => { prevFolders = prev; return prev.filter((p) => p !== path && !p.startsWith(`${path}/`)); });
     try {
       const params = { path };
-      if (variant === 'B') params.config_id = configId;
+      if (scopeConfigId) params.config_id = scopeConfigId;
       await apiClient.delete('/folders', { params });
     } catch (e) {
       console.error('Delete folder failed, restoring', e);
       setLibraryFolders(prevFolders);
       throw e;
     }
-  }, [variant, configId]);
+  }, [fileScope]);
 
   const handleAttachPick = () => attachInputRef.current?.click();
 
   const handleAttachChange = (e) => {
     const picked = Array.from(e.target.files || []);
-    if (picked.length) uploadFiles(picked, currentFolder);
+    if (picked.length) uploadFiles(picked);
     e.target.value = '';
   };
 
@@ -640,24 +709,26 @@ const ChatPage = () => {
     setSelectedFileIds((prev) => prev.filter((id) => id !== fileId));
   };
 
-  const fetchUrl = useCallback(async (url, folderPath = currentFolder) => {
+  const fetchUrl = useCallback(async (url) => {
+    const folderPath = fileScope.folderPath || '';
+    const scopeConfigId = fileScope.configId;
     setIsFetchingUrl(true);
     setUploadError(null);
     try {
-      const body = { url, folder_path: folderPath || '' };
-      if (variant === 'B') body.config_id = configId;
+      const body = { url, folder_path: folderPath };
+      if (scopeConfigId) body.config_id = scopeConfigId;
       const res = await apiClient.post('/files/url', body);
       if (res.data?.file) {
         setLibraryFiles((prev) => [res.data.file, ...prev]);
         setSessionUploads((prev) => [...prev, res.data.file]);
-        if (variant === 'A') setSelectedFileIds((prev) => [...prev, res.data.file._id]);
+        if (fileScope.canSelect) setSelectedFileIds((prev) => [...prev, res.data.file._id]);
       }
     } catch (err) {
       setUploadError(err.response?.data?.message || 'Failed to fetch URL');
     } finally {
       setIsFetchingUrl(false);
     }
-  }, [currentFolder, variant, configId]);
+  }, [fileScope]);
 
   const toggleFileSelection = (fileId) => {
     setSelectedFileIds((prev) =>
@@ -705,12 +776,10 @@ const ChatPage = () => {
     // selections and session uploads — so they ride along with this prompt
     // and disappear from the input box once it's sent.
     const sessionIds = new Set(sessionUploads.map((f) => f._id));
-    const librarySelected = variant === 'A'
-        ? selectedFileIds
-            .filter((id) => !sessionIds.has(id))
-            .map((id) => libraryFiles.find((f) => f._id === id))
-            .filter(Boolean)
-        : [];
+    const librarySelected = selectedFileIds
+        .filter((id) => !sessionIds.has(id))
+        .map((id) => libraryFiles.find((f) => f._id === id))
+        .filter(Boolean);
     const attachedFiles = [...librarySelected, ...sessionUploads].map((f) => ({
         _id: f._id,
         filename: f.filename,
@@ -751,8 +820,8 @@ const ChatPage = () => {
         headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           input: textInput,
-          variant,
-          selected_file_ids: variant === 'A' ? selectedFileIds : [],
+          variant: 'A',
+          selected_file_ids: selectedFileIds,
           attached_files: attachedFiles,
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
           ...(sessionModel ? { model_override: sessionModel } : {}),
@@ -870,7 +939,7 @@ const ChatPage = () => {
       setIsLoading(false);
       isStreamingRef.current = false; // "Unlock" the history loader
     }
-  }, [configId, navigate, avatarSession, fetchSessions, isLoading, variant, selectedFileIds, sessionUploads, libraryFiles, pendingImages, sessionModel]);
+  }, [configId, navigate, avatarSession, fetchSessions, isLoading, selectedFileIds, sessionUploads, libraryFiles, pendingImages, sessionModel]);
 
   // Auto-send the message typed in the v2 composer once the config is ready.
   useEffect(() => {
@@ -1128,29 +1197,28 @@ const ChatPage = () => {
               onNavigateWithAutoSave={(cb) => cb()}
               activeTab={sidebarTab}
               onSetTab={setSidebarTab}
-              currentFolder={currentFolder}
-              onSetFolder={setCurrentFolder}
+              currentPath={currentPath}
+              onSetPath={setCurrentPath}
+              accessibleConfigs={accessibleConfigs}
               libraryFiles={libraryFiles}
               libraryFolders={libraryFolders}
               filesLoading={filesLoading}
               isUploading={isUploading}
               uploadError={uploadError}
               onUpload={uploadFiles}
-              onUploadUrl={uploadUrl}
-              onFetchUrl={uploadUrl}
+              onFetchUrl={fetchUrl}
               isFetchingUrl={isFetchingUrl}
               onDeleteFile={deleteLibraryFile}
               onCreateFolder={createFolder}
               onDeleteFolder={deleteFolder}
-              selectable={variant === 'A'}
+              canSelect={fileScope.canSelect}
               selectedFileIds={selectedFileIds}
               onToggleFile={toggleFileSelection}
-              libraryLabel={variant === 'B' ? `${config?.bot_name || 'Bot'} Files` : 'My Library'}
               onDeleteSession={(id) => setSessions(prev => prev.filter(s => s.session_id !== id))}
           />
       )}
 
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-72' : 'md:ml-20'}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-[40%]' : 'md:ml-20'}`}>
         
         <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
             <div className="flex items-center gap-3">
@@ -1372,7 +1440,7 @@ const ChatPage = () => {
                                 </div>
                             );
                         })()}
-                        {variant === 'A' && (() => {
+                        {(() => {
                             const sessionIds = new Set(sessionUploads.map((f) => f._id));
                             const librarySelected = selectedFileIds
                                 .filter((id) => !sessionIds.has(id))

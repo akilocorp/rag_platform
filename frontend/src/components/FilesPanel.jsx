@@ -1,15 +1,28 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   FiUpload,
-  FiChevronLeft,
   FiChevronRight,
-  FiFile,
-  FiFolder,
   FiTrash2,
   FiPlus,
   FiLoader,
   FiLink,
+  FiX,
 } from 'react-icons/fi';
+import {
+  FaFolder,
+  FaFilePdf,
+  FaFilePowerpoint,
+  FaFileWord,
+  FaFileAlt,
+  FaFileCode,
+  FaLink,
+} from 'react-icons/fa';
+
+const BRAND_ORANGE = '#FA6C43';
+const BRAND_ORANGE_DEEP = '#E55B34';
+const BRAND_BLUE = '#2D6CDF';
+const BRAND_BLUE_SOFT = '#5B7CAF';
+const SOFT_BG = '#F0F6FB';
 
 const formatSize = (bytes) => {
   if (!bytes && bytes !== 0) return '';
@@ -18,8 +31,45 @@ const formatSize = (bytes) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
+const extOf = (filename = '') => {
+  const i = filename.lastIndexOf('.');
+  return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
+};
+
+const TYPE_ICON = {
+  pdf:  { Icon: FaFilePdf,        color: BRAND_BLUE },
+  pptx: { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
+  ppt:  { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
+  docx: { Icon: FaFileWord,       color: BRAND_BLUE },
+  doc:  { Icon: FaFileWord,       color: BRAND_BLUE },
+  txt:  { Icon: FaFileAlt,        color: BRAND_BLUE_SOFT },
+  md:   { Icon: FaFileCode,       color: BRAND_BLUE_SOFT },
+};
+
+const TypeIcon = ({ ext }) => {
+  const meta = TYPE_ICON[ext] || { Icon: FaFileAlt, color: BRAND_BLUE_SOFT };
+  const Icon = meta.Icon;
+  return (
+    <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+      <Icon className="w-7 h-7" style={{ color: meta.color }} />
+    </div>
+  );
+};
+
+const FolderBadge = () => (
+  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+    <FaFolder className="w-7 h-7" style={{ color: BRAND_BLUE }} />
+  </div>
+);
+
+const UrlBadge = () => (
+  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+    <FaLink className="w-6 h-6" style={{ color: BRAND_ORANGE }} />
+  </div>
+);
+
+// Direct children of `parent` among the full folder-paths list.
 const childrenOf = (allFolders, parent) => {
-  // Direct children only (depth = parent depth + 1).
   const prefix = parent ? `${parent}/` : '';
   const parentDepth = parent ? parent.split('/').length : 0;
   return allFolders
@@ -27,296 +77,406 @@ const childrenOf = (allFolders, parent) => {
     .filter((p) => p.split('/').length === parentDepth + 1);
 };
 
-const folderDisplayName = (path) => (path.includes('/') ? path.split('/').pop() : path);
+const folderLeaf = (path) => (path.includes('/') ? path.split('/').pop() : path);
+
+// Resolve currentPath → view descriptor.
+// currentPath is "" | "bots" | "bots/<id>(/sub/path)" | "me(/sub/path)"
+const resolveView = (currentPath, accessibleConfigs) => {
+  if (!currentPath) {
+    return {
+      kind: 'root',
+      breadcrumbs: [{ label: 'Files', path: '' }],
+      virtualRows: [
+        { key: 'bots', label: 'Bot Files', icon: 'folder', meta: '' },
+      ],
+      canUpload: false,
+    };
+  }
+  const parts = currentPath.split('/');
+  const head = parts[0];
+
+  if (head === 'bots') {
+    if (parts.length === 1) {
+      return {
+        kind: 'bots-list',
+        breadcrumbs: [
+          { label: 'Files', path: '' },
+          { label: 'Bot Files', path: 'bots' },
+        ],
+        virtualRows: (accessibleConfigs || []).map((c) => ({
+          key: `bots/${c._id}`,
+          label: c.bot_name,
+          icon: 'folder',
+          meta: c.can_upload ? 'Owner' : 'Read-only',
+        })),
+        canUpload: false,
+      };
+    }
+    const cid = parts[1];
+    const cfg = (accessibleConfigs || []).find((c) => c._id === cid);
+    const subParts = parts.slice(2);
+    const crumbs = [
+      { label: 'Files', path: '' },
+      { label: 'Bot Files', path: 'bots' },
+      { label: cfg?.bot_name || 'Bot', path: `bots/${cid}` },
+    ];
+    let acc = `bots/${cid}`;
+    subParts.forEach((seg) => {
+      acc += `/${seg}`;
+      crumbs.push({ label: seg, path: acc });
+    });
+    return {
+      kind: 'bot',
+      breadcrumbs: crumbs,
+      configId: cid,
+      folderPath: subParts.join('/'),
+      botName: cfg?.bot_name || 'Bot',
+      canUpload: !!cfg?.can_upload,
+    };
+  }
+
+  if (head === 'me') {
+    const subParts = parts.slice(1);
+    const crumbs = [
+      { label: 'Files', path: '' },
+      { label: 'My Files', path: 'me' },
+    ];
+    let acc = 'me';
+    subParts.forEach((seg) => {
+      acc += `/${seg}`;
+      crumbs.push({ label: seg, path: acc });
+    });
+    return {
+      kind: 'me',
+      breadcrumbs: crumbs,
+      configId: null,
+      folderPath: subParts.join('/'),
+      canUpload: true,
+    };
+  }
+
+  return {
+    kind: 'root',
+    breadcrumbs: [{ label: 'Files', path: '' }],
+    virtualRows: [],
+    canUpload: false,
+  };
+};
 
 const FilesPanel = ({
-  currentFolder,
-  onSetFolder,
-  files,
-  folders,
-  isLoading,
-  isUploading,
-  uploadError,
+  // Path model (replaces currentFolder)
+  currentPath = '',
+  onSetPath,
+  // Data
+  accessibleConfigs = [],
+  files = [],
+  folders = [],
+  // State
+  isLoading = false,
+  isUploading = false,
+  uploadError = null,
+  // Write actions (parent routes them with the right config_id)
   onUpload,
-  onUploadUrl,
   onDeleteFile,
   onCreateFolder,
   onDeleteFolder,
-  // Variant A: selectable files
-  selectable = false,
-  selectedFileIds = [],
-  onToggleFile,
-  // Variant B: custom label
-  libraryLabel = 'My Library',
-  // URL ingestion
   onFetchUrl,
   isFetchingUrl = false,
+  // Selection (only allowed when canSelect is true)
+  canSelect = false,
+  selectedFileIds = [],
+  onToggleFile,
 }) => {
+  const view = useMemo(() => resolveView(currentPath, accessibleConfigs), [currentPath, accessibleConfigs]);
+
   const fileInputRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [uploadTab, setUploadTab] = useState('file'); // 'file' | 'url'
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [addMode, setAddMode] = useState('file'); // 'file' | 'url' | 'folder'
   const [urlInput, setUrlInput] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
   const [removingIds, setRemovingIds] = useState(() => new Set());
   const [removingFolderPaths, setRemovingFolderPaths] = useState(() => new Set());
 
-  const handleDeleteClick = (e, file) => {
-    e.stopPropagation();
-    if (removingIds.has(file._id)) return;
-    setRemovingIds((prev) => {
-      const next = new Set(prev);
-      next.add(file._id);
-      return next;
-    });
-    setTimeout(async () => {
-      try {
-        await onDeleteFile(file._id);
-      } catch {
-        setRemovingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(file._id);
-          return next;
-        });
-      }
-    }, 220);
-  };
+  const canUpload = view.canUpload;
 
-  const handleDeleteFolderClick = (e, path) => {
-    e.stopPropagation();
-    if (removingFolderPaths.has(path)) return;
-    setRemovingFolderPaths((prev) => {
-      const next = new Set(prev);
-      next.add(path);
-      return next;
-    });
-    setTimeout(async () => {
-      try {
-        await onDeleteFolder(path);
-      } catch (err) {
-        const status = err?.response?.status;
-        if (status === 409) {
-          alert('Folder is not empty — delete the files inside first.');
-        }
-        setRemovingFolderPaths((prev) => {
-          const next = new Set(prev);
-          next.delete(path);
-          return next;
-        });
-      }
-    }, 220);
-  };
+  // ---- file/folder rows for non-virtual views ----
+  const visibleFiles = view.kind === 'bot' || view.kind === 'me'
+    ? files.filter((f) => (f.folder_path || '') === (view.folderPath || ''))
+    : [];
 
-  const visibleFiles = files.filter((f) => (f.folder_path || '') === currentFolder);
-  const visibleFolders = childrenOf(folders, currentFolder);
+  const visibleFolders = view.kind === 'bot' || view.kind === 'me'
+    ? childrenOf(folders, view.folderPath || '')
+    : [];
 
+  // ---- handlers ----
   const handlePickClick = () => fileInputRef.current?.click();
-
   const handlePicked = (e) => {
     const picked = Array.from(e.target.files || []);
-    if (picked.length) onUpload(picked, currentFolder);
+    if (picked.length) onUpload?.(picked);
     e.target.value = '';
   };
-
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
+    if (!canUpload) return;
     const dropped = Array.from(e.dataTransfer.files || []);
-    if (dropped.length) onUpload(dropped, currentFolder);
+    if (dropped.length) onUpload?.(dropped);
   };
-
   const submitNewFolder = () => {
     const trimmed = newFolderName.trim();
     if (!trimmed) return;
-    const path = currentFolder ? `${currentFolder}/${trimmed}` : trimmed;
-    onCreateFolder(path);
+    const base = view.folderPath || '';
+    const path = base ? `${base}/${trimmed}` : trimmed;
+    onCreateFolder?.(path);
     setNewFolderName('');
-    setShowNewFolder(false);
+    setAddPanelOpen(false);
   };
-
   const handleUrlSubmit = () => {
     const trimmed = urlInput.trim();
     if (!trimmed || !onFetchUrl) return;
-    onFetchUrl(trimmed, currentFolder);
+    onFetchUrl(trimmed);
     setUrlInput('');
+    setAddPanelOpen(false);
   };
 
+  const handleDeleteFile = (e, file) => {
+    e.stopPropagation();
+    if (removingIds.has(file._id)) return;
+    setRemovingIds((prev) => new Set(prev).add(file._id));
+    setTimeout(async () => {
+      try { await onDeleteFile?.(file._id); }
+      catch {
+        setRemovingIds((prev) => { const n = new Set(prev); n.delete(file._id); return n; });
+      }
+    }, 220);
+  };
+
+  const handleDeleteFolder = (e, path) => {
+    e.stopPropagation();
+    if (removingFolderPaths.has(path)) return;
+    setRemovingFolderPaths((prev) => new Set(prev).add(path));
+    setTimeout(async () => {
+      try { await onDeleteFolder?.(path); }
+      catch (err) {
+        if (err?.response?.status === 409) {
+          alert('Folder is not empty — delete the files inside first.');
+        }
+        setRemovingFolderPaths((prev) => { const n = new Set(prev); n.delete(path); return n; });
+      }
+    }, 220);
+  };
+
+  const goToVirtual = (key) => onSetPath?.(key);
+
+  // ---- render ----
   return (
     <div className="flex flex-col gap-3 pr-1">
-      {/* Tab: File / URL */}
-      <div className="flex items-center gap-1 bg-[#F0F6FB] rounded-xl p-1">
-        <button
-          onClick={() => setUploadTab('file')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${uploadTab === 'file' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
-        >
-          <FiUpload className="w-3 h-3" /> File
-        </button>
-        <button
-          onClick={() => setUploadTab('url')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${uploadTab === 'url' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
-        >
-          <FiLink className="w-3 h-3" /> URL
-        </button>
-      </div>
-
-      {/* Upload zone — File tab */}
-      {uploadTab === 'file' && (
-      <div
-        onClick={handlePickClick}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleDrop}
-        className={`cursor-pointer border-2 border-dashed rounded-2xl py-6 px-3 flex flex-col items-center justify-center transition-all text-center ${
-          isDragOver
-            ? 'border-[#FA6C43] bg-[#F9D0C4]/30'
-            : 'border-gray-200 bg-[#F0F6FB]/60 hover:border-[#FA6C43]/50'
-        }`}
-      >
-        {isUploading ? (
-          <FiLoader className="w-5 h-5 text-[#FA6C43] animate-spin mb-2" />
-        ) : (
-          <FiUpload className="w-5 h-5 text-gray-500 mb-2" />
-        )}
-        <p className="text-xs text-gray-500 leading-snug">
-          {isUploading ? 'Uploading…' : 'Drag & drop or click to upload'}
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handlePicked}
-          accept=".pdf,.txt,.md,.docx,.pptx"
-        />
-      </div>
-      )}
-
-      {/* URL ingestion — URL tab */}
-      {uploadTab === 'url' && (
-        <div className="flex flex-col gap-2">
-          <input
-            type="url"
-            placeholder="https://example.com/article"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#FA6C43]"
-          />
-          <button
-            onClick={handleUrlSubmit}
-            disabled={!urlInput.trim() || isFetchingUrl}
-            className="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold bg-[#FA6C43] text-white rounded-xl hover:bg-[#E55B34] disabled:opacity-50 transition-colors"
-          >
-            {isFetchingUrl ? <FiLoader className="w-3.5 h-3.5 animate-spin" /> : <FiLink className="w-3.5 h-3.5" />}
-            {isFetchingUrl ? 'Fetching…' : 'Fetch & Ingest'}
-          </button>
+      {/* Breadcrumb header + Add pill */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
+          {view.breadcrumbs.map((c, i) => {
+            const isLast = i === view.breadcrumbs.length - 1;
+            return (
+              <React.Fragment key={`${c.path}-${i}`}>
+                {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+                <button
+                  onClick={() => onSetPath?.(c.path)}
+                  className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
+                  style={isLast ? {} : undefined}
+                  title={c.label}
+                >
+                  {c.label}
+                </button>
+              </React.Fragment>
+            );
+          })}
         </div>
-      )}
-
-      {uploadError && (
-        <p className="text-xs text-red-500 px-1">{uploadError}</p>
-      )}
-
-      {/* Back / New Folder row */}
-      <div className="flex items-center gap-2">
-        {currentFolder ? (
+        {canUpload && (
           <button
-            onClick={() => {
-              const parent = currentFolder.includes('/')
-                ? currentFolder.slice(0, currentFolder.lastIndexOf('/'))
-                : '';
-              onSetFolder(parent);
-            }}
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm text-[#222] transition-all"
+            onClick={() => setAddPanelOpen((v) => !v)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-white text-[11px] font-semibold shadow-sm transition-colors flex-shrink-0"
+            style={{ backgroundColor: BRAND_ORANGE }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = BRAND_ORANGE_DEEP)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = BRAND_ORANGE)}
+            title="Add file, URL, or folder"
           >
-            <FiChevronLeft className="w-4 h-4 text-gray-500" />
-            Back
+            {addPanelOpen ? <FiX className="w-3 h-3" /> : <FiPlus className="w-3 h-3" />}
+            {addPanelOpen ? 'Close' : 'Add New'}
           </button>
-        ) : (
-          <div className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-2">
-            {libraryLabel}
+        )}
+      </div>
+
+      {/* Add panel */}
+      {canUpload && addPanelOpen && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-2 flex flex-col gap-2">
+          <div className="flex items-center gap-1 bg-[#F0F6FB] rounded-xl p-1">
+            <button
+              onClick={() => setAddMode('file')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${addMode === 'file' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
+            >File</button>
+            <button
+              onClick={() => setAddMode('url')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${addMode === 'url' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
+            >URL</button>
+            <button
+              onClick={() => setAddMode('folder')}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${addMode === 'folder' ? 'bg-white text-[#222] shadow-sm' : 'text-gray-500 hover:text-[#222]'}`}
+            >Folder</button>
           </div>
-        )}
-        <button
-          onClick={() => setShowNewFolder((v) => !v)}
-          title="New folder"
-          className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-[#FA6C43] transition-colors"
-        >
-          <FiPlus className="w-4 h-4" />
-        </button>
-      </div>
 
-      {/* New folder input */}
-      {showNewFolder && (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            autoFocus
-            placeholder="Folder name"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submitNewFolder();
-              if (e.key === 'Escape') {
-                setShowNewFolder(false);
-                setNewFolderName('');
-              }
-            }}
-            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#FA6C43]"
-          />
-          <button
-            onClick={submitNewFolder}
-            className="px-3 py-2 text-xs font-semibold bg-[#FA6C43] text-white rounded-xl hover:bg-[#E55B34] transition-colors"
-          >
-            Add
-          </button>
+          {addMode === 'file' && (
+            <div
+              onClick={handlePickClick}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              className={`cursor-pointer border-2 border-dashed rounded-xl py-5 px-3 flex flex-col items-center justify-center transition-all text-center ${
+                isDragOver
+                  ? 'bg-[#F9D0C4]/30'
+                  : 'border-gray-200 bg-[#F0F6FB]/60 hover:border-[#FA6C43]/50'
+              }`}
+              style={isDragOver ? { borderColor: BRAND_ORANGE } : undefined}
+            >
+              {isUploading
+                ? <FiLoader className="w-5 h-5 animate-spin mb-1" style={{ color: BRAND_ORANGE }} />
+                : <FiUpload className="w-5 h-5 text-gray-500 mb-1" />}
+              <p className="text-[11px] text-gray-500 leading-snug">
+                {isUploading ? 'Uploading…' : 'Drag & drop or click to upload'}
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handlePicked}
+                accept=".pdf,.txt,.md,.docx,.pptx"
+              />
+            </div>
+          )}
+
+          {addMode === 'url' && (
+            <div className="flex flex-col gap-2">
+              <input
+                type="url"
+                placeholder="https://example.com/article"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none"
+                style={{ '--tw-ring-color': BRAND_ORANGE }}
+              />
+              <button
+                onClick={handleUrlSubmit}
+                disabled={!urlInput.trim() || isFetchingUrl}
+                className="flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-white rounded-xl disabled:opacity-50 transition-colors"
+                style={{ backgroundColor: BRAND_ORANGE }}
+              >
+                {isFetchingUrl ? <FiLoader className="w-3.5 h-3.5 animate-spin" /> : <FiLink className="w-3.5 h-3.5" />}
+                {isFetchingUrl ? 'Fetching…' : 'Fetch & Ingest'}
+              </button>
+            </div>
+          )}
+
+          {addMode === 'folder' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                autoFocus
+                placeholder="Folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitNewFolder();
+                  if (e.key === 'Escape') { setNewFolderName(''); setAddPanelOpen(false); }
+                }}
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none"
+              />
+              <button
+                onClick={submitNewFolder}
+                className="px-3 py-2 text-xs font-semibold text-white rounded-xl transition-colors"
+                style={{ backgroundColor: BRAND_ORANGE }}
+              >Add</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* List */}
-      {isLoading ? (
+      {uploadError && <p className="text-xs text-red-500 px-1">{uploadError}</p>}
+
+      {/* Body */}
+      {isLoading && (view.kind === 'bot' || view.kind === 'me') ? (
         <div className="flex items-center justify-center py-8">
-          <FiLoader className="w-5 h-5 text-[#FA6C43] animate-spin" />
+          <FiLoader className="w-5 h-5 animate-spin" style={{ color: BRAND_ORANGE }} />
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {visibleFolders.map((path) => {
-            const isRemovingFolder = removingFolderPaths.has(path);
+          {/* Virtual rows (root / bots-list) */}
+          {(view.kind === 'root' || view.kind === 'bots-list') && view.virtualRows.length > 0 &&
+            view.virtualRows.map((row) => (
+              <button
+                key={row.key}
+                onClick={() => goToVirtual(row.key)}
+                className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all text-left w-full"
+              >
+                <FolderBadge />
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-[13px] font-medium">{row.label}</p>
+                  {row.meta && (
+                    <p className="truncate text-[10px] text-gray-500 mt-0.5">{row.meta}</p>
+                  )}
+                </div>
+                <FiChevronRight className="w-4 h-4 text-gray-400" />
+              </button>
+            ))}
+
+          {view.kind === 'bots-list' && view.virtualRows.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-6">
+              No bots yet. Start a chat with a bot to see its files here.
+            </p>
+          )}
+
+          {/* Real folder rows */}
+          {(view.kind === 'bot' || view.kind === 'me') && visibleFolders.map((path) => {
+            const isRemoving = removingFolderPaths.has(path);
+            const nextPath = view.kind === 'bot'
+              ? `bots/${view.configId}/${path}`
+              : `me/${path}`;
             return (
-            <div
-              key={path}
-              className={`transition-all duration-200 ease-out ${
-                isRemovingFolder ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
-              }`}
-            >
-              <div className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all">
-                <button
-                  onClick={() => onSetFolder(path)}
-                  disabled={isRemovingFolder}
-                  className="flex-1 flex items-center gap-3 text-left min-w-0"
-                >
-                  <FiFolder className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
-                  <span className="flex-1 truncate">{folderDisplayName(path)}</span>
-                </button>
-                <FiChevronRight className="w-4 h-4 text-gray-400 transition-opacity group-hover:opacity-0" />
-                <button
-                  onClick={(e) => handleDeleteFolderClick(e, path)}
-                  disabled={isRemovingFolder}
-                  title="Delete folder"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
-                >
-                  <FiTrash2 className="w-3.5 h-3.5" />
-                </button>
+              <div
+                key={path}
+                className={`transition-all duration-200 ease-out ${
+                  isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
+                }`}
+              >
+                <div className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all">
+                  <button
+                    onClick={() => onSetPath?.(nextPath)}
+                    disabled={isRemoving}
+                    className="flex-1 flex items-center gap-3 text-left min-w-0"
+                  >
+                    <FolderBadge />
+                    <span className="flex-1 truncate text-[13px] font-medium">{folderLeaf(path)}</span>
+                  </button>
+                  <FiChevronRight className="w-4 h-4 text-gray-400 transition-opacity group-hover:opacity-0" />
+                  {canUpload && (
+                    <button
+                      onClick={(e) => handleDeleteFolder(e, path)}
+                      disabled={isRemoving}
+                      title="Delete folder"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    >
+                      <FiTrash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
             );
           })}
 
-          {visibleFiles.map((f) => {
+          {/* File rows */}
+          {(view.kind === 'bot' || view.kind === 'me') && visibleFiles.map((f) => {
             const isSelected = selectedFileIds.includes(f._id);
             const isPending = f.vector_ingested === false;
             const stage = f.progress?.stage;
@@ -331,6 +491,8 @@ const FilesPanel = ({
                   ? 'Indexing extracted text'
                   : 'Preparing your file';
             const isRemoving = removingIds.has(f._id);
+            const ext = extOf(f.filename || '');
+            const clickable = canSelect && onToggleFile && !isPending && !isRemoving;
             return (
               <div
                 key={f._id}
@@ -338,78 +500,86 @@ const FilesPanel = ({
                   isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
                 }`}
               >
-              <div
-                onClick={selectable && onToggleFile && !isPending && !isRemoving ? () => onToggleFile(f._id) : undefined}
-                title={isPending ? pendingLabel : undefined}
-                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
-                  selectable && !isPending ? 'cursor-pointer' : ''
-                } ${
-                  isPending ? 'opacity-60' : ''
-                } ${
-                  isSelected
-                    ? 'bg-[#F9D0C4]/30 border-[#FA6C43]/40'
-                    : 'bg-white border-gray-100 hover:border-gray-200'
-                }`}
-              >
-                {selectable && (
-                  <div className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
-                    isSelected ? 'bg-[#FA6C43] border-[#FA6C43]' : 'border-gray-300'
-                  }`}>
-                    {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </div>
-                )}
-                {isPending ? (
-                  <FiLoader className="w-4 h-4 text-[#FA6C43] flex-shrink-0 animate-spin" />
-                ) : f.is_url ? (
-                  <FiLink className="w-4 h-4 text-[#FA6C43] flex-shrink-0" />
-                ) : (
-                  <FiFile className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className={`truncate text-[13px] ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
-                  {isPending ? (
-                    <div className="mt-0.5" title={pendingLabel}>
-                      <div className="flex items-center gap-1.5 text-[10px] text-[#FA6C43]">
-                        <span className="truncate">{pendingLabel}</span>
-                        <span className="flex gap-0.5 flex-shrink-0">
-                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce [animation-delay:-0.3s]" />
-                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce [animation-delay:-0.15s]" />
-                          <span className="w-1 h-1 rounded-full bg-[#FA6C43] animate-bounce" />
-                        </span>
-                      </div>
-                      {(isOcr || isIngesting) && (
-                        <div className="flex items-center gap-1 mt-1.5 max-w-[120px]">
-                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOcr ? 'bg-[#FA6C43] animate-pulse' : 'bg-[#FA6C43]'}`} />
-                          <span className={`flex-1 h-px ${isIngesting ? 'bg-[#FA6C43]' : 'bg-gray-300'}`} />
-                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isIngesting ? 'bg-[#FA6C43] animate-pulse' : 'bg-gray-300'}`} />
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p
-                      className="truncate text-[10px] text-gray-500 mt-0.5"
-                      title={f.is_url ? (f.source_url || '') : ''}
+                <div
+                  onClick={clickable ? () => onToggleFile(f._id) : undefined}
+                  title={isPending ? pendingLabel : undefined}
+                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
+                    clickable ? 'cursor-pointer' : ''
+                  } ${isPending ? 'opacity-60' : ''} ${
+                    isSelected
+                      ? 'bg-[#F9D0C4]/30'
+                      : 'bg-white border-gray-100 hover:border-gray-200'
+                  }`}
+                  style={isSelected ? { borderColor: `${BRAND_ORANGE}66` } : undefined}
+                >
+                  {canSelect && (
+                    <div
+                      className="w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors"
+                      style={{
+                        backgroundColor: isSelected ? BRAND_ORANGE : 'transparent',
+                        borderColor: isSelected ? BRAND_ORANGE : '#D1D5DB',
+                      }}
                     >
-                      {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
-                    </p>
+                      {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                  )}
+
+                  {isPending
+                    ? <FiLoader className="w-8 h-8 p-2 animate-spin flex-shrink-0" style={{ color: BRAND_ORANGE }} />
+                    : f.is_url
+                      ? <UrlBadge />
+                      : <TypeIcon ext={ext} />}
+
+                  <div className="flex-1 min-w-0">
+                    <p className={`truncate text-[13px] ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
+                    {isPending ? (
+                      <div className="mt-0.5" title={pendingLabel}>
+                        <div className="flex items-center gap-1.5 text-[10px]" style={{ color: BRAND_ORANGE }}>
+                          <span className="truncate">{pendingLabel}</span>
+                          <span className="flex gap-0.5 flex-shrink-0">
+                            <span className="w-1 h-1 rounded-full animate-bounce [animation-delay:-0.3s]" style={{ backgroundColor: BRAND_ORANGE }} />
+                            <span className="w-1 h-1 rounded-full animate-bounce [animation-delay:-0.15s]" style={{ backgroundColor: BRAND_ORANGE }} />
+                            <span className="w-1 h-1 rounded-full animate-bounce" style={{ backgroundColor: BRAND_ORANGE }} />
+                          </span>
+                        </div>
+                        {(isOcr || isIngesting) && (
+                          <div className="flex items-center gap-1 mt-1.5 max-w-[120px]">
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: BRAND_ORANGE, opacity: isOcr ? 1 : 1 }} />
+                            <span className="flex-1 h-px" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p
+                        className="truncate text-[10px] text-gray-500 mt-0.5"
+                        title={f.is_url ? (f.source_url || '') : ''}
+                      >
+                        {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
+                      </p>
+                    )}
+                  </div>
+
+                  {canUpload && (
+                    <button
+                      onClick={(e) => handleDeleteFile(e, f)}
+                      disabled={isRemoving}
+                      title="Delete file"
+                      className="transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    >
+                      <FiTrash2 className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
-                <button
-                  onClick={(e) => handleDeleteClick(e, f)}
-                  disabled={isRemoving}
-                  title="Delete file"
-                  className="transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
-                >
-                  <FiTrash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
               </div>
             );
           })}
 
-          {visibleFiles.length === 0 && visibleFolders.length === 0 && (
+          {(view.kind === 'bot' || view.kind === 'me') && visibleFiles.length === 0 && visibleFolders.length === 0 && (
             <p className="text-xs text-gray-400 text-center py-6">
-              {currentFolder ? 'This folder is empty.' : 'No files yet. Drop files above to get started.'}
+              {canUpload
+                ? 'This folder is empty. Use “+ Add New” to upload.'
+                : 'This folder is empty.'}
             </p>
           )}
         </div>
