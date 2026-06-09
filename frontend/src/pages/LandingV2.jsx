@@ -1516,16 +1516,6 @@ const LandingV2 = () => {
                         : 'opacity 0ms 0ms',
                     }}
                   >
-                    {/* Brand mark — sits above the video frame, not on it. */}
-                    <img
-                      src="/logo-A.svg"
-                      alt=""
-                      aria-hidden
-                      draggable={false}
-                      className="absolute pointer-events-none select-none"
-                      style={{ top: '22px', right: '26px', width: '32px', height: 'auto', zIndex: 10 }}
-                    />
-
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-stretch">
                       {/* Left column: editorial testimonial. Small ringed
                           avatar at the top, serif quote in the middle, a
@@ -1617,6 +1607,15 @@ const LandingV2 = () => {
                             loop
                             preload="metadata"
                             className="w-full h-full object-cover"
+                          />
+                          {/* Brand mark — pinned to the top-right of the video pane. */}
+                          <img
+                            src="/logo-A-white.svg"
+                            alt=""
+                            aria-hidden
+                            draggable={false}
+                            className="absolute pointer-events-none select-none"
+                            style={{ top: '14px', right: '14px', width: '28px', height: 'auto', zIndex: 10 }}
                           />
                         </div>
                       </div>
