@@ -1428,7 +1428,7 @@ const ChatPage = () => {
                                         return (
                                             <div
                                                 key={url}
-                                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222]"
+                                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                                                 title={url}
                                             >
                                                 <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
@@ -1453,7 +1453,7 @@ const ChatPage = () => {
                                     {librarySelected.map((f) => (
                                         <div
                                             key={f._id}
-                                            className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222] max-w-xs"
+                                            className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] max-w-xs animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                                         >
                                             {f.is_url ? (
                                                 <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
@@ -1497,7 +1497,7 @@ const ChatPage = () => {
                                 {ingestedSessionUploads.map((f) => (
                                     <div
                                         key={f._id}
-                                        className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[#F0F6FB] border border-gray-200 text-xs text-[#222] max-w-xs"
+                                        className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] max-w-xs animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                                     >
                                         {f.folder_path ? (
                                             <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
