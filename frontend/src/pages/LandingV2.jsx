@@ -310,7 +310,7 @@ const PHILOSOPHY_PARAGRAPHS = [
     { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
     { text: 'student building generational wealth, or the' },
     { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
-    { text: "student polling peers every day, and our AI bot meets you right where you are." },
+    { text: "student polling peers every day. Our AI bot meets you right where you are." },
   ],
 ];
 
