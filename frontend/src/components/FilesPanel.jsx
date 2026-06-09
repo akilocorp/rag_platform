@@ -81,19 +81,13 @@ const childrenOf = (allFolders, parent) => {
 const folderLeaf = (path) => (path.includes('/') ? path.split('/').pop() : path);
 
 // Resolve currentPath → view descriptor.
-// currentPath is "" | "bots" | "bots/<id>(/sub/path)" | "me(/sub/path)"
+// currentPath is "" (personal library root) | "<sub>/<path>" (personal subfolder)
+// | "bots" | "bots/<id>(/sub/path)".
+// The "bots" segment is a reserved namespace; everything else is the user's
+// personal library at the root level (Bot Files appears as a sibling virtual
+// folder at root only).
 const resolveView = (currentPath, accessibleConfigs) => {
-  if (!currentPath) {
-    return {
-      kind: 'root',
-      breadcrumbs: [{ label: 'Files', path: '' }],
-      virtualRows: [
-        { key: 'bots', label: 'Bot Files', icon: 'folder', meta: '' },
-      ],
-      canUpload: false,
-    };
-  }
-  const parts = currentPath.split('/');
+  const parts = currentPath ? currentPath.split('/') : [];
   const head = parts[0];
 
   if (head === 'bots') {
@@ -136,31 +130,24 @@ const resolveView = (currentPath, accessibleConfigs) => {
     };
   }
 
-  if (head === 'me') {
-    const subParts = parts.slice(1);
-    const crumbs = [
-      { label: 'Files', path: '' },
-      { label: 'My Files', path: 'me' },
-    ];
-    let acc = 'me';
-    subParts.forEach((seg) => {
-      acc += `/${seg}`;
-      crumbs.push({ label: seg, path: acc });
-    });
-    return {
-      kind: 'me',
-      breadcrumbs: crumbs,
-      configId: null,
-      folderPath: subParts.join('/'),
-      canUpload: true,
-    };
-  }
-
+  // Personal library — root or subfolder. Bot Files virtual row only appears
+  // at the root, so it's always present in every user's Files tab without
+  // adding a circular "My Files" breadcrumb segment.
+  const crumbs = [{ label: 'Files', path: '' }];
+  let acc = '';
+  parts.forEach((seg) => {
+    acc = acc ? `${acc}/${seg}` : seg;
+    crumbs.push({ label: seg, path: acc });
+  });
   return {
-    kind: 'root',
-    breadcrumbs: [{ label: 'Files', path: '' }],
-    virtualRows: [],
-    canUpload: false,
+    kind: 'me',
+    breadcrumbs: crumbs,
+    configId: null,
+    folderPath: parts.join('/'),
+    canUpload: true,
+    virtualRows: currentPath === ''
+      ? [{ key: 'bots', label: 'Bot Files', icon: 'folder', meta: '' }]
+      : [],
   };
 };
 
@@ -454,8 +441,8 @@ const FilesPanel = ({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {/* Virtual rows (root / bots-list) */}
-          {(view.kind === 'root' || view.kind === 'bots-list') && view.virtualRows.length > 0 &&
+          {/* Virtual rows (Bot Files at personal root, or bots-list) */}
+          {view.virtualRows && view.virtualRows.length > 0 &&
             view.virtualRows.map((row) => (
               <button
                 key={row.key}
@@ -484,7 +471,7 @@ const FilesPanel = ({
             const isRemoving = removingFolderPaths.has(path);
             const nextPath = view.kind === 'bot'
               ? `bots/${view.configId}/${path}`
-              : `me/${path}`;
+              : path;
             return (
               <div
                 key={path}
@@ -554,18 +541,6 @@ const FilesPanel = ({
                   }`}
                   style={isSelected ? { borderColor: `${BRAND_ORANGE}66` } : undefined}
                 >
-                  {canSelect && (
-                    <div
-                      className="w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors"
-                      style={{
-                        backgroundColor: isSelected ? BRAND_ORANGE : 'transparent',
-                        borderColor: isSelected ? BRAND_ORANGE : '#D1D5DB',
-                      }}
-                    >
-                      {isSelected && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </div>
-                  )}
-
                   {isPending
                     ? <FiLoader className="w-8 h-8 p-2 animate-spin flex-shrink-0" style={{ color: BRAND_ORANGE }} />
                     : f.is_url
@@ -617,7 +592,10 @@ const FilesPanel = ({
             );
           })}
 
-          {(view.kind === 'bot' || view.kind === 'me') && visibleFiles.length === 0 && visibleFolders.length === 0 && (
+          {(view.kind === 'bot' || view.kind === 'me')
+            && visibleFiles.length === 0
+            && visibleFolders.length === 0
+            && (!view.virtualRows || view.virtualRows.length === 0) && (
             <p className="text-xs text-gray-400 text-center py-6">
               {canUpload
                 ? 'This folder is empty. Use “+ Add New” to upload.'

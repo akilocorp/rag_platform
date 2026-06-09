@@ -274,12 +274,11 @@ const ChatPage = () => {
   // File Library State
   const [sidebarTab, setSidebarTab] = useState('chats');
   // currentPath drives the unified sidebar file tree.
-  //   ""                       → root (shows Bot Files + My Files)
+  //   ""                       → personal library root (also shows Bot Files virtual folder)
+  //   "a/b"                    → personal library subfolder a/b
   //   "bots"                   → list of accessible bot subfolders
   //   "bots/<config_id>"       → that bot's root folder
   //   "bots/<config_id>/a/b"   → subfolder a/b inside that bot
-  //   "me"                     → personal library root
-  //   "me/a/b"                 → personal library subfolder
   const [currentPath, setCurrentPath] = useState('');
   const [accessibleConfigs, setAccessibleConfigs] = useState([]);
   const [libraryFiles, setLibraryFiles] = useState([]);
@@ -300,10 +299,9 @@ const ChatPage = () => {
 
   // Parse currentPath into the effective fetch/write scope. See currentPath
   // shape comment above. canSelect: only files inside the *current* bot's
-  // subtree or My Files can be attached to this chat (spec).
+  // subtree or the personal library can be attached to this chat (spec).
   const fileScope = useMemo(() => {
-    if (!currentPath) return { kind: 'root', configId: null, folderPath: '', canSelect: false };
-    const parts = currentPath.split('/');
+    const parts = currentPath ? currentPath.split('/') : [];
     const head = parts[0];
     if (head === 'bots') {
       if (parts.length === 1) return { kind: 'bots-list', configId: null, folderPath: '', canSelect: false };
@@ -316,10 +314,8 @@ const ChatPage = () => {
         canSelect: cid === configId,
       };
     }
-    if (head === 'me') {
-      return { kind: 'me', configId: null, folderPath: parts.slice(1).join('/'), canSelect: true };
-    }
-    return { kind: 'root', configId: null, folderPath: '', canSelect: false };
+    // Root or any non-bots path = personal library.
+    return { kind: 'me', configId: null, folderPath: parts.join('/'), canSelect: true };
   }, [currentPath, configId]);
 
   // Personal config settings panel (students)
@@ -491,14 +487,13 @@ const ChatPage = () => {
   }, [isAuthenticated]);
 
   // Default the sidebar's currentPath to the current bot's folder if the
-  // caller has access to it, otherwise to the personal library.
+  // caller has access to it. Otherwise leave it at "" (personal library root,
+  // which also exposes the Bot Files virtual folder).
   useEffect(() => {
     if (currentPath) return;
     if (!configId) return;
     if (accessibleConfigs.some((c) => c._id === configId)) {
       setCurrentPath(`bots/${configId}`);
-    } else {
-      setCurrentPath('me');
     }
   }, [configId, accessibleConfigs, currentPath]);
 
