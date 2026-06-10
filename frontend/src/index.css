@@ -132,11 +132,17 @@
   .chat-message-md h4,
   .chat-message-md h5,
   .chat-message-md h6 {
-    font-weight: 700;
-    line-height: 1.3;
+    font-family: 'Newsreader', 'Iowan Old Style', 'Georgia', 'Times New Roman', serif;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
     margin-top: 1.4em;
     margin-bottom: 0.4em;
     display: block;
+  }
+  /* h4 is the small-caps lockup — keep it sans for the eyebrow effect. */
+  .chat-message-md h4 {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
   .chat-message-md h1 { font-size: 1.75em; letter-spacing: -0.02em; }
   .chat-message-md h2 { font-size: 1.45em; letter-spacing: -0.01em; }
