@@ -3,20 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
-import { marked } from 'marked';
-import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
+import { renderMarkdown } from '../utils/markdown';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
 import ChatSidebar from '../components/SideBar.jsx';
-
-marked.use({ gfm: true, breaks: true });
-
-const KATEX_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '$', right: '$', display: false },
-  { left: '\\(', right: '\\)', display: false },
-  { left: '\\[', right: '\\]', display: true },
-];
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
@@ -28,17 +18,7 @@ const GroupMessageBody = React.memo(({ text, isMe }) => {
     if (isMe) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = marked.parse(text || '');
-    try {
-      renderMathInElement(el, {
-        delimiters: KATEX_DELIMITERS,
-        throwOnError: false,
-        strict: false,
-        trust: false,
-      });
-    } catch (e) {
-      console.warn('KaTeX render:', e);
-    }
+    el.innerHTML = renderMarkdown(text);
   }, [text, isMe]);
 
   if (isMe) {

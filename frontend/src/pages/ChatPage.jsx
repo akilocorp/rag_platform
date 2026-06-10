@@ -17,17 +17,7 @@ import { lookupDefinition } from '../utils/dictionaryClient';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { marked } from 'marked';
-import renderMathInElement from 'katex/dist/contrib/auto-render.mjs';
-
-marked.use({ gfm: true, breaks: true });
-
-const KATEX_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '$', right: '$', display: false },
-  { left: '\\(', right: '\\)', display: false },
-  { left: '\\[', right: '\\]', display: true },
-];
+import { renderMarkdown } from '../utils/markdown';
 
 // --- HELPER: Get Token Safely ---
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -114,17 +104,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : marked.parse(text || '');
-    try {
-      renderMathInElement(el, {
-        delimiters: KATEX_DELIMITERS,
-        throwOnError: false,
-        strict: false,
-        trust: false,
-      });
-    } catch (e) {
-      console.warn('KaTeX render:', e);
-    }
+    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(text);
     if (!isUser) {
       loadDefineableSet().then((set) => {
         // Bail if message text changed underneath us between yield points.
