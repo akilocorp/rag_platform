@@ -34,7 +34,7 @@ const MobileBlockPage = () => {
         <div className="mobile-block-fade" style={{ marginBottom: '28px' }}>
           <div style={{ transform: 'translateX(-10%)' }}>
             <img
-              src="/email-forgot.jpg"
+              src="/email-forgot.png"
               alt=""
               aria-hidden
               draggable={false}
@@ -43,7 +43,7 @@ const MobileBlockPage = () => {
                 width: '200px',
                 height: 'auto',
                 maxWidth: '55vw',
-                mixBlendMode: 'multiply',
+                filter: 'drop-shadow(0 8px 24px rgba(31,31,31,0.12))',
               }}
             />
           </div>
