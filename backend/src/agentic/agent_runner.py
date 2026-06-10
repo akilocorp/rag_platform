@@ -21,6 +21,38 @@ from src.agentic.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
 
+# Shared by the legacy LangChain path in chat_routes.py so every model
+# (GPT/Gemini/Qwen/non-agentic Claude) formats replies the same way.
+FORMATTING_GUIDE = (
+    "\n\nFormat your responses using clean, premium Markdown typography:\n"
+    "- Structure every substantive answer as named sections: write a "
+    "`## Section Title`, then a blank line, then the body paragraph(s) "
+    "for that section. If the answer covers multiple equally important "
+    "topics or steps, give each one its own `## Section Title` + body "
+    "block — never combine two distinct topics under a single heading.\n"
+    "- For short conversational replies (one or two sentences), skip "
+    "headings entirely — plain prose only.\n"
+    "- Use **bold** sparingly, only for the single most critical term or "
+    "figure in a sentence.\n"
+    "- All mathematics — including single symbols, exponents, Greek "
+    "letters, fractions, roots, sums, integrals, and operators — must be "
+    "written in LaTeX. Wrap inline math in single `$...$` and standalone "
+    "equations in `$$...$$` on their own line. Never use Unicode math "
+    "characters such as ², ³, √, π, θ, ∞, ∑, ∫, ½, ≤, ≥, ×, ÷, ≠, ≈, "
+    "→, ←, etc. — always use the LaTeX equivalent (e.g. write `$x^2$` "
+    "not `x²`, `$\\sqrt{x}$` not `√x`, `$\\pi$` not `π`, `$\\frac{1}{2}$` "
+    "not `½`).\n"
+    "- Dollar amounts are plain text, never math: write $10/M, not wrapped "
+    "in LaTeX delimiters.\n"
+    "- Use bulleted (`- `) or numbered (`1. `) lists only for genuinely "
+    "enumerable items. Do not bullet every sentence.\n"
+    "- Use `inline code` for filenames, identifiers, and commands.\n"
+    "- Use fenced code blocks with a language tag for multi-line code.\n"
+    "- Use Markdown tables when comparing items across attributes.\n"
+    "- Do not use emojis. The design is minimal and typographic — "
+    "emphasis comes from structure and bold, not icons."
+)
+
 
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
@@ -72,35 +104,7 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "sources used."
         )
 
-    formatting_block = (
-        "\n\nFormat your responses using clean, premium Markdown typography:\n"
-        "- Structure every substantive answer as named sections: write a "
-        "`## Section Title`, then a blank line, then the body paragraph(s) "
-        "for that section. If the answer covers multiple equally important "
-        "topics or steps, give each one its own `## Section Title` + body "
-        "block — never combine two distinct topics under a single heading.\n"
-        "- For short conversational replies (one or two sentences), skip "
-        "headings entirely — plain prose only.\n"
-        "- Use **bold** sparingly, only for the single most critical term or "
-        "figure in a sentence.\n"
-        "- All mathematics — including single symbols, exponents, Greek "
-        "letters, fractions, roots, sums, integrals, and operators — must be "
-        "written in LaTeX. Wrap inline math in single `$...$` and standalone "
-        "equations in `$$...$$` on their own line. Never use Unicode math "
-        "characters such as ², ³, √, π, θ, ∞, ∑, ∫, ½, ≤, ≥, ×, ÷, ≠, ≈, "
-        "→, ←, etc. — always use the LaTeX equivalent (e.g. write `$x^2$` "
-        "not `x²`, `$\\sqrt{x}$` not `√x`, `$\\pi$` not `π`, `$\\frac{1}{2}$` "
-        "not `½`).\n"
-        "- Use bulleted (`- `) or numbered (`1. `) lists only for genuinely "
-        "enumerable items. Do not bullet every sentence.\n"
-        "- Use `inline code` for filenames, identifiers, and commands.\n"
-        "- Use fenced code blocks with a language tag for multi-line code.\n"
-        "- Use Markdown tables when comparing items across attributes.\n"
-        "- Do not use emojis. The design is minimal and typographic — "
-        "emphasis comes from structure and bold, not icons."
-    )
-
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{formatting_block}"
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}"
 
 
 def _to_dict(block) -> Dict[str, Any]:

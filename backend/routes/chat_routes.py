@@ -19,7 +19,7 @@ from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
 from langchain_anthropic import ChatAnthropic
 
-from src.agentic.agent_runner import stream_agentic_response
+from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
 from src.usage import limits as usage_limits
 from models.user import User
@@ -890,10 +890,10 @@ def chat(config_id, chat_id):
 
             Use the provided Context (retrieved documents) and the Conversation History to answer.
             If the user asks about previous messages, look at the History.
-            
+
             Context:
             {{context}}
-            """
+            """ + _escape_prompt_variables(FORMATTING_GUIDE)
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_message),
