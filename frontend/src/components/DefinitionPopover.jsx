@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FaSpinner } from 'react-icons/fa';
 import { RiBookOpenLine } from 'react-icons/ri';
 
@@ -40,7 +41,10 @@ const DefinitionPopover = ({
 
   if (!anchorRect) return null;
 
-  return (
+  // Portal to body so position: absolute resolves against the document,
+  // not against any styled ancestor (e.g. animate-in's transform creates
+  // a containing block that would throw off the math).
+  return createPortal(
     <div
       ref={ref}
       role="tooltip"
@@ -100,7 +104,8 @@ const DefinitionPopover = ({
           <RiBookOpenLine className="absolute bottom-2.5 right-3 text-gray-400 text-[14px]" />
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 };
 
