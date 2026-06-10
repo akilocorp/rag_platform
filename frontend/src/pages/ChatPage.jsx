@@ -9,8 +9,11 @@ import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
 import ChatComposer from '../components/ChatComposer';
+import DefinitionPopover from '../components/DefinitionPopover';
 import EVIAudioControls from '../components/EVIAudioControls';
 import { getModelDisplayName } from '../utils/modelNames';
+import { loadDefineableSet, wrapDefineableWordsInDom } from '../utils/defineableWords';
+import { lookupDefinition } from '../utils/dictionaryClient';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -102,6 +105,11 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const hasThinking = !isUser && (hasToolCalls || sources.length > 0);
 
+  // Definition popover state — only ever populated for AI messages.
+  const [popover, setPopover] = useState(null); // {word, anchorRect, loading, definition}
+  const hoverInTimerRef = useRef(null);
+  const hoverOutTimerRef = useRef(null);
+
   useLayoutEffect(() => {
     if (showThinking) return;
     const el = mdRef.current;
@@ -117,7 +125,80 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     } catch (e) {
       console.warn('KaTeX render:', e);
     }
-  }, [text, showThinking]);
+    if (!isUser) {
+      loadDefineableSet().then((set) => {
+        // Bail if message text changed underneath us between yield points.
+        if (mdRef.current === el) {
+          wrapDefineableWordsInDom(el, set);
+        }
+      });
+    }
+  }, [text, showThinking, isUser]);
+
+  // Hover-intent: 400ms in, 150ms out grace. AI messages only.
+  useEffect(() => {
+    if (isUser) return;
+    const el = mdRef.current;
+    if (!el) return;
+
+    const openFor = (target) => {
+      const word = target.dataset.word;
+      if (!word) return;
+      const rect = target.getBoundingClientRect();
+      const anchorRect = {
+        top: rect.top, left: rect.left, width: rect.width,
+        height: rect.height, bottom: rect.bottom,
+      };
+      setPopover({ word, anchorRect, loading: true, definition: null });
+      lookupDefinition(word).then((def) => {
+        setPopover((p) => (p && p.word === word ? { ...p, loading: false, definition: def } : p));
+      });
+    };
+
+    const onOver = (e) => {
+      const target = e.target.closest && e.target.closest('.defineable');
+      if (!target || !el.contains(target)) return;
+      clearTimeout(hoverOutTimerRef.current);
+      if (popover && popover.word === target.dataset.word) return;
+      clearTimeout(hoverInTimerRef.current);
+      hoverInTimerRef.current = setTimeout(() => openFor(target), 400);
+    };
+    const onOut = (e) => {
+      const target = e.target.closest && e.target.closest('.defineable');
+      if (!target || !el.contains(target)) return;
+      clearTimeout(hoverInTimerRef.current);
+      clearTimeout(hoverOutTimerRef.current);
+      hoverOutTimerRef.current = setTimeout(() => setPopover(null), 150);
+    };
+
+    el.addEventListener('mouseover', onOver);
+    el.addEventListener('mouseout', onOut);
+    return () => {
+      el.removeEventListener('mouseover', onOver);
+      el.removeEventListener('mouseout', onOut);
+      clearTimeout(hoverInTimerRef.current);
+      clearTimeout(hoverOutTimerRef.current);
+    };
+  }, [isUser, popover?.word]);
+
+  // Dismiss on ESC or any scroll while open.
+  useEffect(() => {
+    if (!popover) return;
+    const onKey = (e) => { if (e.key === 'Escape') setPopover(null); };
+    const onScroll = () => setPopover(null);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [popover]);
+
+  const onPopoverEnter = () => clearTimeout(hoverOutTimerRef.current);
+  const onPopoverLeave = () => {
+    clearTimeout(hoverOutTimerRef.current);
+    hoverOutTimerRef.current = setTimeout(() => setPopover(null), 150);
+  };
 
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
@@ -230,6 +311,17 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
           <RiUser3Line className="text-[#FA6C43] text-sm" />
         </div>
+      )}
+
+      {!isUser && popover && (
+        <DefinitionPopover
+          word={popover.word}
+          anchorRect={popover.anchorRect}
+          loading={popover.loading}
+          definition={popover.definition}
+          onPopoverEnter={onPopoverEnter}
+          onPopoverLeave={onPopoverLeave}
+        />
       )}
     </div>
   );
