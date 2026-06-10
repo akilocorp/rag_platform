@@ -191,7 +191,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         </div>
       )}
 
-      <div className={`min-w-0 max-w-[88%] text-sm leading-relaxed break-words ${
+      <div className={`min-w-0 max-w-[88%] text-[15px] leading-[1.65] break-words ${
         isUser
           ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl rounded-br-none px-4 py-3 sm:px-5 shadow-sm'
           : 'text-[#222] mt-1'
