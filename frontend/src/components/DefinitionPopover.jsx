@@ -50,12 +50,12 @@ const DefinitionPopover = ({
       role="tooltip"
       onMouseEnter={onPopoverEnter}
       onMouseLeave={onPopoverLeave}
-      className="dictionary-popover relative rounded-2xl shadow-lg border border-[#D7E3F2] p-3.5 pb-7 w-64 text-[12px] leading-snug text-gray-800 pointer-events-auto"
+      className="dictionary-popover relative rounded-2xl shadow-lg border border-[#A8D5EE] p-3.5 pb-7 w-64 text-[12px] leading-snug text-gray-800 pointer-events-auto"
       style={{
         position: 'absolute',
         zIndex: 60,
         transition: 'opacity 120ms ease-out',
-        background: 'linear-gradient(135deg, #EAF2FB 0%, #F7FAFD 55%, #DCE9F7 100%)',
+        background: 'linear-gradient(135deg, #F0F6FB 0%, #C7E2F4 55%, #8DCBED 100%)',
         ...style,
       }}
     >
@@ -101,7 +101,7 @@ const DefinitionPopover = ({
               </ul>
             </div>
           ))}
-          <RiBookOpenLine className="absolute bottom-2.5 right-3 text-gray-400 text-[14px]" />
+          <RiBookOpenLine className="absolute bottom-2.5 right-3 text-[#1A8ECB] text-[14px]" />
         </>
       )}
     </div>,
