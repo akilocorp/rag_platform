@@ -446,3 +446,23 @@ a:focus-visible {
 .voice-overlay-in {
   animation: voice-overlay-in 220ms ease-out;
 }
+
+/* Dictionary tooltip — non-common, >=6 char words in AI replies get a
+   subtle dotted underline; hover surfaces the definition popover. */
+.chat-message-md .defineable {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(0, 0, 0, 0.22);
+  text-underline-offset: 3px;
+  cursor: help;
+  transition: text-decoration-color 120ms ease-out;
+}
+.chat-message-md .defineable:hover {
+  text-decoration-color: #6B8FB8;
+}
+.dictionary-popover {
+  animation: dictionary-pop-in 140ms ease-out;
+}
+@keyframes dictionary-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
