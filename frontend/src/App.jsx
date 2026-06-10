@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
+import MobileBlockPage from './pages/MobileBlockPage';
 
 // Import your page components
 import HomePage from './pages/HomePage';
@@ -32,11 +33,35 @@ import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
-import { VariantProvider } from './context/VariantContext';
+function useIsMobile() {
+  const detect = () => {
+    if (typeof window === 'undefined') return false;
+    const narrow = window.matchMedia('(max-width: 767px)').matches;
+    const ua = navigator.userAgent || '';
+    const mobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    return narrow || mobileUA;
+  };
+  const [isMobile, setIsMobile] = useState(detect);
+  useEffect(() => {
+    const onResize = () => setIsMobile(detect());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isMobile;
+}
 
 function App() {
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return (
+      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
+        <MobileBlockPage />
+      </div>
+    );
+  }
+
   return (
-    <VariantProvider>
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
@@ -95,7 +120,6 @@ function App() {
         </Routes>
       </div>
     </Router>
-    </VariantProvider>
   );
 }
 
