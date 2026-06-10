@@ -43,7 +43,7 @@ const MobileBlockPage = () => {
                 width: '200px',
                 height: 'auto',
                 maxWidth: '55vw',
-                filter: 'drop-shadow(0 8px 24px rgba(31,31,31,0.08))',
+                mixBlendMode: 'multiply',
               }}
             />
           </div>
