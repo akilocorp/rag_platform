@@ -135,13 +135,16 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     }
   }, [text, showThinking, isUser]);
 
-  // Hover-intent: 400ms in, 150ms out grace. AI messages only.
-  useEffect(() => {
+  // React synthetic mouseover/mouseout bubble up from the .defineable spans
+  // through the markdown root. Using JSX handlers (not addEventListener)
+  // avoids ref-timing issues where the effect ran before mdRef was set.
+  const handleDefMouseOver = (e) => {
     if (isUser) return;
-    const el = mdRef.current;
-    if (!el) return;
-
-    const openFor = (target) => {
+    const target = e.target.closest && e.target.closest('.defineable');
+    if (!target) return;
+    clearTimeout(hoverOutTimerRef.current);
+    clearTimeout(hoverInTimerRef.current);
+    hoverInTimerRef.current = setTimeout(() => {
       const word = target.dataset.word;
       if (!word) return;
       const rect = target.getBoundingClientRect();
@@ -153,45 +156,25 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
       lookupDefinition(word).then((def) => {
         setPopover((p) => (p && p.word === word ? { ...p, loading: false, definition: def } : p));
       });
-    };
+    }, 250);
+  };
 
-    const onOver = (e) => {
-      const target = e.target.closest && e.target.closest('.defineable');
-      if (!target || !el.contains(target)) return;
-      clearTimeout(hoverOutTimerRef.current);
-      if (popover && popover.word === target.dataset.word) return;
-      clearTimeout(hoverInTimerRef.current);
-      hoverInTimerRef.current = setTimeout(() => openFor(target), 400);
-    };
-    const onOut = (e) => {
-      const target = e.target.closest && e.target.closest('.defineable');
-      if (!target || !el.contains(target)) return;
-      clearTimeout(hoverInTimerRef.current);
-      clearTimeout(hoverOutTimerRef.current);
-      hoverOutTimerRef.current = setTimeout(() => setPopover(null), 150);
-    };
+  const handleDefMouseOut = (e) => {
+    if (isUser) return;
+    const target = e.target.closest && e.target.closest('.defineable');
+    if (!target) return;
+    clearTimeout(hoverInTimerRef.current);
+    clearTimeout(hoverOutTimerRef.current);
+    hoverOutTimerRef.current = setTimeout(() => setPopover(null), 150);
+  };
 
-    el.addEventListener('mouseover', onOver);
-    el.addEventListener('mouseout', onOut);
-    return () => {
-      el.removeEventListener('mouseover', onOver);
-      el.removeEventListener('mouseout', onOut);
-      clearTimeout(hoverInTimerRef.current);
-      clearTimeout(hoverOutTimerRef.current);
-    };
-  }, [isUser, popover?.word]);
-
-  // Dismiss on ESC or any scroll while open.
+  // Dismiss on ESC while open. (Scroll-dismiss removed — chat auto-scroll
+  // during streaming was tearing the popover down before it could open.)
   useEffect(() => {
     if (!popover) return;
     const onKey = (e) => { if (e.key === 'Escape') setPopover(null); };
-    const onScroll = () => setPopover(null);
     window.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', onScroll, true);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', onScroll, true);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [popover]);
 
   const onPopoverEnter = () => clearTimeout(hoverOutTimerRef.current);
@@ -300,6 +283,8 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
           ) : (
             <div
               ref={mdRef}
+              onMouseOver={handleDefMouseOver}
+              onMouseOut={handleDefMouseOut}
               className={`chat-message-md prose max-w-none ${
                 isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
               }`}
