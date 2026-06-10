@@ -372,7 +372,7 @@ const GroupChatPage = () => {
                   <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     {!isMe && <span className="text-[10px] font-bold text-gray-500 ml-1 mb-1">{msg.sender}</span>}
                     
-                    <div className={`min-w-0 max-w-[88%] rounded-2xl px-5 py-3 shadow-sm text-sm leading-relaxed break-words overflow-hidden ${
+                    <div className={`min-w-0 max-w-[88%] rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
                       isMe
                         ? 'bg-[#FA6C43] text-white rounded-br-none'
                         : 'bg-white border border-gray-200 text-[#222] rounded-bl-none'

@@ -32,6 +32,13 @@
     overflow-wrap: anywhere;
     word-break: break-word;
     min-width: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "ss01" 1;
+    font-kerning: normal;
+    font-optical-sizing: auto;
+    letter-spacing: -0.005em;
   }
   .chat-message-md a {
     overflow-wrap: anywhere;
