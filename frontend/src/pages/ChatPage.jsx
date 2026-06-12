@@ -1457,121 +1457,6 @@ const ChatPage = () => {
 
                 <footer className="p-4 sm:p-6 lg:px-12 xl:px-20">
                     <div className="w-full">
-                        {(() => {
-                            if (!config?.web_access || !(config?.model_name || '').toLowerCase().startsWith('claude')) return null;
-                            const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
-                            if (matches.length === 0) return null;
-                            return (
-                                <div className="flex flex-wrap items-center gap-2 mb-4">
-                                    {matches.map((url) => {
-                                        let host = url;
-                                        try { host = new URL(url).hostname; } catch { /* ignore */ }
-                                        return (
-                                            <div
-                                                key={url}
-                                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                                                title={url}
-                                            >
-                                                <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
-                                                <span className="truncate max-w-[200px]">{host}</span>
-                                                <span className="text-gray-500">— will be fetched</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })()}
-                        {(() => {
-                            const sessionIds = new Set(sessionUploads.map((f) => f._id));
-                            const librarySelected = selectedFileIds
-                                .filter((id) => !sessionIds.has(id))
-                                .map((id) => libraryFiles.find((f) => f._id === id))
-                                .filter(Boolean)
-                                .filter((f) => f.vector_ingested === true);
-                            if (librarySelected.length === 0) return null;
-                            return (
-                                <div className="flex flex-wrap items-center gap-2 mb-4">
-                                    {librarySelected.map((f) => (
-                                        <div
-                                            key={f._id}
-                                            className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] max-w-xs animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                                        >
-                                            {f.is_url ? (
-                                                <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
-                                            ) : f.folder_path ? (
-                                                <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
-                                            ) : (
-                                                <FiFile className="w-3 h-3 text-gray-500 flex-shrink-0" />
-                                            )}
-                                            <span className="truncate">
-                                                {f.folder_path ? (
-                                                    <>
-                                                        {f.folder_path.split('/').map((seg, i) => (
-                                                            <React.Fragment key={i}>
-                                                                <span className="text-[#222]">{seg}</span>
-                                                                <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
-                                                            </React.Fragment>
-                                                        ))}
-                                                        {f.filename}
-                                                    </>
-                                                ) : (
-                                                    f.filename
-                                                )}
-                                            </span>
-                                            <button
-                                                onClick={() => toggleFileSelection(f._id)}
-                                                title="Deselect file"
-                                                className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
-                                            >
-                                                <FiX className="w-3 h-3" />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })()}
-                        {(() => {
-                            const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true);
-                            if (ingestedSessionUploads.length === 0) return null;
-                            return (
-                            <div className="flex flex-wrap items-center gap-2 mb-4">
-                                {ingestedSessionUploads.map((f) => (
-                                    <div
-                                        key={f._id}
-                                        className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-white border border-gray-200 shadow-sm text-xs text-[#222] max-w-xs animate-chip-in transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                                    >
-                                        {f.folder_path ? (
-                                            <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
-                                        ) : (
-                                            <FiFile className="w-3 h-3 text-gray-500 flex-shrink-0" />
-                                        )}
-                                        <span className="truncate">
-                                            {f.folder_path ? (
-                                                <>
-                                                    {f.folder_path.split('/').map((seg, i, arr) => (
-                                                        <React.Fragment key={i}>
-                                                            <span className="text-[#222]">{seg}</span>
-                                                            <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
-                                                        </React.Fragment>
-                                                    ))}
-                                                    {f.filename}
-                                                </>
-                                            ) : (
-                                                f.filename
-                                            )}
-                                        </span>
-                                        <button
-                                            onClick={() => removeFromSession(f._id)}
-                                            title="Remove from this chat"
-                                            className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
-                                        >
-                                            <FiX className="w-3 h-3" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                            );
-                        })()}
                         {pendingImages.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-3">
                                 {pendingImages.map((img) => (
@@ -1591,30 +1476,132 @@ const ChatPage = () => {
                                 ))}
                             </div>
                         )}
-                        <ChatComposer
-                            input={input}
-                            setInput={setInput}
-                            inputRef={inputRef}
-                            onSend={handleSendWithAnimation}
-                            onPaste={handlePaste}
-                            isLoading={isLoading}
-                            isSending={isSending}
-                            onSendAnimationEnd={() => setIsSending(false)}
-                            onAttachPick={handleAttachPick}
-                            attachInputRef={attachInputRef}
-                            onAttachChange={handleAttachChange}
-                            isUploading={isUploading}
-                            imageInputRef={imageInputRef}
-                            onImageChange={handleImageChange}
-                            showVoice={!config?.bot_type || config?.bot_type === 'chat'}
-                            onVoiceTranscribed={handleVoiceTranscribed}
-                            showOptions={showOptions}
-                            setShowOptions={setShowOptions}
-                            optionsRef={optionsRef}
-                            showModelPicker={!!(config?.is_playground || config?.is_personal)}
-                            model={sessionModel || config?.model_name || ''}
-                            onModelChange={setSessionModel}
-                        />
+                        {(() => {
+                            const chips = [];
+                            const pillClass = 'group inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg border text-xs max-w-xs animate-chip-in transition-all duration-200';
+                            const pillStyle = { backgroundColor: 'rgba(250,108,67,0.10)', borderColor: 'rgba(250,108,67,0.35)', color: '#222' };
+
+                            if (config?.web_access && (config?.model_name || '').toLowerCase().startsWith('claude')) {
+                                const matches = (input.match(/(https?:\/\/[^\s]+)/g) || []).slice(0, 3);
+                                matches.forEach((url) => {
+                                    let host = url;
+                                    try { host = new URL(url).hostname; } catch { /* ignore */ }
+                                    chips.push(
+                                        <div key={`url-${url}`} className={`${pillClass} px-2.5`} style={pillStyle} title={url}>
+                                            <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                            <span className="truncate max-w-[200px]">{host}</span>
+                                            <span className="text-gray-500">— will be fetched</span>
+                                        </div>,
+                                    );
+                                });
+                            }
+
+                            const sessionIds = new Set(sessionUploads.map((f) => f._id));
+                            const librarySelected = selectedFileIds
+                                .filter((id) => !sessionIds.has(id))
+                                .map((id) => libraryFiles.find((f) => f._id === id))
+                                .filter(Boolean)
+                                .filter((f) => f.vector_ingested === true);
+                            librarySelected.forEach((f) => {
+                                chips.push(
+                                    <div key={`lib-${f._id}`} className={pillClass} style={pillStyle}>
+                                        {f.is_url ? (
+                                            <FiLink className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        ) : f.folder_path ? (
+                                            <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        ) : (
+                                            <FiFile className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        )}
+                                        <span className="truncate">
+                                            {f.folder_path ? (
+                                                <>
+                                                    {f.folder_path.split('/').map((seg, i) => (
+                                                        <React.Fragment key={i}>
+                                                            <span className="text-[#222]">{seg}</span>
+                                                            <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
+                                                        </React.Fragment>
+                                                    ))}
+                                                    {f.filename}
+                                                </>
+                                            ) : (
+                                                f.filename
+                                            )}
+                                        </span>
+                                        <button
+                                            onClick={() => toggleFileSelection(f._id)}
+                                            title="Deselect file"
+                                            className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <FiX className="w-3 h-3" />
+                                        </button>
+                                    </div>,
+                                );
+                            });
+
+                            const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true);
+                            ingestedSessionUploads.forEach((f) => {
+                                chips.push(
+                                    <div key={`ses-${f._id}`} className={pillClass} style={pillStyle}>
+                                        {f.folder_path ? (
+                                            <FiFolder className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        ) : (
+                                            <FiFile className="w-3 h-3 text-[#FA6C43] flex-shrink-0" />
+                                        )}
+                                        <span className="truncate">
+                                            {f.folder_path ? (
+                                                <>
+                                                    {f.folder_path.split('/').map((seg, i) => (
+                                                        <React.Fragment key={i}>
+                                                            <span className="text-[#222]">{seg}</span>
+                                                            <FiChevronRight className="inline w-3 h-3 text-gray-500 mx-0.5" />
+                                                        </React.Fragment>
+                                                    ))}
+                                                    {f.filename}
+                                                </>
+                                            ) : (
+                                                f.filename
+                                            )}
+                                        </span>
+                                        <button
+                                            onClick={() => removeFromSession(f._id)}
+                                            title="Remove from this chat"
+                                            className="p-0.5 rounded hover:bg-white text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <FiX className="w-3 h-3" />
+                                        </button>
+                                    </div>,
+                                );
+                            });
+
+                            const attachments = chips.length > 0 ? chips : null;
+                            return (
+                                <ChatComposer
+                                    input={input}
+                                    setInput={setInput}
+                                    inputRef={inputRef}
+                                    onSend={handleSendWithAnimation}
+                                    onPaste={handlePaste}
+                                    isLoading={isLoading}
+                                    isSending={isSending}
+                                    onSendAnimationEnd={() => setIsSending(false)}
+                                    onAttachPick={handleAttachPick}
+                                    attachInputRef={attachInputRef}
+                                    onAttachChange={handleAttachChange}
+                                    isUploading={isUploading}
+                                    imageInputRef={imageInputRef}
+                                    onImageChange={handleImageChange}
+                                    showVoice={!config?.bot_type || config?.bot_type === 'chat'}
+                                    onVoiceTranscribed={handleVoiceTranscribed}
+                                    showOptions={showOptions}
+                                    setShowOptions={setShowOptions}
+                                    optionsRef={optionsRef}
+                                    showModelPicker={!!(config?.is_playground || config?.is_personal)}
+                                    model={sessionModel || config?.model_name || ''}
+                                    onModelChange={setSessionModel}
+                                    attachments={attachments}
+                                />
+                            );
+                        })()}
                         {uploadError && (
                             <p className="text-xs text-red-500 mt-2 px-1">{uploadError}</p>
                         )}
