@@ -310,7 +310,7 @@ export const ChatSidebar = ({
                       activeTab === 'chats' ? 'opacity-100' : 'opacity-0'
                     }`}
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-1 isolate">
                   {sessionsLoading ? (
                     <div className="space-y-1">
                       {[72, 58, 65].map((w, i) => (
@@ -330,7 +330,7 @@ export const ChatSidebar = ({
                           isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
                         }`}
                       >
-                      <div className={`relative ${openDropdown === session.session_id ? 'z-[100]' : 'z-0'}`}>
+                      <div className={`relative ${openDropdown === session.session_id ? 'z-[100]' : ''}`}>
                         {session.pending ? (
                           <div className="px-4 py-3 rounded-xl bg-[#F9D0C4]/20">
                             <div className="h-3.5 bg-gray-200 rounded-md animate-pulse mb-2" style={{ width: '68%' }} />
@@ -386,7 +386,7 @@ export const ChatSidebar = ({
                               </button>
 
                               {openDropdown === session.session_id && (
-                                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
+                                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[60]">
                                   <button
                                     onClick={(e) => {
                                       e.preventDefault();

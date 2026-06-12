@@ -178,7 +178,6 @@ const FilesPanel = ({
   const view = useMemo(() => resolveView(currentPath, accessibleConfigs), [currentPath, accessibleConfigs]);
 
   const fileInputRef = useRef(null);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addMode, setAddMode] = useState('file'); // 'file' | 'url' | 'folder'
@@ -212,19 +211,10 @@ const FilesPanel = ({
     : [];
 
   // ---- handlers ----
-  const handlePickClick = () => fileInputRef.current?.click();
   const handlePicked = (e) => {
     const picked = Array.from(e.target.files || []);
     if (picked.length) onUpload?.(picked);
     e.target.value = '';
-  };
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    if (!canUpload) return;
-    const dropped = Array.from(e.dataTransfer.files || []);
-    if (dropped.length) onUpload?.(dropped);
   };
   const submitNewFolder = () => {
     const trimmed = newFolderName.trim();
@@ -275,26 +265,37 @@ const FilesPanel = ({
   // ---- render ----
   return (
     <div className="flex flex-col gap-3 pr-1">
+      {/* Always-mounted hidden file input so the picker can be triggered without opening any panel */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handlePicked}
+        accept=".pdf,.txt,.md,.docx,.pptx"
+      />
       {/* Breadcrumb header + Add pill */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
-          {view.breadcrumbs.map((c, i) => {
-            const isLast = i === view.breadcrumbs.length - 1;
-            return (
-              <React.Fragment key={`${c.path}-${i}`}>
-                {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
-                <button
-                  onClick={() => onSetPath?.(c.path)}
-                  className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
-                  style={isLast ? {} : undefined}
-                  title={c.label}
-                >
-                  {c.label}
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
+      <div className={`flex items-center gap-2 ${view.breadcrumbs.length > 1 ? 'justify-between' : 'justify-end'}`}>
+        {view.breadcrumbs.length > 1 && (
+          <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
+            {view.breadcrumbs.map((c, i) => {
+              const isLast = i === view.breadcrumbs.length - 1;
+              return (
+                <React.Fragment key={`${c.path}-${i}`}>
+                  {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+                  <button
+                    onClick={() => onSetPath?.(c.path)}
+                    className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
+                    style={isLast ? {} : undefined}
+                    title={c.label}
+                  >
+                    {c.label}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
         {canUpload && (
           <div className="relative flex-shrink-0">
             <button
@@ -315,7 +316,10 @@ const FilesPanel = ({
                 className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50"
               >
                 <button
-                  onClick={() => openAddMode('file')}
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
                   className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
                 >
                   <FiUpload className="w-3.5 h-3.5 text-gray-500" />
@@ -356,36 +360,6 @@ const FilesPanel = ({
               <FiX className="w-3 h-3" />
             </button>
           </div>
-
-          {addMode === 'file' && (
-            <div
-              onClick={handlePickClick}
-              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-              onDragLeave={() => setIsDragOver(false)}
-              onDrop={handleDrop}
-              className={`cursor-pointer border-2 border-dashed rounded-xl py-5 px-3 flex flex-col items-center justify-center transition-all text-center ${
-                isDragOver
-                  ? 'bg-[#F9D0C4]/30'
-                  : 'border-gray-200 bg-[#F0F6FB]/60 hover:border-[#FA6C43]/50'
-              }`}
-              style={isDragOver ? { borderColor: BRAND_ORANGE } : undefined}
-            >
-              {isUploading
-                ? <FiLoader className="w-5 h-5 animate-spin mb-1" style={{ color: BRAND_ORANGE }} />
-                : <FiUpload className="w-5 h-5 text-gray-500 mb-1" />}
-              <p className="text-[11px] text-gray-500 leading-snug">
-                {isUploading ? 'Uploading…' : 'Drag & drop or click to upload'}
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handlePicked}
-                accept=".pdf,.txt,.md,.docx,.pptx"
-              />
-            </div>
-          )}
 
           {addMode === 'url' && (
             <div className="flex flex-col gap-2">

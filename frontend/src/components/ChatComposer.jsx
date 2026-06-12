@@ -28,9 +28,15 @@ const ChatComposer = ({
   showVoice, onVoiceTranscribed,
   showOptions, setShowOptions, optionsRef,
   showModelPicker, model, onModelChange,
+  attachments,
 }) => {
   return (
     <div className="w-full rounded-[28px] bg-white border border-gray-200 shadow-[0_10px_40px_rgba(31,31,31,0.08)] p-3 sm:p-4">
+      {attachments && (
+        <div className="flex flex-wrap items-center gap-2 mb-2 px-1">
+          {attachments}
+        </div>
+      )}
       <textarea
         ref={inputRef}
         value={input}
