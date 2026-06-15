@@ -10,15 +10,14 @@ const DEFAULT_QUICK_PROMPTS = [
   'Go deeper',
 ];
 
-// Cascading-tab layout: each tier sits at a stepped offset from the send
-// button center. Top tier is highest + closest to button horizontally;
-// bottom tier is lowest + furthest left. Deploy delay staggers the cone
-// "unfold" outward; close delay reverses it so the bottom collapses first.
-// Vertical gaps widened so adjacent chips don't visually crowd.
+// Vertical pop-out layout: chips stack in a column to the left of the send
+// button. Same dx for every chip so motion is purely vertical (rest = chip's
+// final x at button y, target = same x stepped upward). Deploy staggers
+// bottom→top so the column grows up from the button; close mirrors top→bottom.
 const TAB_TIERS = [
-  { dx: -105, dy: -96, deployDelay: 0,   closeDelay: 120 },
-  { dx: -135, dy: -54, deployDelay: 60,  closeDelay: 60  },
-  { dx: -165, dy: -12, deployDelay: 120, closeDelay: 0   },
+  { dx: -115, dy: -156, deployDelay: 120, closeDelay: 0   },
+  { dx: -115, dy: -104, deployDelay: 60,  closeDelay: 60  },
+  { dx: -115, dy: -52,  deployDelay: 0,   closeDelay: 120 },
 ];
 
 const DWELL_MS = 1500;
@@ -245,7 +244,10 @@ const ChatComposer = ({
                 const tier = TAB_TIERS[i] || TAB_TIERS[TAB_TIERS.length - 1];
                 const targetTransform =
                   `translate(calc(-50% + ${tier.dx}px), calc(-50% + ${tier.dy}px))`;
-                const restTransform = 'translate(-50%, -50%)';
+                // Rest sits at the chip's final x but at the button's y, so
+                // the pop motion is purely vertical (no diagonal travel).
+                const restTransform =
+                  `translate(calc(-50% + ${tier.dx}px), -50%)`;
                 const delay = isFanOpen ? tier.deployDelay : tier.closeDelay;
                 return (
                   <button
