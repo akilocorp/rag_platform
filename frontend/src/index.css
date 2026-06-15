@@ -181,19 +181,22 @@
      Top margins are intentionally generous — each header is a real section
      break, not an inline label. */
   .chat-message-md h1 {
-    font-size: 2.6em; font-weight: 800; letter-spacing: -0.025em;
+    font-size: 3em; font-weight: 800; letter-spacing: -0.025em;
     color: #FA6C43;
-    margin: 2.6em 0 0.55em;
+    margin: 1em 0 0.55em;
+    padding-top: 2em;
   }
   .chat-message-md h2 {
-    font-size: 2.15em; font-weight: 700; letter-spacing: -0.020em;
+    font-size: 2.5em; font-weight: 700; letter-spacing: -0.020em;
     color: #FA6C43;
-    margin: 3em 0 0.5em;
+    margin: 1em 0 0.5em;
+    padding-top: 2.4em;
   }
   .chat-message-md h3 {
-    font-size: 1.75em; font-weight: 700; letter-spacing: -0.014em;
+    font-size: 2.2em; font-weight: 700; letter-spacing: -0.014em;
     color: #FA6C43;
-    margin: 3em 0 0.4em;
+    margin: 1em 0 0.4em;
+    padding-top: 2.2em;
   }
   .chat-message-md h4 {
     font-size: 0.78em; font-weight: 700;
@@ -217,6 +220,7 @@
   .chat-message-md h5:first-child,
   .chat-message-md h6:first-child {
     margin-top: 0;
+    padding-top: 0;
   }
   /* Tighten the lockup: paragraph immediately after a heading sits close. */
   .chat-message-md h1 + p,
