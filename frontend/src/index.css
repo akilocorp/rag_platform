@@ -83,7 +83,7 @@
      as a prefix; we don't parse it — it just sits inside the card as written. */
   .chat-message-md blockquote {
     margin: 1.25em 0;
-    padding: 0.9em 1.1em 0.9em 1.2em;
+    padding: 1.4em 1.1em 1.4em 1.2em;
     background: rgba(250, 108, 67, 0.06);
     border: 1px solid rgba(250, 108, 67, 0.18);
     border-left: 4px solid #FA6C43;
