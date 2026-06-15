@@ -23,6 +23,9 @@ const TAB_TIERS = [
 const DWELL_MS = 1500;
 const DEPLOY_MS = 320;
 const PULSE_MS = 560;
+// Grace period after the cursor leaves the send button so it can travel
+// across the empty gap to a chip without the fan retreating mid-reach.
+const LEAVE_GRACE_MS = 320;
 
 // Models offered in the in-chat picker (playground / personal bots only).
 export const CHAT_MODEL_OPTIONS = [
@@ -61,6 +64,7 @@ const ChatComposer = ({
   const dwellTimerRef = useRef(null);
   const pulseTimerRef = useRef(null);
   const closeTimerRef = useRef(null);
+  const leaveTimerRef = useRef(null);
 
   const handleSendHoverEnter = () => {
     if (!hasAiReplied || isLoading) return;
@@ -68,6 +72,10 @@ const ChatComposer = ({
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
+    }
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
     }
     if (showQuickPrompts) {
       setIsFanOpen(true);
@@ -87,13 +95,16 @@ const ChatComposer = ({
       dwellTimerRef.current = null;
     }
     if (!showQuickPrompts) return;
-    setIsFanOpen(false);
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    const maxCloseDelay = Math.max(...TAB_TIERS.map((t) => t.closeDelay));
-    closeTimerRef.current = setTimeout(
-      () => setShowQuickPrompts(false),
-      DEPLOY_MS + maxCloseDelay + 40,
-    );
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = setTimeout(() => {
+      setIsFanOpen(false);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      const maxCloseDelay = Math.max(...TAB_TIERS.map((t) => t.closeDelay));
+      closeTimerRef.current = setTimeout(
+        () => setShowQuickPrompts(false),
+        DEPLOY_MS + maxCloseDelay + 40,
+      );
+    }, LEAVE_GRACE_MS);
   };
 
   useLayoutEffect(() => {
@@ -106,6 +117,7 @@ const ChatComposer = ({
     if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
     if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
   }, []);
 
   return (
