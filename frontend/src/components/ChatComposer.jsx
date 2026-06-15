@@ -15,9 +15,9 @@ const QUICK_PROMPTS = [
 // bottom tier is lowest + furthest left. Deploy delay staggers the cone
 // "unfold" outward; close delay reverses it so the bottom collapses first.
 const TAB_TIERS = [
-  { dx: -118, dy: -78, deployDelay: 0,   closeDelay: 120 },
-  { dx: -158, dy: -44, deployDelay: 60,  closeDelay: 60  },
-  { dx: -198, dy: -10, deployDelay: 120, closeDelay: 0   },
+  { dx: -105, dy: -70, deployDelay: 0,   closeDelay: 120 },
+  { dx: -135, dy: -40, deployDelay: 60,  closeDelay: 60  },
+  { dx: -165, dy: -10, deployDelay: 120, closeDelay: 0   },
 ];
 
 const DWELL_MS = 1500;
@@ -240,7 +240,8 @@ const ChatComposer = ({
                     className={`absolute left-0 top-0 whitespace-nowrap px-4 py-1.5 rounded-full bg-white text-sm font-medium text-[#1F1F1F] border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] ${isFanOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
                     style={{
                       transform: isFanOpen ? targetTransform : restTransform,
-                      transition: `transform ${DEPLOY_MS}ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms`,
+                      opacity: isFanOpen ? 1 : 0,
+                      transition: `transform ${DEPLOY_MS}ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms, opacity ${isFanOpen ? 180 : 100}ms ease-out ${delay}ms`,
                     }}
                     tabIndex={isFanOpen ? 0 : -1}
                   >
