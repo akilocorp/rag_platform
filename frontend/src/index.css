@@ -183,11 +183,11 @@
   }
   .chat-message-md h2 {
     font-size: 1.55em; font-weight: 700; letter-spacing: -0.020em;
-    margin: 1.5em 0 0.5em;
+    margin: 2em 0 0.5em;
   }
   .chat-message-md h3 {
     font-size: 1.2em; font-weight: 700; letter-spacing: -0.014em;
-    margin: 1.2em 0 0.4em;
+    margin: 1.8em 0 0.4em;
   }
   .chat-message-md h4 {
     font-size: 0.78em; font-weight: 700;
@@ -224,7 +224,7 @@
   /* Bold-as-heading lookalike: paragraphs starting with <strong> get
      section-break breathing room. Inline bold mid-sentence is unaffected. */
   .chat-message-md p:has(> strong:first-child) {
-    margin-top: 1.5em;
+    margin-top: 2em;
   }
   /* Lead paragraph: first paragraph of the reply opens with a slight size
      bump and medium weight so the reader has a clear opening beat. */
@@ -309,7 +309,7 @@
   .chat-message-md table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.75rem 0;
+    margin: 0.75rem 0 1.5rem;
     font-size: 0.9em;
     display: block;
     overflow-x: auto;
