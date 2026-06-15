@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { FaSpinner, FaPaperPlane } from 'react-icons/fa';
-import { FiPaperclip, FiImage, FiMoreVertical } from 'react-icons/fi';
+import { FaSpinner } from 'react-icons/fa';
+import { FiPaperclip, FiImage, FiMoreVertical, FiArrowUp } from 'react-icons/fi';
 import VoiceRecordButton from './VoiceRecordButton';
 
 // Fallback follow-up prompts (used until the backend returns tailored ones).
@@ -280,11 +280,11 @@ const ChatComposer = ({
           >
             <span className={`flex items-center justify-center transition-opacity ${isLoading || !input.trim() ? 'opacity-50' : 'opacity-100'}`}>
               {isSending ? (
-                <FaPaperPlane className="animate-send-launch text-lg" onAnimationEnd={onSendAnimationEnd} />
+                <FiArrowUp className="animate-send-launch text-xl" onAnimationEnd={onSendAnimationEnd} />
               ) : isLoading ? (
                 <FaSpinner className="animate-spin text-lg" />
               ) : (
-                <FaPaperPlane className="text-lg" />
+                <FiArrowUp className="text-xl" />
               )}
             </span>
           </button>
