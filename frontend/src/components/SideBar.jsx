@@ -175,7 +175,8 @@ export const ChatSidebar = ({
   };
 
   const switchTab = (tab) => {
-    if (onSetTab) onSetTab(tab);
+    if (!onSetTab) return;
+    onSetTab(activeTab === tab ? null : tab);
   };
 
   const creditsPct = Math.max(
