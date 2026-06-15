@@ -1034,3 +1034,66 @@ def chat(config_id, chat_id):
     if device_cookie:
         _set_device_cookie(resp, device_cookie, request)
     return resp
+
+
+# --- Tailored follow-up prompts -----------------------------------------------
+# Generates 3 short follow-up prompts the learner might tap after reading the
+# tutor's reply. Powers the hover-fan above the send button. Uses gpt-4o-mini
+# (cheapest available) and caps token usage hard so each call is sub-cent.
+_DEFAULT_QUICK_PROMPTS = ["Explain it simpler", "Give an example", "Go deeper"]
+
+
+@chat_bp.route('/quick_prompts', methods=['POST'])
+def quick_prompts():
+    payload = request.get_json(silent=True) or {}
+    user_message = (payload.get('user_message') or '').strip()[:200]
+    ai_reply = (payload.get('ai_reply') or '').strip()[:800]
+    if not ai_reply:
+        return jsonify({"prompts": _DEFAULT_QUICK_PROMPTS})
+
+    api_key = current_app.config.get("OPENAI_API_KEY")
+    if not api_key:
+        return jsonify({"prompts": _DEFAULT_QUICK_PROMPTS})
+
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=80,
+            temperature=0.6,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You generate quick follow-up prompts a learner might tap "
+                        "after reading a tutor's reply. Return a JSON object with "
+                        "key \"prompts\" whose value is an array of EXACTLY 3 short "
+                        "imperative prompts (2-5 words each, no trailing punctuation, "
+                        "no numbering). Phrase them as the learner would, e.g. "
+                        "\"Show a worked example\", \"Why does this matter\"."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Learner asked: {user_message or '(unknown)'}\n\n"
+                        f"Tutor replied:\n{ai_reply}\n\n"
+                        "Return the JSON now."
+                    ),
+                },
+            ],
+        )
+        raw = completion.choices[0].message.content or ""
+        parsed = json.loads(raw)
+        prompts = parsed.get("prompts") if isinstance(parsed, dict) else None
+        if not isinstance(prompts, list):
+            raise ValueError("missing prompts array")
+        cleaned = [str(p).strip().rstrip('.?!') for p in prompts if str(p).strip()][:3]
+        if len(cleaned) < 3:
+            cleaned = (cleaned + _DEFAULT_QUICK_PROMPTS)[:3]
+        return jsonify({"prompts": cleaned})
+    except Exception as e:
+        logger.warning("quick_prompts generation failed: %s", e)
+        return jsonify({"prompts": _DEFAULT_QUICK_PROMPTS})

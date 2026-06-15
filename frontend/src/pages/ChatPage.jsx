@@ -164,7 +164,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   };
 
   return (
-    <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+    <div className={`flex gap-4 ${isUser ? 'justify-end animate-send-fly-in' : 'justify-start animate-in fade-in slide-in-from-bottom-2 duration-300'}`}>
       {!isUser && BotIcon && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
           <BotIcon className="text-[#FA6C43] text-sm" />
@@ -316,6 +316,9 @@ const ChatPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  // Tailored follow-up prompts shown in the send-button hover fan.
+  // Backend regenerates these from the latest AI reply; default until then.
+  const [quickPrompts, setQuickPrompts] = useState(['Explain it simpler', 'Give an example', 'Go deeper']);
 
   // Sidebar/User State
   const [sessions, setSessions] = useState([]);
@@ -964,11 +967,27 @@ const ChatPage = () => {
 
       // Final avatar task
       if (avatarSession && currentSentence.trim().length > 0) {
-        apiClient.post('/heygen/task', { 
-           session_id: avatarSession.session_id, 
-           heygen_token: avatarSession.heygen_token, 
-           text: currentSentence 
+        apiClient.post('/heygen/task', {
+           session_id: avatarSession.session_id,
+           heygen_token: avatarSession.heygen_token,
+           text: currentSentence
         }).catch(() => {});
+      }
+
+      // Fire-and-forget: ask the backend for 3 tailored follow-up prompts
+      // based on this reply. Drives the send-button hover fan.
+      if (accumulatedText.trim()) {
+        fetch('/api/quick_prompts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_message: textInput, ai_reply: accumulatedText }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            const prompts = data && Array.isArray(data.prompts) ? data.prompts.filter(Boolean) : null;
+            if (prompts && prompts.length === 3) setQuickPrompts(prompts);
+          })
+          .catch(() => {});
       }
 
       if (isNewChat) fetchSessions(true);
@@ -1610,6 +1629,7 @@ const ChatPage = () => {
                                     onModelChange={setSessionModel}
                                     attachments={attachments}
                                     hasAiReplied={messages.some(m => m.sender === 'ai' && m.text && !m.isTyping)}
+                                    quickPrompts={quickPrompts}
                                 />
                             );
                         })()}

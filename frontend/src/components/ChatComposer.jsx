@@ -3,8 +3,8 @@ import { FaSpinner, FaPaperPlane } from 'react-icons/fa';
 import { FiPaperclip, FiImage, FiMoreVertical } from 'react-icons/fi';
 import VoiceRecordButton from './VoiceRecordButton';
 
-// Curated follow-up prompts shown when the cascading tab fan deploys.
-const QUICK_PROMPTS = [
+// Fallback follow-up prompts (used until the backend returns tailored ones).
+const DEFAULT_QUICK_PROMPTS = [
   'Explain it simpler',
   'Give an example',
   'Go deeper',
@@ -14,10 +14,11 @@ const QUICK_PROMPTS = [
 // button center. Top tier is highest + closest to button horizontally;
 // bottom tier is lowest + furthest left. Deploy delay staggers the cone
 // "unfold" outward; close delay reverses it so the bottom collapses first.
+// Vertical gaps widened so adjacent chips don't visually crowd.
 const TAB_TIERS = [
-  { dx: -105, dy: -70, deployDelay: 0,   closeDelay: 120 },
-  { dx: -135, dy: -40, deployDelay: 60,  closeDelay: 60  },
-  { dx: -165, dy: -10, deployDelay: 120, closeDelay: 0   },
+  { dx: -105, dy: -96, deployDelay: 0,   closeDelay: 120 },
+  { dx: -135, dy: -54, deployDelay: 60,  closeDelay: 60  },
+  { dx: -165, dy: -12, deployDelay: 120, closeDelay: 0   },
 ];
 
 const DWELL_MS = 1500;
@@ -54,7 +55,11 @@ const ChatComposer = ({
   showModelPicker, model, onModelChange,
   attachments,
   hasAiReplied,
+  quickPrompts,
 }) => {
+  const promptList = (Array.isArray(quickPrompts) && quickPrompts.length === 3)
+    ? quickPrompts
+    : DEFAULT_QUICK_PROMPTS;
   // Two-stage mount: showQuickPrompts gates DOM presence, isFanOpen gates
   // the transform. We mount first, then flip transform on the next frame so
   // the transition has a true start point and we don't snap to "open".
@@ -236,7 +241,7 @@ const ChatComposer = ({
               style={{ width: 0, height: 0 }}
               aria-hidden={!isFanOpen}
             >
-              {QUICK_PROMPTS.map((prompt, i) => {
+              {promptList.map((prompt, i) => {
                 const tier = TAB_TIERS[i] || TAB_TIERS[TAB_TIERS.length - 1];
                 const targetTransform =
                   `translate(calc(-50% + ${tier.dx}px), calc(-50% + ${tier.dy}px))`;
