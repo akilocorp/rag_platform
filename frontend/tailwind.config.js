@@ -16,13 +16,13 @@ export default {
           '100%': { transform: 'translateY(0) scale(1)',      opacity: '1' },
         },
         'chip-pop': {
-          '0%':   { transform: 'translate(var(--cx,0), var(--cy,0)) scale(0.4)', opacity: '0' },
-          '60%':  { transform: 'translate(var(--cx,0), var(--cy,0)) scale(1.08)', opacity: '1' },
-          '100%': { transform: 'translate(var(--cx,0), var(--cy,0)) scale(1)',    opacity: '1' },
+          '0%':   { transform: 'translate(calc(-50% + var(--cx, 0px)), calc(-50% + var(--cy, 0px))) scale(0.3)', opacity: '0' },
+          '60%':  { transform: 'translate(-50%, -50%) scale(1.08)', opacity: '1' },
+          '100%': { transform: 'translate(-50%, -50%) scale(1)',    opacity: '1' },
         },
         'send-sweep': {
-          '0%':   { transform: 'rotate(0deg)',   opacity: '0.95' },
-          '100%': { transform: 'rotate(360deg)', opacity: '0.95' },
+          '0%':   { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
         },
       },
       animation: {

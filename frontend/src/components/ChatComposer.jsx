@@ -13,15 +13,18 @@ const QUICK_PROMPTS = [
   'Go deeper',
 ];
 
-// Fan layout: chips arc up-and-left from the send button.
-// Tuned so the widest chip clears the model picker and the screen edge.
-const FAN_POSITIONS = [
-  { x: -150, y: -36  },
-  { x: -190, y: -94  },
-  { x: -156, y: -154 },
-  { x: -76,  y: -184 },
-  { x:  10,  y: -168 },
-];
+// Fan layout: chips arc on a true circle around the send button.
+// Equal radius + equal angular spacing keeps the orbit visually consistent
+// regardless of chip text width (chips are center-anchored in chip-pop).
+const FAN_RADIUS = 185;
+const FAN_ANGLES_DEG = [85, 105, 125, 145, 165];
+const FAN_POSITIONS = FAN_ANGLES_DEG.map((deg) => {
+  const rad = (deg * Math.PI) / 180;
+  return {
+    x: Math.round(FAN_RADIUS * Math.cos(rad)),
+    y: Math.round(-FAN_RADIUS * Math.sin(rad)),
+  };
+});
 
 // Models offered in the in-chat picker (playground / personal bots only).
 export const CHAT_MODEL_OPTIONS = [
@@ -200,8 +203,8 @@ const ChatComposer = ({
                       left: `${pos.x}px`,
                       top: `${pos.y}px`,
                       animationDelay: `${i * 55}ms`,
-                      '--cx': '0px',
-                      '--cy': '0px',
+                      '--cx': `${-pos.x}px`,
+                      '--cy': `${-pos.y}px`,
                     }}
                   >
                     {prompt}
@@ -215,21 +218,24 @@ const ChatComposer = ({
             onClick={() => onSend()}
             disabled={isLoading || !input.trim()}
             title="Send"
-            className="group relative w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] hover:bg-[#E55B34] text-white shadow-[0_6px_16px_rgba(250,108,67,0.45)] disabled:opacity-50 transition-all active:scale-95 overflow-hidden"
+            className="group relative w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] hover:bg-[#E55B34] text-white shadow-[0_6px_16px_rgba(250,108,67,0.45)] transition-all active:scale-95"
           >
+            {/* Rotating conic-gradient halo — sits OUTSIDE the button rim so the sweep is readable. */}
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-[-2px] rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-send-sweep"
+              className="pointer-events-none absolute inset-[-6px] rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-send-sweep"
               style={{
                 background:
-                  'conic-gradient(from 0deg, transparent 0deg, transparent 200deg, #FFD3B6 270deg, #FFFFFF 320deg, transparent 360deg)',
+                  'conic-gradient(from 0deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,0) 180deg, rgba(255,211,182,0.9) 260deg, rgba(255,255,255,1) 320deg, rgba(255,255,255,0) 360deg)',
+                filter: 'drop-shadow(0 0 6px rgba(250,108,67,0.55))',
               }}
             />
+            {/* Inner mask: covers the halo where it overlaps the button face so only the outer ring shows. */}
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-[2px] rounded-full bg-[#FA6C43] group-hover:bg-[#E55B34] transition-colors"
+              className="pointer-events-none absolute inset-0 rounded-full bg-[#FA6C43] group-hover:bg-[#E55B34] transition-colors"
             />
-            <span className="relative z-10 flex items-center justify-center">
+            <span className={`relative z-10 flex items-center justify-center transition-opacity ${isLoading || !input.trim() ? 'opacity-50' : 'opacity-100'}`}>
               {isSending ? (
                 <FaPaperPlane className="animate-send-launch text-lg" onAnimationEnd={onSendAnimationEnd} />
               ) : isLoading ? (
