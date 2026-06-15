@@ -181,19 +181,19 @@
      Top margins are intentionally generous — each header is a real section
      break, not an inline label. */
   .chat-message-md h1 {
-    font-size: 3em; font-weight: 800; letter-spacing: -0.025em;
+    font-size: 56pt; font-weight: 800; letter-spacing: -0.025em;
     color: #FA6C43;
     margin: 1em 0 0.55em;
     padding-top: 2em;
   }
   .chat-message-md h2 {
-    font-size: 2.5em; font-weight: 700; letter-spacing: -0.020em;
+    font-size: 48pt; font-weight: 700; letter-spacing: -0.020em;
     color: #FA6C43;
     margin: 1em 0 0.5em;
     padding-top: 2.4em;
   }
   .chat-message-md h3 {
-    font-size: 2.2em; font-weight: 700; letter-spacing: -0.014em;
+    font-size: 40pt; font-weight: 700; letter-spacing: -0.014em;
     color: #FA6C43;
     margin: 1em 0 0.4em;
     padding-top: 2.2em;
