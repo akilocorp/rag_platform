@@ -1545,7 +1545,10 @@ const ChatPage = () => {
                                 );
                             });
 
-                            const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true);
+                            // Honour deselection: chip only renders while the file is still in selectedFileIds.
+                            // Session uploads land in both sessionUploads + selectedFileIds; the X on the chip
+                            // (removeFromSession) tears down both, but FilesPanel deselect only mutates selectedFileIds.
+                            const ingestedSessionUploads = sessionUploads.filter((f) => f.vector_ingested === true && selectedFileIds.includes(f._id));
                             ingestedSessionUploads.forEach((f) => {
                                 chips.push(
                                     <div key={`ses-${f._id}`} className={pillClass} style={pillStyle}>
