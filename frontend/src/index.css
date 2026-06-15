@@ -221,6 +221,11 @@
   .chat-message-md h6 + p {
     margin-top: 0;
   }
+  /* Bold-as-heading lookalike: paragraphs starting with <strong> get
+     section-break breathing room. Inline bold mid-sentence is unaffected. */
+  .chat-message-md p:has(> strong:first-child) {
+    margin-top: 1.5em;
+  }
   /* Lead paragraph: first paragraph of the reply opens with a slight size
      bump and medium weight so the reader has a clear opening beat. */
   .chat-message-md > p:first-child {
