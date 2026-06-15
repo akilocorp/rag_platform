@@ -10,14 +10,14 @@ const DEFAULT_QUICK_PROMPTS = [
   'Go deeper',
 ];
 
-// Vertical pop-out layout: chips stack in a column to the left of the send
-// button. Same dx for every chip so motion is purely vertical (rest = chip's
-// final x at button y, target = same x stepped upward). Deploy staggers
+// Vertical pop-out layout: chips stack in a column above the send button,
+// right-aligned with the button's right edge (translateX(-100%) anchors each
+// chip's right edge to the container's right=0 origin). Deploy staggers
 // bottom→top so the column grows up from the button; close mirrors top→bottom.
 const TAB_TIERS = [
-  { dx: -115, dy: -156, deployDelay: 120, closeDelay: 0   },
-  { dx: -115, dy: -104, deployDelay: 60,  closeDelay: 60  },
-  { dx: -115, dy: -52,  deployDelay: 0,   closeDelay: 120 },
+  { dy: -132, deployDelay: 120, closeDelay: 0   },
+  { dy: -88,  deployDelay: 60,  closeDelay: 60  },
+  { dy: -44,  deployDelay: 0,   closeDelay: 120 },
 ];
 
 const DWELL_MS = 1500;
@@ -236,18 +236,19 @@ const ChatComposer = ({
         >
           {showQuickPrompts && (
             <div
-              className="absolute bottom-1/2 right-1/2 pointer-events-none z-0"
+              className="absolute bottom-1/2 right-0 pointer-events-none z-0"
               style={{ width: 0, height: 0 }}
               aria-hidden={!isFanOpen}
             >
               {promptList.map((prompt, i) => {
                 const tier = TAB_TIERS[i] || TAB_TIERS[TAB_TIERS.length - 1];
+                // translateX(-100%) anchors the chip's right edge to the
+                // container's right=0 line (= send button's right edge).
                 const targetTransform =
-                  `translate(calc(-50% + ${tier.dx}px), calc(-50% + ${tier.dy}px))`;
-                // Rest sits at the chip's final x but at the button's y, so
-                // the pop motion is purely vertical (no diagonal travel).
-                const restTransform =
-                  `translate(calc(-50% + ${tier.dx}px), -50%)`;
+                  `translate(-100%, calc(-50% + ${tier.dy}px))`;
+                // Rest sits at the button's y so the pop motion is purely
+                // vertical (no diagonal travel).
+                const restTransform = `translate(-100%, -50%)`;
                 const delay = isFanOpen ? tier.deployDelay : tier.closeDelay;
                 return (
                   <button
