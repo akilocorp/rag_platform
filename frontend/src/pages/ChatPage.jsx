@@ -995,10 +995,17 @@ const ChatPage = () => {
 
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
 
-  const handleSendWithAnimation = () => {
-    if (!input.trim() || isLoading) return;
+  const handleSendWithAnimation = (overrideText) => {
+    if (isLoading) return;
+    const text = typeof overrideText === 'string' ? overrideText : input;
+    if (!text.trim()) return;
     setIsSending(true);
-    handleTextSend();
+    if (typeof overrideText === 'string') {
+      handleMessageProcess(text);
+      setInput('');
+    } else {
+      handleTextSend();
+    }
   };
 
   const handleVoiceTranscribed = useCallback((text) => {
@@ -1599,6 +1606,7 @@ const ChatPage = () => {
                                     model={sessionModel || config?.model_name || ''}
                                     onModelChange={setSessionModel}
                                     attachments={attachments}
+                                    hasAiReplied={messages.some(m => m.sender === 'ai' && m.text && !m.isTyping)}
                                 />
                             );
                         })()}
