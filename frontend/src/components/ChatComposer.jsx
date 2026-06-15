@@ -1,7 +1,27 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { FaSpinner, FaPaperPlane } from 'react-icons/fa';
 import { FiPaperclip, FiImage, FiMoreVertical } from 'react-icons/fi';
 import VoiceRecordButton from './VoiceRecordButton';
+
+// Curated follow-up prompts shown in the hover fan above the send button.
+// Kept static for now; swap to AI-generated suggestions in a follow-up.
+const QUICK_PROMPTS = [
+  'Explain it simpler',
+  'Give an example',
+  'Summarize this',
+  'What should I ask next?',
+  'Go deeper',
+];
+
+// Fan layout: chips arc up-and-left from the send button.
+// Tuned so the widest chip clears the model picker and the screen edge.
+const FAN_POSITIONS = [
+  { x: -150, y: -36  },
+  { x: -190, y: -94  },
+  { x: -156, y: -154 },
+  { x: -76,  y: -184 },
+  { x:  10,  y: -168 },
+];
 
 // Models offered in the in-chat picker (playground / personal bots only).
 export const CHAT_MODEL_OPTIONS = [
@@ -29,7 +49,28 @@ const ChatComposer = ({
   showOptions, setShowOptions, optionsRef,
   showModelPicker, model, onModelChange,
   attachments,
+  hasAiReplied,
 }) => {
+  const [showQuickPrompts, setShowQuickPrompts] = useState(false);
+  const closeTimerRef = useRef(null);
+
+  const openQuickPrompts = () => {
+    if (!hasAiReplied || isLoading) return;
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setShowQuickPrompts(true);
+  };
+  const scheduleClose = () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => setShowQuickPrompts(false), 140);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
+
   return (
     <div className="w-full rounded-[28px] bg-white border border-gray-200 shadow-[0_10px_40px_rgba(31,31,31,0.08)] p-3 sm:p-4">
       {attachments && (
@@ -135,20 +176,70 @@ const ChatComposer = ({
           )}
         </div>
 
-        <button
-          onClick={onSend}
-          disabled={isLoading || !input.trim()}
-          title="Send"
-          className="w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] hover:bg-[#E55B34] text-white shadow-[0_6px_16px_rgba(250,108,67,0.45)] disabled:opacity-50 transition-all active:scale-95 shrink-0"
+        <div
+          className="relative shrink-0"
+          onMouseEnter={openQuickPrompts}
+          onMouseLeave={scheduleClose}
         >
-          {isSending ? (
-            <FaPaperPlane className="animate-send-launch text-lg" onAnimationEnd={onSendAnimationEnd} />
-          ) : isLoading ? (
-            <FaSpinner className="animate-spin text-lg" />
-          ) : (
-            <FaPaperPlane className="text-lg" />
+          {showQuickPrompts && (
+            <div
+              className="absolute bottom-1/2 right-1/2 pointer-events-none z-40"
+              style={{ width: 0, height: 0 }}
+            >
+              {QUICK_PROMPTS.map((prompt, i) => {
+                const pos = FAN_POSITIONS[i] || FAN_POSITIONS[FAN_POSITIONS.length - 1];
+                return (
+                  <button
+                    key={prompt}
+                    onClick={() => {
+                      setShowQuickPrompts(false);
+                      onSend(prompt);
+                    }}
+                    className="pointer-events-auto absolute whitespace-nowrap px-3.5 py-1.5 rounded-full bg-white text-sm font-medium text-[#1F1F1F] border border-gray-200 shadow-[0_8px_24px_rgba(31,31,31,0.12)] hover:bg-[#FFF5F2] hover:border-[#FA6C43] hover:text-[#FA6C43] transition-colors animate-chip-pop"
+                    style={{
+                      left: `${pos.x}px`,
+                      top: `${pos.y}px`,
+                      animationDelay: `${i * 55}ms`,
+                      '--cx': '0px',
+                      '--cy': '0px',
+                    }}
+                  >
+                    {prompt}
+                  </button>
+                );
+              })}
+            </div>
           )}
-        </button>
+
+          <button
+            onClick={() => onSend()}
+            disabled={isLoading || !input.trim()}
+            title="Send"
+            className="group relative w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] hover:bg-[#E55B34] text-white shadow-[0_6px_16px_rgba(250,108,67,0.45)] disabled:opacity-50 transition-all active:scale-95 overflow-hidden"
+          >
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-[-2px] rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-send-sweep"
+              style={{
+                background:
+                  'conic-gradient(from 0deg, transparent 0deg, transparent 200deg, #FFD3B6 270deg, #FFFFFF 320deg, transparent 360deg)',
+              }}
+            />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-[2px] rounded-full bg-[#FA6C43] group-hover:bg-[#E55B34] transition-colors"
+            />
+            <span className="relative z-10 flex items-center justify-center">
+              {isSending ? (
+                <FaPaperPlane className="animate-send-launch text-lg" onAnimationEnd={onSendAnimationEnd} />
+              ) : isLoading ? (
+                <FaSpinner className="animate-spin text-lg" />
+              ) : (
+                <FaPaperPlane className="text-lg" />
+              )}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );
