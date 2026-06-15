@@ -39,6 +39,10 @@
     font-kerning: normal;
     font-optical-sizing: auto;
     letter-spacing: -0.005em;
+    /* Body default: serif. Headings override to sans below. */
+    font-family: 'Newsreader', 'Iowan Old Style', 'Georgia', 'Times New Roman', serif;
+    font-size: 1.02em;
+    line-height: 1.6;
   }
   .chat-message-md a {
     overflow-wrap: anywhere;
@@ -75,13 +79,18 @@
   .chat-message-md li > p:last-child {
     margin-bottom: 0;
   }
+  /* Rounded-corner callout block. The model uses `> Insight:` / `> Note:`
+     as a prefix; we don't parse it — it just sits inside the card as written. */
   .chat-message-md blockquote {
-    margin: 1.1em 0;
-    padding: 0.15em 0 0.15em 1.1em;
-    border-left: 3px solid #FA6C43;
-    font-style: italic;
-    font-size: 1.05em;
-    color: #4B5563;
+    margin: 1.25em 0;
+    padding: 0.9em 1.1em 0.9em 1.2em;
+    background: rgba(250, 108, 67, 0.06);
+    border: 1px solid rgba(250, 108, 67, 0.18);
+    border-left: 4px solid #FA6C43;
+    border-radius: 0.75rem;
+    color: #1F1F1F;
+    font-style: normal;
+    font-size: 1em;
   }
   .chat-message-md blockquote p {
     margin-bottom: 0.5rem;
@@ -89,9 +98,20 @@
   .chat-message-md blockquote p:last-child {
     margin-bottom: 0;
   }
+  .chat-message-md blockquote strong:first-child,
+  .chat-message-md blockquote p:first-child strong:first-child {
+    color: #FA6C43;
+    letter-spacing: 0.01em;
+  }
   .chat-message-md--invert blockquote {
-    color: rgba(255, 255, 255, 0.92);
-    border-left-color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.20);
+    border-left-color: rgba(255, 255, 255, 0.85);
+    color: rgba(255, 255, 255, 0.96);
+  }
+  .chat-message-md--invert blockquote strong:first-child,
+  .chat-message-md--invert blockquote p:first-child strong:first-child {
+    color: #fff;
   }
   .chat-message-md pre {
     margin: 0.65rem 0;
@@ -101,24 +121,19 @@
     max-width: 100%;
     font-size: 0.875em;
   }
+  /* Topical divider: solid brand-orange rule. Matches the directive's
+     <hr style="border: 2px solid"> intent, but standardized to the codebase
+     brand orange (#FA6C43). Any inline-styled <hr> the model emits still wins. */
   .chat-message-md hr {
-    margin: 2em 0;
+    margin: 2.25em 0;
     border: 0;
-    height: 1em;
-    overflow: visible;
-    text-align: center;
+    border-top: 2px solid #FA6C43;
+    height: 0;
+    opacity: 0.85;
+    border-radius: 1px;
   }
-  .chat-message-md hr::before {
-    content: "• • •";
-    display: inline-block;
-    color: #FA6C43;
-    letter-spacing: 0.6em;
-    font-size: 0.9em;
-    position: relative;
-    top: -0.25em;
-  }
-  .chat-message-md--invert hr::before {
-    color: rgba(255, 255, 255, 0.9);
+  .chat-message-md--invert hr {
+    border-top-color: rgba(255, 255, 255, 0.7);
   }
 
   /* KaTeX: display math — centered, larger than body, no chip/background */
@@ -144,36 +159,34 @@
   }
 
   /* Markdown headings inside AI chat bubbles.
-     Tailwind preflight resets heading font-sizes to 1em, so we set them
-     explicitly. The reference design uses bold section titles close to body
-     size — no underlines, generous top spacing for a premium editorial feel. */
+     Hierarchy spec: H1/H2 are large SANS section anchors; body is serif
+     (set on .chat-message-md itself). H3 stays sans for tertiary sections.
+     H4 keeps the brand-orange uppercase eyebrow. H5/H6 fall back to serif. */
   .chat-message-md h1,
   .chat-message-md h2,
   .chat-message-md h3,
+  .chat-message-md h4 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    line-height: 1.2;
+    display: block;
+  }
   .chat-message-md h5,
   .chat-message-md h6 {
     font-family: 'Newsreader', 'Iowan Old Style', 'Georgia', 'Times New Roman', serif;
-    line-height: 1.25;
-    display: block;
-  }
-  /* h4 is the small-caps eyebrow — sans, brand-orange, uppercase. */
-  .chat-message-md h4 {
-    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-    display: block;
     line-height: 1.3;
+    display: block;
   }
-  /* Modular scale (perfect fourth-ish) + weight ladder.
-     Hierarchy lives in size + weight + spacing, not color. */
+  /* Modular scale + weight ladder. Hierarchy lives in size + weight + spacing. */
   .chat-message-md h1 {
-    font-size: 1.75em; font-weight: 700; letter-spacing: -0.022em;
-    margin: 2em 0 0.5em;
+    font-size: 2em; font-weight: 800; letter-spacing: -0.025em;
+    margin: 1.8em 0 0.55em;
   }
   .chat-message-md h2 {
-    font-size: 1.4em;  font-weight: 600; letter-spacing: -0.018em;
-    margin: 1.6em 0 0.45em;
+    font-size: 1.55em; font-weight: 700; letter-spacing: -0.020em;
+    margin: 1.5em 0 0.5em;
   }
   .chat-message-md h3 {
-    font-size: 1.15em; font-weight: 600; letter-spacing: -0.012em;
+    font-size: 1.2em; font-weight: 700; letter-spacing: -0.014em;
     margin: 1.2em 0 0.4em;
   }
   .chat-message-md h4 {
@@ -190,12 +203,6 @@
     font-size: 0.95em; font-weight: 500;
     color: #6B7280;
     margin: 0.9em 0 0.3em;
-  }
-  /* h1 is the only divider — acts as a chapter break.
-     h2/h3 carry hierarchy through weight + size + air alone. */
-  .chat-message-md h1 {
-    padding-bottom: 0.35em;
-    border-bottom: 1px solid rgba(250, 108, 67, 0.28);
   }
   .chat-message-md h1:first-child,
   .chat-message-md h2:first-child,
