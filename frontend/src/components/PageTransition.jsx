@@ -18,8 +18,8 @@ const ASSETS = [
   { icon: '/illustrations/survey-clipboard-research.svg', quote: 'If we knew what we were doing, it would not be called research.' },
 ];
 
-const MIN_DURATION_MS = 700;
-const FADE_DURATION_MS = 240;
+const MIN_DURATION_MS = 1100;
+const FADE_DURATION_MS = 260;
 
 export default function PageTransition({ children }) {
   const location = useLocation();
@@ -35,12 +35,6 @@ export default function PageTransition({ children }) {
     }
     if (lastPathRef.current === location.pathname) return;
     lastPathRef.current = location.pathname;
-
-    const reduced =
-      typeof window !== 'undefined' &&
-      window.matchMedia &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) return;
 
     const asset = ASSETS[Math.floor(Math.random() * ASSETS.length)];
     setOverlay({ asset, phase: 'in' });
