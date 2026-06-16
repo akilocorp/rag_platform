@@ -83,7 +83,7 @@
      as a prefix; we don't parse it — it just sits inside the card as written. */
   .chat-message-md blockquote {
     margin: 1.25em 0;
-    padding: 0.9em 1.1em 0.9em 1.2em;
+    padding: 1.4em 1.1em 1.4em 1.2em;
     background: rgba(250, 108, 67, 0.06);
     border: 1px solid rgba(250, 108, 67, 0.18);
     border-left: 4px solid #FA6C43;
@@ -176,18 +176,27 @@
     line-height: 1.3;
     display: block;
   }
-  /* Modular scale + weight ladder. Hierarchy lives in size + weight + spacing. */
+  /* Modular scale + weight ladder. Hierarchy lives in size + weight + spacing.
+     H1-H3 take brand-orange so section anchors pop against the serif body.
+     Top margins are intentionally generous — each header is a real section
+     break, not an inline label. */
   .chat-message-md h1 {
-    font-size: 2em; font-weight: 800; letter-spacing: -0.025em;
-    margin: 1.8em 0 0.55em;
+    font-size: 56pt; font-weight: 800; letter-spacing: -0.025em;
+    color: #FA6C43;
+    margin: 1em 0 0.55em;
+    padding-top: 2em;
   }
   .chat-message-md h2 {
-    font-size: 1.55em; font-weight: 700; letter-spacing: -0.020em;
-    margin: 1.5em 0 0.5em;
+    font-size: 48pt; font-weight: 700; letter-spacing: -0.020em;
+    color: #FA6C43;
+    margin: 1em 0 0.5em;
+    padding-top: 2.4em;
   }
   .chat-message-md h3 {
-    font-size: 1.2em; font-weight: 700; letter-spacing: -0.014em;
-    margin: 1.2em 0 0.4em;
+    font-size: 40pt; font-weight: 700; letter-spacing: -0.014em;
+    color: #FA6C43;
+    margin: 1em 0 0.4em;
+    padding-top: 2.2em;
   }
   .chat-message-md h4 {
     font-size: 0.78em; font-weight: 700;
@@ -211,6 +220,7 @@
   .chat-message-md h5:first-child,
   .chat-message-md h6:first-child {
     margin-top: 0;
+    padding-top: 0;
   }
   /* Tighten the lockup: paragraph immediately after a heading sits close. */
   .chat-message-md h1 + p,
@@ -224,7 +234,7 @@
   /* Bold-as-heading lookalike: paragraphs starting with <strong> get
      section-break breathing room. Inline bold mid-sentence is unaffected. */
   .chat-message-md p:has(> strong:first-child) {
-    margin-top: 1.5em;
+    margin-top: 2em;
   }
   /* Lead paragraph: first paragraph of the reply opens with a slight size
      bump and medium weight so the reader has a clear opening beat. */
@@ -232,9 +242,8 @@
     font-size: 1.05em;
     font-weight: 500;
   }
-  .chat-message-md--light h1,
-  .chat-message-md--light h2,
-  .chat-message-md--light h3,
+  /* H1-H3 inherit brand-orange from the base rule on the light bubble too;
+     only h5 (italic eyebrow) stays dark for legibility. */
   .chat-message-md--light h5 {
     color: #1F1F1F;
   }
@@ -309,7 +318,7 @@
   .chat-message-md table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.75rem 0;
+    margin: 0.75rem 0 1.5rem;
     font-size: 0.9em;
     display: block;
     overflow-x: auto;

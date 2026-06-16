@@ -33,6 +33,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
+import PageTransition from './components/PageTransition';
 function useIsMobile() {
   const detect = () => {
     if (typeof window === 'undefined') return false;
@@ -65,8 +66,9 @@ function App() {
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
+        <PageTransition>
         <Routes>
-          
+
           {/* Redirect root domain to the Home page */}
           <Route path="/" element={<Navigate to="/home" replace />} />
 
@@ -118,6 +120,7 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
 
         </Routes>
+        </PageTransition>
       </div>
     </Router>
   );

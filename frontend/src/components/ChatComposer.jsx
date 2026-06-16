@@ -1,30 +1,31 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { FaSpinner, FaPaperPlane } from 'react-icons/fa';
-import { FiPaperclip, FiImage, FiMoreVertical } from 'react-icons/fi';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { FaSpinner } from 'react-icons/fa';
+import { FiPaperclip, FiImage } from 'react-icons/fi';
 import VoiceRecordButton from './VoiceRecordButton';
 
-// Curated follow-up prompts shown in the hover fan above the send button.
-// Kept static for now; swap to AI-generated suggestions in a follow-up.
-const QUICK_PROMPTS = [
+// Fallback follow-up prompts (used until the backend returns tailored ones).
+const DEFAULT_QUICK_PROMPTS = [
   'Explain it simpler',
   'Give an example',
-  'Summarize this',
-  'What should I ask next?',
   'Go deeper',
 ];
 
-// Fan layout: chips arc on a true circle around the send button.
-// Equal radius + equal angular spacing keeps the orbit visually consistent
-// regardless of chip text width (chips are center-anchored in chip-pop).
-const FAN_RADIUS = 185;
-const FAN_ANGLES_DEG = [85, 105, 125, 145, 165];
-const FAN_POSITIONS = FAN_ANGLES_DEG.map((deg) => {
-  const rad = (deg * Math.PI) / 180;
-  return {
-    x: Math.round(FAN_RADIUS * Math.cos(rad)),
-    y: Math.round(-FAN_RADIUS * Math.sin(rad)),
-  };
-});
+// Vertical pop-out layout: chips stack in a column above the send button,
+// right-aligned with the button's right edge (translateX(-100%) anchors each
+// chip's right edge to the container's right=0 origin). Deploy staggers
+// bottom→top so the column grows up from the button; close mirrors top→bottom.
+const TAB_TIERS = [
+  { dy: -132, deployDelay: 120, closeDelay: 0   },
+  { dy: -88,  deployDelay: 60,  closeDelay: 60  },
+  { dy: -44,  deployDelay: 0,   closeDelay: 120 },
+];
+
+const DWELL_MS = 1500;
+const DEPLOY_MS = 320;
+const PULSE_MS = 560;
+// Grace period after the cursor leaves the send button so it can travel
+// across the empty gap to a chip without the fan retreating mid-reach.
+const LEAVE_GRACE_MS = 320;
 
 // Models offered in the in-chat picker (playground / personal bots only).
 export const CHAT_MODEL_OPTIONS = [
@@ -53,25 +54,74 @@ const ChatComposer = ({
   showModelPicker, model, onModelChange,
   attachments,
   hasAiReplied,
+  quickPrompts,
 }) => {
+  const promptList = (Array.isArray(quickPrompts) && quickPrompts.length === 3)
+    ? quickPrompts
+    : DEFAULT_QUICK_PROMPTS;
+  // Two-stage mount: showQuickPrompts gates DOM presence, isFanOpen gates
+  // the transform. We mount first, then flip transform on the next frame so
+  // the transition has a true start point and we don't snap to "open".
   const [showQuickPrompts, setShowQuickPrompts] = useState(false);
+  const [isFanOpen, setIsFanOpen] = useState(false);
+  const [isPulsing, setIsPulsing] = useState(false);
+  const dwellTimerRef = useRef(null);
+  const pulseTimerRef = useRef(null);
   const closeTimerRef = useRef(null);
+  const leaveTimerRef = useRef(null);
 
-  const openQuickPrompts = () => {
+  const handleSendHoverEnter = () => {
     if (!hasAiReplied || isLoading) return;
+    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-    setShowQuickPrompts(true);
-  };
-  const scheduleClose = () => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = setTimeout(() => setShowQuickPrompts(false), 140);
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    if (showQuickPrompts) {
+      setIsFanOpen(true);
+      return;
+    }
+    dwellTimerRef.current = setTimeout(() => {
+      setShowQuickPrompts(true);
+      setIsPulsing(true);
+      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+      pulseTimerRef.current = setTimeout(() => setIsPulsing(false), PULSE_MS);
+    }, DWELL_MS);
   };
 
+  const handleSendHoverLeave = () => {
+    if (dwellTimerRef.current) {
+      clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    }
+    if (!showQuickPrompts) return;
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = setTimeout(() => {
+      setIsFanOpen(false);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      const maxCloseDelay = Math.max(...TAB_TIERS.map((t) => t.closeDelay));
+      closeTimerRef.current = setTimeout(
+        () => setShowQuickPrompts(false),
+        DEPLOY_MS + maxCloseDelay + 40,
+      );
+    }, LEAVE_GRACE_MS);
+  };
+
+  useLayoutEffect(() => {
+    if (!showQuickPrompts) return;
+    const id = requestAnimationFrame(() => setIsFanOpen(true));
+    return () => cancelAnimationFrame(id);
+  }, [showQuickPrompts]);
+
   useEffect(() => () => {
+    if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
+    if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
   }, []);
 
   return (
@@ -137,33 +187,6 @@ const ChatComposer = ({
           {showVoice && (
             <VoiceRecordButton onTranscribed={onVoiceTranscribed} disabled={isLoading} />
           )}
-          <div className="relative shrink-0" ref={optionsRef}>
-            <button
-              onClick={() => setShowOptions(v => !v)}
-              title="More options"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100 transition-colors"
-            >
-              <FiMoreVertical className="text-base" />
-            </button>
-            {showOptions && (
-              <div className="absolute bottom-full left-0 mb-2 w-44 bg-white rounded-xl shadow-lg border border-gray-100 p-1 z-50">
-                <button
-                  className="group w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-[#FFF5F2] rounded-lg transition-colors"
-                  onClick={() => setShowOptions(false)}
-                >
-                  <span className="inline-flex transition-transform duration-200 ease-out group-hover:rotate-[-15deg]">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FA6C43" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                      <line x1="12" y1="19" x2="12" y2="23"/>
-                      <line x1="8" y1="23" x2="16" y2="23"/>
-                    </svg>
-                  </span>
-                  Live Drills
-                </button>
-              </div>
-            )}
-          </div>
           {/* Model picker — only on free playground / personal bots */}
           {showModelPicker && (
             <select
@@ -181,31 +204,39 @@ const ChatComposer = ({
 
         <div
           className="relative shrink-0"
-          onMouseEnter={openQuickPrompts}
-          onMouseLeave={scheduleClose}
+          onMouseEnter={handleSendHoverEnter}
+          onMouseLeave={handleSendHoverLeave}
         >
           {showQuickPrompts && (
             <div
-              className="absolute bottom-1/2 right-1/2 pointer-events-none z-40"
+              className="absolute bottom-1/2 right-0 pointer-events-none z-0"
               style={{ width: 0, height: 0 }}
+              aria-hidden={!isFanOpen}
             >
-              {QUICK_PROMPTS.map((prompt, i) => {
-                const pos = FAN_POSITIONS[i] || FAN_POSITIONS[FAN_POSITIONS.length - 1];
+              {promptList.map((prompt, i) => {
+                const tier = TAB_TIERS[i] || TAB_TIERS[TAB_TIERS.length - 1];
+                // translateX(-100%) anchors the chip's right edge to the
+                // container's right=0 line (= send button's right edge).
+                const targetTransform =
+                  `translate(-100%, calc(-50% + ${tier.dy}px))`;
+                // Rest sits at the button's y so the pop motion is purely
+                // vertical (no diagonal travel).
+                const restTransform = `translate(-100%, -50%)`;
+                const delay = isFanOpen ? tier.deployDelay : tier.closeDelay;
                 return (
                   <button
                     key={prompt}
                     onClick={() => {
-                      setShowQuickPrompts(false);
+                      handleSendHoverLeave();
                       onSend(prompt);
                     }}
-                    className="pointer-events-auto absolute whitespace-nowrap px-3.5 py-1.5 rounded-full bg-white text-sm font-medium text-[#1F1F1F] border border-gray-200 shadow-[0_8px_24px_rgba(31,31,31,0.12)] hover:bg-[#FFF5F2] hover:border-[#FA6C43] hover:text-[#FA6C43] transition-colors animate-chip-pop"
+                    className={`absolute left-0 top-0 whitespace-nowrap px-4 py-1.5 rounded-full bg-white text-sm font-medium text-[#1F1F1F] border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] ${isFanOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
                     style={{
-                      left: `${pos.x}px`,
-                      top: `${pos.y}px`,
-                      animationDelay: `${i * 55}ms`,
-                      '--cx': `${-pos.x}px`,
-                      '--cy': `${-pos.y}px`,
+                      transform: isFanOpen ? targetTransform : restTransform,
+                      opacity: isFanOpen ? 1 : 0,
+                      transition: `transform ${DEPLOY_MS}ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms, opacity ${isFanOpen ? 180 : 100}ms ease-out ${delay}ms`,
                     }}
+                    tabIndex={isFanOpen ? 0 : -1}
                   >
                     {prompt}
                   </button>
@@ -218,30 +249,31 @@ const ChatComposer = ({
             onClick={() => onSend()}
             disabled={isLoading || !input.trim()}
             title="Send"
-            className="group relative w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] hover:bg-[#E55B34] text-white shadow-[0_6px_16px_rgba(250,108,67,0.45)] transition-all active:scale-95"
+            aria-label="Send"
+            className={`relative z-10 w-11 h-11 rounded-full flex items-center justify-center bg-[#FA6C43] text-white transition-all hover:opacity-90 active:scale-95 ${isPulsing ? 'animate-send-pulse' : ''}`}
+            style={{ boxShadow: '0 6px 16px rgba(250,108,67,0.45)' }}
           >
-            {/* Rotating conic-gradient halo — sits OUTSIDE the button rim so the sweep is readable. */}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-[-6px] rounded-full opacity-0 group-hover:opacity-100 group-hover:animate-send-sweep"
-              style={{
-                background:
-                  'conic-gradient(from 0deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,0) 180deg, rgba(255,211,182,0.9) 260deg, rgba(255,255,255,1) 320deg, rgba(255,255,255,0) 360deg)',
-                filter: 'drop-shadow(0 0 6px rgba(250,108,67,0.55))',
-              }}
-            />
-            {/* Inner mask: covers the halo where it overlaps the button face so only the outer ring shows. */}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 rounded-full bg-[#FA6C43] group-hover:bg-[#E55B34] transition-colors"
-            />
-            <span className={`relative z-10 flex items-center justify-center transition-opacity ${isLoading || !input.trim() ? 'opacity-50' : 'opacity-100'}`}>
-              {isSending ? (
-                <FaPaperPlane className="animate-send-launch text-lg" onAnimationEnd={onSendAnimationEnd} />
-              ) : isLoading ? (
+            <span className={`flex items-center justify-center transition-opacity ${isLoading || !input.trim() ? 'opacity-50' : 'opacity-100'}`}>
+              {isLoading && !isSending ? (
                 <FaSpinner className="animate-spin text-lg" />
               ) : (
-                <FaPaperPlane className="text-lg" />
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-hidden
+                  className={isSending ? 'animate-send-launch' : ''}
+                  onAnimationEnd={isSending ? onSendAnimationEnd : undefined}
+                >
+                  <path
+                    d="M10 16V4M10 4l-5 5M10 4l5 5"
+                    stroke="#FFFFFF"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               )}
             </span>
           </button>
