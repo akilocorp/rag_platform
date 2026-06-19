@@ -259,11 +259,11 @@ const TESTIMONIAL_PANELS = [
   {
     id: 'teachers',
     title: 'Teachers',
-    name: 'Dr. Marcus Webb',
-    role: 'Lecturer in Economics',
-    university: 'Tufts University',
+    name: 'T. Bradford Bitterly',
+    role: 'Assistant Professor',
+    university: 'HKUST',
     quote:
-      'I wanted my 300-person lecture to feel like a seminar. ACTRLabs gave every student a teaching assistant who knows my reading list as well as I do.',
+      'ACTRLabs lets me design custom activities that give my students more individualized feedback than I could offer alone. For research, I can build interactive studies that were previously unfeasible, and chat logs export straight to Qualtrics.',
     videoSrc: '/testimonials/teachers.mp4',
     posterSrc: '/testimonials/teachers.jpg',
     bg: '#F4ECD8',
