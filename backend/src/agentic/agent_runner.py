@@ -54,6 +54,26 @@ FORMATTING_GUIDE = (
 )
 
 
+# Always available — the frontend renders ```chart blocks to inline SVG. Models
+# only draw a chart when the context calls for it, so this is safe to include.
+CHART_GUIDE = (
+    "\n\nWhen a line or bar chart would make a quantitative point clearer "
+    "(a path over time, or a comparison across categories), you may render one "
+    "inline by emitting a fenced code block tagged `chart` whose body is a JSON "
+    "object, for example:\n"
+    "```chart\n"
+    '{"type":"line","title":"Real GDP (% deviation from baseline)",'
+    '"x":["Q1","Q2","Q3","Q4"],"series":[{"name":"Baseline",'
+    '"values":[-0.6,-1.2,-1.6,-1.8]}],"unit":"%"}\n'
+    "```\n"
+    "Rules: `type` is \"line\" or \"bar\"; `x` is the array of time/category "
+    "labels; `series` is one or more {name, values} with values aligned to `x`; "
+    "`unit` is optional. Keep to 4 series or fewer. Use numbers grounded in the "
+    "discussion or the knowledge base — never invent false precision. Use a "
+    "Markdown table for exact figures and a chart for shape/trend."
+)
+
+
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
 
@@ -104,7 +124,7 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "sources used."
         )
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}"
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{CHART_GUIDE}"
 
 
 def _to_dict(block) -> Dict[str, Any]:

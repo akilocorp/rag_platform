@@ -1,5 +1,6 @@
 import { marked } from 'marked';
 import katex from 'katex';
+import { renderChartSvg } from './viz';
 
 marked.use({ gfm: true, breaks: true });
 
@@ -9,6 +10,26 @@ const M_OPEN = '\uE000';
 const M_CLOSE = '\uE001';
 const C_OPEN = '\uE002';
 const C_CLOSE = '\uE003';
+const V_OPEN = '\uE004';
+const V_CLOSE = '\uE005';
+
+// Pull ```chart fenced blocks out before anything else and render each to a
+// self-contained SVG. A malformed spec falls back to a normal code block.
+function extractCharts(text) {
+  const charts = [];
+  const out = text.replace(/```chart\s*\n([\s\S]*?)```/g, (whole, body) => {
+    try {
+      const spec = JSON.parse(body.trim());
+      const html = renderChartSvg(spec);
+      if (!html) return whole; // unusable spec \u2192 leave as a code block
+      charts.push(html);
+      return `\n\n${V_OPEN}${charts.length - 1}${V_CLOSE}\n\n`;
+    } catch {
+      return whole;
+    }
+  });
+  return { text: out, charts };
+}
 
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
@@ -19,7 +40,8 @@ const looksLikeMath = (tex) =>
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
 // with KaTeX, so no DOM-wide auto-render pass is needed afterwards.
 export function renderMarkdown(raw) {
-  const text = raw || '';
+  // Pull ```chart blocks out first so marked never sees them as code.
+  const { text, charts } = extractCharts(raw || '');
   const math = [];
   const stash = (tex, display) => {
     math.push({ tex, display });
@@ -76,5 +98,8 @@ export function renderMarkdown(raw) {
       return tex;
     }
   });
+  // Drop the rendered chart SVGs back in (unwrap any <p> marked put around the
+  // bare sentinel).
+  html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'), (_, n) => charts[+n] || '');
   return html;
 }
