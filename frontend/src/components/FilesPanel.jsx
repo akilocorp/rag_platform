@@ -9,21 +9,10 @@ import {
   FiFolder,
   FiX,
 } from 'react-icons/fi';
-import {
-  FaFolder,
-  FaFilePdf,
-  FaFilePowerpoint,
-  FaFileWord,
-  FaFileAlt,
-  FaFileCode,
-  FaLink,
-} from 'react-icons/fa';
+import { RiFileList3Line } from 'react-icons/ri';
 
 const BRAND_ORANGE = '#FA6C43';
 const BRAND_ORANGE_DEEP = '#E55B34';
-const BRAND_BLUE = '#2D6CDF';
-const BRAND_BLUE_SOFT = '#5B7CAF';
-const SOFT_BG = '#F0F6FB';
 
 const formatSize = (bytes) => {
   if (!bytes && bytes !== 0) return '';
@@ -32,40 +21,30 @@ const formatSize = (bytes) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-const extOf = (filename = '') => {
-  const i = filename.lastIndexOf('.');
-  return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
-};
-
-const TYPE_ICON = {
-  pdf:  { Icon: FaFilePdf,        color: BRAND_BLUE },
-  pptx: { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
-  ppt:  { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
-  docx: { Icon: FaFileWord,       color: BRAND_BLUE },
-  doc:  { Icon: FaFileWord,       color: BRAND_BLUE },
-  txt:  { Icon: FaFileAlt,        color: BRAND_BLUE_SOFT },
-  md:   { Icon: FaFileCode,       color: BRAND_BLUE_SOFT },
-};
-
-const TypeIcon = ({ ext }) => {
-  const meta = TYPE_ICON[ext] || { Icon: FaFileAlt, color: BRAND_BLUE_SOFT };
-  const Icon = meta.Icon;
-  return (
-    <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-      <Icon className="w-7 h-7" style={{ color: meta.color }} />
-    </div>
-  );
-};
+const FileBadge = () => (
+  <div
+    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+  >
+    <RiFileList3Line className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
+  </div>
+);
 
 const FolderBadge = () => (
-  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-    <FaFolder className="w-7 h-7" style={{ color: BRAND_BLUE }} />
+  <div
+    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+  >
+    <FiFolder className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
   </div>
 );
 
 const UrlBadge = () => (
-  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-    <FaLink className="w-6 h-6" style={{ color: BRAND_ORANGE }} />
+  <div
+    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+  >
+    <FiLink className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
   </div>
 );
 
@@ -274,6 +253,28 @@ const FilesPanel = ({
         onChange={handlePicked}
         accept=".pdf,.txt,.md,.docx,.pptx"
       />
+      {/* Hero dropzone — click or drag&drop to upload */}
+      {canUpload && (view.kind === 'me' || view.kind === 'bot') && (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const picked = Array.from(e.dataTransfer.files || []);
+            if (picked.length) onUpload?.(picked);
+          }}
+          className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-2xl transition-all hover:-translate-y-px"
+          style={{
+            backgroundColor: 'rgba(250, 108, 67, 0.06)',
+            border: `2px dashed rgba(250, 108, 67, 0.45)`,
+            color: BRAND_ORANGE,
+          }}
+        >
+          <FiUpload className="w-5 h-5" />
+          <span className="text-xs font-semibold">Drag &amp; drop or click to upload</span>
+        </button>
+      )}
       {/* Breadcrumb header + Add pill */}
       <div className={`flex items-center gap-2 ${view.breadcrumbs.length > 1 ? 'justify-between' : 'justify-end'}`}>
         {view.breadcrumbs.length > 1 && (
@@ -423,16 +424,21 @@ const FilesPanel = ({
               <button
                 key={row.key}
                 onClick={() => goToVirtual(row.key)}
-                className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all text-left w-full"
+                className="group flex items-center gap-3 px-3 py-3 rounded-2xl text-left w-full transition-all hover:-translate-y-px"
+                style={{
+                  backgroundColor: 'rgba(250, 108, 67, 0.10)',
+                  border: `1px solid rgba(250, 108, 67, 0.35)`,
+                  color: BRAND_ORANGE,
+                }}
               >
                 <FolderBadge />
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[13px] font-medium">{row.label}</p>
+                  <p className="truncate text-[13px] font-bold">{row.label}</p>
                   {row.meta && (
-                    <p className="truncate text-[10px] text-gray-500 mt-0.5">{row.meta}</p>
+                    <p className="truncate text-[10px] mt-0.5" style={{ color: 'rgba(250, 108, 67, 0.75)' }}>{row.meta}</p>
                   )}
                 </div>
-                <FiChevronRight className="w-4 h-4 text-gray-400" />
+                <FiChevronRight className="w-4 h-4" style={{ color: 'rgba(250, 108, 67, 0.6)' }} />
               </button>
             ))}
 
@@ -455,16 +461,23 @@ const FilesPanel = ({
                   isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
                 }`}
               >
-                <div className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all">
+                <div
+                  className="group relative flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px"
+                  style={{
+                    backgroundColor: 'rgba(250, 108, 67, 0.10)',
+                    border: `1px solid rgba(250, 108, 67, 0.35)`,
+                    color: BRAND_ORANGE,
+                  }}
+                >
                   <button
                     onClick={() => onSetPath?.(nextPath)}
                     disabled={isRemoving}
                     className="flex-1 flex items-center gap-3 text-left min-w-0"
                   >
                     <FolderBadge />
-                    <span className="flex-1 truncate text-[13px] font-medium">{folderLeaf(path)}</span>
+                    <span className="flex-1 truncate text-[13px] font-bold">{folderLeaf(path)}</span>
                   </button>
-                  <FiChevronRight className="w-4 h-4 text-gray-400 transition-opacity group-hover:opacity-0" />
+                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0" style={{ color: 'rgba(250, 108, 67, 0.6)' }} />
                   {canUpload && (
                     <button
                       onClick={(e) => handleDeleteFolder(e, path)}
@@ -496,7 +509,6 @@ const FilesPanel = ({
                   ? 'Indexing extracted text'
                   : 'Preparing your file';
             const isRemoving = removingIds.has(f._id);
-            const ext = extOf(f.filename || '');
             const clickable = canSelect && onToggleFile && !isPending && !isRemoving;
             return (
               <div
@@ -508,23 +520,30 @@ const FilesPanel = ({
                 <div
                   onClick={clickable ? () => onToggleFile(f._id) : undefined}
                   title={isPending ? pendingLabel : undefined}
-                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
+                  className={`group flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px ${
                     clickable ? 'cursor-pointer' : ''
-                  } ${isPending ? 'opacity-60' : ''} ${
-                    isSelected
-                      ? 'bg-[#F9D0C4]/30'
-                      : 'bg-white border-gray-100 hover:border-gray-200'
-                  }`}
-                  style={isSelected ? { borderColor: `${BRAND_ORANGE}66` } : undefined}
+                  } ${isPending ? 'opacity-70' : ''}`}
+                  style={{
+                    backgroundColor: 'rgba(250, 108, 67, 0.10)',
+                    border: `1px solid ${isSelected ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.35)'}`,
+                    color: BRAND_ORANGE,
+                  }}
                 >
                   {isPending
-                    ? <FiLoader className="w-8 h-8 p-2 animate-spin flex-shrink-0" style={{ color: BRAND_ORANGE }} />
+                    ? (
+                      <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+                      >
+                        <FiLoader className="w-5 h-5 animate-spin" style={{ color: BRAND_ORANGE }} />
+                      </div>
+                    )
                     : f.is_url
                       ? <UrlBadge />
-                      : <TypeIcon ext={ext} />}
+                      : <FileBadge />}
 
                   <div className="flex-1 min-w-0">
-                    <p className={`truncate text-[13px] ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
+                    <p className={`truncate text-[13px] font-bold ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
                     {isPending ? (
                       <div className="mt-0.5" title={pendingLabel}>
                         <div className="flex items-center gap-1.5 text-[10px]" style={{ color: BRAND_ORANGE }}>
@@ -537,15 +556,16 @@ const FilesPanel = ({
                         </div>
                         {(isOcr || isIngesting) && (
                           <div className="flex items-center gap-1 mt-1.5 max-w-[120px]">
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: BRAND_ORANGE, opacity: isOcr ? 1 : 1 }} />
-                            <span className="flex-1 h-px" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: BRAND_ORANGE }} />
+                            <span className="flex-1 h-px" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.3)' }} />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.3)' }} />
                           </div>
                         )}
                       </div>
                     ) : (
                       <p
-                        className="truncate text-[10px] text-gray-500 mt-0.5"
+                        className="truncate text-[10px] mt-0.5"
+                        style={{ color: 'rgba(250, 108, 67, 0.75)' }}
                         title={f.is_url ? (f.source_url || '') : ''}
                       >
                         {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
