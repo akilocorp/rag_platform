@@ -1,16 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { FaFilm, FaUpload, FaSpinner, FaEnvelope, FaExclamationTriangle, FaFileVideo, FaTimes } from 'react-icons/fa';
+import { FaFilm, FaUpload, FaEnvelope, FaExclamationTriangle, FaFileVideo, FaTimes, FaBell } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const STAGE_LABEL = {
   downloading: 'Preparing your video…',
-  extracting_audio: 'Extracting audio…',
-  analyzing: 'Analyzing voice & expression…',
-  saving: 'Saving collected data…',
-  scoring: 'Scoring your presentation…',
+  extracting_audio: 'Optimizing your video…',
+  analyzing: 'Analyzing your delivery & speech…',
+  saving: 'Almost there…',
+  scoring: 'Grading your pitch…',
 };
+
+// Rotating pitch tips shown on the waiting screen so the multi-minute analysis
+// (external behaviour API + a multi-step AI grading chain) doesn't feel dead.
+const TIPS = [
+  'Open with a hook in the first 8 seconds — a question, a surprising fact, or a bold claim.',
+  'Name the pain before the solution. People buy relief, not features.',
+  'Specifics beat adjectives: “cuts onboarding from 3 days to 2 hours” lands harder than “much faster.”',
+  'Confident pace is ~110–160 words per minute. When in doubt, slow down.',
+  'Quantify the market and your ask — numbers signal you’ve done the work.',
+  'Steady posture and eye contact read as confidence before you even speak.',
+  'Tell them why *this* team can pull it off.',
+  'End on one memorable line — not “any questions?”',
+];
+
+const fmtElapsed = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -74,6 +89,13 @@ export default function VideoUploadPage() {
   const [limitReached, setLimitReached] = useState(false);
   const [dragging, setDragging] = useState(false);
 
+  // Waiting-screen state: rotating tip, elapsed timer, browser-notification opt-in.
+  const [tipIndex, setTipIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [notifyState, setNotifyState] = useState(
+    () => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
+  );
+
   const socketRef = useRef(null);
   const pollRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -112,11 +134,39 @@ export default function VideoUploadPage() {
     if (pollRef.current) clearInterval(pollRef.current);
   }, []);
 
+  // Rotate the pitch tip + tick the elapsed timer while we wait.
+  useEffect(() => {
+    if (phase !== 'uploading' && phase !== 'processing') return undefined;
+    const tip = setInterval(() => setTipIndex((i) => (i + 1) % TIPS.length), 5000);
+    const clock = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => { clearInterval(tip); clearInterval(clock); };
+  }, [phase]);
+
+  const enableNotify = async () => {
+    if (typeof Notification === 'undefined') return;
+    try { setNotifyState(await Notification.requestPermission()); } catch (_) { /* ignore */ }
+  };
+
+  // Fire a browser notification when results land — lets students tab away and
+  // get pulled back. Click focuses this tab (logged-in users have already been
+  // navigated to their results by finish()).
+  const notifyReady = () => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+      const n = new Notification('Your pitch results are ready 🎉', {
+        body: 'Tap to see your feedback and scores.',
+        tag: 'video-results',
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (_) { /* ignore */ }
+  };
+
   // subId is passed explicitly (not read from state) so navigation always has it.
   const finish = (subId, status, errMsg) => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (socketRef.current) socketRef.current.disconnect();
     if (status === 'done') {
+      notifyReady();
       if (loggedIn) navigate(`/video-results/${subId}`);
       else setPhase('done');
     } else {
@@ -156,6 +206,12 @@ export default function VideoUploadPage() {
 
     setPhase('uploading');
     setProgress(0);
+    setElapsed(0);
+    // Ask for notification permission here — this click is the user gesture
+    // browsers require. Best-effort; we still poll/navigate regardless.
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().then(setNotifyState).catch(() => {});
+    }
     const contentType = file.type || 'video/mp4';
 
     let createdSubmissionId = null;
@@ -234,7 +290,7 @@ export default function VideoUploadPage() {
   if (phase === 'uploading' || phase === 'processing') {
     return (
       <Shell title={config?.bot_name}>
-        <div className="py-6">
+        <div className="py-4">
           {phase === 'uploading' ? (
             <>
               <p className="text-sm font-semibold text-gray-700 mb-2">Uploading… {progress}%</p>
@@ -245,9 +301,44 @@ export default function VideoUploadPage() {
             </>
           ) : (
             <div className="text-center">
-              <FaSpinner className="animate-spin text-3xl text-[#FA6C43] mx-auto mb-4" />
-              <p className="text-sm font-semibold text-gray-700">{STAGE_LABEL[stage] || 'Processing…'}</p>
-              <p className="text-xs text-gray-400 mt-1">This can take a few minutes. Keep this tab open.</p>
+              {/* Pulsing badge */}
+              <div className="relative w-16 h-16 mx-auto mb-5">
+                <span className="absolute inset-0 rounded-full bg-[#FA6C43]/20 animate-ping" />
+                <span className="relative flex items-center justify-center w-16 h-16 rounded-full bg-[#F9D0C4]/40 text-[#FA6C43]">
+                  <FaFilm className="text-2xl" />
+                </span>
+              </div>
+
+              <h2 className="text-lg font-bold text-[#222]">Analyzing your pitch…</h2>
+              <p className="text-sm font-semibold text-[#FA6C43] mt-1">{STAGE_LABEL[stage] || 'Working on it…'}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                This usually takes 2–4 minutes{elapsed ? ` · ${fmtElapsed(elapsed)} elapsed` : ''}. You can switch tabs — we’ll keep working.
+              </p>
+
+              {/* Indeterminate progress shimmer */}
+              <div className="mt-4 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full w-full bg-[#FA6C43]/70 rounded-full animate-pulse" />
+              </div>
+
+              {/* Rotating pitch tip */}
+              <div className="mt-6 bg-[#F0F6FB] rounded-2xl p-4 text-left min-h-[88px]">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#FA6C43] mb-1">💡 Pitch tip</p>
+                <p key={tipIndex} className="text-sm text-gray-700 leading-relaxed">{TIPS[tipIndex]}</p>
+              </div>
+
+              {/* Notify-me opt-in */}
+              <div className="mt-5">
+                {notifyState === 'granted' ? (
+                  <p className="text-xs text-gray-500 flex items-center justify-center gap-1.5">
+                    <FaBell className="text-[#FA6C43]" /> We’ll notify you the moment your results are ready.
+                  </p>
+                ) : (notifyState === 'unsupported' || notifyState === 'denied') ? null : (
+                  <button onClick={enableNotify}
+                    className="text-xs font-semibold text-[#FA6C43] hover:underline flex items-center justify-center gap-1.5 mx-auto">
+                    <FaBell /> Notify me when it’s ready
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

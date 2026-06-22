@@ -1,7 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking, FaFilm, FaBell } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+
+// Rotating pitch tips for the multi-minute analysis wait.
+const TIPS = [
+  'Open with a hook in the first 8 seconds — a question, a surprising fact, or a bold claim.',
+  'Name the pain before the solution. People buy relief, not features.',
+  'Specifics beat adjectives: “cuts onboarding from 3 days to 2 hours” lands harder than “much faster.”',
+  'Confident pace is ~110–160 words per minute. When in doubt, slow down.',
+  'Quantify the market and your ask — numbers signal you’ve done the work.',
+  'Steady posture and eye contact read as confidence before you even speak.',
+  'Tell them why *this* team can pull it off.',
+  'End on one memorable line — not “any questions?”',
+];
+
+function notifyResultsReady() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification('Your pitch results are ready 🎉', {
+      body: 'Tap to see your feedback and scores.',
+      tag: 'video-results',
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (_) { /* ignore */ }
+}
 
 // 0-100 → colour
 const C = (v) => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
@@ -65,6 +88,11 @@ export default function VideoResultsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [videoUrl, setVideoUrl] = useState(null);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [notifyState, setNotifyState] = useState(
+    () => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
+  );
+  const prevStatusRef = useRef(null);
 
   const load = () => {
     const q = token ? `?token=${encodeURIComponent(token)}` : '';
@@ -90,6 +118,26 @@ export default function VideoResultsPage() {
     }
     // eslint-disable-next-line
   }, [data]);
+
+  // Rotate pitch tips while still analyzing.
+  const stillWaiting = data && data.submission?.status !== 'scored' && data.submission?.status !== 'failed';
+  useEffect(() => {
+    if (!stillWaiting) return undefined;
+    const t = setInterval(() => setTipIndex((i) => (i + 1) % TIPS.length), 5000);
+    return () => clearInterval(t);
+  }, [stillWaiting]);
+
+  // Fire a browser notification the moment results flip to scored.
+  useEffect(() => {
+    const s = data?.submission?.status;
+    if (prevStatusRef.current && prevStatusRef.current !== 'scored' && s === 'scored') notifyResultsReady();
+    prevStatusRef.current = s;
+  }, [data?.submission?.status]);
+
+  const enableNotify = async () => {
+    if (typeof Notification === 'undefined') return;
+    try { setNotifyState(await Notification.requestPermission()); } catch (_) { /* ignore */ }
+  };
 
   const autoPrint = searchParams.get('print') === '1';
   useEffect(() => {
@@ -119,11 +167,46 @@ export default function VideoResultsPage() {
   const status = submission?.status;
 
   if (status !== 'scored') {
+    if (status === 'failed') {
+      return wrap(
+        <div className="bg-white rounded-2xl p-10 text-center">
+          <h2 className="font-bold text-lg text-red-600">Processing failed</h2>
+          <p className="text-sm text-gray-500 mt-2">{submission?.error || 'Please try uploading again.'}</p>
+        </div>
+      );
+    }
     return wrap(
-      <div className="bg-white rounded-2xl p-10 text-center">
-        {status === 'failed'
-          ? <><h2 className="font-bold text-lg text-red-600">Processing failed</h2><p className="text-sm text-gray-500 mt-2">{submission?.error || 'Please try uploading again.'}</p></>
-          : <><FaSpinner className="animate-spin text-3xl text-[#FA6C43] mx-auto mb-4" /><h2 className="font-bold text-lg text-[#222]">Still analyzing…</h2><p className="text-sm text-gray-500 mt-2">Your results will appear here automatically.</p></>}
+      <div className="bg-white rounded-3xl shadow-sm p-8 sm:p-10 text-center">
+        <div className="relative w-16 h-16 mx-auto mb-5">
+          <span className="absolute inset-0 rounded-full bg-[#FA6C43]/20 animate-ping" />
+          <span className="relative flex items-center justify-center w-16 h-16 rounded-full bg-[#F9D0C4]/40 text-[#FA6C43]">
+            <FaFilm className="text-2xl" />
+          </span>
+        </div>
+        <h2 className="font-bold text-lg text-[#222]">Analyzing your pitch…</h2>
+        <p className="text-sm text-gray-500 mt-1">This usually takes 2–4 minutes. You can switch tabs — results appear here automatically.</p>
+
+        <div className="mt-4 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full w-full bg-[#FA6C43]/70 rounded-full animate-pulse" />
+        </div>
+
+        <div className="mt-6 bg-[#F0F6FB] rounded-2xl p-4 text-left min-h-[88px]">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#FA6C43] mb-1">💡 Pitch tip</p>
+          <p key={tipIndex} className="text-sm text-gray-700 leading-relaxed">{TIPS[tipIndex]}</p>
+        </div>
+
+        <div className="mt-5">
+          {notifyState === 'granted' ? (
+            <p className="text-xs text-gray-500 flex items-center justify-center gap-1.5">
+              <FaBell className="text-[#FA6C43]" /> We’ll notify you the moment your results are ready.
+            </p>
+          ) : (notifyState === 'unsupported' || notifyState === 'denied') ? null : (
+            <button onClick={enableNotify}
+              className="text-xs font-semibold text-[#FA6C43] hover:underline flex items-center justify-center gap-1.5 mx-auto">
+              <FaBell /> Notify me when it’s ready
+            </button>
+          )}
+        </div>
       </div>
     );
   }
