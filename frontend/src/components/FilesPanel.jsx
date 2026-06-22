@@ -10,6 +10,13 @@ import {
   FiX,
 } from 'react-icons/fi';
 import { RiFileList3Line } from 'react-icons/ri';
+import {
+  FaFilePdf,
+  FaFilePowerpoint,
+  FaFileWord,
+  FaFileAlt,
+  FaFileCode,
+} from 'react-icons/fa';
 
 const BRAND_ORANGE = '#FA6C43';
 const BRAND_ORANGE_DEEP = '#E55B34';
@@ -21,14 +28,34 @@ const formatSize = (bytes) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-const FileBadge = () => (
-  <div
-    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
-  >
-    <RiFileList3Line className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
-  </div>
-);
+const extOf = (filename = '') => {
+  const i = filename.lastIndexOf('.');
+  return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
+};
+
+// Glyph varies by extension; color is always BRAND_ORANGE so the panel
+// keeps its monotone treatment while making file types scannable.
+const TYPE_GLYPH = {
+  pdf:  FaFilePdf,
+  pptx: FaFilePowerpoint,
+  ppt:  FaFilePowerpoint,
+  docx: FaFileWord,
+  doc:  FaFileWord,
+  txt:  FaFileAlt,
+  md:   FaFileCode,
+};
+
+const FileBadge = ({ ext }) => {
+  const Glyph = TYPE_GLYPH[ext] || RiFileList3Line;
+  return (
+    <div
+      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+      style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+    >
+      <Glyph className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
+    </div>
+  );
+};
 
 const FolderBadge = () => (
   <div
@@ -509,6 +536,7 @@ const FilesPanel = ({
                   ? 'Indexing extracted text'
                   : 'Preparing your file';
             const isRemoving = removingIds.has(f._id);
+            const ext = extOf(f.filename || '');
             const clickable = canSelect && onToggleFile && !isPending && !isRemoving;
             return (
               <div
@@ -540,7 +568,7 @@ const FilesPanel = ({
                     )
                     : f.is_url
                       ? <UrlBadge />
-                      : <FileBadge />}
+                      : <FileBadge ext={ext} />}
 
                   <div className="flex-1 min-w-0">
                     <p className={`truncate text-[13px] font-bold ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
