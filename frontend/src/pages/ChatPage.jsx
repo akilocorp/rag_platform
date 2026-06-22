@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings } from 'react-icons/fi';
+import { FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings, FiUploadCloud } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -346,6 +346,7 @@ const ChatPage = () => {
   const [filesLoading, setFilesLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [sessionUploads, setSessionUploads] = useState([]);
   // Files explicitly selected for chat context (from My Files or current bot's folder)
   const [selectedFileIds, setSelectedFileIds] = useState([]);
@@ -635,6 +636,61 @@ const ChatPage = () => {
       setIsUploading(false);
     }
   }, [fileScope]);
+
+  useEffect(() => {
+    const ALLOWED = ['pdf', 'txt', 'md', 'docx', 'pptx'];
+    let depth = 0;
+    const hasFiles = (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types) return false;
+      return Array.from(types).includes('Files');
+    };
+    const onEnter = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth += 1;
+      if (depth === 1) setIsDragging(true);
+    };
+    const onOver = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onLeave = (e) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setIsDragging(false);
+    };
+    const onDrop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (!files.length) return;
+      const accepted = [];
+      const rejected = [];
+      files.forEach((f) => {
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        if (ALLOWED.includes(ext)) accepted.push(f);
+        else rejected.push(f.name);
+      });
+      if (rejected.length) {
+        setUploadError(`Unsupported file type: ${rejected.join(', ')}. Allowed: ${ALLOWED.join(', ')}.`);
+      }
+      if (accepted.length) uploadFiles(accepted);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [uploadFiles]);
 
   const uploadUrl = useCallback(async (url) => {
     if (!url || !url.trim()) return;
@@ -1202,6 +1258,20 @@ const ChatPage = () => {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {isDragging && (
+        <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center px-4 animate-chip-in">
+          <div className="absolute inset-3 sm:inset-5 rounded-3xl border-2 border-dashed border-[#FA6C43] bg-[#FA6C43]/8 backdrop-blur-[2px]" />
+          <div className="relative bg-white shadow-xl rounded-2xl px-7 py-6 flex flex-col items-center gap-3 border border-[#F9D0C4]">
+            <div className="p-3 rounded-full bg-[#F9D0C4]/50 text-[#FA6C43] animate-bounce">
+              <FiUploadCloud className="w-7 h-7" />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-[#222] text-base">Drop to attach</p>
+              <p className="text-xs text-gray-500 mt-0.5">PDF · TXT · MD · DOCX · PPTX</p>
+            </div>
+          </div>
+        </div>
+      )}
       {usageBlock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
