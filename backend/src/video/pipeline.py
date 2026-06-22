@@ -2,8 +2,9 @@
 
 Dispatch mirrors user_files._run_async_pdf_ingest: a daemon thread that runs
 inside app_context, reads socketio from current_app.extensions, and emits
-progress. Heavy work fans out across a ThreadPoolExecutor so Whisper and Hume
-run concurrently (MediaPipe is one more `submit(...)` in phase 2).
+progress. The video is transcoded for playback, then sent to the ACTR analyze
+API which returns a body-language report + transcript; scoring runs an LLM
+agent chain over those (see scoring.py).
 
 The worker is a pure function of `submission_id` (reads everything else from
 Mongo/S3), so it can later move behind a real queue without a rewrite.
@@ -16,16 +17,13 @@ import subprocess
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from bson import ObjectId
 
-from src.utils.s3_client import get_s3_client, get_bucket, generate_download_url
-from src.video.hume_batch import run_hume_batch
-from src.video.assemblyai_words import transcribe_words
+from src.utils.s3_client import get_s3_client, get_bucket
+from src.video.actrlab_analyze import analyze_video_actrlab
 from src.video.scoring import score_submission
-from src.video.visual_analysis import analyze_video_frames
 from src.video.rubrics import registry
 
 logger = logging.getLogger(__name__)
@@ -49,7 +47,6 @@ RESULT_TOKEN_TTL_DAYS = 30
 # Bound the ffmpeg subprocesses — a slow/hung encode must never block the worker
 # forever. Transcode timeout is non-fatal (caller falls back to the original).
 _TRANSCODE_TIMEOUT = int(os.getenv("VIDEO_TRANSCODE_TIMEOUT", "240"))
-_AUDIO_TIMEOUT = int(os.getenv("VIDEO_AUDIO_TIMEOUT", "120"))
 
 
 def dispatch_pipeline(app, submission_id: str, job_id: str):
@@ -86,16 +83,6 @@ def _ffmpeg_exe():
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         return "ffmpeg"
-
-
-def _extract_audio(video_path: str) -> str:
-    """Extract mono 16kHz mp3 — small enough for Whisper's 25MB limit."""
-    audio_path = video_path + ".mp3"
-    cmd = [_ffmpeg_exe(), "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000",
-           "-b:a", "64k", audio_path]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                   timeout=_AUDIO_TIMEOUT)
-    return audio_path
 
 
 def _transcode_for_web(video_path: str) -> str:
@@ -149,7 +136,6 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
         acquired = _semaphore.acquire(timeout=600)
         _dbg(submission_id, f"semaphore acquired={acquired}")
         tmp_video = None
-        tmp_audio = None
         tmp_processed = None
         try:
             if not acquired:
@@ -169,7 +155,8 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             get_s3_client().download_file(get_bucket(), storage_key, tmp_video)
             _dbg(submission_id, f"download complete | size={os.path.getsize(tmp_video) if os.path.exists(tmp_video) else '??'} bytes")
 
-            # 2. Transcode to H.264 MP4 (fixes HEVC/MOV phone videos for Hume + browsers).
+            # 2. Transcode to H.264 MP4 (fixes HEVC/MOV phone videos for browsers
+            #    + gives the analyze API a consistent container). Upload for playback.
             _emit(sio, sub, "video_job_progress", {"stage": "extracting_audio", "job_id": job_id})
             try:
                 _dbg(submission_id, "transcoding to H.264…")
@@ -178,64 +165,40 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
                 get_s3_client().upload_file(tmp_processed, get_bucket(), processed_key,
                                             ExtraArgs={"ContentType": "video/mp4"})
                 subs.update_one({"_id": sub["_id"]}, {"$set": {"processed_key": processed_key}})
-                media_url = generate_download_url(processed_key, expires_in=3600)
-                hume_source = tmp_processed
+                analyze_source = tmp_processed
                 _dbg(submission_id, "transcode + upload complete")
             except Exception as tc_err:
                 logger.warning("Transcode failed, falling back to original: %s", tc_err)
                 _dbg(submission_id, f"transcode FAILED, using original | {type(tc_err).__name__}: {tc_err}")
-                media_url = generate_download_url(storage_key, expires_in=3600)
-                hume_source = tmp_video
-            _dbg(submission_id, "extracting audio…")
-            tmp_audio = _extract_audio(hume_source)
-            _dbg(submission_id, "audio extracted")
+                analyze_source = tmp_video
 
             openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-            assemblyai_key = current_app.config.get("ASSEMBLYAI_API_KEY") or os.getenv("ASSEMBLYAI_API_KEY")
-            _dbg(submission_id, f"keys present | openai={bool(openai_key)} assemblyai={bool(assemblyai_key)}")
+            _dbg(submission_id, f"keys present | openai={bool(openai_key)}")
 
-            # 3. Run modalities in parallel. Results fetched individually so the
-            #    logs reveal exactly which modality stalls (no timeout on these).
+            # 3. Single source of truth: ACTR analyze API → body-language report + transcript.
             _emit(sio, sub, "video_job_progress", {"stage": "analyzing", "job_id": job_id})
-            with ThreadPoolExecutor(max_workers=4) as ex:
-                fut_whisper = ex.submit(transcribe_words, tmp_audio, assemblyai_key)
-                fut_hume = ex.submit(run_hume_batch, media_url)
-                fut_visual = ex.submit(analyze_video_frames, tmp_video)
-                _dbg(submission_id, "modalities submitted, waiting on transcript (AssemblyAI)…")
-                transcript = fut_whisper.result()
-                _dbg(submission_id, f"transcript DONE | duration={transcript.get('duration') if isinstance(transcript, dict) else '??'} | waiting on Hume…")
-                hume = fut_hume.result()
-                _dbg(submission_id, f"Hume DONE | got_data={bool(hume)} | waiting on visual…")
-                visual = fut_visual.result()
-                _dbg(submission_id, "visual DONE | all modalities complete")
+            _dbg(submission_id, "sending video to ACTR analyze API…")
+            result = analyze_video_actrlab(analyze_source)
+            _dbg(submission_id, f"ACTR analyze DONE | available={result.get('available')} | report_chars={len(result.get('report') or '')}")
+            if not result.get("available"):
+                raise RuntimeError(f"ACTR analyze API failed: {result.get('error')}")
 
-            modalities = ["transcript"]
-            prosody = {"frames": []}
-            face = {"frames": []}
-            if hume:
-                prosody = hume.get("prosody", {"frames": []})
-                face = hume.get("face", {"frames": []})
-                if prosody.get("frames"):
-                    modalities.append("prosody")
-                if face.get("frames"):
-                    modalities.append("face")
-            else:
-                logger.warning("[PIPELINE] Hume returned no data — scoring on transcript only | %s", tag)
+            modalities = []
+            if result.get("report"):
+                modalities.append("body_language")
+            if result.get("transcript_text"):
+                modalities.append("transcript")
 
             # 4. Merge → raw collected data (decoupled from scoring).
             _emit(sio, sub, "video_job_progress", {"stage": "saving", "job_id": job_id})
             collected_doc = {
                 "submission_id": submission_id,
                 "config_id": sub.get("config_id"),
-                "schema_version": 1,
-                "duration_sec": transcript.get("duration", 0.0),
+                "schema_version": 2,
+                "duration_sec": result.get("duration_sec") or 0.0,
                 "modalities_present": modalities,
-                "transcript": transcript,
-                "prosody": prosody,
-                "face": face,
-                "pose": None,
-                "visual": visual,
-                "raw_refs": {"hume_predictions_key": None},
+                "report": result.get("report") or "",
+                "transcript": result.get("transcript") or {},
                 "created_at": time.time(),
             }
             cdata = db["video_collected_data"]
@@ -275,7 +238,6 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             if acquired:
                 _semaphore.release()
             _safe_unlink(tmp_video)
-            _safe_unlink(tmp_audio)
             _safe_unlink(tmp_processed)
 
 
@@ -293,6 +255,8 @@ def _resolve_scoring_spec(db, sub):
             spec["composite_weights"] = stored["composite_weights"]
         if stored.get("feedback_prompt_template"):
             spec["feedback_prompt_template"] = stored["feedback_prompt_template"]
+        if stored.get("dimensions"):
+            spec["dimensions"] = stored["dimensions"]
         if stored.get("content_checks"):
             spec["content_checks"] = stored["content_checks"]
         if stored.get("target_duration_sec"):

@@ -1,126 +1,47 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
-
-const KEY_COMPONENTS = [
-  { id: 'pain',             label: 'The Pain' },
-  { id: 'solution',         label: 'The Solution' },
-  { id: 'customer',         label: 'The Customer' },
-  { id: 'competition',      label: 'The Competition' },
-  { id: 'deal',             label: 'The Deal' },
-  { id: 'team',             label: 'The Team' },
-  { id: 'summary_sentence', label: 'Summary Sentence' },
-];
-
-const COMPOSITES = [
-  { key: 'confidence', label: 'Confidence', blurb: 'Composure, steadiness, delivery' },
-  { key: 'competence', label: 'Competence', blurb: 'Content, structure, clarity' },
-  { key: 'passion',    label: 'Passion',    blurb: 'Energy, enthusiasm, expressivity' },
-];
 
 // 0-100 → colour
 const C = (v) => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
-// display as X.X / 10
+// display as X.X / 10 from a 0-100 value
 const fmt = (v) => v != null ? (v / 10).toFixed(1) : '—';
 const mmss = (s) => { if (!s) return ''; const m = Math.floor(s / 60); return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`; };
 
-// ─── PCCP composite card ───────────────────────────────────────────────────────
-// evalScore: LLM-graded (0-100), takes priority over computed value if present
-// pinnedSignals: always-visible rows shown before the collapsible section.
-// Each: { label, score (0-100|null), detail (string|null), available (bool) }
-function PccpCard({ label, blurb, data, evalScore, evalComment, pinnedSignals }) {
-  const [open, setOpen] = useState(false);
-  const v = evalScore != null ? evalScore : data?.value;
-  // Exclude keys that are already shown as pinnedSignals, plus signals that carry
-  // no weight in the passion blend (kept in the data but hidden from the card).
-  const pinnedKeys = new Set((pinnedSignals || []).map(s => s.key).filter(Boolean));
-  const hiddenKeys = new Set(['vocal_control', 'phrase_pitch_contour']);
-  const subs = Object.entries(data?.submetrics || {})
-    .filter(([k, m]) => m?.available && m?.score != null && !pinnedKeys.has(k) && !hiddenKeys.has(k));
-  const pending = Object.entries(data?.submetrics || {})
-    .filter(([k, m]) => !m?.available && !pinnedKeys.has(k) && !hiddenKeys.has(k));
-  const hasCollapsible = subs.length > 0 || pending.length > 0;
+// ─── Scoring box (prof-defined dimension): score /10 + one-paragraph rationale ──
+function DimensionCard({ dim }) {
+  const v = dim?.score;                                   // 0-100, drives the bar
+  const shown = dim?.score_10 != null ? dim.score_10.toFixed(1) : fmt(v);
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="text-base font-bold text-[#222]">{label}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{blurb}</p>
+        <div className="pr-3">
+          <h3 className="text-base font-bold text-[#222]">{dim?.name || 'Dimension'}</h3>
+          {dim?.definition && <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{dim.definition}</p>}
         </div>
-        <div className="text-right ml-4 shrink-0">
-          <span className="text-3xl font-extrabold" style={{ color: C(v) }}>{fmt(v)}</span>
+        <div className="text-right shrink-0">
+          <span className="text-3xl font-extrabold" style={{ color: C(v) }}>{shown}</span>
+          <span className="text-sm text-gray-300 font-bold"> / 10</span>
         </div>
       </div>
-      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
+      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
         <div className="h-full rounded-full transition-all" style={{ width: `${v || 0}%`, background: C(v) }} />
       </div>
-      {evalComment && <p className="text-xs text-gray-500 mt-1 mb-1 leading-relaxed">{evalComment}</p>}
-
-      {/* Always-visible pinned signals */}
-      {pinnedSignals?.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
-          {pinnedSignals.map((sig, i) => (
-            <div key={i}>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-semibold text-gray-700">{sig.label}</span>
-                {sig.available && sig.score != null
-                  ? <span style={{ color: C(sig.score) }} className="font-bold">{Math.round(sig.score)}</span>
-                  : <span className="text-gray-300 italic text-[11px]">Not yet measured</span>}
-              </div>
-              {sig.available && sig.score != null && (
-                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${sig.score}%`, background: C(sig.score) }} />
-                </div>
-              )}
-              {sig.detail && <p className="text-[11px] text-gray-400 mt-0.5">{sig.detail}</p>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Collapsible remaining signals */}
-      {hasCollapsible && (
-        <button onClick={() => setOpen(!open)} className="text-xs text-gray-400 hover:text-[#FA6C43] flex items-center gap-1 mt-3">
-          {open ? <FaChevronUp /> : <FaChevronDown />} {open ? 'Hide signals' : 'More signals'}
-        </button>
-      )}
-      {open && (
-        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
-          {subs.map(([k, m]) => (
-            <div key={k}>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-gray-600">{m.label || k}</span>
-                <span style={{ color: C(m.score) }}>{Math.round(m.score)}</span>
-              </div>
-              <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${m.score || 0}%`, background: C(m.score) }} />
-              </div>
-            </div>
-          ))}
-          {pending.length > 0 && (
-            <div className={subs.length > 0 ? 'pt-2 border-t border-gray-50' : ''}>
-              {pending.map(([k, m]) => (
-                <div key={k} className="flex justify-between text-xs py-0.5 text-gray-300">
-                  <span>{m.label || k}</span>
-                  <span className="italic">Not yet measured</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {dim?.rationale
+        ? <p className="text-sm text-gray-700 leading-relaxed">{dim.rationale}</p>
+        : <p className="text-sm text-gray-300 italic">No rationale available.</p>}
     </div>
   );
 }
 
-// ─── Key component card (Pain, Solution, …) ───────────────────────────────────
-function ComponentCard({ label, check }) {
+// ─── Content check card (Pain, Solution, … — graded against the transcript) ─────
+function ComponentCard({ check }) {
   const v = check?.score;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
       <div className="flex items-start justify-between mb-2">
-        <span className="text-sm font-bold text-[#222]">{label}</span>
+        <span className="text-sm font-bold text-[#222]">{check?.label || check?.id}</span>
         <span className="text-2xl font-extrabold shrink-0 ml-2" style={{ color: C(v) }}>{fmt(v)}</span>
       </div>
       <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2.5">
@@ -207,45 +128,22 @@ export default function VideoResultsPage() {
     );
   }
 
-  const coaching  = scores?.coaching || {};
-  const checks    = scores?.content_checks || [];
-  const checkMap  = Object.fromEntries(checks.map(c => [c.id, c]));
-  const gambit    = checkMap['gambit'];
-  const pccpEval  = scores?.pccp_eval || {};
-  const overall   = scores?.overall != null ? scores.overall : scores?.llm_overall;
-  const talkTime  = scores?.analytics?.talk_time_sec;
-
-  // Pinned signals for the Competence card — always visible regardless of stored weights
-  const fillerSm       = scores?.scores?.competence?.submetrics?.filler_rate;
-  const fillerInstances = scores?.analytics?.word_choice?.filler_words?.instances || [];
-  const fillerPct      = scores?.analytics?.word_choice?.filler_words?.pct;
-  const fillerCount    = scores?.analytics?.word_choice?.filler_words?.count ?? fillerInstances.length;
-  const fillerDetail   = fillerInstances.length > 0
-    ? `${fillerInstances.length} detected${fillerPct != null ? ` · ${fillerPct}%` : ''}`
-    : (fillerPct != null ? `${fillerPct}%` : null);
-  // Derive score from analytics when submetric wasn't stored (old configs) — mirrors scoring.py formula
-  const fillerScore    = fillerSm?.score != null
-    ? fillerSm.score
-    : fillerCount != null
-      ? Math.max(0, Math.min(100, 100 * (1 - Math.max(0, fillerCount - 1) / 8)))
-      : null;
-  const fillerAvailable = fillerSm?.available ?? (fillerCount != null);
-  const competencePinnedSignals = [
-    {
-      key: 'filler_rate',
-      label: 'Filler words',
-      score: fillerScore,
-      detail: fillerDetail,
-      available: fillerAvailable,
-    },
-  ];
+  const coaching   = scores?.coaching || {};
+  const dimensions = scores?.dimensions || [];
+  const checks     = scores?.content_checks || [];
+  const gambit     = checks.find(c => c.id === 'gambit');
+  const components = checks.filter(c => c.id !== 'gambit');
+  const overall    = scores?.overall != null ? scores.overall : scores?.llm_overall;
+  const talkTime   = scores?.analytics?.talk_time_sec;
+  const bodyLanguage = scores?.body_language;
+  const dimNames   = dimensions.map(d => d.name).filter(Boolean);
 
   return wrap(
     <>
       {/* ── Header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-[#222]">Elevator Pitch Results</h1>
+          <h1 className="text-2xl font-extrabold text-[#222]">Pitch Results</h1>
           <p className="text-sm text-gray-500">{submission?.name}{talkTime ? ` · ${mmss(talkTime)}` : ''}</p>
         </div>
         <button
@@ -279,38 +177,43 @@ export default function VideoResultsPage() {
         </div>
       )}
 
-      {/* ── Overall PCCP score banner ── */}
+      {/* ── Overall score banner ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5 flex items-center justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall PCCP Score</p>
-          <p className="text-sm text-gray-500 mt-0.5">Weighted across Competence, Confidence &amp; Passion</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {dimNames.length ? `Average across ${dimNames.join(', ')}` : 'Across all scoring boxes'}
+          </p>
         </div>
-        <span className="text-5xl font-extrabold" style={{ color: C(overall) }}>{fmt(overall)}</span>
+        <div className="text-right shrink-0 ml-4">
+          <span className="text-5xl font-extrabold" style={{ color: C(overall) }}>{fmt(overall)}</span>
+          <span className="text-lg text-gray-300 font-bold"> / 10</span>
+        </div>
       </div>
 
-      {/* ── PCCP composite cards ── */}
-      <div className="grid sm:grid-cols-3 gap-4 mb-8">
-        {COMPOSITES.map(c => (
-          <PccpCard
-            key={c.key}
-            label={c.label}
-            blurb={c.key === 'competence' ? 'Filler words, content quality, delivery' : c.blurb}
-            data={scores?.scores?.[c.key]}
-            evalScore={pccpEval[c.key]?.score}
-            evalComment={pccpEval[c.key]?.comment}
-            pinnedSignals={c.key === 'competence' ? competencePinnedSignals : undefined}
-          />
-        ))}
-      </div>
+      {/* ── Scoring boxes (dimensions) ── */}
+      {dimensions.length > 0 && (
+        <div className="space-y-4 mb-8">
+          {dimensions.map(d => <DimensionCard key={d.id} dim={d} />)}
+        </div>
+      )}
 
-      {/* ── Key Components ── */}
-      {checks.length > 0 && (
+      {/* ── Body Language & Delivery ── */}
+      {bodyLanguage && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-8">
+          <h2 className="font-bold text-[#222] flex items-center gap-2 mb-3">
+            <FaWalking className="text-[#FA6C43]" /> Body Language &amp; Delivery
+          </h2>
+          <p className="text-sm text-gray-700 leading-relaxed">{bodyLanguage}</p>
+        </div>
+      )}
+
+      {/* ── Content checks ── */}
+      {components.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-base font-bold text-[#222] mb-3">Key Components</h2>
+          <h2 className="text-base font-bold text-[#222] mb-3">Content Checks</h2>
           <div className="grid sm:grid-cols-2 gap-3">
-            {KEY_COMPONENTS.map(kc => (
-              <ComponentCard key={kc.id} label={kc.label} check={checkMap[kc.id]} />
-            ))}
+            {components.map(c => <ComponentCard key={c.id} check={c} />)}
           </div>
         </div>
       )}
@@ -321,7 +224,7 @@ export default function VideoResultsPage() {
           <div className="flex items-start justify-between mb-2">
             <div>
               <h2 className="font-bold text-[#222] flex items-center gap-2">
-                <FaLightbulb className="text-[#4f46e5]" /> Opening Gambit / Hook
+                <FaLightbulb className="text-[#4f46e5]" /> {gambit.label || 'Opening Gambit / Hook'}
               </h2>
               <p className="text-xs text-gray-400 mt-0.5">First 8 seconds — does it grab attention?</p>
             </div>
@@ -330,14 +233,7 @@ export default function VideoResultsPage() {
           <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
             <div className="h-full rounded-full" style={{ width: `${gambit.score || 0}%`, background: C(gambit.score) }} />
           </div>
-          {gambit.note && <p className="text-sm text-gray-700 leading-relaxed mb-3">{gambit.note}</p>}
-          <div className="bg-[#EEF2FF] rounded-xl p-3">
-            <p className="text-xs font-bold text-[#4f46e5] mb-1">Hook Advice</p>
-            <p className="text-xs text-[#4f46e5]/80 leading-relaxed">
-              Open with one of the 17 classical gambits — Question, Anecdote, Factoid, Grabber, Curiosity Arousal, The Problem, etc.
-              It must be relevant to the pain you're solving and land within the first 8 seconds to hold judge attention.
-            </p>
-          </div>
+          {gambit.note && <p className="text-sm text-gray-700 leading-relaxed">{gambit.note}</p>}
         </div>
       )}
 
