@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
+import { listExperientialConfigs } from '../configs/experiential';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
@@ -139,6 +140,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     bot_name: '',
     associated_course: '',
     bot_type: 'chat',
+    experiential_template_id: '',
     heygen_avatar_id: '',
     model_name: 'claude-sonnet-4-6',
     instructions: '',
@@ -258,6 +260,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 1 && (!config.bot_name || !config.bot_name.trim())) {
       newErrors.bot_name = 'Name is required';
     }
+    if (step === 1 && config.bot_type === 'experiential' && !config.experiential_template_id) {
+      newErrors.experiential_template_id = 'Please choose a simulation template';
+    }
     if (step === 4) {
       if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
@@ -285,6 +290,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const stepsFor = (botType) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
+    if (botType === 'experiential') return [1]; // scripted lab: just name + template
     return [1, 2, 3, 4, 5];
   };
 
@@ -349,6 +355,11 @@ const ConfigModal = ({ isOpen, onClose }) => {
       // Dummy instruction satisfies the backend's instructions-or-template check.
       configToSend.instructions = `Video analysis assignment: ${configToSend.assignment_type}`;
       delete configToSend.prompt_template;
+    } else if (configToSend.bot_type === 'experiential') {
+      // Scripted lab — no chat model / RAG. The template id drives everything.
+      configToSend.bots = [];
+      configToSend.instructions = `Experiential lab: ${configToSend.experiential_template_id}`;
+      delete configToSend.prompt_template;
     } else {
       // Standard Chat / Avatar Chat logic
       configToSend.bots = [];
@@ -383,6 +394,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
         navigate(`/group-chat/${newConfigId}`);
       } else if (configToSend.bot_type === 'video_analysis') {
         navigate(`/video-dashboard/${newConfigId}`);
+      } else if (configToSend.bot_type === 'experiential') {
+        navigate(`/experiential/${configToSend.experiential_template_id}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -513,8 +526,29 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="font-bold text-[#222] text-sm">Video Analysis</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Upload & Score</p>
                     </label>
+
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'experiential' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="experiential" checked={config.bot_type === 'experiential'} onChange={handleChange} className="hidden" />
+                      <FaFlask className={`text-2xl mb-2 ${config.bot_type === 'experiential' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Experiential Lab</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Scripted Simulation</p>
+                    </label>
                   </div>
                 </div>
+
+                {config.bot_type === 'experiential' && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Simulation Template</label>
+                    <select name="experiential_template_id" value={config.experiential_template_id} onChange={handleChange} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all">
+                      <option value="">Select a lab…</option>
+                      {listExperientialConfigs().map((lab) => (
+                        <option key={lab.id} value={lab.id}>{lab.title} — {lab.discipline} (~{lab.estMinutes} min)</option>
+                      ))}
+                    </select>
+                    {errors.experiential_template_id && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_template_id}</p>}
+                    <p className="text-[11px] text-gray-400 mt-1.5">Scripted lab — students play a structured decision simulation. No live AI model is used.</p>
+                  </div>
+                )}
 
                 {config.bot_type === 'group_chat' && (
                   <div className="pt-2 border-t border-gray-100">

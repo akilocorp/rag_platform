@@ -5,6 +5,7 @@ import AvatarSelector from '../components/AvatarSelector';
 import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
+import { listExperientialConfigs } from '../configs/experiential';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -194,6 +195,8 @@ const EditConfigPage = () => {
         });
     } else if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
+    } else if (config.bot_type === 'experiential') {
+        if (!config.experiential_template_id) newErrors.form = 'Please choose a simulation template.';
     } else {
         if (promptMode === 'instructions' && !config.instructions?.trim()) newErrors.instructions = 'Required';
         if (promptMode === 'template' && !config.prompt_template?.trim()) newErrors.prompt_template = 'Required';
@@ -228,6 +231,9 @@ const EditConfigPage = () => {
       } else if (configToSubmit.bot_type === 'video_analysis') {
           configToSubmit.instructions = `Video analysis assignment: ${configToSubmit.assignment_type}`;
           configToSubmit.prompt_template = "";
+      } else if (configToSubmit.bot_type === 'experiential') {
+          configToSubmit.instructions = `Experiential lab: ${configToSubmit.experiential_template_id}`;
+          configToSubmit.prompt_template = "";
       } else {
           if (promptMode === 'instructions') configToSubmit.prompt_template = '';
           else configToSubmit.instructions = '';
@@ -260,6 +266,7 @@ const EditConfigPage = () => {
 
       if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
       else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${config.config_id}`);
+      else if (config.bot_type === 'experiential') navigate(`/experiential/${config.experiential_template_id}`);
       else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
       
     } catch (error) {
@@ -430,7 +437,36 @@ const EditConfigPage = () => {
             </div>
 
             {/* CONDITIONAL LOGIC: Video Analysis vs Group Chat vs Standard */}
-            {config.bot_type === 'video_analysis' ? (
+            {config.bot_type === 'experiential' ? (
+              <div className="border-t border-gray-100 pt-8 mt-8">
+                <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Simulation Template</h3>
+                <select
+                  value={config.experiential_template_id || ''}
+                  onChange={e => setConfig(prev => ({ ...prev, experiential_template_id: e.target.value }))}
+                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                >
+                  <option value="">Select a lab…</option>
+                  {listExperientialConfigs().map((lab) => (
+                    <option key={lab.id} value={lab.id}>{lab.title} — {lab.discipline} (~{lab.estMinutes} min)</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1.5">Scripted lab — students play a structured decision simulation. No live AI model is used.</p>
+                <div className="mt-4">
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                    Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.class_code || ''}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                    maxLength={20}
+                    placeholder="e.g. macro101"
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  />
+                  {classUsageFields}
+                </div>
+              </div>
+            ) : config.bot_type === 'video_analysis' ? (
               <div className="border-t border-gray-100 pt-8 mt-8">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Rubric & Scoring</h3>
                 <VideoScoringEditor

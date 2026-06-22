@@ -311,6 +311,13 @@ Answer:"""
             config_document['assignment_type'] = assignment_type
             config_document['scoring_spec'] = scoring_spec
 
+        # Experiential labs carry a scripted simulation template id (validated client-side).
+        if bot_type == 'experiential':
+            template_id = (config_data.get('experiential_template_id') or '').strip()
+            if not template_id:
+                return jsonify({"error": "Experiential labs require an experiential_template_id"}), 400
+            config_document['experiential_template_id'] = template_id
+
         # Class rollout — any bot type may carry a class_code + usage tier/pool.
         err = validate_class_usage(config_data, config_document)
         if err:

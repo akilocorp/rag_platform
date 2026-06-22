@@ -133,7 +133,10 @@ const ConfigListPage = () => {
     }
     const selectedConfig = configs.find(c => c.config_id === configId);
     
-    if (selectedConfig && selectedConfig.bot_type === 'group_chat') {
+    if (selectedConfig && selectedConfig.bot_type === 'experiential') {
+      // Scripted experiential lab — launch the structured player by its template id.
+      navigate(`/experiential/${selectedConfig.experiential_template_id || ''}`);
+    } else if (selectedConfig && selectedConfig.bot_type === 'group_chat') {
       // Send to the new Group Chat page
       navigate(`/group-chat/${configId}`);
     } else {

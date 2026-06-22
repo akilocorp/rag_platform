@@ -135,6 +135,11 @@ def update_existing_config(config_id):
             if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
                 update_data['scoring_spec'] = scoring_spec
 
+        # --- EXPERIENTIAL LAB FIELD (scripted simulation template id) ---
+        experiential_template_id = data.get('experiential_template_id')
+        if experiential_template_id is not None:
+            update_data['experiential_template_id'] = (experiential_template_id or '').strip()
+
         # Class rollout — validate code + usage tier/pool (any bot type).
         # Recomputes usage_pool; the existing class_pool counter is preserved so
         # already-consumed messages stand and the new pool just changes the cap.

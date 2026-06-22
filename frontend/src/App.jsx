@@ -27,6 +27,8 @@ import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
 import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
+import ExperientialIndex from './pages/ExperientialIndex';
+import ExperientialPage from './pages/ExperientialPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -97,6 +99,10 @@ function App() {
           {/* Video results / compare — accessible via one-time token (anonymous) or logged-in owner/prof */}
           <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
           <Route path="/video/compare/:configId" element={<VideoComparePage />} />
+
+          {/* Experiential simulation labs — scripted, no auth needed (no LLM/data calls) */}
+          <Route path="/experiential" element={<ExperientialIndex />} />
+          <Route path="/experiential/:templateId" element={<ExperientialPage />} />
 
           {/* Join link — public, redirects to register/login with class code */}
           <Route path="/join/:classCode" element={<JoinPage />} />
