@@ -280,28 +280,6 @@ const FilesPanel = ({
         onChange={handlePicked}
         accept=".pdf,.txt,.md,.docx,.pptx"
       />
-      {/* Hero dropzone — click or drag&drop to upload */}
-      {canUpload && (view.kind === 'me' || view.kind === 'bot') && (
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const picked = Array.from(e.dataTransfer.files || []);
-            if (picked.length) onUpload?.(picked);
-          }}
-          className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-2xl transition-all hover:-translate-y-px"
-          style={{
-            backgroundColor: 'rgba(250, 108, 67, 0.06)',
-            border: `2px dashed rgba(250, 108, 67, 0.45)`,
-            color: BRAND_ORANGE,
-          }}
-        >
-          <FiUpload className="w-5 h-5" />
-          <span className="text-xs font-semibold">Drag &amp; drop or click to upload</span>
-        </button>
-      )}
       {/* Breadcrumb header + Add pill */}
       <div className={`flex items-center gap-2 ${view.breadcrumbs.length > 1 ? 'justify-between' : 'justify-end'}`}>
         {view.breadcrumbs.length > 1 && (
@@ -453,19 +431,19 @@ const FilesPanel = ({
                 onClick={() => goToVirtual(row.key)}
                 className="group flex items-center gap-3 px-3 py-3 rounded-2xl text-left w-full transition-all hover:-translate-y-px"
                 style={{
-                  backgroundColor: 'rgba(250, 108, 67, 0.10)',
-                  border: `1px solid rgba(250, 108, 67, 0.35)`,
-                  color: BRAND_ORANGE,
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E5E7EB',
+                  color: '#1F1F1F',
                 }}
               >
                 <FolderBadge />
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[13px] font-bold">{row.label}</p>
+                  <p className="truncate text-[13px] font-semibold">{row.label}</p>
                   {row.meta && (
-                    <p className="truncate text-[10px] mt-0.5" style={{ color: 'rgba(250, 108, 67, 0.75)' }}>{row.meta}</p>
+                    <p className="truncate text-[10px] mt-0.5" style={{ color: '#6B7280' }}>{row.meta}</p>
                   )}
                 </div>
-                <FiChevronRight className="w-4 h-4" style={{ color: 'rgba(250, 108, 67, 0.6)' }} />
+                <FiChevronRight className="w-4 h-4" style={{ color: '#9CA3AF' }} />
               </button>
             ))}
 
@@ -491,9 +469,9 @@ const FilesPanel = ({
                 <div
                   className="group relative flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px"
                   style={{
-                    backgroundColor: 'rgba(250, 108, 67, 0.10)',
-                    border: `1px solid rgba(250, 108, 67, 0.35)`,
-                    color: BRAND_ORANGE,
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    color: '#1F1F1F',
                   }}
                 >
                   <button
@@ -502,9 +480,9 @@ const FilesPanel = ({
                     className="flex-1 flex items-center gap-3 text-left min-w-0"
                   >
                     <FolderBadge />
-                    <span className="flex-1 truncate text-[13px] font-bold">{folderLeaf(path)}</span>
+                    <span className="flex-1 truncate text-[13px] font-semibold">{folderLeaf(path)}</span>
                   </button>
-                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0" style={{ color: 'rgba(250, 108, 67, 0.6)' }} />
+                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0" style={{ color: '#9CA3AF' }} />
                   {canUpload && (
                     <button
                       onClick={(e) => handleDeleteFolder(e, path)}
@@ -551,11 +529,19 @@ const FilesPanel = ({
                   className={`group flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px ${
                     clickable ? 'cursor-pointer' : ''
                   } ${isPending ? 'opacity-70' : ''}`}
-                  style={{
-                    backgroundColor: 'rgba(250, 108, 67, 0.10)',
-                    border: `1px solid ${isSelected ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.35)'}`,
-                    color: BRAND_ORANGE,
-                  }}
+                  style={
+                    isSelected
+                      ? {
+                          backgroundColor: 'rgba(250, 108, 67, 0.10)',
+                          border: `1px solid ${BRAND_ORANGE}`,
+                          color: BRAND_ORANGE,
+                        }
+                      : {
+                          backgroundColor: '#FFFFFF',
+                          border: '1px solid #E5E7EB',
+                          color: '#1F1F1F',
+                        }
+                  }
                 >
                   {isPending
                     ? (
@@ -593,7 +579,7 @@ const FilesPanel = ({
                     ) : (
                       <p
                         className="truncate text-[10px] mt-0.5"
-                        style={{ color: 'rgba(250, 108, 67, 0.75)' }}
+                        style={{ color: isSelected ? 'rgba(250, 108, 67, 0.75)' : '#6B7280' }}
                         title={f.is_url ? (f.source_url || '') : ''}
                       >
                         {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}
