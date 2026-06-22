@@ -1,14 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  FiArrowLeft, FiRefreshCw, FiSend, FiChevronDown, FiCheck, FiLock,
+  FiArrowLeft, FiRefreshCw, FiCheck, FiLock, FiMenu,
   FiPlusCircle, FiHelpCircle, FiAward,
 } from 'react-icons/fi';
+import apiClient from '../api/apiClient';
 import { getExperientialConfig } from '../configs/experiential';
 import { validateExperientialConfig } from '../configs/experiential/schema';
+import ChatSidebar from '../components/SideBar.jsx';
+import ChatComposer from '../components/ChatComposer';
 import StickyHeader from '../components/experiential/StickyHeader';
 import IrfChart from '../components/experiential/IrfChart';
 import ComparisonTable from '../components/experiential/ComparisonTable';
+
+const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
 // ─── Static display helpers ──────────────────────────────────────────────────
 
@@ -54,39 +59,113 @@ export default function ExperientialPage() {
   // Bump this to remount the whole player on reset.
   const [runKey, setRunKey] = useState(0);
 
+  // ── Chat-page parity: same sidebar (auth only) wrapping the lab column ──
+  const isAuthenticated = !!getToken();
+  const [userInfo, setUserInfo] = useState(null);
+  const [accessibleConfigs, setAccessibleConfigs] = useState([]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState('chats');
+  const [sidebarPath, setSidebarPath] = useState('');
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    apiClient.get('/auth/me').then((r) => setUserInfo(r.data)).catch(() => {});
+    apiClient.get('/accessible_configs').then((r) => setAccessibleConfigs(r.data.configs || [])).catch(() => {});
+  }, [isAuthenticated]);
+
+  const noop = () => {};
+  let columnContent;
   if (!config) {
-    return (
-      <Shell title="Experiential Lab" onBack={() => navigate('/experiential')}>
+    columnContent = (
+      <ColumnShell title="Experiential Lab" onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6">
           <p className="text-gray-700">No experiential template found for id <code className="px-1 bg-gray-100 rounded">{templateId}</code>.</p>
           <button onClick={() => navigate('/experiential')} className="mt-4 text-[#FA6C43] font-semibold">← Back to lab list</button>
         </Card>
-      </Shell>
+      </ColumnShell>
     );
-  }
-
-  if (!validation.ok) {
-    return (
-      <Shell title={config?.meta?.title || 'Experiential Lab'} onBack={() => navigate('/experiential')}>
+  } else if (!validation.ok) {
+    columnContent = (
+      <ColumnShell title={config?.meta?.title || 'Experiential Lab'} onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6 border-red-200">
           <h2 className="text-lg font-bold text-red-700 mb-2">This simulation config is invalid</h2>
           <ul className="list-disc pl-5 text-sm text-red-600 space-y-1">
             {validation.errors.map((e, i) => <li key={i}><code>{e}</code></li>)}
           </ul>
         </Card>
-      </Shell>
+      </ColumnShell>
+    );
+  } else {
+    columnContent = (
+      <Player
+        key={runKey}
+        config={config}
+        onReset={() => setRunKey((k) => k + 1)}
+        onBack={() => navigate('/experiential')}
+        isAuthenticated={isAuthenticated}
+        onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+      />
     );
   }
 
-  return <Player key={runKey} config={config} onReset={() => setRunKey((k) => k + 1)} onBack={() => navigate('/experiential')} />;
+  return (
+    <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {isAuthenticated && isMobileSidebarOpen && (
+        <button type="button" aria-label="Close sidebar" className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+      )}
+      {isAuthenticated && (
+        <ChatSidebar
+          sessions={[]}
+          sessionsLoading={false}
+          userInfo={userInfo}
+          userInfoLoaded={!!userInfo}
+          configId={undefined}
+          isCollapsed={isSidebarCollapsed}
+          isMobileOpen={isMobileSidebarOpen}
+          onClose={() => setIsMobileSidebarOpen(false)}
+          onToggle={() => setIsSidebarCollapsed((v) => !v)}
+          onNewChat={() => navigate('/experiential')}
+          onNavigateWithAutoSave={(cb) => cb()}
+          activeTab={sidebarTab}
+          onSetTab={setSidebarTab}
+          currentPath={sidebarPath}
+          onSetPath={setSidebarPath}
+          accessibleConfigs={accessibleConfigs}
+          libraryFiles={[]}
+          libraryFolders={[]}
+          filesLoading={false}
+          isUploading={false}
+          onUpload={noop}
+          onFetchUrl={noop}
+          onDeleteFile={noop}
+          onCreateFolder={noop}
+          onDeleteFolder={noop}
+          canSelect={false}
+          selectedFileIds={[]}
+          onToggleFile={noop}
+          onDeleteSession={noop}
+        />
+      )}
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-[30%]' : isAuthenticated ? 'md:ml-20' : ''}`}>
+        {columnContent}
+      </div>
+    </div>
+  );
 }
 
-// Layout shell mirroring the chat column (sticky header, scroll body, footer).
-function Shell({ title, subtitle, onBack, headerExtra, footer, children, stickyHeader }) {
+// Column content mirroring the chat column: header, sticky strip, scroll body,
+// footer. Rendered INSIDE the flex column next to the shared sidebar.
+function ColumnShell({ title, subtitle, onBack, headerExtra, footer, children, stickyHeader, isAuthenticated, onOpenMobileSidebar }) {
   return (
-    <div className="flex flex-col h-[100dvh] overflow-hidden bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <>
       <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
+          {isAuthenticated && (
+            <button type="button" onClick={onOpenMobileSidebar} className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors md:hidden" aria-label="Open sidebar">
+              <FiMenu />
+            </button>
+          )}
           {onBack && (
             <button onClick={onBack} className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors" aria-label="Back">
               <FiArrowLeft />
@@ -104,11 +183,11 @@ function Shell({ title, subtitle, onBack, headerExtra, footer, children, stickyH
         <div className="w-full max-w-3xl mx-auto space-y-4">{children}</div>
       </main>
       {footer}
-    </div>
+    </>
   );
 }
 
-function Player({ config, onReset, onBack }) {
+function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar }) {
   const { meta, scenario, analyst, predictionVariables, layers, probes, provenanceGates, coach, synthesis } = config;
 
   const layerById = useMemo(() => Object.fromEntries(layers.map((l) => [l.id, l])), [layers]);
@@ -134,6 +213,12 @@ function Player({ config, onReset, onBack }) {
   const unproductiveRef = useRef(0);
   const lastActionRef = useRef(Date.now());
   const feedEndRef = useRef(null);
+
+  // Composer state (reused chat input box).
+  const [input, setInput] = useState('');
+  const inputRef = useRef(null);
+  const attachInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   const chartKeys = useMemo(() => Object.keys(baseLayer.reveal.chartSeries), [baseLayer]);
 
@@ -426,9 +511,18 @@ function Player({ config, onReset, onBack }) {
     }
   };
 
-  // ── Footer (probe tray + free-form input) ──
+  // Free-form send via the reused chat composer. `arg` is a string for quick
+  // prompts; the send button calls onSend() with no arg → fall back to `input`.
+  const onComposerSend = (arg) => {
+    const text = (typeof arg === 'string' ? arg : input).trim();
+    if (!text || scores) return;
+    handleFreeform(text);
+    setInput('');
+  };
+
+  // ── Footer (probe tray + reused chat input box) ──
   const footer = (
-    <div className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
+    <footer className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
       <div className="w-full max-w-3xl mx-auto space-y-2.5">
         {dialsCommitted && !scores && (
           <ProbeTray probes={probes} probeState={probeState} onPick={handleProbe} />
@@ -438,16 +532,31 @@ function Player({ config, onReset, onBack }) {
             I’m ready to write my synthesis →
           </button>
         )}
-        <FreeformInput onSend={handleFreeform} disabled={!!scores} />
+        <ChatComposer
+          input={input}
+          setInput={setInput}
+          inputRef={inputRef}
+          onSend={onComposerSend}
+          isLoading={false}
+          attachInputRef={attachInputRef}
+          imageInputRef={imageInputRef}
+          showAttach={false}
+          showVoice={false}
+          showModelPicker={false}
+          hasAiReplied={false}
+          attachments={null}
+        />
       </div>
-    </div>
+    </footer>
   );
 
   return (
-    <Shell
+    <ColumnShell
       title={meta.title}
       subtitle={`${meta.discipline} · ${meta.level} · ~${meta.estMinutes} min`}
       onBack={onBack}
+      isAuthenticated={isAuthenticated}
+      onOpenMobileSidebar={onOpenMobileSidebar}
       headerExtra={
         <button onClick={onReset} className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors">
           <FiRefreshCw /> Replay
@@ -489,7 +598,7 @@ function Player({ config, onReset, onBack }) {
       {scores && <DebriefCard scores={scores} onReset={onReset} />}
 
       <div ref={feedEndRef} />
-    </Shell>
+    </ColumnShell>
   );
 }
 
@@ -585,26 +694,6 @@ function ProbeTray({ probes, probeState, onPick }) {
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function FreeformInput({ onSend, disabled }) {
-  const [val, setVal] = useState('');
-  const submit = () => { const t = val.trim(); if (!t || disabled) return; onSend(t); setVal(''); };
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-        disabled={disabled}
-        placeholder={disabled ? 'Session complete — replay to start over' : 'Ask a free-form “why?” follow-up…'}
-        className="flex-1 rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#FA6C43] disabled:bg-gray-50 disabled:text-gray-400"
-      />
-      <button onClick={submit} disabled={disabled || !val.trim()} className="p-2.5 rounded-xl bg-[#222] text-white disabled:opacity-40 hover:bg-black transition-colors" aria-label="Send">
-        <FiSend />
-      </button>
     </div>
   );
 }

@@ -49,6 +49,7 @@ const ChatComposer = ({
   isLoading, isSending, onSendAnimationEnd,
   onAttachPick, attachInputRef, onAttachChange, isUploading,
   imageInputRef, onImageChange,
+  showAttach = true,
   showVoice, onVoiceTranscribed,
   showOptions, setShowOptions, optionsRef,
   showModelPicker, model, onModelChange,
@@ -152,38 +153,42 @@ const ChatComposer = ({
 
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-1">
-          <button
-            onClick={onAttachPick}
-            disabled={isUploading}
-            title="Attach files"
-            className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100 transition-colors disabled:opacity-50 shrink-0"
-          >
-            {isUploading ? <FaSpinner className="animate-spin text-base" /> : <FiPaperclip className="text-base" />}
-          </button>
-          <input
-            ref={attachInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={onAttachChange}
-            accept=".pdf,.txt,.md,.docx,.pptx"
-          />
-          <button
-            onClick={() => imageInputRef.current?.click()}
-            disabled={isUploading}
-            title="Attach image"
-            className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100 transition-colors disabled:opacity-50 shrink-0"
-          >
-            <FiImage className="text-base" />
-          </button>
-          <input
-            ref={imageInputRef}
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={onImageChange}
-          />
+          {showAttach && (
+            <>
+              <button
+                onClick={onAttachPick}
+                disabled={isUploading}
+                title="Attach files"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100 transition-colors disabled:opacity-50 shrink-0"
+              >
+                {isUploading ? <FaSpinner className="animate-spin text-base" /> : <FiPaperclip className="text-base" />}
+              </button>
+              <input
+                ref={attachInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={onAttachChange}
+                accept=".pdf,.txt,.md,.docx,.pptx"
+              />
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={isUploading}
+                title="Attach image"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:text-[#FA6C43] hover:bg-gray-100 transition-colors disabled:opacity-50 shrink-0"
+              >
+                <FiImage className="text-base" />
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={onImageChange}
+              />
+            </>
+          )}
           {showVoice && (
             <VoiceRecordButton onTranscribed={onVoiceTranscribed} disabled={isLoading} />
           )}
