@@ -290,7 +290,7 @@ const GroupChatPage = () => {
             <button onClick={() => navigate('/config_list')} className="text-gray-400 hover:text-gray-700 p-2 bg-gray-50 rounded-lg">
               <FaArrowLeft />
             </button>
-            <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
+            <div className="p-2 rounded-lg bg-gray-100" style={{ color: '#1F1F1F' }}>
               {LobbyIcon ? <LobbyIcon className="text-xl" /> : <FaUsers className="text-xl" />}
             </div>
             <div className="min-w-0 flex items-center gap-3">
@@ -314,11 +314,11 @@ const GroupChatPage = () => {
             
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 opacity-80">
-                    <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
+                    <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6" style={{ color: '#1F1F1F' }}>
                         {LobbyIcon ? (
-                          <LobbyIcon className="text-4xl text-[#FA6C43]" />
+                          <LobbyIcon className="text-4xl" />
                         ) : (
-                          <FaUsers className="text-4xl text-[#FA6C43]" />
+                          <FaUsers className="text-4xl" />
                         )}
                     </div>
                     <h2 className="text-2xl font-bold text-[#222] mb-2">Welcome to {config?.bot_name}</h2>

@@ -496,10 +496,18 @@ const EditConfigPage = () => {
                         </div>
                         <div>
                             <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
-                                <span>Temperature</span>
-                                {noTemp ? <span>Auto-managed</span> : <span className="text-[#FA6C43] font-bold">{bot.temperature}</span>}
+                                <span>Response style</span>
+                                {noTemp && <span className="text-gray-400 font-normal normal-case">Auto-managed</span>}
                             </label>
-                            {!noTemp && <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />}
+                            {!noTemp && (
+                              <>
+                                <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                                <div className="flex justify-between text-[10px] font-medium text-gray-400 mt-1.5 normal-case tracking-normal">
+                                  <span>Focused</span>
+                                  <span>Creative</span>
+                                </div>
+                              </>
+                            )}
                         </div>
                     </div>
                    )
@@ -547,14 +555,12 @@ const EditConfigPage = () => {
                   <textarea name={promptMode === 'instructions' ? 'instructions' : 'prompt_template'} value={promptMode === 'instructions' ? config.instructions || '' : config.prompt_template || ''} onChange={handleChange} rows="5" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#FA6C43]" placeholder="Instructions..." />
                 </div>
 
-                <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Temperature ({config.temperature || 0.7})</label>
-                    <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response Timeout ({config.response_timeout || 3}s)</label>
-                    <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout || 3} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                <div>
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response style</label>
+                  <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
+                    <span>Focused</span>
+                    <span>Creative</span>
                   </div>
                 </div>
 

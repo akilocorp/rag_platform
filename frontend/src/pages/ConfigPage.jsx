@@ -644,13 +644,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                             <div>
                               <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
-                                <span>Creativity / Temperature</span>
-                                {noTemp ? <span className="text-gray-400 font-normal normal-case">Auto-managed</span> : <span className="text-[#FA6C43] font-bold">{bot.temperature}</span>}
+                                <span>Response style</span>
+                                {noTemp && <span className="text-gray-400 font-normal normal-case">Auto-managed</span>}
                               </label>
                               {noTemp ? (
                                 <div className="w-full h-2 bg-gray-100 rounded-lg overflow-hidden"><div className="w-full h-full bg-gray-300 opacity-50" style={{background: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #ccc 10px, #ccc 20px)'}}></div></div>
                               ) : (
-                                <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                                <>
+                                  <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                                  <div className="flex justify-between text-[10px] font-medium text-gray-400 mt-1.5 normal-case tracking-normal">
+                                    <span>Focused</span>
+                                    <span>Creative</span>
+                                  </div>
+                                </>
                               )}
                             </div>
                           </div>
@@ -709,14 +715,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <div><textarea name="prompt_template" value={config.prompt_template} onChange={handleChange} rows="4" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" placeholder="Template..."/></div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-8 pt-4">
-                      <div>
-                        <label className="block text-[13px] font-semibold text-gray-700 mb-3">Temperature ({config.temperature})</label>
-                        <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
-                      </div>
-                      <div>
-                        <label className="block text-[13px] font-semibold text-gray-700 mb-3">Timeout ({config.response_timeout}s)</label>
-                        <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                    <div className="pt-4">
+                      <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response style</label>
+                      <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                      <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
+                        <span>Focused</span>
+                        <span>Creative</span>
                       </div>
                     </div>
 

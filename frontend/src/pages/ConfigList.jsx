@@ -40,7 +40,7 @@ const ConfigItem = ({ config, onSelect, onEdit, setError }) => {
     >
       <div className="flex items-start space-x-4">
         {ListIcon && (
-          <div className="flex-shrink-0 p-4 rounded-2xl bg-[#F9D0C4]/40 text-[#FA6C43]">
+          <div className="flex-shrink-0 p-4 rounded-2xl bg-gray-100" style={{ color: '#1F1F1F' }}>
             <ListIcon className="text-2xl" />
           </div>
         )}

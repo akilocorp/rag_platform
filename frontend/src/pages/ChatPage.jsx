@@ -166,8 +166,8 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end animate-send-fly-in' : 'justify-start animate-in fade-in slide-in-from-bottom-2 duration-300'}`}>
       {!isUser && BotIcon && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
-          <BotIcon className="text-[#FA6C43] text-sm" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mt-1" style={{ color: '#1F1F1F' }}>
+          <BotIcon className="text-sm" />
         </div>
       )}
 
@@ -1373,7 +1373,7 @@ const ChatPage = () => {
                   const HeaderIcon = getBotAvatarIconComponent(config?.bot_avatar);
                   if (!HeaderIcon) return null;
                   return (
-                <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
+                <div className="p-2 rounded-lg bg-gray-100" style={{ color: '#1F1F1F' }}>
                     <HeaderIcon className="text-xl" />
                 </div>
                   );
@@ -1535,8 +1535,8 @@ const ChatPage = () => {
                                   const EmptyIcon = getBotAvatarIconComponent(config?.bot_avatar);
                                   if (!EmptyIcon) return null;
                                   return (
-                                <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
-                                    <EmptyIcon className="text-5xl text-[#FA6C43]" />
+                                <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6" style={{ color: '#1F1F1F' }}>
+                                    <EmptyIcon className="text-5xl" />
                                 </div>
                                   );
                                 })()}

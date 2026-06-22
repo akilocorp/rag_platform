@@ -1,8 +1,8 @@
 import React from 'react';
-import { 
-  RiRobot2Line, 
-  RiChatSmile3Line, 
-  RiUserSmileLine, 
+import {
+  RiRobot2Line,
+  RiChatSmile3Line,
+  RiUserSmileLine,
   RiCustomerService2Line,
   RiSparklingLine,
   RiMagicLine,
@@ -15,60 +15,40 @@ import {
   RiCloseLine
 } from 'react-icons/ri';
 
-// Define available avatar options with their icons and colors
 export const AVATAR_OPTIONS = [
-  { id: 'none', icon: RiCloseLine, name: 'None', color: 'gray' },
-  { id: 'robot', icon: RiRobot2Line, name: 'Robot', color: 'indigo' },
-  { id: 'smile', icon: RiChatSmile3Line, name: 'Friendly', color: 'purple' },
-  { id: 'user', icon: RiUserSmileLine, name: 'Personal', color: 'blue' },
-  { id: 'support', icon: RiCustomerService2Line, name: 'Support', color: 'green' },
-  { id: 'sparkle', icon: RiSparklingLine, name: 'Sparkle', color: 'yellow' },
-  { id: 'magic', icon: RiMagicLine, name: 'Magic', color: 'pink' },
-  { id: 'brain', icon: RiBrain2Line, name: 'Smart', color: 'cyan' },
-  { id: 'lightbulb', icon: RiLightbulbLine, name: 'Bright', color: 'orange' },
-  { id: 'rocket', icon: RiRocketLine, name: 'Fast', color: 'red' },
-  { id: 'star', icon: RiStarSmileLine, name: 'Star', color: 'violet' },
-  { id: 'heart', icon: RiChatHeartLine, name: 'Care', color: 'rose' },
-  { id: 'shield', icon: RiShieldCheckLine, name: 'Secure', color: 'emerald' },
+  { id: 'none', icon: RiCloseLine, name: 'None' },
+  { id: 'robot', icon: RiRobot2Line, name: 'Robot' },
+  { id: 'smile', icon: RiChatSmile3Line, name: 'Friendly' },
+  { id: 'user', icon: RiUserSmileLine, name: 'Personal' },
+  { id: 'support', icon: RiCustomerService2Line, name: 'Support' },
+  { id: 'sparkle', icon: RiSparklingLine, name: 'Sparkle' },
+  { id: 'magic', icon: RiMagicLine, name: 'Magic' },
+  { id: 'brain', icon: RiBrain2Line, name: 'Smart' },
+  { id: 'lightbulb', icon: RiLightbulbLine, name: 'Bright' },
+  { id: 'rocket', icon: RiRocketLine, name: 'Fast' },
+  { id: 'star', icon: RiStarSmileLine, name: 'Star' },
+  { id: 'heart', icon: RiChatHeartLine, name: 'Care' },
+  { id: 'shield', icon: RiShieldCheckLine, name: 'Secure' },
 ];
 
 /** Icon component for chat / list UI; null when user chose "None", "", or null */
 export function getBotAvatarIconComponent(botAvatarId) {
-  // Explicitly check for falsy values (null, undefined, '') or 'none' to return no icon
   if (!botAvatarId || botAvatarId === 'none' || botAvatarId === '') {
     return null;
   }
-  
   const entry = AVATAR_OPTIONS.find((a) => a.id === botAvatarId);
-  return entry ? entry.icon : RiRobot2Line; // Fallback to robot only if a weird string was passed
+  return entry ? entry.icon : RiRobot2Line;
 }
-
-const colorClasses = {
-  gray: 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 ring-gray-500',
-  indigo: 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 ring-indigo-500',
-  purple: 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 ring-purple-500',
-  blue: 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 ring-blue-500',
-  green: 'bg-green-500/20 text-green-400 hover:bg-green-500/30 ring-green-500',
-  yellow: 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 ring-yellow-500',
-  pink: 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 ring-pink-500',
-  cyan: 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 ring-cyan-500',
-  orange: 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 ring-orange-500',
-  red: 'bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-red-500',
-  violet: 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30 ring-violet-500',
-  rose: 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 ring-rose-500',
-  emerald: 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 ring-emerald-500',
-};
 
 const AvatarSelector = ({
   selectedAvatar,
   onSelect,
   /** Default "Bot Avatar"; pass null or "" to hide the title row (e.g. when parent provides a label) */
   label = 'Bot Avatar',
-  hint = "Select an avatar that represents your bot's personality",
+  hint = "Pick an icon that fits this bot",
 }) => {
-  // Normalize the selection so null, undefined, "", and "none" all map to 'none'
-  const currentSelection = (!selectedAvatar || selectedAvatar === '' || selectedAvatar === 'none') 
-    ? 'none' 
+  const currentSelection = (!selectedAvatar || selectedAvatar === '' || selectedAvatar === 'none')
+    ? 'none'
     : selectedAvatar;
 
   return (
@@ -79,18 +59,23 @@ const AvatarSelector = ({
         </label>
       )}
       <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 p-1 -m-1">
-        {AVATAR_OPTIONS.map((avatar) => {
+        {AVATAR_OPTIONS.map((avatar, i) => {
           const Icon = avatar.icon;
           const isSelected = currentSelection === avatar.id;
-          const colorClass = colorClasses[avatar.color];
-          
+
           return (
             <button
               key={avatar.id}
               type="button"
               onClick={() => onSelect(avatar.id)}
-              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all ${colorClass} ${
-                isSelected ? 'ring-2 scale-105' : 'hover:scale-105'
+              style={{
+                color: '#1F1F1F',
+                animation: `chip-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) ${i * 22}ms both`,
+              }}
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all ${
+                isSelected
+                  ? 'bg-gray-100 ring-2 ring-[#FA6C43] scale-105'
+                  : 'bg-gray-100 hover:bg-gray-200 hover:scale-105 active:scale-95'
               }`}
               title={avatar.name}
             >
