@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking, FaFilm, FaBell } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import VideoNav from '../components/VideoNav';
 
 // Rotating pitch tips for the multi-minute analysis wait.
 const TIPS = [
@@ -154,14 +155,17 @@ export default function VideoResultsPage() {
     </div>
   );
 
-  if (loading) return wrap(<div className="text-center py-20"><FaSpinner className="animate-spin text-3xl text-[#FA6C43] mx-auto" /></div>);
+  if (loading) return wrap(<><VideoNav className="mb-4" /><div className="text-center py-20"><FaSpinner className="animate-spin text-3xl text-[#FA6C43] mx-auto" /></div></>);
   if (error === 'forbidden') return wrap(
-    <div className="bg-white rounded-2xl p-8 text-center">
-      <h2 className="font-bold text-lg text-[#222]">Access denied</h2>
-      <p className="text-sm text-gray-500 mt-2">This results link is invalid or has expired.</p>
-    </div>
+    <>
+      <VideoNav className="mb-4" />
+      <div className="bg-white rounded-2xl p-8 text-center">
+        <h2 className="font-bold text-lg text-[#222]">Access denied</h2>
+        <p className="text-sm text-gray-500 mt-2">This results link is invalid or has expired.</p>
+      </div>
+    </>
   );
-  if (error) return wrap(<div className="bg-white rounded-2xl p-8 text-center"><h2 className="font-bold text-lg text-[#222]">Not found</h2></div>);
+  if (error) return wrap(<><VideoNav className="mb-4" /><div className="bg-white rounded-2xl p-8 text-center"><h2 className="font-bold text-lg text-[#222]">Not found</h2></div></>);
 
   const { submission, scores } = data;
   const status = submission?.status;
@@ -169,13 +173,18 @@ export default function VideoResultsPage() {
   if (status !== 'scored') {
     if (status === 'failed') {
       return wrap(
-        <div className="bg-white rounded-2xl p-10 text-center">
-          <h2 className="font-bold text-lg text-red-600">Processing failed</h2>
-          <p className="text-sm text-gray-500 mt-2">{submission?.error || 'Please try uploading again.'}</p>
-        </div>
+        <>
+          <VideoNav className="mb-4" />
+          <div className="bg-white rounded-2xl p-10 text-center">
+            <h2 className="font-bold text-lg text-red-600">Processing failed</h2>
+            <p className="text-sm text-gray-500 mt-2">{submission?.error || 'Please try uploading again.'}</p>
+          </div>
+        </>
       );
     }
     return wrap(
+      <>
+      <VideoNav className="mb-4" />
       <div className="bg-white rounded-3xl shadow-sm p-8 sm:p-10 text-center">
         <div className="relative w-16 h-16 mx-auto mb-5">
           <span className="absolute inset-0 rounded-full bg-[#FA6C43]/20 animate-ping" />
@@ -208,6 +217,7 @@ export default function VideoResultsPage() {
           )}
         </div>
       </div>
+      </>
     );
   }
 
@@ -223,6 +233,8 @@ export default function VideoResultsPage() {
 
   return wrap(
     <>
+      <VideoNav className="mb-4" />
+
       {/* ── Header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>

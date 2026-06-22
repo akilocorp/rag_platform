@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import VideoNav from '../components/VideoNav';
 
 const C = (v) => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
 
@@ -177,18 +178,22 @@ export default function VideoComparePage() {
   const subs = historyData?.submissions || [];
 
   if (subs.length === 0) return wrap(
-    <div className="bg-white rounded-2xl p-8 text-center">
-      <FaFilm className="text-3xl text-gray-300 mx-auto mb-4" />
-      <h2 className="font-bold text-lg text-[#222]">No submissions yet</h2>
-      <button onClick={() => navigate(`/video-upload/${configId}`)}
-        className="mt-4 px-5 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm">
-        Upload your first attempt
-      </button>
-    </div>
+    <>
+      <VideoNav className="mb-4" />
+      <div className="bg-white rounded-2xl p-8 text-center">
+        <FaFilm className="text-3xl text-gray-300 mx-auto mb-4" />
+        <h2 className="font-bold text-lg text-[#222]">No submissions yet</h2>
+        <button onClick={() => navigate(`/video-upload/${configId}`)}
+          className="mt-4 px-5 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm">
+          Upload your first attempt
+        </button>
+      </div>
+    </>
   );
 
   return wrap(
     <>
+      <VideoNav className="mb-4" />
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-[#222]">Your Attempts</h1>
         <p className="text-sm text-gray-500">{configName} · {subs.length}/15 submissions</p>

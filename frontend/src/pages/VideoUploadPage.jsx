@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { FaFilm, FaUpload, FaEnvelope, FaExclamationTriangle, FaFileVideo, FaTimes, FaBell } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import VideoNav from '../components/VideoNav';
 
 const STAGE_LABEL = {
   downloading: 'Preparing your video…',
@@ -58,6 +59,7 @@ function Shell({ title, subtitle, children }) {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-8 sm:p-10">
+        <VideoNav className="mb-5" />
         <div className="flex items-center gap-3 mb-6">
           <div className="p-3 bg-[#F9D0C4]/30 rounded-2xl text-[#FA6C43]"><FaFilm className="text-xl" /></div>
           <div>
