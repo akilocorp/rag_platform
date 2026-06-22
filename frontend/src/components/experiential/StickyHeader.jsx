@@ -21,10 +21,10 @@ export default function StickyHeader({ layers, unlockedLayerIds, gates }) {
         <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mr-1">Models</span>
         {layers.map((l, i) => {
           const unlocked = unlockedLayerIds.includes(l.id);
-          const short = i === 0 ? l.name.replace(/\s*\(.*\)/, '').split(' ').slice(-1)[0] || l.name : `+${l.name.replace(/^\+\s*/, '').match(/\(([^)]+)\)/)?.[1] || l.name}`;
-          // Prefer the parenthetical short code (RANK / BGG / HANK) when present.
+          // Prefer the config's plain-English short label; fall back to the
+          // parenthetical code (RANK / BGG / HANK) for older configs.
           const code = l.name.match(/\(([^)]+)\)/)?.[1];
-          const label = code ? (i === 0 ? code : `+${code}`) : short;
+          const label = l.short || (code ? (i === 0 ? code : `+${code}`) : l.name);
           return (
             <React.Fragment key={l.id}>
               {i > 0 && <span className={`text-xs ${unlocked ? 'text-gray-400' : 'text-gray-200'}`}>→</span>}
@@ -43,7 +43,8 @@ export default function StickyHeader({ layers, unlockedLayerIds, gates }) {
         })}
       </div>
 
-      {/* Trust meter */}
+      {/* Trust meter — only when the config defines provenance gates */}
+      {gates.length > 0 && (
       <div className="flex items-center gap-2 sm:ml-auto min-w-0">
         <FiShield className={allTrusted ? 'text-green-600' : 'text-amber-500'} />
         <div className="flex flex-col min-w-0">
@@ -74,6 +75,7 @@ export default function StickyHeader({ layers, unlockedLayerIds, gates }) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

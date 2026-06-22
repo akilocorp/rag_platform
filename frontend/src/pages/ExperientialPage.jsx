@@ -201,6 +201,7 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const [revealedIds, setRevealedIds] = useState([]);              // layers whose reveal is shown (ordered)
   const [unlockedIds, setUnlockedIds] = useState([baseLayer.id]);  // layers available to add
   const [pendingLayerId, setPendingLayerId] = useState(null);      // layer awaiting its predict→reveal
+  const [layerPredictions, setLayerPredictions] = useState({});    // layerId -> 'more'|'same'|'less'
   const [usedProbeIds, setUsedProbeIds] = useState([]);
   const [satisfiedGateIds, setSatisfiedGateIds] = useState([]);
   const [chartVar, setChartVar] = useState('gdp');
@@ -419,28 +420,34 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   // `synthJudgment` (optional): { rubricHits:[{r,hit,note}], feedback, graded }
   // from the live Claude grader. When absent, fall back to the keyword heuristic.
   function computeScores(synthJudgment) {
-    // Prediction (direction match).
-    let correct = 0;
-    const predDetail = predictionVariables.map((v) => {
-      const got = dirOf(dials[v.id]);
-      const ok = got === String(v.expected);
-      if (ok) correct += 1;
-      return { label: v.label, expected: v.expected, got: arrow(dials[v.id]), ok };
-    });
-    const predictionScore = Math.round((correct / predictionVariables.length) * config.scoring.predictionWeight);
+    const EP_LABEL = { more: 'Falls more', same: 'About the same', less: 'Falls less' };
 
-    // Probe efficiency.
+    // Prediction = baseline directions + each extension prediction.
+    let correct = 0;
+    const baseRows = predictionVariables.map((v) => {
+      const ok = dirOf(dials[v.id]) === String(v.expected);
+      if (ok) correct += 1;
+      return { label: v.label, got: arrow(dials[v.id]), ok };
+    });
+    const extLayers = layers.filter((l) => l.extensionPredict);
+    const extRows = extLayers.map((l) => {
+      const pick = layerPredictions[l.id];
+      const ok = pick === l.extensionPredict.expected;
+      if (ok) correct += 1;
+      return { label: `${l.short}: ${l.extensionPredict.focus}`, got: pick ? EP_LABEL[pick] : '—', ok };
+    });
+    const predTotal = predictionVariables.length + extLayers.length;
+    const predictionScore = Math.round((correct / predTotal) * config.scoring.predictionWeight);
+
+    // Probe efficiency (only when the config weights it).
     const used = usedProbeIds.map((id) => probeById[id]);
-    const wasted = used.filter((p) => p.deadEnd).length +
-      used.filter((p) => !p.deadEnd && p.productiveAfter && !p.productiveAfter.some((lid) => revealedIds.includes(lid))).length;
-    const usefulUsed = used.filter((p) =>
-      !p.deadEnd && (p.establishesGateId || p.unlocksLayerId || !p.productiveAfter || p.productiveAfter.some((lid) => revealedIds.includes(lid)))).length;
-    const IDEAL_USEFUL = 4;
-    const effRatio = Math.max(0, Math.min(1, (usefulUsed - 0.5 * wasted) / IDEAL_USEFUL));
+    const wasted = used.filter((p) => p.deadEnd).length;
+    const usefulUsed = used.filter((p) => !p.deadEnd && (p.establishesGateId || p.unlocksLayerId)).length;
+    const effRatio = Math.max(0, Math.min(1, (usefulUsed - 0.5 * wasted) / 4));
     const probeScore = Math.round(effRatio * config.scoring.probeEfficiencyWeight);
 
-    // Provenance.
-    const provRatio = provenanceGates.length ? satisfiedGateIds.length / provenanceGates.length : 1;
+    // Provenance (only when the config defines gates).
+    const provRatio = provenanceGates.length ? satisfiedGateIds.length / provenanceGates.length : 0;
     const provScore = Math.round(provRatio * config.scoring.provenanceWeight);
 
     // Synthesis: live Claude grade when provided, else keyword heuristic.
@@ -454,14 +461,21 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
     const synthGradedBy = synthJudgment?.graded ? 'Claude Sonnet' : 'keyword heuristic';
     const synthFeedback = synthJudgment?.feedback || '';
 
+    // Only surface dimensions the config actually weights.
+    const breakdown = [
+      { key: 'Prediction', score: predictionScore, weight: config.scoring.predictionWeight, detail: `${correct}/${predTotal} predictions correct`, rows: [...baseRows, ...extRows] },
+    ];
+    if (config.scoring.probeEfficiencyWeight > 0) {
+      breakdown.push({ key: 'Probe efficiency', score: probeScore, weight: config.scoring.probeEfficiencyWeight, detail: `${usefulUsed} productive, ${wasted} wasted` });
+    }
+    if (provenanceGates.length > 0 && config.scoring.provenanceWeight > 0) {
+      breakdown.push({ key: 'Provenance', score: provScore, weight: config.scoring.provenanceWeight, detail: `${satisfiedGateIds.length}/${provenanceGates.length} verified` });
+    }
+    breakdown.push({ key: 'Synthesis', score: synthScore, weight: config.scoring.synthesisWeight, detail: `${hitCount}/${synthesis.rubric.length} rubric points${overLimit ? ` · over the ${synthesis.wordLimit}-word limit (${words})` : ''}`, rubric: rubricHits, feedback: synthFeedback });
+
     return {
-      total: predictionScore + probeScore + provScore + synthScore,
-      breakdown: [
-        { key: 'Prediction', score: predictionScore, weight: config.scoring.predictionWeight, detail: `${correct}/${predictionVariables.length} directions correct`, rows: predDetail },
-        { key: 'Probe efficiency', score: probeScore, weight: config.scoring.probeEfficiencyWeight, detail: `${usefulUsed} productive probe${usefulUsed === 1 ? '' : 's'}, ${wasted} wasted` },
-        { key: 'Provenance', score: provScore, weight: config.scoring.provenanceWeight, detail: `${satisfiedGateIds.length}/${provenanceGates.length} gate${provenanceGates.length === 1 ? '' : 's'} verified` },
-        { key: 'Synthesis', score: synthScore, weight: config.scoring.synthesisWeight, detail: `${hitCount}/${synthesis.rubric.length} rubric points${overLimit ? ` · over the ${synthesis.wordLimit}-word limit (${words})` : ''}`, rubric: rubricHits, feedback: synthFeedback },
-      ],
+      total: breakdown.reduce((sum, b) => sum + b.score, 0),
+      breakdown,
       synthGradedBy,
     };
   }
@@ -470,7 +484,7 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   function chartFor(snapshotIds, withGuess) {
     const series = snapshotIds
       .filter((id) => layerById[id].reveal.chartSeries[chartVar])
-      .map((id) => ({ key: id, label: layerById[id].name.match(/\(([^)]+)\)/)?.[1] || layerById[id].name, values: layerById[id].reveal.chartSeries[chartVar] }));
+      .map((id) => ({ key: id, label: layerById[id].short || layerById[id].name.match(/\(([^)]+)\)/)?.[1] || layerById[id].name, values: layerById[id].reveal.chartSeries[chartVar] }));
     let guess = null;
     if (withGuess) {
       const dv = dials[chartVar];
@@ -543,19 +557,42 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
       case 'layer-predict': {
         const lyr = layerById[b.layerId];
         const done = revealedIds.includes(b.layerId);
+        const ep = lyr.extensionPredict;
+        const choice = layerPredictions[b.layerId];
+        const OPTS = [
+          { v: 'more', label: 'Falls more' },
+          { v: 'same', label: 'About the same' },
+          { v: 'less', label: 'Falls less' },
+        ];
         return (
           <Card key={b._k} accent={!done} className="p-5">
-            <SpeakerLabel name={`Predict · ${lyr.name.match(/\(([^)]+)\)/)?.[1] || lyr.name}`} />
-            <p className="text-sm text-gray-700 mb-1">{lyr.predictPrompt}</p>
+            <SpeakerLabel name={`Predict · ${lyr.short || lyr.name}`} />
+            <p className="text-sm text-gray-700 mb-1">{ep ? ep.prompt : lyr.predictPrompt}</p>
             <p className="text-xs text-gray-500 mb-3">{lyr.changes}</p>
+            {ep && !done && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {OPTS.map((o) => (
+                  <button
+                    key={o.v}
+                    onClick={() => { markAction(); setLayerPredictions((p) => ({ ...p, [b.layerId]: o.v })); }}
+                    className={`text-sm px-3.5 py-2 rounded-xl font-semibold border transition-colors ${
+                      choice === o.v ? 'bg-[#FA6C43] border-[#FA6C43] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-[#FA6C43]/50'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {done ? (
               <div className="inline-flex items-center gap-1.5 text-sm text-gray-500"><FiCheck className="text-green-600" /> Revealed below</div>
             ) : (
               <button
                 onClick={() => revealLayer(b.layerId)}
-                className="inline-flex items-center gap-1.5 bg-[#222] hover:bg-black text-white text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors"
+                disabled={!!ep && !choice}
+                className="inline-flex items-center gap-1.5 bg-[#222] hover:bg-black disabled:opacity-40 text-white text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors"
               >
-                Reveal {lyr.name.match(/\(([^)]+)\)/)?.[1] || lyr.name} path
+                Reveal {lyr.short || lyr.name} path
               </button>
             )}
           </Card>
@@ -874,7 +911,7 @@ function DebriefCard({ scores, onReset }) {
         ))}
       </div>
       <p className="text-[11px] text-gray-400 mt-4 italic">
-        Prediction, probe-efficiency &amp; provenance scored deterministically from your moves; synthesis graded by {scores.synthGradedBy || 'keyword heuristic'}.
+        Predictions scored from your calls; synthesis graded by {scores.synthGradedBy || 'keyword heuristic'}.
       </p>
       <button onClick={onReset} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#FA6C43] hover:underline">
         <FiRefreshCw /> Replay this lab

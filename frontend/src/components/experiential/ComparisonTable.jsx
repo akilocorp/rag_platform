@@ -15,7 +15,7 @@ export default function ComparisonTable({ layers, blurNumbers = false }) {
     }
   }
 
-  const shortName = (name) => name.match(/\(([^)]+)\)/)?.[1] || name;
+  const shortName = (l) => l.short || l.name.match(/\(([^)]+)\)/)?.[1] || l.name;
 
   return (
     <div className="w-full overflow-x-auto">
@@ -27,7 +27,7 @@ export default function ComparisonTable({ layers, blurNumbers = false }) {
             </th>
             {layers.map((l) => (
               <th key={l.id} className="text-right font-semibold text-[#b8452a] py-2 px-3 whitespace-nowrap">
-                {shortName(l.name)}
+                {shortName(l)}
               </th>
             ))}
           </tr>
