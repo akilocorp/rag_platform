@@ -5,6 +5,7 @@ import {
   FiPlusCircle, FiHelpCircle, FiAward,
 } from 'react-icons/fi';
 import apiClient from '../api/apiClient';
+import { renderMarkdown } from '../utils/markdown';
 import { getExperientialConfig } from '../configs/experiential';
 import { validateExperientialConfig } from '../configs/experiential/schema';
 import ChatSidebar from '../components/SideBar.jsx';
@@ -207,6 +208,9 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const [synthesisOpen, setSynthesisOpen] = useState(false);
   const [synthesisText, setSynthesisText] = useState('');
   const [scores, setScores] = useState(null);
+  const [grading, setGrading] = useState(false);
+
+  const isGenerative = analyst.mode === 'generative';
 
   // Coach state
   const [hintsUsed, setHintsUsed] = useState(0);
@@ -228,7 +232,14 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const revealedLayers = revealedIds.map((id) => layerById[id]);
 
   const markAction = () => { lastActionRef.current = Date.now(); };
-  const appendFeed = (block) => setFeed((f) => [...f, { ...block, _k: `${block.type}-${f.length}` }]);
+  const blockSeqRef = useRef(0);
+  // Returns the block's stable key so async handlers can patch it later.
+  const appendFeed = (block) => {
+    const _k = `${block.type}-${blockSeqRef.current++}`;
+    setFeed((f) => [...f, { ...block, _k }]);
+    return _k;
+  };
+  const updateFeed = (k, patch) => setFeed((f) => f.map((b) => (b._k === k ? { ...b, ...patch } : b)));
 
   // Auto-scroll on feed growth.
   useEffect(() => { feedEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [feed.length, synthesisOpen, scores]);
@@ -337,18 +348,77 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
     setSynthesisOpen(true);
   }
 
-  function submitSynthesis() {
-    markAction();
-    setScores(computeScores());
+  // Compact lab state shared with the backend so Claude stays consistent with
+  // the scripted reveals / probe answers the student has already seen.
+  function buildLabState() {
+    return {
+      revealedLayers: revealedIds.map((id) => ({
+        name: layerById[id].name,
+        narrative: layerById[id].reveal.narrative,
+        changes: layerById[id].changes,
+      })),
+      numbersVerified: provenanceGates.length > 0 && provenanceGates.every((g) => satisfiedGateIds.includes(g.id)),
+      probeQA: usedProbeIds.map((id) => ({ q: probeById[id].text, a: probeById[id].answer })),
+      prediction: dialsCommitted
+        ? predictionVariables.map((v) => ({ label: v.label, call: arrow(dials[v.id]) }))
+        : [],
+    };
   }
 
-  function handleFreeform(text) {
+  async function submitSynthesis() {
     markAction();
-    appendFeed({ type: 'freeform', question: text });
+    if (!isGenerative) { setScores(computeScores()); return; }
+    setGrading(true);
+    try {
+      const { data } = await apiClient.post('/experiential/grade', {
+        task: synthesis.task,
+        rubric: synthesis.rubric,
+        wordLimit: synthesis.wordLimit,
+        synthesis: synthesisText,
+        context: {
+          scenario: scenario.brief,
+          layers: revealedIds.map((id) => ({ name: layerById[id].name, narrative: layerById[id].reveal.narrative })),
+        },
+      });
+      const hits = synthesis.rubric.map((r, i) => {
+        const item = data.rubric?.[i] || {};
+        return { r, hit: !!item.met, note: item.note || '' };
+      });
+      setScores(computeScores({ rubricHits: hits, feedback: data.feedback || '', graded: true }));
+    } catch (e) {
+      // Backend unavailable → fall back to the local keyword heuristic.
+      setScores(computeScores());
+    } finally {
+      setGrading(false);
+    }
+  }
+
+  async function handleFreeform(text) {
+    markAction();
+    const k = appendFeed({ type: 'freeform', question: text, reply: null, pending: isGenerative });
+    if (!isGenerative) {
+      updateFeed(k, { reply: analyst.scriptedFallback || 'Use the probe chips to interrogate the model.', pending: false });
+      return;
+    }
+    try {
+      const { data } = await apiClient.post('/experiential/analyst', {
+        persona: analyst.persona,
+        stayInCharacter: analyst.stayInCharacter,
+        scenario: scenario.brief,
+        labTitle: meta.title,
+        question: text,
+        state: buildLabState(),
+      });
+      updateFeed(k, { reply: data.reply, pending: false });
+    } catch (e) {
+      updateFeed(k, { reply: analyst.scriptedFallback || 'I can’t reach my models right now — try a probe chip above.', pending: false, error: true });
+    }
   }
 
   // ── Scoring ──
-  function computeScores() {
+  // `synthJudgment` (optional): { rubricHits:[{r,hit,note}], feedback, graded }
+  // from the live Claude grader. When absent, fall back to the keyword heuristic.
+  function computeScores(synthJudgment) {
     // Prediction (direction match).
     let correct = 0;
     const predDetail = predictionVariables.map((v) => {
@@ -373,13 +443,16 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
     const provRatio = provenanceGates.length ? satisfiedGateIds.length / provenanceGates.length : 1;
     const provScore = Math.round(provRatio * config.scoring.provenanceWeight);
 
-    // Synthesis (rubric keyword heuristic).
+    // Synthesis: live Claude grade when provided, else keyword heuristic.
     const t = synthesisText.toLowerCase();
-    const rubricHits = synthesis.rubric.map((r) => ({ r, hit: RUBRIC_KEYWORDS[r] ? RUBRIC_KEYWORDS[r](t) : t.includes(r.toLowerCase()) }));
+    const rubricHits = synthJudgment?.rubricHits
+      || synthesis.rubric.map((r) => ({ r, hit: RUBRIC_KEYWORDS[r] ? RUBRIC_KEYWORDS[r](t) : t.includes(r.toLowerCase()) }));
     const hitCount = rubricHits.filter((x) => x.hit).length;
     const words = t.trim() ? t.trim().split(/\s+/).length : 0;
     const overLimit = words > synthesis.wordLimit;
     const synthScore = Math.round((hitCount / synthesis.rubric.length) * config.scoring.synthesisWeight);
+    const synthGradedBy = synthJudgment?.graded ? 'Claude Sonnet' : 'keyword heuristic';
+    const synthFeedback = synthJudgment?.feedback || '';
 
     return {
       total: predictionScore + probeScore + provScore + synthScore,
@@ -387,8 +460,9 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
         { key: 'Prediction', score: predictionScore, weight: config.scoring.predictionWeight, detail: `${correct}/${predictionVariables.length} directions correct`, rows: predDetail },
         { key: 'Probe efficiency', score: probeScore, weight: config.scoring.probeEfficiencyWeight, detail: `${usefulUsed} productive probe${usefulUsed === 1 ? '' : 's'}, ${wasted} wasted` },
         { key: 'Provenance', score: provScore, weight: config.scoring.provenanceWeight, detail: `${satisfiedGateIds.length}/${provenanceGates.length} gate${provenanceGates.length === 1 ? '' : 's'} verified` },
-        { key: 'Synthesis', score: synthScore, weight: config.scoring.synthesisWeight, detail: `${hitCount}/${synthesis.rubric.length} rubric points${overLimit ? ` · over the ${synthesis.wordLimit}-word limit (${words})` : ''}`, rubric: rubricHits },
+        { key: 'Synthesis', score: synthScore, weight: config.scoring.synthesisWeight, detail: `${hitCount}/${synthesis.rubric.length} rubric points${overLimit ? ` · over the ${synthesis.wordLimit}-word limit (${words})` : ''}`, rubric: rubricHits, feedback: synthFeedback },
       ],
+      synthGradedBy,
     };
   }
 
@@ -503,7 +577,21 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
           <Card key={b._k} className="p-5">
             <div className="text-sm font-semibold text-gray-500 mb-1.5">You: {b.question}</div>
             <SpeakerLabel name={meta.title} />
-            <p className="text-sm text-gray-800 leading-relaxed">{analyst.scriptedFallback || 'Use the probe chips to interrogate the model.'}</p>
+            {b.pending ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <span className="inline-flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '120ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '240ms' }} />
+                </span>
+                Analyst is thinking…
+              </div>
+            ) : (
+              <div
+                className={`text-sm leading-relaxed prose-experiential ${b.error ? 'text-amber-700' : 'text-gray-800'}`}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(b.reply || '') }}
+              />
+            )}
           </Card>
         );
       default:
@@ -590,6 +678,8 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
           text={synthesisText}
           setText={setSynthesisText}
           submitted={!!scores}
+          grading={grading}
+          gradedLive={isGenerative}
           onSubmit={submitSynthesis}
         />
       )}
@@ -698,7 +788,7 @@ function ProbeTray({ probes, probeState, onPick }) {
   );
 }
 
-function SynthesisCard({ synthesis, text, setText, submitted, onSubmit }) {
+function SynthesisCard({ synthesis, text, setText, submitted, grading, gradedLive, onSubmit }) {
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   const over = words > synthesis.wordLimit;
   if (submitted) {
@@ -722,8 +812,14 @@ function SynthesisCard({ synthesis, text, setText, submitted, onSubmit }) {
       />
       <div className="flex items-center justify-between mt-2">
         <span className={`text-xs ${over ? 'text-red-500' : 'text-gray-400'}`}>{words} / {synthesis.wordLimit} words{over ? ' — over limit' : ''}</span>
-        <button onClick={onSubmit} disabled={!text.trim()} className="inline-flex items-center gap-1.5 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
-          Submit & see debrief
+        <button onClick={onSubmit} disabled={!text.trim() || grading} className="inline-flex items-center gap-1.5 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
+          {grading ? (
+            <>
+              <FiRefreshCw className="animate-spin" /> {gradedLive ? 'Claude is grading…' : 'Scoring…'}
+            </>
+          ) : (
+            'Submit & see debrief'
+          )}
         </button>
       </div>
     </Card>
@@ -760,18 +856,26 @@ function DebriefCard({ scores, onReset }) {
               </div>
             )}
             {b.rubric && (
-              <ul className="mt-2 space-y-0.5">
+              <ul className="mt-2 space-y-1">
                 {b.rubric.map((x) => (
-                  <li key={x.r} className={`text-[11px] flex items-center gap-1.5 ${x.hit ? 'text-green-700' : 'text-gray-400'}`}>
-                    {x.hit ? <FiCheck size={11} /> : <span className="w-[11px] inline-block">·</span>} {x.r}
+                  <li key={x.r} className={`text-[11px] ${x.hit ? 'text-green-700' : 'text-gray-400'}`}>
+                    <span className="flex items-start gap-1.5">
+                      {x.hit ? <FiCheck size={11} className="mt-0.5 shrink-0" /> : <span className="w-[11px] inline-block shrink-0">·</span>}
+                      <span>{x.r}{x.note ? <span className="text-gray-400 font-normal"> — {x.note}</span> : null}</span>
+                    </span>
                   </li>
                 ))}
               </ul>
             )}
+            {b.feedback && (
+              <p className="text-xs text-gray-600 mt-2 bg-gray-50 rounded-lg px-3 py-2 italic">{b.feedback}</p>
+            )}
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-gray-400 mt-4 italic">Scripted scoring — synthesis is graded by rubric-keyword heuristic, not an LLM.</p>
+      <p className="text-[11px] text-gray-400 mt-4 italic">
+        Prediction, probe-efficiency &amp; provenance scored deterministically from your moves; synthesis graded by {scores.synthGradedBy || 'keyword heuristic'}.
+      </p>
       <button onClick={onReset} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#FA6C43] hover:underline">
         <FiRefreshCw /> Replay this lab
       </button>

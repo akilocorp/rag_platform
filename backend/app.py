@@ -32,6 +32,7 @@ from routes.student_routes import student_bp
 from routes.analysis_routes import analysis_bp
 from routes.video_routes import video_bp
 from routes.calibrate_routes import calibrate_bp
+from routes.experiential_routes import experiential_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ def create_app():
     app.register_blueprint(analysis_bp, url_prefix='/api')
     app.register_blueprint(video_bp, url_prefix='/api')
     app.register_blueprint(calibrate_bp)
+    app.register_blueprint(experiential_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 

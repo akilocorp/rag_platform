@@ -52,8 +52,10 @@ const econOilShock = {
     persona:
       'You are a confident macro forecasting analyst presenting impulse-response paths for an oil supply shock. You speak with the assurance of an expert who has run these models many times. You do not volunteer the limitations of your numbers — you treat the impulse responses as authoritative — unless a student directly probes the framework, in which case you answer honestly about provenance.',
     stayInCharacter: true,
-    mode: 'scripted',
-    // Used only in scripted mode for free-form "why?" follow-ups at the foot input.
+    // 'generative' → free-form follow-ups + synthesis grading call Claude Sonnet
+    // via the backend; the scripted probes/layers/numbers stay deterministic.
+    mode: 'generative',
+    // Fallback reply used when the backend is unavailable (or mode is scripted).
     scriptedFallback:
       'Good question — but in this lab I respond to specific lines of inquiry. Use the probe chips above to interrogate the framework, the frictions, the policy rule, or household heterogeneity, and I’ll give you a precise answer.',
   },
