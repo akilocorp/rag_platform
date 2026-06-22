@@ -202,6 +202,7 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const [unlockedIds, setUnlockedIds] = useState([baseLayer.id]);  // layers available to add
   const [pendingLayerId, setPendingLayerId] = useState(null);      // layer awaiting its predict→reveal
   const [layerPredictions, setLayerPredictions] = useState({});    // layerId -> 'more'|'same'|'less'
+  const [layerReasons, setLayerReasons] = useState({});            // layerId -> the student's one-line "why"
   const [usedProbeIds, setUsedProbeIds] = useState([]);
   const [satisfiedGateIds, setSatisfiedGateIds] = useState([]);
   const [chartVar, setChartVar] = useState('gdp');
@@ -340,8 +341,45 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   function revealLayer(layerId) {
     markAction();
     setPendingLayerId(null);
+    const snapshot = [...revealedIds, layerId];
     setRevealedIds((r) => (r.includes(layerId) ? r : [...r, layerId]));
-    appendFeed({ type: 'comparison', layerId, snapshot: [...revealedIds, layerId] });
+    appendFeed({ type: 'comparison', layerId, snapshot });
+    // Route the mechanism through the helper, addressed to the student's own
+    // prediction + reason, instead of just dumping the static narrative.
+    explainLayer(layerId, snapshot);
+  }
+
+  // The helper explains WHY — confirming or correcting the student's reasoning.
+  async function explainLayer(layerId, snapshot) {
+    const lyr = layerById[layerId];
+    const ep = lyr.extensionPredict;
+    const focus = ep?.focus || 'the outcome';
+    const choiceWord = { more: 'more', same: 'about the same', less: 'less' }[layerPredictions[layerId]] || 'a certain amount';
+    const reason = (layerReasons[layerId] || '').trim();
+    const actualCell = lyr.reveal.tableRow[focus];
+    const baseCell = baseLayer.reveal.tableRow[focus];
+    const fallback = lyr.reveal.narrative;
+
+    const k = appendFeed({ type: 'explain', layerId, pending: isGenerative });
+    if (!isGenerative) { updateFeed(k, { reply: fallback, pending: false }); return; }
+    try {
+      const question =
+        `I predicted ${focus} would fall ${choiceWord} than the baseline` +
+        (reason ? `, because: "${reason}"` : '') +
+        `. The model now shows ${focus} at ${actualCell} versus the baseline's ${baseCell}. ` +
+        `Was my reasoning right? In 2–3 sentences, tell me whether my "why" holds up and walk me through the actual mechanism, correcting me if I'm off. Don't just restate the result — explain the channel.`;
+      const { data } = await apiClient.post('/experiential/analyst', {
+        persona: analyst.persona,
+        stayInCharacter: analyst.stayInCharacter,
+        scenario: scenario.brief,
+        labTitle: meta.title,
+        question,
+        state: buildLabState(snapshot),
+      });
+      updateFeed(k, { reply: data.reply, pending: false });
+    } catch (e) {
+      updateFeed(k, { reply: fallback, pending: false });
+    }
   }
 
   function openSynthesis() {
@@ -351,9 +389,10 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
 
   // Compact lab state shared with the backend so Claude stays consistent with
   // the scripted reveals / probe answers the student has already seen.
-  function buildLabState() {
+  function buildLabState(revealedOverride) {
+    const ids = revealedOverride || revealedIds;
     return {
-      revealedLayers: revealedIds.map((id) => ({
+      revealedLayers: ids.map((id) => ({
         name: layerById[id].name,
         narrative: layerById[id].reveal.narrative,
         changes: layerById[id].changes,
@@ -523,7 +562,11 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
               <ChartVarToggle chartKeys={chartKeys} chartVar={chartVar} setChartVar={setChartVar} />
             </div>
             <IrfChart series={series} guess={guess} unit={unit} blurNumbers={numbersBlurred} />
-            <p className="text-sm text-gray-700 mt-3 leading-relaxed">{lyr.reveal.narrative}</p>
+            {/* Baseline shows its narrative; extension layers route the "why"
+                through the helper (the 'explain' block) instead. */}
+            {b.type === 'reveal' && (
+              <p className="text-sm text-gray-700 mt-3 leading-relaxed">{lyr.reveal.narrative}</p>
+            )}
             <div className="mt-4 pt-3 border-t border-gray-100">
               <ComparisonTable layers={snapshotLayers} blurNumbers={numbersBlurred} />
             </div>
@@ -567,32 +610,44 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
         return (
           <Card key={b._k} accent={!done} className="p-5">
             <SpeakerLabel name={`Predict · ${lyr.short || lyr.name}`} />
-            <p className="text-sm text-gray-700 mb-1">{ep ? ep.prompt : lyr.predictPrompt}</p>
-            <p className="text-xs text-gray-500 mb-3">{lyr.changes}</p>
+            <p className="text-sm text-gray-700 mb-3">{ep ? ep.prompt : lyr.predictPrompt}</p>
             {ep && !done && (
-              <div className="flex flex-wrap gap-2 mb-4">
-                {OPTS.map((o) => (
-                  <button
-                    key={o.v}
-                    onClick={() => { markAction(); setLayerPredictions((p) => ({ ...p, [b.layerId]: o.v })); }}
-                    className={`text-sm px-3.5 py-2 rounded-xl font-semibold border transition-colors ${
-                      choice === o.v ? 'bg-[#FA6C43] border-[#FA6C43] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-[#FA6C43]/50'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {OPTS.map((o) => (
+                    <button
+                      key={o.v}
+                      onClick={() => { markAction(); setLayerPredictions((p) => ({ ...p, [b.layerId]: o.v })); }}
+                      className={`text-sm px-3.5 py-2 rounded-xl font-semibold border transition-colors ${
+                        choice === o.v ? 'bg-[#FA6C43] border-[#FA6C43] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-[#FA6C43]/50'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                {choice && (
+                  <div className="mb-4 animate-in fade-in slide-in-from-top-1">
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">In one sentence — why?</label>
+                    <input
+                      value={layerReasons[b.layerId] || ''}
+                      onChange={(e) => setLayerReasons((p) => ({ ...p, [b.layerId]: e.target.value }))}
+                      placeholder="e.g. weaker balance sheets make borrowing dearer, so capex is cut harder…"
+                      className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#FA6C43]"
+                    />
+                  </div>
+                )}
+              </>
             )}
             {done ? (
               <div className="inline-flex items-center gap-1.5 text-sm text-gray-500"><FiCheck className="text-green-600" /> Revealed below</div>
             ) : (
               <button
                 onClick={() => revealLayer(b.layerId)}
-                disabled={!!ep && !choice}
+                disabled={!!ep && (!choice || !(layerReasons[b.layerId] || '').trim())}
                 className="inline-flex items-center gap-1.5 bg-[#222] hover:bg-black disabled:opacity-40 text-white text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors"
               >
-                Reveal {lyr.short || lyr.name} path
+                Commit reasoning & reveal {lyr.short || lyr.name}
               </button>
             )}
           </Card>
@@ -609,6 +664,39 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
             </div>
           </div>
         );
+      case 'explain': {
+        const lyr = layerById[b.layerId];
+        const pick = layerPredictions[b.layerId];
+        const reason = layerReasons[b.layerId];
+        const focus = lyr.extensionPredict?.focus;
+        const EP_LABEL = { more: 'falls more', same: 'about the same', less: 'falls less' };
+        return (
+          <Card key={b._k} className="p-5">
+            {pick && (
+              <div className="text-xs text-gray-500 mb-1.5">
+                Your call: <span className="font-semibold text-gray-700">{focus} {EP_LABEL[pick] || pick}</span>
+                {reason ? <> · “{reason}”</> : null}
+              </div>
+            )}
+            <SpeakerLabel name={`${meta.title} · why`} />
+            {b.pending ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <span className="inline-flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '120ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '240ms' }} />
+                </span>
+                Checking your reasoning…
+              </div>
+            ) : (
+              <div
+                className="text-sm leading-relaxed prose-experiential text-gray-800"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(b.reply || '') }}
+              />
+            )}
+          </Card>
+        );
+      }
       case 'freeform':
         return (
           <Card key={b._k} className="p-5">
