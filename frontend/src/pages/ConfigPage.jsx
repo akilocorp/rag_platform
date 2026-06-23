@@ -4,7 +4,7 @@ import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
-import { listExperientialConfigs } from '../configs/experiential';
+import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
@@ -141,6 +141,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     associated_course: '',
     bot_type: 'chat',
     experiential_template_id: '',
+    experiential_prompt: '',
+    experiential_config: null,
     heygen_avatar_id: '',
     model_name: 'claude-sonnet-4-6',
     instructions: '',
@@ -260,8 +262,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 1 && (!config.bot_name || !config.bot_name.trim())) {
       newErrors.bot_name = 'Name is required';
     }
-    if (step === 1 && config.bot_type === 'experiential' && !config.experiential_template_id) {
-      newErrors.experiential_template_id = 'Please choose a simulation template';
+    if (step === 1 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.layers)) {
+      newErrors.experiential_config = 'Generate the lab from your prompt before continuing';
     }
     if (step === 4) {
       if (config.bot_type === 'video_analysis') {
@@ -290,7 +292,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const stepsFor = (botType) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
-    if (botType === 'experiential') return [1]; // scripted lab: just name + template
+    if (botType === 'experiential') return [1, 3]; // name + design prompt, then knowledge base
     return [1, 2, 3, 4, 5];
   };
 
@@ -356,9 +358,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
       configToSend.instructions = `Video analysis assignment: ${configToSend.assignment_type}`;
       delete configToSend.prompt_template;
     } else if (configToSend.bot_type === 'experiential') {
-      // Scripted lab — no chat model / RAG. The template id drives everything.
+      // Lab driven by the prof's prompt + AI-generated config (grounded in the KB).
       configToSend.bots = [];
-      configToSend.instructions = `Experiential lab: ${configToSend.experiential_template_id}`;
+      configToSend.instructions = `Experiential lab: ${configToSend.experiential_config?.meta?.title || 'custom'}`;
       delete configToSend.prompt_template;
     } else {
       // Standard Chat / Avatar Chat logic
@@ -395,7 +397,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       } else if (configToSend.bot_type === 'video_analysis') {
         navigate(`/video-dashboard/${newConfigId}`);
       } else if (configToSend.bot_type === 'experiential') {
-        navigate(`/experiential/${configToSend.experiential_template_id}`);
+        navigate(`/experiential/c/${newConfigId}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -538,15 +540,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 {config.bot_type === 'experiential' && (
                   <div className="pt-2 border-t border-gray-100">
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Simulation Template</label>
-                    <select name="experiential_template_id" value={config.experiential_template_id} onChange={handleChange} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all">
-                      <option value="">Select a lab…</option>
-                      {listExperientialConfigs().map((lab) => (
-                        <option key={lab.id} value={lab.id}>{lab.title} — {lab.discipline} (~{lab.estMinutes} min)</option>
-                      ))}
-                    </select>
-                    {errors.experiential_template_id && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_template_id}</p>}
-                    <p className="text-[11px] text-gray-400 mt-1.5">Scripted lab — students play a structured decision simulation. No live AI model is used.</p>
+                    <LabGenerator
+                      prompt={config.experiential_prompt}
+                      onPromptChange={(v) => setConfig((prev) => ({ ...prev, experiential_prompt: v }))}
+                      generated={config.experiential_config}
+                      onGenerated={(cfg) => setConfig((prev) => ({ ...prev, experiential_config: cfg }))}
+                    />
+                    {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
+                    <p className="text-[11px] text-gray-400 mt-2">Upload your lecture files on the next step — then you can <span className="font-medium">regenerate</span> from the editor to ground the lab in them.</p>
                   </div>
                 )}
 

@@ -135,10 +135,22 @@ def update_existing_config(config_id):
             if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
                 update_data['scoring_spec'] = scoring_spec
 
-        # --- EXPERIENTIAL LAB FIELD (scripted simulation template id) ---
+        # --- EXPERIENTIAL LAB FIELDS (template id, or prof prompt + generated config) ---
         experiential_template_id = data.get('experiential_template_id')
         if experiential_template_id is not None:
             update_data['experiential_template_id'] = (experiential_template_id or '').strip()
+        experiential_prompt = data.get('experiential_prompt')
+        if experiential_prompt is not None:
+            update_data['experiential_prompt'] = (experiential_prompt or '').strip()
+        experiential_config = data.get('experiential_config')
+        if experiential_config is not None:
+            if isinstance(experiential_config, str):
+                try:
+                    experiential_config = json.loads(experiential_config)
+                except json.JSONDecodeError:
+                    experiential_config = None
+            if isinstance(experiential_config, dict) and experiential_config.get('layers'):
+                update_data['experiential_config'] = experiential_config
 
         # Class rollout — validate code + usage tier/pool (any bot type).
         # Recomputes usage_pool; the existing class_pool counter is preserved so

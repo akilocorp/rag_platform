@@ -311,12 +311,23 @@ Answer:"""
             config_document['assignment_type'] = assignment_type
             config_document['scoring_spec'] = scoring_spec
 
-        # Experiential labs carry a scripted simulation template id (validated client-side).
+        # Experiential labs: either a built-in template id, or a prof prompt +
+        # an AI-generated lab config (validated client-side before save).
         if bot_type == 'experiential':
             template_id = (config_data.get('experiential_template_id') or '').strip()
-            if not template_id:
-                return jsonify({"error": "Experiential labs require an experiential_template_id"}), 400
+            exp_prompt = (config_data.get('experiential_prompt') or '').strip()
+            exp_config = config_data.get('experiential_config')
+            if isinstance(exp_config, str):
+                try:
+                    exp_config = json.loads(exp_config)
+                except json.JSONDecodeError:
+                    exp_config = None
+            if not template_id and not (isinstance(exp_config, dict) and exp_config.get('layers')):
+                return jsonify({"error": "Experiential labs require either a template id or a generated lab config"}), 400
             config_document['experiential_template_id'] = template_id
+            config_document['experiential_prompt'] = exp_prompt
+            if isinstance(exp_config, dict):
+                config_document['experiential_config'] = exp_config
 
         # Class rollout — any bot type may carry a class_code + usage tier/pool.
         err = validate_class_usage(config_data, config_document)

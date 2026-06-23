@@ -51,11 +51,30 @@ function SpeakerLabel({ name }) {
 // ─── Main player ─────────────────────────────────────────────────────────────
 
 export default function ExperientialPage() {
-  const { templateId } = useParams();
+  const { templateId, configId } = useParams();
   const navigate = useNavigate();
 
-  const config = useMemo(() => getExperientialConfig(templateId), [templateId]);
-  const validation = useMemo(() => (config ? validateExperientialConfig(config) : { ok: false, errors: ['template not found'] }), [config]);
+  // Two sources: a built-in template (by id) or a DB config's AI-generated lab.
+  const [dbLab, setDbLab] = useState({ loading: !!configId, config: null, error: null });
+  useEffect(() => {
+    if (!configId) return;
+    let cancelled = false;
+    apiClient.get(`/config/${configId}`)
+      .then((res) => {
+        if (cancelled) return;
+        const ec = res.data?.config?.experiential_config;
+        if (ec && ec.layers) setDbLab({ loading: false, config: ec, error: null });
+        else setDbLab({ loading: false, config: null, error: 'This lab has no generated config yet — generate it from the config editor.' });
+      })
+      .catch(() => { if (!cancelled) setDbLab({ loading: false, config: null, error: 'Could not load this lab.' }); });
+    return () => { cancelled = true; };
+  }, [configId]);
+
+  const config = configId ? dbLab.config : getExperientialConfig(templateId);
+  const validation = useMemo(
+    () => (config ? validateExperientialConfig(config) : { ok: false, errors: [configId ? (dbLab.error || 'loading…') : 'template not found'] }),
+    [config, configId, dbLab.error],
+  );
 
   // Bump this to remount the whole player on reset.
   const [runKey, setRunKey] = useState(0);
@@ -77,11 +96,17 @@ export default function ExperientialPage() {
 
   const noop = () => {};
   let columnContent;
-  if (!config) {
+  if (configId && dbLab.loading) {
+    columnContent = (
+      <ColumnShell title="Experiential Lab" onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+        <Card className="p-6"><p className="text-gray-500">Loading lab…</p></Card>
+      </ColumnShell>
+    );
+  } else if (!config) {
     columnContent = (
       <ColumnShell title="Experiential Lab" onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6">
-          <p className="text-gray-700">No experiential template found for id <code className="px-1 bg-gray-100 rounded">{templateId}</code>.</p>
+          <p className="text-gray-700">{configId ? (dbLab.error || 'This lab is not available.') : <>No experiential template found for id <code className="px-1 bg-gray-100 rounded">{templateId}</code>.</>}</p>
           <button onClick={() => navigate('/experiential')} className="mt-4 text-[#FA6C43] font-semibold">← Back to lab list</button>
         </Card>
       </ColumnShell>

@@ -69,6 +69,161 @@ def _extract_json(raw):
         return None
 
 
+# ─── Generate: build a full lab config from a prompt + knowledge base ────────
+
+GEN_MAX_TOKENS = 5000
+
+GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential macro/econ lab. \
+You output ONE JSON object (no prose, no markdown fences) matching the ExperientialConfig schema below. \
+The lab teaches an advanced model by starting from the baseline model the student already knows, then \
+adding ONE complication at a time and revealing how the picture changes.
+
+Pedagogical spine (always 3 layers): a BASELINE model, then TWO complications that each amplify a \
+different variable. The student predicts how each complication changes the baseline, explains why, then \
+sees it. Ground every framing, term and rough magnitude in the professor's prompt and the lecture \
+excerpts provided. Numbers are ILLUSTRATIVE deviations from baseline — plausible and internally \
+consistent, not estimated.
+
+SCHEMA (fill every field):
+{
+  "meta": { "id": "<kebab-id>", "title": "<short title>", "discipline": "<e.g. Macroeconomics>",
+            "level": "<e.g. MBA / Graduate>", "estMinutes": 20 },
+  "scenario": { "brief": "<2-3 sentence shock/setup the student reasons about>" },
+  "analyst": { "persona": "<a teaching analyst that builds from baseline intuition>",
+               "stayInCharacter": true, "mode": "generative",
+               "scriptedFallback": "<one fallback line if AI is unavailable>" },
+  "predictionVariables": [   // EXACTLY 3 — the variables that carry the teaching point
+    { "id": "<key>", "label": "<Label>", "type": "direction", "expected": "up" | "down",
+      "intuition": "<what it surfaces>" }, ... x3
+  ],
+  "layers": [   // EXACTLY 3: index 0 = baseline, 1 & 2 = complications
+    { "id": "baseline", "short": "Baseline", "name": "Baseline model (<CODE>)",
+      "predictPrompt": "Set your baseline call, then reveal its path.",
+      "changes": "<the baseline assumptions, plainly>",
+      "reveal": { "chartSeries": { "<var1>": [8 numbers], "<var2>": [8 numbers] },
+                  "tableRow": { "<Var1>": "<cell>", "<Var2>": "<cell>", "<Var3>": "<cell>" },
+                  "narrative": "<what the baseline shows>" } },
+    { "id": "<id>", "short": "+ <Short>", "name": "+ <Name> (<CODE>)",
+      "unlockedByProbeId": "<probe id>",
+      "extensionPredict": { "focus": "<the Variable label this complication most amplifies>",
+                            "prompt": "Before we reveal it: once <complication>, does <FOCUS> fall more, about the same, or less than baseline?",
+                            "expected": "more" | "same" | "less" },
+      "changes": "<the mechanism this complication adds>",
+      "reveal": { "chartSeries": { same keys as baseline, scaled to show amplification },
+                  "tableRow": { same keys as baseline },
+                  "narrative": "<the actual mechanism — used as ground truth>" } },
+    { ... second complication amplifying a DIFFERENT variable ... }
+  ],
+  "probes": [   // EXACTLY 2, one per complication
+    { "id": "<id>", "text": "<a short 'what if...' question>", "unlocksLayerId": "<layer id>",
+      "answer": "<explains the complication, offers to add it>" }, ... x2
+  ],
+  "provenanceGates": [],
+  "coach": { "hintAfterIdleSec": 60, "hintAfterUnproductiveProbes": 2, "maxHints": 3,
+             "tone": "Socratic, one nudge at a time" },
+  "synthesis": { "task": "<=120 word task to explain how each complication changes the baseline>",
+                 "wordLimit": 120,
+                 "rubric": ["<criterion>", "<criterion>", "<criterion>", "<criterion>"] },
+  "scoring": { "predictionWeight": 50, "probeEfficiencyWeight": 0, "provenanceWeight": 0, "synthesisWeight": 50 }
+}
+
+RULES:
+- chartSeries: 1-2 variables, EXACTLY 8 numbers each (Q1..Q8), deviations from baseline. Each complication's \
+FOCUS variable must show clear amplification vs baseline (larger magnitude).
+- tableRow: the SAME 3 keys across all three layers, with the Q1 cell for each (e.g. "-1.0%", "+1.5pp").
+- chartSeries keys and tableRow keys are consistent across all layers.
+- The two complications must amplify DIFFERENT variables (e.g. one investment-side, one consumption-side).
+- extensionPredict.expected is the direction of CHANGE vs baseline for the focus variable ("more" = larger fall).
+- Keep it crisp. Output ONLY the JSON object."""
+
+
+def _retrieve_kb(config_id, query, k=8):
+    """Best-effort vector search over the config's knowledge base."""
+    try:
+        from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
+        vs = MongoDBAtlasVectorSearch(
+            collection=current_app.config['MONGO_DB']['vector_collection'],
+            embedding=current_app.config['EMBEDDINGS'],
+            index_name="vector",
+        )
+        docs = vs.similarity_search(query=query or "course overview", k=k, pre_filter={"config_id": str(config_id)})
+        parts = []
+        for d in docs:
+            meta = d.metadata or {}
+            src = meta.get('original_file') or meta.get('source') or 'lecture'
+            parts.append(f"[{src}] {d.page_content}")
+        return "\n\n".join(parts)
+    except Exception:
+        logger.exception("experiential KB retrieval failed")
+        return ""
+
+
+def _normalize_experiential(cfg):
+    """Fill safe defaults so small model omissions don't fail client validation."""
+    if not isinstance(cfg, dict):
+        return cfg
+    cfg.setdefault('provenanceGates', [])
+    coach = cfg.get('coach')
+    if not isinstance(coach, dict):
+        coach = {}
+    coach.setdefault('hintAfterIdleSec', 60)
+    coach.setdefault('hintAfterUnproductiveProbes', 2)
+    coach.setdefault('maxHints', 3)
+    coach.setdefault('tone', 'Socratic, one nudge at a time')
+    cfg['coach'] = coach
+    sc = cfg.get('scoring')
+    if not isinstance(sc, dict):
+        sc = {}
+    sc.setdefault('predictionWeight', 50)
+    sc.setdefault('probeEfficiencyWeight', 0)
+    sc.setdefault('provenanceWeight', 0)
+    sc.setdefault('synthesisWeight', 50)
+    cfg['scoring'] = sc
+    analyst = cfg.get('analyst')
+    if isinstance(analyst, dict):
+        analyst.setdefault('mode', 'generative')
+        analyst.setdefault('stayInCharacter', True)
+        analyst.setdefault('scriptedFallback', 'Start from the baseline model, then ask what each complication changes.')
+    return cfg
+
+
+@experiential_bp.route('/experiential/generate', methods=['POST'])
+def generate_experiential():
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get('prompt') or '').strip()
+    config_id = payload.get('config_id')
+    if not prompt:
+        return jsonify({"error": "Missing 'prompt'"}), 400
+
+    client, err = _get_client()
+    if client is None:
+        return jsonify({"error": err}), 503
+
+    kb_text = _retrieve_kb(config_id, prompt) if config_id else ""
+
+    user_msg = f"Professor's design prompt:\n{prompt}"
+    if kb_text:
+        user_msg += f"\n\nRelevant lecture excerpts (ground the lab in these):\n{kb_text[:12000]}"
+    user_msg += "\n\nReturn ONLY the JSON ExperientialConfig object."
+
+    try:
+        msg = client.messages.create(
+            model=EXPERIENTIAL_MODEL,
+            max_tokens=GEN_MAX_TOKENS,
+            system=GEN_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = _text_from_message(msg)
+        cfg = _extract_json(raw)
+        if not isinstance(cfg, dict) or not cfg.get('layers'):
+            return jsonify({"error": "Could not parse a lab config from the model"}), 502
+        cfg = _normalize_experiential(cfg)
+        return jsonify({"config": cfg, "grounded": bool(kb_text)})
+    except Exception as e:  # noqa: BLE001
+        logger.exception("experiential generate failed")
+        return jsonify({"error": f"Generation failed: {e}"}), 502
+
+
 # ─── Analyst: free-form in-character replies ─────────────────────────────────
 
 def _build_analyst_system(payload):

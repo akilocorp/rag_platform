@@ -102,6 +102,7 @@ function App() {
 
           {/* Experiential simulation labs — scripted, no auth needed (no LLM/data calls) */}
           <Route path="/experiential" element={<ExperientialIndex />} />
+          <Route path="/experiential/c/:configId" element={<ExperientialPage />} />
           <Route path="/experiential/:templateId" element={<ExperientialPage />} />
 
           {/* Join link — public, redirects to register/login with class code */}
