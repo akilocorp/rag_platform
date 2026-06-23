@@ -85,7 +85,8 @@ export function validateExperientialConfig(config) {
       req(isNonEmptyStr(l.id), `${p}.id`, 'required string');
       if (isNonEmptyStr(l.id)) layerIds.add(l.id);
       req(isNonEmptyStr(l.name), `${p}.name`, 'required string');
-      req(isNonEmptyStr(l.predictPrompt), `${p}.predictPrompt`, 'required string');
+      // predictPrompt is optional — complication layers ask via extensionPredict.prompt.
+      if (l.predictPrompt != null) req(isStr(l.predictPrompt), `${p}.predictPrompt`, 'must be a string');
       req(isNonEmptyStr(l.changes), `${p}.changes`, 'required string');
       if (!isObj(l.reveal)) {
         req(false, `${p}.reveal`, 'must be an object');
