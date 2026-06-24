@@ -89,6 +89,8 @@ export const ChatSidebar = ({
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
   const [removingChatIds, setRemovingChatIds] = useState(() => new Set());
+  // DOM node beside the "Files" header that FilesPanel portals its + control into.
+  const [filesAddSlot, setFilesAddSlot] = useState(null);
 
   useEffect(() => {
     const handleClickOutside = () => setOpenDropdown(null);
@@ -449,11 +451,11 @@ export const ChatSidebar = ({
 
             {/* === Files accordion === */}
             <div className="mb-2">
-              <button
-                onClick={() => switchTab('files')}
-                className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200"
-              >
-                <span className="flex items-center text-[13px] font-semibold text-[#222]">
+              <div className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200">
+                <button
+                  onClick={() => switchTab('files')}
+                  className="flex items-center text-[13px] font-semibold text-[#222] flex-1 min-w-0"
+                >
                   <FiChevronDown
                     className={`mr-1.5 w-3.5 h-3.5 text-gray-500 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
                       activeTab === 'files' ? 'rotate-0' : '-rotate-90'
@@ -461,8 +463,10 @@ export const ChatSidebar = ({
                   />
                   <FiFolder className="mr-1.5 w-3.5 h-3.5 text-gray-500" />
                   Files
-                </span>
-              </button>
+                </button>
+                {/* FilesPanel portals its + add control here when the section is open */}
+                <div ref={setFilesAddSlot} className="flex-shrink-0" />
+              </div>
 
               <div
                 className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
@@ -493,6 +497,7 @@ export const ChatSidebar = ({
                       onToggleFile={onToggleFile}
                       onFetchUrl={onFetchUrl}
                       isFetchingUrl={isFetchingUrl}
+                      addControlSlot={activeTab === 'files' ? filesAddSlot : null}
                     />
                   </div>
                 </div>

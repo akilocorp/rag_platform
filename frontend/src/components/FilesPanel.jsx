@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FiUpload,
   FiChevronRight,
@@ -180,6 +181,10 @@ const FilesPanel = ({
   canSelect = false,
   selectedFileIds = [],
   onToggleFile,
+  // When provided (a DOM node), the add (+) control is portaled into this
+  // slot — e.g. the SideBar "Files" accordion header — instead of rendering
+  // in this panel's own breadcrumb row. All add state/handlers stay here.
+  addControlSlot = null,
 }) => {
   const view = useMemo(() => resolveView(currentPath, accessibleConfigs), [currentPath, accessibleConfigs]);
 
@@ -268,6 +273,62 @@ const FilesPanel = ({
 
   const goToVirtual = (key) => onSetPath?.(key);
 
+  // The add (+) control: pill button + dropdown menu. Rendered inline in the
+  // breadcrumb row by default, or portaled into `addControlSlot` (the SideBar
+  // "Files" header) when that slot is provided.
+  const addControlNode = canUpload ? (
+    <div className="relative flex-shrink-0">
+      <button
+        onClick={(e) => { e.stopPropagation(); setAddMenuOpen((v) => !v); }}
+        className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm transition-colors"
+        style={{ backgroundColor: addMenuOpen ? '#9CA3AF' : BRAND_ORANGE }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#6B7280' : BRAND_ORANGE_DEEP)}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#9CA3AF' : BRAND_ORANGE)}
+        title="Add files, folder, or link"
+      >
+        <FiPlus
+          className={`w-3.5 h-3.5 transition-transform duration-200 ease-out ${addMenuOpen ? 'rotate-45' : ''}`}
+        />
+      </button>
+      {addMenuOpen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50"
+        >
+          <button
+            onClick={() => {
+              setAddMenuOpen(false);
+              fileInputRef.current?.click();
+            }}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiUpload className="w-3.5 h-3.5 text-gray-500" />
+            Add files
+          </button>
+          <button
+            onClick={() => openAddMode('folder')}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiFolder className="w-3.5 h-3.5 text-gray-500" />
+            Add folder
+          </button>
+          <button
+            onClick={() => openAddMode('url')}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiLink className="w-3.5 h-3.5 text-gray-500" />
+            Add link
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const hasBreadcrumbs = view.breadcrumbs.length > 1;
+  // Inline header is needed when there are breadcrumbs to show, or when the
+  // add control isn't being portaled elsewhere (standalone usage).
+  const showInlineHeader = hasBreadcrumbs || (!addControlSlot && canUpload);
+
   // ---- render ----
   return (
     <div className="flex flex-col gap-3 pr-1">
@@ -280,76 +341,34 @@ const FilesPanel = ({
         onChange={handlePicked}
         accept=".pdf,.txt,.md,.docx,.pptx"
       />
-      {/* Breadcrumb header + Add pill */}
-      <div className={`flex items-center gap-2 ${view.breadcrumbs.length > 1 ? 'justify-between' : 'justify-end'}`}>
-        {view.breadcrumbs.length > 1 && (
-          <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
-            {view.breadcrumbs.map((c, i) => {
-              const isLast = i === view.breadcrumbs.length - 1;
-              return (
-                <React.Fragment key={`${c.path}-${i}`}>
-                  {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
-                  <button
-                    onClick={() => onSetPath?.(c.path)}
-                    className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
-                    style={isLast ? {} : undefined}
-                    title={c.label}
-                  >
-                    {c.label}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
-        )}
-        {canUpload && (
-          <div className="relative flex-shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); setAddMenuOpen((v) => !v); }}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm transition-colors"
-              style={{ backgroundColor: addMenuOpen ? '#9CA3AF' : BRAND_ORANGE }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#6B7280' : BRAND_ORANGE_DEEP)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#9CA3AF' : BRAND_ORANGE)}
-              title="Add files, folder, or link"
-            >
-              <FiPlus
-                className={`w-3.5 h-3.5 transition-transform duration-200 ease-out ${addMenuOpen ? 'rotate-45' : ''}`}
-              />
-            </button>
-            {addMenuOpen && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50"
-              >
-                <button
-                  onClick={() => {
-                    setAddMenuOpen(false);
-                    fileInputRef.current?.click();
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiUpload className="w-3.5 h-3.5 text-gray-500" />
-                  Add files
-                </button>
-                <button
-                  onClick={() => openAddMode('folder')}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiFolder className="w-3.5 h-3.5 text-gray-500" />
-                  Add folder
-                </button>
-                <button
-                  onClick={() => openAddMode('url')}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiLink className="w-3.5 h-3.5 text-gray-500" />
-                  Add link
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Breadcrumb header + Add pill (pill portals to SideBar header when slotted) */}
+      {showInlineHeader && (
+        <div className={`flex items-center gap-2 ${hasBreadcrumbs ? 'justify-between' : 'justify-end'}`}>
+          {hasBreadcrumbs && (
+            <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
+              {view.breadcrumbs.map((c, i) => {
+                const isLast = i === view.breadcrumbs.length - 1;
+                return (
+                  <React.Fragment key={`${c.path}-${i}`}>
+                    {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+                    <button
+                      onClick={() => onSetPath?.(c.path)}
+                      className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
+                      style={isLast ? {} : undefined}
+                      title={c.label}
+                    >
+                      {c.label}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          )}
+          {!addControlSlot && addControlNode}
+        </div>
+      )}
+
+      {addControlSlot && addControlNode && createPortal(addControlNode, addControlSlot)}
 
       {/* Add panel */}
       {canUpload && addPanelOpen && (
