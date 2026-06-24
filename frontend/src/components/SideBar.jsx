@@ -77,9 +77,14 @@ export const ChatSidebar = ({
   onFetchUrl,
   isFetchingUrl = false,
   onDeleteSession = () => {},
+  // Session list customization (experiential labs reuse this list)
+  sessionTo = null,            // (session) => path; defaults to the chat route
+  hideSessionMenu = false,     // hide the download/delete dropdown
+  sessionsLabel = 'Recent Chats',
   // Credits (UI placeholder for now)
   credits = { used: 240, total: 500 },
 }) => {
+  const linkForSession = sessionTo || ((session) => `/chat/${configId}/${session.session_id}`);
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -293,7 +298,7 @@ export const ChatSidebar = ({
                     }`}
                   />
                   <FiClock className="mr-1.5 w-3.5 h-3.5 text-gray-500" />
-                  Recent Chats
+                  {sessionsLabel}
                 </span>
                 <span className="text-[11px] text-gray-400 tabular-nums">
                   {sessions.length}
@@ -340,7 +345,7 @@ export const ChatSidebar = ({
                         ) : (
                           <>
                             <Link
-                              to={`/chat/${configId}/${session.session_id}`}
+                              to={linkForSession(session)}
                               onClick={() => onClose && onClose()}
                               className={`flex items-center px-4 pr-9 py-3 rounded-xl transition-all ${
                                 activeChatId === session.session_id
@@ -372,6 +377,7 @@ export const ChatSidebar = ({
                             </Link>
 
                             {/* Three-dot menu */}
+                            {!hideSessionMenu && (
                             <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
                               <button
                                 onClick={(e) => {
@@ -413,6 +419,7 @@ export const ChatSidebar = ({
                                 </div>
                               )}
                             </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -421,13 +428,17 @@ export const ChatSidebar = ({
                     })
                   ) : (
                     <div className="text-center p-4">
-                      <p className="text-gray-500 text-sm">No recent conversations</p>
-                      <Link
-                        to={`/chat/${configId}`}
-                        className="text-[#2D6CDF] text-xs hover:underline mt-1 inline-block"
-                      >
-                        Start a new chat
-                      </Link>
+                      <p className="text-gray-500 text-sm">
+                        {sessionTo ? 'No finished sessions yet' : 'No recent conversations'}
+                      </p>
+                      {!sessionTo && (
+                        <Link
+                          to={`/chat/${configId}`}
+                          className="text-[#2D6CDF] text-xs hover:underline mt-1 inline-block"
+                        >
+                          Start a new chat
+                        </Link>
+                      )}
                     </div>
                   )}
                     </div>

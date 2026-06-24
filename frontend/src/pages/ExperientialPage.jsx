@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   FiArrowLeft, FiRefreshCw, FiCheck, FiLock, FiMenu,
@@ -88,11 +88,44 @@ export default function ExperientialPage() {
   const [sidebarTab, setSidebarTab] = useState('chats');
   const [sidebarPath, setSidebarPath] = useState('');
 
+  // Saved lab sessions for the sidebar. When the viewer owns this config we load
+  // every student's run (review); otherwise we load their own finished runs.
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     apiClient.get('/auth/me').then((r) => setUserInfo(r.data)).catch(() => {});
     apiClient.get('/accessible_configs').then((r) => setAccessibleConfigs(r.data.configs || [])).catch(() => {});
   }, [isAuthenticated]);
+
+  const loadSessions = useCallback(() => {
+    if (!isAuthenticated) return;
+    setSessionsLoading(true);
+    const apply = (list, byConfig) => {
+      const mapped = (list || []).map((s) => ({
+        ...s,
+        // Distinguish rows: professor sees "student — score", student sees "lab — score".
+        title: `${byConfig ? (s.username || 'Student') : (s.title || 'Lab')}${
+          s.total_score != null ? ` — ${s.total_score}/100` : ''
+        }`,
+      }));
+      setSessions(mapped);
+      setSessionsLoading(false);
+    };
+    const loadMine = () => apiClient.get('/experiential/sessions')
+      .then((r) => apply(r.data.sessions, false))
+      .catch(() => setSessionsLoading(false));
+    if (configId) {
+      apiClient.get(`/experiential/sessions/by-config/${configId}`)
+        .then((r) => apply(r.data.sessions, true))
+        .catch(loadMine); // not the owner → fall back to my own runs
+    } else {
+      loadMine();
+    }
+  }, [isAuthenticated, configId]);
+
+  useEffect(() => { loadSessions(); }, [loadSessions]);
 
   const noop = () => {};
   let columnContent;
@@ -127,9 +160,12 @@ export default function ExperientialPage() {
       <Player
         key={runKey}
         config={config}
+        configId={configId}
+        templateId={templateId}
         onReset={() => setRunKey((k) => k + 1)}
         onBack={() => navigate('/experiential')}
         isAuthenticated={isAuthenticated}
+        onSessionSaved={loadSessions}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
       />
     );
@@ -142,8 +178,11 @@ export default function ExperientialPage() {
       )}
       {isAuthenticated && (
         <ChatSidebar
-          sessions={[]}
-          sessionsLoading={false}
+          sessions={sessions}
+          sessionsLoading={sessionsLoading}
+          sessionTo={(s) => `/experiential/session/${s.session_id}`}
+          hideSessionMenu
+          sessionsLabel="Lab sessions"
           userInfo={userInfo}
           userInfoLoaded={!!userInfo}
           configId={undefined}
@@ -213,7 +252,7 @@ function ColumnShell({ title, subtitle, onBack, headerExtra, footer, children, s
   );
 }
 
-function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar }) {
+function Player({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar }) {
   const { meta, scenario, analyst, predictionVariables, layers, probes, provenanceGates, coach, synthesis } = config;
 
   const layerById = useMemo(() => Object.fromEntries(layers.map((l) => [l.id, l])), [layers]);
@@ -439,9 +478,38 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
     };
   }
 
+  // Persist the finished run so it shows up in the sidebar for review.
+  async function saveSession(finalScores) {
+    if (!isAuthenticated) return;
+    try {
+      await apiClient.post('/experiential/sessions', {
+        config_id: configId || null,
+        template_id: templateId || null,
+        title: meta.title,
+        discipline: meta.discipline,
+        level: meta.level,
+        total_score: finalScores.total,
+        breakdown: finalScores.breakdown,
+        graded_by: finalScores.synthGradedBy,
+        predictions: predictionVariables.map((v) => ({ label: v.label, call: arrow(dials[v.id]) })),
+        layers_revealed: revealedIds.map((id) => layerById[id].name),
+        probes_used: usedProbeIds.map((id) => probeById[id]?.text).filter(Boolean),
+        synthesis_text: synthesisText,
+      });
+      onSessionSaved && onSessionSaved();
+    } catch (e) {
+      // Non-fatal: the student still sees their debrief even if saving fails.
+    }
+  }
+
+  function finish(finalScores) {
+    setScores(finalScores);
+    saveSession(finalScores);
+  }
+
   async function submitSynthesis() {
     markAction();
-    if (!isGenerative) { setScores(computeScores()); return; }
+    if (!isGenerative) { finish(computeScores()); return; }
     setGrading(true);
     try {
       const { data } = await apiClient.post('/experiential/grade', {
@@ -458,10 +526,10 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
         const item = data.rubric?.[i] || {};
         return { r, hit: !!item.met, note: item.note || '' };
       });
-      setScores(computeScores({ rubricHits: hits, feedback: data.feedback || '', graded: true }));
+      finish(computeScores({ rubricHits: hits, feedback: data.feedback || '', graded: true }));
     } catch (e) {
       // Backend unavailable → fall back to the local keyword heuristic.
-      setScores(computeScores());
+      finish(computeScores());
     } finally {
       setGrading(false);
     }

@@ -29,6 +29,7 @@ import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
 import ExperientialIndex from './pages/ExperientialIndex';
 import ExperientialPage from './pages/ExperientialPage';
+import ExperientialSessionPage from './pages/ExperientialSessionPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -117,6 +118,7 @@ function App() {
           {/* Student dashboard — requires login */}
           <Route element={<ProtectedRoute />}>
             <Route path="/student-dashboard" element={<StudentDashboardPage />} />
+            <Route path="/experiential/session/:sessionId" element={<ExperientialSessionPage />} />
           </Route>
 
           {/* Protected Routes - Professor only */}

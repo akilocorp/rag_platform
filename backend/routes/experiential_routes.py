@@ -18,6 +18,12 @@ import os
 import re
 
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from src.agentic.agent_runner import CHART_GUIDE
+from models.experiential_session import ExperientialSession
+from models.config import Config
+from models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +31,7 @@ experiential_bp = Blueprint('experiential', __name__)
 
 # "Make it real" uses Claude Sonnet.
 EXPERIENTIAL_MODEL = 'claude-sonnet-4-6'
-ANALYST_MAX_TOKENS = 700
+ANALYST_MAX_TOKENS = 1100
 GRADE_MAX_TOKENS = 900
 
 
@@ -276,7 +282,7 @@ def _build_analyst_system(payload):
         "Where the lab hasn't revealed a specific number, reason qualitatively about the mechanism rather than fabricating figures. "
         "Use light Markdown. Do not use emojis."
     )
-    return "\n".join(lines)
+    return "\n".join(lines) + CHART_GUIDE
 
 
 @experiential_bp.route('/experiential/analyst', methods=['POST'])
@@ -399,3 +405,109 @@ def grade_synthesis():
     except Exception as e:  # noqa: BLE001
         logger.exception("experiential grade call failed")
         return jsonify({"error": f"Grade call failed: {e}"}), 502
+
+
+# ── Saved sessions ───────────────────────────────────────────────────────────
+# A finished run is persisted so the student can revisit it and the lab owner
+# (professor) can review every student's run. Logged-in only — sessions are
+# attributed by JWT user_id.
+
+def _session_summary(doc):
+    created = doc.get("created_at")
+    return {
+        "session_id": str(doc["_id"]),
+        "title": doc.get("title") or "Untitled lab",
+        "timestamp": created.isoformat() if created else None,
+        "total_score": doc.get("total_score"),
+        "username": doc.get("username"),
+        "config_id": doc.get("config_id"),
+        "template_id": doc.get("template_id"),
+    }
+
+
+def _owns_config(config_id, user_id):
+    if not config_id:
+        return False
+    try:
+        cfg = Config.find_by_id(config_id)
+    except Exception:
+        return False
+    return bool(cfg) and str(cfg.get("user_id")) == str(user_id)
+
+
+@experiential_bp.route('/experiential/sessions', methods=['POST'])
+@jwt_required()
+def save_experiential_session():
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+
+    username = None
+    try:
+        u = User.find_by_id(user_id)
+        username = u.get("username") if u else None
+    except Exception:
+        pass
+
+    doc = {
+        "user_id": user_id,
+        "username": username,
+        "config_id": data.get("config_id"),
+        "template_id": data.get("template_id"),
+        "title": data.get("title"),
+        "discipline": data.get("discipline"),
+        "level": data.get("level"),
+        "total_score": data.get("total_score"),
+        "breakdown": data.get("breakdown"),
+        "predictions": data.get("predictions"),
+        "layers_revealed": data.get("layers_revealed"),
+        "probes_used": data.get("probes_used"),
+        "synthesis_text": data.get("synthesis_text"),
+        "graded_by": data.get("graded_by"),
+    }
+    res = ExperientialSession.create(doc)
+    return jsonify({"session_id": str(res.inserted_id)}), 201
+
+
+@experiential_bp.route('/experiential/sessions', methods=['GET'])
+@jwt_required()
+def list_my_experiential_sessions():
+    user_id = get_jwt_identity()
+    docs = ExperientialSession.find_by_user(user_id)
+    return jsonify({"sessions": [_session_summary(d) for d in docs]})
+
+
+@experiential_bp.route('/experiential/sessions/by-config/<config_id>', methods=['GET'])
+@jwt_required()
+def list_config_experiential_sessions(config_id):
+    user_id = get_jwt_identity()
+    try:
+        cfg = Config.find_by_id(config_id)
+    except Exception:
+        cfg = None
+    if not cfg:
+        return jsonify({"error": "Config not found"}), 404
+    if str(cfg.get("user_id")) != str(user_id):
+        return jsonify({"error": "Forbidden"}), 403
+    docs = ExperientialSession.find_by_config(config_id)
+    return jsonify({"sessions": [_session_summary(d) for d in docs]})
+
+
+@experiential_bp.route('/experiential/sessions/<sid>', methods=['GET'])
+@jwt_required()
+def get_experiential_session(sid):
+    user_id = get_jwt_identity()
+    try:
+        doc = ExperientialSession.find_by_id(sid)
+    except Exception:
+        doc = None
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+
+    is_owner = str(doc.get("user_id")) == str(user_id)
+    if not (is_owner or _owns_config(doc.get("config_id"), user_id)):
+        return jsonify({"error": "Forbidden"}), 403
+
+    created = doc.get("created_at")
+    doc["session_id"] = str(doc.pop("_id"))
+    doc["created_at"] = created.isoformat() if created else None
+    return jsonify({"session": doc})
