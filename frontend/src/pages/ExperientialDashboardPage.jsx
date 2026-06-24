@@ -61,7 +61,7 @@ export default function ExperientialDashboardPage() {
               {sessions.map((s) => (
                 <Link
                   key={s.session_id}
-                  to={`/experiential/session/${s.session_id}`}
+                  to={`/experiential/c/${configId}?session=${s.session_id}`}
                   className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[#F0F6FB] transition-colors"
                 >
                   <div className="min-w-0">

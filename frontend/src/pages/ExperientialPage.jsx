@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FiArrowLeft, FiRefreshCw, FiCheck, FiLock, FiMenu,
   FiPlusCircle, FiHelpCircle, FiAward,
@@ -13,6 +13,8 @@ import ChatComposer from '../components/ChatComposer';
 import StickyHeader from '../components/experiential/StickyHeader';
 import IrfChart from '../components/experiential/IrfChart';
 import ComparisonTable from '../components/experiential/ComparisonTable';
+import SessionReplay from '../components/experiential/SessionReplay';
+import SessionReport from '../components/experiential/SessionReport';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
@@ -53,6 +55,11 @@ function SpeakerLabel({ name }) {
 export default function ExperientialPage() {
   const { templateId, configId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // A `?session=<id>` opens that saved run inline (sidebar stays put) instead of
+  // navigating away. The lab path stays the same, so this page is not remounted.
+  const selectedSessionId = searchParams.get('session');
+  const basePath = configId ? `/experiential/c/${configId}` : `/experiential/${templateId || ''}`;
 
   // Two sources: a built-in template (by id) or a DB config's AI-generated lab.
   const [dbLab, setDbLab] = useState({ loading: !!configId, config: null, error: null });
@@ -129,7 +136,17 @@ export default function ExperientialPage() {
 
   const noop = () => {};
   let columnContent;
-  if (configId && dbLab.loading) {
+  if (isAuthenticated && selectedSessionId) {
+    // Inline replay of a saved run — stays inside this page next to the sidebar.
+    columnContent = (
+      <SessionColumn
+        sessionId={selectedSessionId}
+        isAuthenticated={isAuthenticated}
+        onClose={() => { searchParams.delete('session'); setSearchParams(searchParams, { replace: true }); }}
+        onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+      />
+    );
+  } else if (configId && dbLab.loading) {
     columnContent = (
       <ColumnShell title="Experiential Lab" onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6"><p className="text-gray-500">Loading lab…</p></Card>
@@ -180,7 +197,7 @@ export default function ExperientialPage() {
         <ChatSidebar
           sessions={sessions}
           sessionsLoading={sessionsLoading}
-          sessionTo={(s) => `/experiential/session/${s.session_id}`}
+          sessionTo={(s) => `${basePath}?session=${s.session_id}`}
           hideSessionMenu
           sessionsLabel="Lab sessions"
           userInfo={userInfo}
@@ -249,6 +266,89 @@ function ColumnShell({ title, subtitle, onBack, headerExtra, footer, children, s
       </main>
       {footer}
     </>
+  );
+}
+
+// Inline session viewer rendered in the lab column (sidebar stays). Default shows
+// the read-only replay (history); a "Report" toggle in the header shows the score.
+function SessionColumn({ sessionId, isAuthenticated, onClose, onOpenMobileSidebar }) {
+  const [data, setData] = useState({ loading: true, session: null, error: null });
+  const [cfg, setCfg] = useState(null);
+  const [tab, setTab] = useState('session');
+
+  useEffect(() => {
+    let cancelled = false;
+    setData({ loading: true, session: null, error: null });
+    setCfg(null);
+    setTab('session');
+    apiClient.get(`/experiential/sessions/${sessionId}`)
+      .then((r) => { if (!cancelled) setData({ loading: false, session: r.data.session, error: null }); })
+      .catch((e) => {
+        if (cancelled) return;
+        const c = e?.response?.status;
+        setData({
+          loading: false, session: null,
+          error: c === 403 ? "You don't have access to this session."
+            : c === 404 ? 'This session no longer exists.' : 'Could not load this session.',
+        });
+      });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const session = data.session;
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    if (session.config_id) {
+      apiClient.get(`/config/${session.config_id}`)
+        .then((r) => { if (!cancelled) setCfg(r.data?.config?.experiential_config || null); })
+        .catch(() => { if (!cancelled) setCfg(null); });
+    } else if (session.template_id) {
+      setCfg(getExperientialConfig(session.template_id) || null);
+    }
+    return () => { cancelled = true; };
+  }, [session]);
+
+  const headerExtra = session ? (
+    <div className="flex items-center gap-1.5">
+      {session.total_score != null && tab === 'session' && (
+        <span className="hidden sm:inline text-sm font-bold text-[#FA6C43] tabular-nums mr-1">{session.total_score}/100</span>
+      )}
+      {[['session', 'History'], ['report', 'Report']].map(([k, label]) => (
+        <button
+          key={k}
+          onClick={() => setTab(k)}
+          className={`text-sm px-3 py-1.5 rounded-xl font-semibold transition-colors ${
+            tab === k ? 'bg-[#222] text-white' : 'bg-white border border-gray-200 text-gray-500 hover:text-[#FA6C43]'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  const subtitle = session
+    ? [session.username, session.created_at ? new Date(session.created_at).toLocaleString() : null].filter(Boolean).join(' · ')
+    : '';
+
+  return (
+    <ColumnShell
+      title={session?.title || 'Session'}
+      subtitle={subtitle}
+      onBack={onClose}
+      isAuthenticated={isAuthenticated}
+      onOpenMobileSidebar={onOpenMobileSidebar}
+      headerExtra={headerExtra}
+    >
+      {data.loading && <Card className="p-6"><p className="text-gray-500">Loading…</p></Card>}
+      {data.error && <Card className="p-6"><p className="text-gray-600">{data.error}</p></Card>}
+      {session && tab === 'session' && (
+        cfg ? <SessionReplay config={cfg} transcript={session.transcript} />
+          : <Card className="p-6"><p className="text-gray-500">Loading the lab…</p></Card>
+      )}
+      {session && tab === 'report' && <SessionReport session={session} />}
+    </ColumnShell>
   );
 }
 
