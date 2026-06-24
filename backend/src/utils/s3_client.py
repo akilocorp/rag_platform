@@ -68,10 +68,16 @@ def generate_download_url(
     key: str,
     expires_in: int = 300,
     filename: str | None = None,
+    disposition: str = 'attachment',
 ) -> str:
+    # disposition='inline' lets the browser display the file (PDF/text/image)
+    # in a tab or iframe instead of forcing a download — used by the chat
+    # source chips' open-in-new-tab and hover preview.
     params = {'Bucket': get_bucket(), 'Key': key}
     if filename:
-        params['ResponseContentDisposition'] = f'attachment; filename="{filename}"'
+        params['ResponseContentDisposition'] = f'{disposition}; filename="{filename}"'
+    elif disposition == 'inline':
+        params['ResponseContentDisposition'] = 'inline'
     return get_s3_client().generate_presigned_url(
         'get_object', Params=params, ExpiresIn=expires_in
     )

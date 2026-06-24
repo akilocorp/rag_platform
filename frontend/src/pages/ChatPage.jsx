@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings, FiUploadCloud } from 'react-icons/fi';
+import { FiFile, FiFileText, FiExternalLink, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings, FiUploadCloud } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
@@ -51,35 +52,210 @@ const safeHostname = (url) => {
   try { return new URL(url).hostname; } catch { return url; }
 };
 
-// Build a deduped list of cited URLs from completed tool calls.
-// - web_fetch: the input URL
-// - web_search: parses "[N] title — url" lines from the result
-const extractSources = (toolCalls) => {
+// Build a deduped list of cited sources from completed tool calls.
+// - web_fetch: the input URL (web source)
+// - web_search: parses "[N] title — url" lines (web source)
+// - search_knowledge_base: parses each passage's "[N] <file> (slide M)" header
+//   into a file source, resolved against `fileIndex` (filename/url -> file doc)
+//   so the chip can open the actual file and show a hover preview.
+const extractSources = (toolCalls, fileIndex) => {
   if (!Array.isArray(toolCalls) || toolCalls.length === 0) return [];
   const seen = new Set();
   const sources = [];
-  const push = (url, title) => {
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    sources.push({ url, title: title || safeHostname(url) });
+  const pushWeb = (url, title) => {
+    if (!url) return;
+    const key = `w:${url}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sources.push({ kind: 'web', key, url, title: title || safeHostname(url) });
+  };
+  const pushFile = (name) => {
+    const clean = (name || '').trim();
+    if (!clean || clean === 'unknown') return;
+    const key = `f:${clean}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const doc = fileIndex ? fileIndex.get(clean) : null;
+    sources.push({
+      kind: 'file',
+      key,
+      title: clean,
+      filename: clean,
+      fileId: doc?._id || null,
+      isUrl: !!doc?.is_url,
+      sourceUrl: doc?.source_url || null,
+      resolved: !!doc,
+    });
   };
   for (const tc of toolCalls) {
     if (!tc || tc.is_error) continue;
     if (tc.name === 'web_fetch') {
-      push(tc.input?.url, null);
+      pushWeb(tc.input?.url, null);
     } else if (tc.name === 'web_search' && typeof tc.result === 'string') {
       const re = /\[(\d+)\]\s+(.+?)\s+—\s+(https?:\/\/\S+)/g;
       let m;
       while ((m = re.exec(tc.result)) !== null) {
-        push(m[3], m[2]);
+        pushWeb(m[3], m[2]);
+      }
+    } else if (tc.name === 'search_knowledge_base' && typeof tc.result === 'string') {
+      for (const block of tc.result.split(/\n\n+/)) {
+        const first = block.split('\n', 1)[0];
+        const m = first.match(/^\s*\[(\d+)\]\s+(.+?)(?:\s+\(slide\s+\d+\))?\s*$/);
+        if (m) pushFile(m[2]);
       }
     }
   }
   return sources;
 };
 
+const isPreviewableInIframe = (name) =>
+  /\.(pdf|txt|md|csv|json|png|jpe?g|gif|webp|svg)$/i.test(name || '');
+
+// Floating preview card for a file source, portaled to body and positioned
+// near the chip (above, flipping below if there's no room). Purely visual —
+// pointer-events are disabled so it never steals the hover.
+const SourcePreview = ({ anchor, url, loading, filename }) => {
+  const ref = useRef(null);
+  const [style, setStyle] = useState({ opacity: 0, top: 0, left: 0 });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !anchor) return;
+    const margin = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const vw = window.innerWidth;
+    let top = anchor.top + window.scrollY - h - margin;
+    if (anchor.top - h - margin < 0) top = anchor.bottom + window.scrollY + margin;
+    let left = anchor.left + window.scrollX + anchor.width / 2 - w / 2;
+    const maxLeft = vw + window.scrollX - w - margin;
+    const minLeft = window.scrollX + margin;
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+    setStyle({ top, left, opacity: 1 });
+  }, [anchor, url, loading]);
+
+  const previewable = isPreviewableInIframe(filename);
+  const src = url && /\.pdf$/i.test(filename) ? `${url}#toolbar=0&navpanes=0&view=FitH` : url;
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="pointer-events-none rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
+      style={{ position: 'absolute', width: 340, zIndex: 70, transition: 'opacity 120ms ease-out', ...style }}
+    >
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-[#F0F6FB]">
+        <FiFileText className="w-3.5 h-3.5 text-[#FA6C43] flex-shrink-0" />
+        <span className="text-[11px] font-semibold text-[#222] truncate">{filename}</span>
+      </div>
+      <div className="h-[420px] bg-gray-50 flex items-center justify-center">
+        {loading || !url ? (
+          <span className="text-[11px] text-gray-400 flex items-center gap-2">
+            <FaSpinner className="animate-spin" /> Loading preview…
+          </span>
+        ) : previewable ? (
+          <iframe title={filename} src={src} className="w-full h-full border-0" />
+        ) : (
+          <div className="text-center px-4">
+            <FiFileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-[11px] text-gray-500">No inline preview for this file type.</p>
+            <p className="text-[11px] text-gray-400 mt-1">Click to open it in a new tab.</p>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
+// A single file source chip: opens the file in a new tab on click and shows
+// a hover preview. Lazily resolves an inline (viewable) URL on first hover.
+const FileSourceChip = ({ source, index }) => {
+  const ref = useRef(null);
+  const [hover, setHover] = useState(false);
+  const [anchor, setAnchor] = useState(null);
+  const [viewUrl, setViewUrl] = useState(source.isUrl ? source.sourceUrl : null);
+  const [loadingUrl, setLoadingUrl] = useState(false);
+  const requestedRef = useRef(false);
+
+  const clickable = source.resolved && (source.isUrl ? !!source.sourceUrl : !!source.fileId);
+
+  const resolveUrl = useCallback(async () => {
+    if (viewUrl || requestedRef.current) return viewUrl;
+    if (source.isUrl) return source.sourceUrl;
+    if (!source.fileId) return null;
+    requestedRef.current = true;
+    setLoadingUrl(true);
+    try {
+      const res = await apiClient.get(`/files/${source.fileId}/download`, {
+        params: { disposition: 'inline' },
+      });
+      const u = res.data?.url || null;
+      setViewUrl(u);
+      return u;
+    } catch {
+      return null;
+    } finally {
+      setLoadingUrl(false);
+    }
+  }, [source.isUrl, source.sourceUrl, source.fileId, viewUrl]);
+
+  const openFile = async () => {
+    const u = source.isUrl ? source.sourceUrl : await resolveUrl();
+    if (u) window.open(u, '_blank', 'noopener,noreferrer');
+  };
+
+  const onEnter = () => {
+    if (ref.current) setAnchor(ref.current.getBoundingClientRect());
+    setHover(true);
+    resolveUrl();
+  };
+
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        onClick={clickable ? openFile : undefined}
+        onMouseEnter={clickable ? onEnter : undefined}
+        onMouseLeave={() => setHover(false)}
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] text-[11px] text-[#222] transition-colors max-w-[300px] ${
+          clickable ? 'hover:bg-[#F9D0C4]/40 hover:text-[#FA6C43] cursor-pointer' : 'cursor-default'
+        }`}
+        title={clickable ? `Open ${source.filename}` : source.filename}
+      >
+        <span className="text-[#FA6C43] font-semibold">[{index}]</span>
+        <FiFileText className="w-3 h-3 flex-shrink-0 opacity-70" />
+        <span className="truncate">{source.title}</span>
+        {clickable && <FiExternalLink className="w-3 h-3 flex-shrink-0 opacity-50" />}
+      </button>
+      {hover && clickable && anchor && (
+        <SourcePreview anchor={anchor} url={viewUrl} loading={loadingUrl} filename={source.filename} />
+      )}
+    </>
+  );
+};
+
+// Renders a source chip — a link for web sources, a FileSourceChip for files.
+const SourceChip = ({ source, index }) => {
+  if (source.kind === 'file') {
+    return <FileSourceChip source={source} index={index} />;
+  }
+  return (
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
+      title={source.title ? `${source.title} — ${source.url}` : source.url}
+    >
+      <span className="text-[#FA6C43] font-semibold">[{index}]</span>
+      <span className="truncate">{source.title}</span>
+    </a>
+  );
+};
+
 // --- MODERN CHAT MESSAGE COMPONENT ---
-const ChatMessage = React.memo(({ message, botAvatarId }) => {
+const ChatMessage = React.memo(({ message, botAvatarId, fileIndex }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
   const attachedFiles = message.attachedFiles || [];
@@ -91,7 +267,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
-  const sources = !isUser ? extractSources(toolCalls) : [];
+  const sources = !isUser ? extractSources(toolCalls, fileIndex) : [];
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const hasThinking = !isUser && (hasToolCalls || sources.length > 0);
 
@@ -238,17 +414,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
                       <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Sources</p>
                       <div className="flex flex-wrap gap-1.5">
                         {sources.map((s, i) => (
-                          <a
-                            key={s.url}
-                            href={s.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
-                            title={s.title ? `${s.title} — ${s.url}` : s.url}
-                          >
-                            <span className="text-[#FA6C43] font-semibold">[{i + 1}]</span>
-                            <span className="truncate">{s.title}</span>
-                          </a>
+                          <SourceChip key={s.key} source={s} index={i + 1} />
                         ))}
                       </div>
                     </div>
@@ -353,6 +519,11 @@ const ChatPage = () => {
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [pendingImages, setPendingImages] = useState([]);
   const libraryLoadedRef = useRef(false);
+  // All of this bot's files, fetched once, used only to resolve knowledge-base
+  // source citations (filename -> file doc) into clickable/previewable chips.
+  // Independent of the sidebar's folder navigation (libraryFiles), so a chip
+  // stays live regardless of where the user has browsed.
+  const [kbResolverFiles, setKbResolverFiles] = useState([]);
 
   // Usage limits: warn banner (approaching cap) + block modal (cap reached)
   const [usageWarn, setUsageWarn] = useState(null);   // { remaining } | null
@@ -397,6 +568,33 @@ const ChatPage = () => {
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
+
+  // Fetch the bot's full file list once (config-scoped, all folders) for source
+  // citation resolution. Best-effort: failures just leave KB chips non-clickable.
+  useEffect(() => {
+    if (!isAuthenticated || !configId) { setKbResolverFiles([]); return; }
+    let cancelled = false;
+    apiClient.get(`/files?config_id=${configId}`)
+      .then((res) => { if (!cancelled) setKbResolverFiles(res.data?.files || []); })
+      .catch(() => { if (!cancelled) setKbResolverFiles([]); });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, configId]);
+
+  // Map a knowledge-base citation (filename or ingested URL) to its file doc.
+  // Personal/selected files (libraryFiles, sessionUploads) override the shared
+  // bot set on name collisions — they're the more specific chat context.
+  const fileIndex = useMemo(() => {
+    const map = new Map();
+    const add = (f) => {
+      if (!f) return;
+      if (f.filename) map.set(f.filename, f);
+      if (f.source_url) map.set(f.source_url, f);
+    };
+    kbResolverFiles.forEach(add);
+    libraryFiles.forEach(add);
+    sessionUploads.forEach(add);
+    return map;
+  }, [kbResolverFiles, libraryFiles, sessionUploads]);
 
   const [guestInfo, setGuestInfo] = useState(() => {
     try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
@@ -1545,7 +1743,7 @@ const ChatPage = () => {
                             </div>
                         )}
                         {messages.map((msg, i) => (
-                          <ChatMessage key={i} message={msg} botAvatarId={config?.bot_avatar} />
+                          <ChatMessage key={i} message={msg} botAvatarId={config?.bot_avatar} fileIndex={fileIndex} />
                         ))}
                         <div ref={messagesEndRef} />
                      </div>

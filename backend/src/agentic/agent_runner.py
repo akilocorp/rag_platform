@@ -120,8 +120,9 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "\n\nYou have access to these tools:\n"
             + "\n".join(tool_lines)
             + "\n\nCite sources inline by index, like [1] or [2], using the "
-            "numbers shown in tool results. After your answer, list the "
-            "sources used."
+            "numbers shown in tool results. Do NOT print your own list of "
+            "sources at the end — the interface displays the sources used "
+            "as clickable chips below your answer."
         )
 
     return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{CHART_GUIDE}"

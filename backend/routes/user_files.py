@@ -616,8 +616,12 @@ def download_file(file_id):
     if not doc.get('storage_key'):
         return jsonify({"message": "File not available for download"}), 410
 
+    disposition = request.args.get('disposition', 'attachment')
+    if disposition not in ('attachment', 'inline'):
+        disposition = 'attachment'
     url = generate_download_url(
-        doc['storage_key'], expires_in=300, filename=doc.get('filename')
+        doc['storage_key'], expires_in=300,
+        filename=doc.get('filename'), disposition=disposition,
     )
     return jsonify({"url": url, "expires_in": 300}), 200
 
