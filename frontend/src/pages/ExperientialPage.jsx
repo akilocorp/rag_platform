@@ -255,6 +255,12 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const imageInputRef = useRef(null);
 
   const chartKeys = useMemo(() => Object.keys(baseLayer.reveal.chartSeries), [baseLayer]);
+  // Friendly chart-variable labels come from the lab's own predictionVariables
+  // (e.g. real_gdp -> "Real GDP"), so the toggle never shows raw snake_case keys.
+  const varLabelByKey = useMemo(
+    () => Object.fromEntries(predictionVariables.map((v) => [v.id, v.label])),
+    [predictionVariables]
+  );
 
   // ── Derived ──
   const gatesForHeader = provenanceGates.map((g) => ({ ...g, satisfied: satisfiedGateIds.includes(g.id) }));
@@ -587,8 +593,11 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
             <SpeakerLabel name={analyst.persona ? meta.title : 'Analyst'} />
             <div className="flex items-center justify-between gap-2 mb-2">
               <h3 className="font-bold text-[#222]">{b.type === 'reveal' ? lyr.name : `Comparison · ${lyr.name}`}</h3>
-              <ChartVarToggle chartKeys={chartKeys} chartVar={chartVar} setChartVar={setChartVar} />
+              <ChartVarToggle chartKeys={chartKeys} chartVar={chartVar} setChartVar={setChartVar} labels={varLabelByKey} />
             </div>
+            <p className="text-xs text-gray-500 mb-1.5">
+              {varLabelByKey[chartVar] || LABEL_BY_KEY[chartVar] || chartVar} — response over 8 quarters (% deviation from baseline). Each line is a model.
+            </p>
             <IrfChart series={series} guess={guess} unit={unit} blurNumbers={numbersBlurred} />
             {/* Baseline shows its narrative; extension layers route the "why"
                 through the helper (the 'explain' block) instead. */}
@@ -847,7 +856,7 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
 
 // ─── Sub-widgets ─────────────────────────────────────────────────────────────
 
-function ChartVarToggle({ chartKeys, chartVar, setChartVar }) {
+function ChartVarToggle({ chartKeys, chartVar, setChartVar, labels = {} }) {
   return (
     <div className="flex items-center gap-1 flex-wrap justify-end">
       {chartKeys.map((k) => (
@@ -858,7 +867,7 @@ function ChartVarToggle({ chartKeys, chartVar, setChartVar }) {
             chartVar === k ? 'bg-[#222] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
           }`}
         >
-          {LABEL_BY_KEY[k] || k}
+          {labels[k] || LABEL_BY_KEY[k] || k}
         </button>
       ))}
     </div>
