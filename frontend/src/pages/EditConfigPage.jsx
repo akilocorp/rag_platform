@@ -6,6 +6,7 @@ import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt } from 'reac
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
+import InfoTip from '../components/InfoTip';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -502,7 +503,7 @@ const EditConfigPage = () => {
                     <input type="range" name="group_size" min="1" max="10" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
                   <div>
-                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Duration</span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
+                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span className="inline-flex items-center gap-1">Duration<InfoTip text="How long the group chat stays open before it automatically ends. Adjustable from 5 to 60 minutes." /></span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
                     <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
                 </div>
@@ -533,7 +534,7 @@ const EditConfigPage = () => {
                         </div>
                         <div>
                             <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
-                                <span>Response style</span>
+                                <span className="inline-flex items-center gap-1">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></span>
                                 {noTemp && <span className="text-gray-400 font-normal normal-case">Auto-managed</span>}
                             </label>
                             {!noTemp && (
@@ -595,7 +596,7 @@ const EditConfigPage = () => {
                 </div>
 
                 <div>
-                  <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response style</label>
+                  <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
                   <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
                     <span>Precise</span>
