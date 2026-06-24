@@ -230,7 +230,10 @@ function Player({ config, onReset, onBack, isAuthenticated, onOpenMobileSidebar 
   const [layerReasons, setLayerReasons] = useState({});            // layerId -> the student's one-line "why"
   const [usedProbeIds, setUsedProbeIds] = useState([]);
   const [satisfiedGateIds, setSatisfiedGateIds] = useState([]);
-  const [chartVar, setChartVar] = useState('gdp');
+  // Default to the baseline's first chart variable. Generated labs use their own
+  // variable keys (e.g. price_level, real_gdp), so a hardcoded 'gdp' would match
+  // nothing and render an empty chart until the user clicked a variable chip.
+  const [chartVar, setChartVar] = useState(() => Object.keys(baseLayer.reveal.chartSeries)[0]);
   const [feed, setFeed] = useState([]);                            // append-only narrative blocks
   const [synthesisOpen, setSynthesisOpen] = useState(false);
   const [synthesisText, setSynthesisText] = useState('');
