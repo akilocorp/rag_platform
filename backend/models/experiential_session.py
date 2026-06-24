@@ -29,3 +29,8 @@ class ExperientialSession:
     @staticmethod
     def find_by_id(sid):
         return ExperientialSession.get_collection().find_one({"_id": ObjectId(sid)})
+
+    @staticmethod
+    def update_by_id(sid, fields):
+        fields["updated_at"] = datetime.utcnow()
+        return ExperientialSession.get_collection().update_one({"_id": ObjectId(sid)}, {"$set": fields})

@@ -131,22 +131,22 @@ export default function ExperientialPage() {
   let columnContent;
   if (configId && dbLab.loading) {
     columnContent = (
-      <ColumnShell title="Experiential Lab" onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title="Experiential Lab" onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6"><p className="text-gray-500">Loading lab…</p></Card>
       </ColumnShell>
     );
   } else if (!config) {
     columnContent = (
-      <ColumnShell title="Experiential Lab" onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title="Experiential Lab" onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6">
           <p className="text-gray-700">{configId ? (dbLab.error || 'This lab is not available.') : <>No experiential template found for id <code className="px-1 bg-gray-100 rounded">{templateId}</code>.</>}</p>
-          <button onClick={() => navigate('/experiential')} className="mt-4 text-[#FA6C43] font-semibold">← Back to lab list</button>
+          <button onClick={() => navigate('/config_list')} className="mt-4 text-[#FA6C43] font-semibold">← Back to dashboard</button>
         </Card>
       </ColumnShell>
     );
   } else if (!validation.ok) {
     columnContent = (
-      <ColumnShell title={config?.meta?.title || 'Experiential Lab'} onBack={() => navigate('/experiential')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title={config?.meta?.title || 'Experiential Lab'} onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6 border-red-200">
           <h2 className="text-lg font-bold text-red-700 mb-2">This simulation config is invalid</h2>
           <ul className="list-disc pl-5 text-sm text-red-600 space-y-1">
@@ -163,7 +163,7 @@ export default function ExperientialPage() {
         configId={configId}
         templateId={templateId}
         onReset={() => setRunKey((k) => k + 1)}
-        onBack={() => navigate('/experiential')}
+        onBack={() => navigate('/config_list')}
         isAuthenticated={isAuthenticated}
         onSessionSaved={loadSessions}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
@@ -190,7 +190,7 @@ export default function ExperientialPage() {
           isMobileOpen={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
           onToggle={() => setIsSidebarCollapsed((v) => !v)}
-          onNewChat={() => navigate('/experiential')}
+          onNewChat={() => navigate('/config_list')}
           onNavigateWithAutoSave={(cb) => cb()}
           activeTab={sidebarTab}
           onSetTab={setSidebarTab}
@@ -286,6 +286,11 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   const unproductiveRef = useRef(0);
   const lastActionRef = useRef(Date.now());
   const feedEndRef = useRef(null);
+
+  // Saved-session lifecycle: created on the first answer, updated as the run
+  // progresses, finalized on synthesis. sessionIdRef holds the row id once made.
+  const sessionIdRef = useRef(null);
+  const persistingRef = useRef(false);
 
   // Composer state (reused chat input box).
   const [input, setInput] = useState('');
@@ -478,33 +483,65 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
     };
   }
 
-  // Persist the finished run so it shows up in the sidebar for review.
-  async function saveSession(finalScores) {
+  // Full transcript + state for replay, plus summary fields for the dashboard.
+  function buildSessionPayload(finalScores) {
+    return {
+      config_id: configId || null,
+      template_id: templateId || null,
+      title: meta.title,
+      discipline: meta.discipline,
+      level: meta.level,
+      status: finalScores ? 'completed' : 'in_progress',
+      total_score: finalScores ? finalScores.total : null,
+      breakdown: finalScores ? finalScores.breakdown : null,
+      graded_by: finalScores ? finalScores.synthGradedBy : null,
+      synthesis_text: synthesisText,
+      predictions: predictionVariables.map((v) => ({ label: v.label, call: arrow(dials[v.id]) })),
+      layers_revealed: revealedIds.map((id) => layerById[id].name),
+      probes_used: usedProbeIds.map((id) => probeById[id]?.text).filter(Boolean),
+      transcript: {
+        feed, dials, dialsCommitted, revealedIds, unlockedIds,
+        layerPredictions, layerReasons, usedProbeIds, satisfiedGateIds, chartVar,
+        synthesisText,
+      },
+    };
+  }
+
+  // Create on first save, update thereafter. Best-effort: a failed save never
+  // blocks the run. A creation guard avoids racing two POSTs into two rows.
+  async function persistSession(finalScores) {
     if (!isAuthenticated) return;
+    if (persistingRef.current && !sessionIdRef.current) return;
+    persistingRef.current = true;
     try {
-      await apiClient.post('/experiential/sessions', {
-        config_id: configId || null,
-        template_id: templateId || null,
-        title: meta.title,
-        discipline: meta.discipline,
-        level: meta.level,
-        total_score: finalScores.total,
-        breakdown: finalScores.breakdown,
-        graded_by: finalScores.synthGradedBy,
-        predictions: predictionVariables.map((v) => ({ label: v.label, call: arrow(dials[v.id]) })),
-        layers_revealed: revealedIds.map((id) => layerById[id].name),
-        probes_used: usedProbeIds.map((id) => probeById[id]?.text).filter(Boolean),
-        synthesis_text: synthesisText,
-      });
+      const payload = buildSessionPayload(finalScores);
+      if (!sessionIdRef.current) {
+        const { data } = await apiClient.post('/experiential/sessions', payload);
+        sessionIdRef.current = data.session_id;
+      } else {
+        await apiClient.put(`/experiential/sessions/${sessionIdRef.current}`, payload);
+      }
       onSessionSaved && onSessionSaved();
     } catch (e) {
-      // Non-fatal: the student still sees their debrief even if saving fails.
+      // Non-fatal.
+    } finally {
+      persistingRef.current = false;
     }
   }
 
+  // Keep the saved session in sync as the run unfolds (debounced). Starts only
+  // after the first answer (dialsCommitted) and stops once finished — finish()
+  // writes the authoritative completed state.
+  useEffect(() => {
+    if (!isAuthenticated || !dialsCommitted || scores) return;
+    const t = setTimeout(() => persistSession(), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed, dialsCommitted, revealedIds, layerPredictions, layerReasons, usedProbeIds, synthesisText, scores]);
+
   function finish(finalScores) {
     setScores(finalScores);
-    saveSession(finalScores);
+    persistSession(finalScores);
   }
 
   async function submitSynthesis() {

@@ -27,9 +27,9 @@ import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
 import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
-import ExperientialIndex from './pages/ExperientialIndex';
 import ExperientialPage from './pages/ExperientialPage';
 import ExperientialSessionPage from './pages/ExperientialSessionPage';
+import ExperientialDashboardPage from './pages/ExperientialDashboardPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -108,7 +108,8 @@ function App() {
           <Route path="/video/compare/:configId" element={<VideoComparePage />} />
 
           {/* Experiential simulation labs — scripted, no auth needed (no LLM/data calls) */}
-          <Route path="/experiential" element={<ExperientialIndex />} />
+          {/* The standalone index is gone; labs are reached from the dashboard. */}
+          <Route path="/experiential" element={<Navigate to="/config_list" replace />} />
           <Route path="/experiential/c/:configId" element={<ExperientialPage />} />
           <Route path="/experiential/:templateId" element={<ExperientialPage />} />
 
@@ -128,6 +129,7 @@ function App() {
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />
             <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
+            <Route path="/experiential-dashboard/:configId" element={<ExperientialDashboardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

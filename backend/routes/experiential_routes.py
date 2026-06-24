@@ -418,11 +418,20 @@ def _session_summary(doc):
         "session_id": str(doc["_id"]),
         "title": doc.get("title") or "Untitled lab",
         "timestamp": created.isoformat() if created else None,
+        "status": doc.get("status") or "completed",
         "total_score": doc.get("total_score"),
         "username": doc.get("username"),
         "config_id": doc.get("config_id"),
         "template_id": doc.get("template_id"),
     }
+
+
+# Fields a client may write on create/update (the rest are server-controlled).
+_SESSION_MUTABLE = (
+    "title", "discipline", "level", "status", "total_score", "breakdown",
+    "predictions", "layers_revealed", "probes_used", "synthesis_text",
+    "graded_by", "transcript",
+)
 
 
 def _owns_config(config_id, user_id):
@@ -453,19 +462,33 @@ def save_experiential_session():
         "username": username,
         "config_id": data.get("config_id"),
         "template_id": data.get("template_id"),
-        "title": data.get("title"),
-        "discipline": data.get("discipline"),
-        "level": data.get("level"),
-        "total_score": data.get("total_score"),
-        "breakdown": data.get("breakdown"),
-        "predictions": data.get("predictions"),
-        "layers_revealed": data.get("layers_revealed"),
-        "probes_used": data.get("probes_used"),
-        "synthesis_text": data.get("synthesis_text"),
-        "graded_by": data.get("graded_by"),
+        "status": data.get("status") or "in_progress",
     }
+    for k in _SESSION_MUTABLE:
+        if k in data:
+            doc[k] = data.get(k)
     res = ExperientialSession.create(doc)
     return jsonify({"session_id": str(res.inserted_id)}), 201
+
+
+@experiential_bp.route('/experiential/sessions/<sid>', methods=['PUT'])
+@jwt_required()
+def update_experiential_session(sid):
+    user_id = get_jwt_identity()
+    try:
+        doc = ExperientialSession.find_by_id(sid)
+    except Exception:
+        doc = None
+    if not doc:
+        return jsonify({"error": "Not found"}), 404
+    if str(doc.get("user_id")) != str(user_id):
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    fields = {k: data.get(k) for k in _SESSION_MUTABLE if k in data}
+    if fields:
+        ExperientialSession.update_by_id(sid, fields)
+    return jsonify({"session_id": sid})
 
 
 @experiential_bp.route('/experiential/sessions', methods=['GET'])
