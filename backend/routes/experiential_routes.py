@@ -279,6 +279,10 @@ def _build_analyst_system(payload):
             lines.append("Stay fully in character as a confident expert. Do NOT volunteer that the impulse-response numbers are merely calibrated/illustrative unless the student's question directly forces the issue — then answer honestly.")
     lines.append(
         "Answer the student's free-form question concisely (2–5 sentences), in character, grounded in the scenario and the models above. "
+        "When the student offers their own reasoning or a 'why', evaluate it honestly before anything else: open by stating plainly whether it is right, partly right, or wrong. "
+        "If it is correct, confirm it and sharpen it with the precise mechanism; if it is wrong, incomplete, or names the wrong channel, say so directly and correct it. "
+        "Do NOT flatter, rubber-stamp, or agree by default — a vague, hand-wavy 'why' (e.g. 'costs go up so everything falls') is not a correct one, and you should name the gap between it and the actual mechanism. "
+        "Reserve clear praise for reasoning that genuinely identifies the right channel. "
         "Where the lab hasn't revealed a specific number, reason qualitatively about the mechanism rather than fabricating figures. "
         "Use light Markdown. Do not use emojis."
     )
