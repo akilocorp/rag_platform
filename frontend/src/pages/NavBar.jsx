@@ -1,12 +1,15 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import logo from '../assets/logo.png'; // Adjust path if necessary
+import { isLoggedIn, dashboardPath } from '../utils/auth';
 
 const Navbar = () => {
   const location = useLocation();
 
   // Helper function to check if a path is active
   const isActive = (path) => location.pathname === path;
+
+  const loggedIn = isLoggedIn();
 
   return (
     <nav className="w-full flex justify-between items-center px-6 lg:px-8 py-6 max-w-[1440px] mx-auto z-10">
@@ -41,17 +44,24 @@ const Navbar = () => {
           About Us
         </Link>
 
-        {/* If we are already on the login page, maybe point to Register instead. Otherwise, point to Login. */}
-        {isActive('/login') ? (
-          <Link 
-            to="/register" 
+        {/* Logged in → Dashboard. On the login page → Register. Otherwise → Login. */}
+        {loggedIn ? (
+          <Link
+            to={dashboardPath()}
+            className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:text-[#F8CABA] transition-colors shadow-sm"
+          >
+            Dashboard
+          </Link>
+        ) : isActive('/login') ? (
+          <Link
+            to="/register"
             className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:text-[#F8CABA] transition-colors shadow-sm"
           >
             Register
           </Link>
         ) : (
-          <Link 
-            to="/login" 
+          <Link
+            to="/login"
             className="bg-[#FA6C43] text-white px-4 lg:px-6 py-2 rounded-xl text-sm lg:text-base font-bold hover:text-[#F8CABA] transition-colors shadow-sm"
           >
             Login

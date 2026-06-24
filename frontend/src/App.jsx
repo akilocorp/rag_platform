@@ -36,6 +36,12 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
 import PageTransition from './components/PageTransition';
+import { isLoggedIn, dashboardPath } from './utils/auth';
+
+// Root: send logged-in users straight to their dashboard, everyone else to the landing page.
+function RootRedirect() {
+  return <Navigate to={isLoggedIn() ? dashboardPath() : '/home'} replace />;
+}
 function useIsMobile() {
   const detect = () => {
     if (typeof window === 'undefined') return false;
@@ -71,8 +77,8 @@ function App() {
         <PageTransition>
         <Routes>
 
-          {/* Redirect root domain to the Home page */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
+          {/* Root: dashboard if logged in, otherwise the Home page */}
+          <Route path="/" element={<RootRedirect />} />
 
           {/* Public Static Pages */}
           <Route path="/home" element={<HomePage />} />
