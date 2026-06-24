@@ -688,7 +688,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
                                 <>
                                   <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
                                   <div className="flex justify-between text-[10px] font-medium text-gray-400 mt-1.5 normal-case tracking-normal">
-                                    <span>Focused</span>
+                                    <span>Precise</span>
+                                    <span>Balanced</span>
+                                    <span>Conversational</span>
                                     <span>Creative</span>
                                   </div>
                                 </>
@@ -754,7 +756,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response style</label>
                       <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                       <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
-                        <span>Focused</span>
+                        <span>Precise</span>
+                        <span>Balanced</span>
+                        <span>Conversational</span>
                         <span>Creative</span>
                       </div>
                     </div>
