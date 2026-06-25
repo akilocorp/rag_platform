@@ -406,9 +406,11 @@ function LabRunner(props) {
     }
     setAdapting(true);
     try {
-      const { data } = await apiClient.post('/experiential/adapt', {
-        config, choices: chosen, base_id: configId || templateId || config.meta?.id || '',
-      });
+      const { data } = await apiClient.post(
+        '/experiential/adapt',
+        { config, choices: chosen, base_id: configId || templateId || config.meta?.id || '' },
+        { timeout: 180000 }, // web search + a Claude rewrite — give it room
+      );
       const { ok } = validateExperientialConfig(data.config);
       setEffectiveConfig(ok ? data.config : injectChoices(config, chosen));
     } catch {

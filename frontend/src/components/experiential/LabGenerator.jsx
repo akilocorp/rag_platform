@@ -27,7 +27,13 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
     setGenerating(true);
     setError(null);
     try {
-      const { data } = await apiClient.post('/experiential/generate', { prompt: p, template, config_id: configId || undefined });
+      // Generation is a single long Claude call (~30-60s). Give it room so a
+      // slow-but-successful response isn't aborted by a default client timeout.
+      const { data } = await apiClient.post(
+        '/experiential/generate',
+        { prompt: p, template, config_id: configId || undefined },
+        { timeout: 180000 },
+      );
       const { ok, errors } = validateExperientialConfig(data.config);
       if (!ok) {
         setError(`The generated lab didn't validate: ${errors.slice(0, 3).join('; ')}. Try Generate again or tweak your prompt.`);
@@ -37,7 +43,13 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       setGrounded(!!data.grounded);
       onGenerated(data.config);
     } catch (e) {
-      setError(e.response?.data?.error || 'Generation failed.');
+      const timedOut = e.code === 'ECONNABORTED' || /timeout/i.test(e.message || '');
+      setError(
+        e.response?.data?.error
+        || (timedOut
+          ? 'The lab took too long to come back and the request timed out — it may have generated anyway. Wait a few seconds and try again.'
+          : 'Generation failed.'),
+      );
     }
     setGenerating(false);
   };
