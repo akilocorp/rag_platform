@@ -38,6 +38,28 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
     }
   };
 
+  // Icon actions (Responses + Delete). In grid view these sit top-right next
+  // to the title; in list view they're relocated into the footer cluster so
+  // they line up with Customize / Chat Now on one vertically-centered row.
+  const actionButtons = (
+    <>
+      <button
+        onClick={(e) => { e.stopPropagation(); onResponses(config); }}
+        title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : 'Responses'}
+        className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
+      >
+        <FaListAlt className="text-sm" />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+        title="Delete"
+        className="p-1.5 text-gray-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-colors"
+      >
+        <FaTrash className="text-sm" />
+      </button>
+    </>
+  );
+
   return (
     <div
       className={`group relative bg-white rounded-2xl border border-gray-200 shadow-sm transition-all duration-300 cursor-pointer hover:border-[#FA6C43]/40 hover:shadow-md hover:-translate-y-1 animate-send-fly-in ${
@@ -55,22 +77,11 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2">
             <h3 className="text-[15px] font-bold text-[#222] truncate flex-1">{config.bot_name}</h3>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); onResponses(config); }}
-                title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : 'Responses'}
-                className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
-              >
-                <FaListAlt className="text-sm" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
-                title="Delete"
-                className="p-1.5 text-gray-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition-colors"
-              >
-                <FaTrash className="text-sm" />
-              </button>
-            </div>
+            {!isList && (
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {actionButtons}
+              </div>
+            )}
           </div>
 
           <p className="text-sm text-gray-500 mt-1.5 line-clamp-2">
@@ -113,6 +124,11 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
           </div>
         ) : (
           <div className={`flex items-center gap-3 ${isList ? '' : 'justify-between'}`}>
+            {isList && (
+              <div className="flex items-center gap-1.5 mr-1">
+                {actionButtons}
+              </div>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(config); }}
               className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
