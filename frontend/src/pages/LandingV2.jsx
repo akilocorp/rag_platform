@@ -266,6 +266,7 @@ const TESTIMONIAL_PANELS = [
       'ACTRLabs lets me design custom activities that give my students more individualized feedback than I could offer alone. For research, I can build interactive studies that were previously unfeasible, and chat logs export straight to Qualtrics.',
     videoSrc: '/testimonials/teachers.mp4',
     posterSrc: '/testimonials/teachers.jpg',
+    avatarSrc: '/testimonials/bitterly.jpg',
     bg: '#F4ECD8',
     accent: '#A8832D',
   },
@@ -1543,7 +1544,7 @@ const LandingV2 = () => {
                             }}
                           >
                             <img
-                              src={p.posterSrc}
+                              src={p.avatarSrc || p.posterSrc}
                               alt=""
                               aria-hidden
                               draggable={false}
