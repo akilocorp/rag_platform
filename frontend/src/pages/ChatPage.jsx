@@ -550,6 +550,14 @@ const ChatPage = () => {
     return { kind: 'me', configId: null, folderPath: parts.join('/'), canSelect: true };
   }, [currentPath, configId]);
 
+  // The "Bot Files" tree only surfaces the bot whose chat is currently open, so
+  // a user browsing one bot's files doesn't see files shared with other bots.
+  // "My Files" (the shared personal library) is unaffected.
+  const botFilesConfigs = useMemo(
+    () => accessibleConfigs.filter((c) => c._id === configId),
+    [accessibleConfigs, configId]
+  );
+
   // Personal config settings panel (students)
   const [showSettings, setShowSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ bot_name: '', model_name: '', instructions: '' });
@@ -1534,7 +1542,7 @@ const ChatPage = () => {
               onSetTab={setSidebarTab}
               currentPath={currentPath}
               onSetPath={setCurrentPath}
-              accessibleConfigs={accessibleConfigs}
+              accessibleConfigs={botFilesConfigs}
               libraryFiles={libraryFiles}
               libraryFolders={libraryFolders}
               filesLoading={filesLoading}
