@@ -303,7 +303,7 @@ const ConfigListPage = () => {
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-10">
 
           {/* ── Sidebar ─────────────────────────────────── */}
-          <aside className="w-full lg:w-60 flex-shrink-0">
+          <aside className="w-full lg:w-60 flex-shrink-0 lg:sticky lg:top-6 lg:self-start rounded-2xl p-2 -m-2 transition-shadow duration-300 ease-out hover:shadow-md">
             <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3 px-1">Categories</p>
 
             {/* Private / Shared toggle */}
