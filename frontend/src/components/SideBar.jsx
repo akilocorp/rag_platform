@@ -231,7 +231,7 @@ export const ChatSidebar = ({
             title="ACTR Labs — Agent list"
           >
             <img
-              src={logo}
+              src={isCollapsed ? logo : '/actrlabs-wordmark.jpg'}
               alt="ACTR Labs"
               className={`w-auto object-contain ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />

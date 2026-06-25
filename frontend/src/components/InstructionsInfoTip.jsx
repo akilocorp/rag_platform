@@ -15,6 +15,6 @@ const TIP = (
   </>
 );
 
-const InstructionsInfoTip = () => <InfoTip wide text={TIP} />;
+const InstructionsInfoTip = () => <InfoTip wide align="left" text={TIP} />;
 
 export default InstructionsInfoTip;
