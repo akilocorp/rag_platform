@@ -140,7 +140,8 @@ SCHEMA (fill every field):
 
 RULES:
 - chartSeries: 1-2 variables, EXACTLY 8 numbers each (Q1..Q8), deviations from baseline. Each complication's \
-FOCUS variable must show clear amplification vs baseline (larger magnitude).
+FOCUS variable must show clear amplification vs baseline (larger magnitude). Every chartSeries value is a \
+RAW JSON number — no quotes, no % sign, no units (write -1.5, NOT "-1.5%").
 - tableRow: the SAME 3 keys across all three layers, with the Q1 cell for each (e.g. "-1.0%", "+1.5pp").
 - chartSeries keys and tableRow keys are consistent across all layers.
 - The two complications must amplify DIFFERENT variables (e.g. one investment-side, one consumption-side).
@@ -207,7 +208,8 @@ SCHEMA (fill every field):
 
 RULES:
 - chartSeries: 1-2 measures, each 6 to 8 numbers, a trajectory of the measure. Each complication's \
-FOCUS measure must show a clear, visible change vs baseline.
+FOCUS measure must show a clear, visible change vs baseline. Every chartSeries value is a RAW JSON number \
+— no quotes, no % sign, no units (write -1.5, NOT "-1.5%").
 - chartSeries keys and tableRow keys are CONSISTENT across all layers; tableRow uses those keys with one \
 representative cell each (e.g. "-1.0%", "+3 pts", "2.4x").
 - The number of probes equals the number of complication layers, ordered to match them.
@@ -246,10 +248,49 @@ def _retrieve_kb(config_id, query, k=8):
         return ""
 
 
+def _to_number(v):
+    """Best-effort parse of a chart value to a float (handles '-1.5%', '+3 pts')."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        m = re.search(r'-?\d+(?:\.\d+)?', v.replace(',', ''))
+        if m:
+            return float(m.group(0))
+    return None
+
+
+def _coerce_chart_series(cfg):
+    """Force every layer.reveal.chartSeries value into a number[] so the client
+    validator accepts it even when the model emits stringified or unit-tagged
+    numbers ('-1.5%') or a quarter-keyed object instead of a bare array."""
+    layers = cfg.get('layers')
+    if not isinstance(layers, list):
+        return
+    for lyr in layers:
+        reveal = lyr.get('reveal') if isinstance(lyr, dict) else None
+        cs = reveal.get('chartSeries') if isinstance(reveal, dict) else None
+        if not isinstance(cs, dict):
+            continue
+        for k, arr in list(cs.items()):
+            if isinstance(arr, dict):
+                arr = list(arr.values())
+            if not isinstance(arr, list):
+                cs.pop(k, None)
+                continue
+            nums = [n for n in (_to_number(x) for x in arr) if n is not None]
+            if nums:
+                cs[k] = nums
+            else:
+                cs.pop(k, None)
+
+
 def _normalize_experiential(cfg):
     """Fill safe defaults so small model omissions don't fail client validation."""
     if not isinstance(cfg, dict):
         return cfg
+    _coerce_chart_series(cfg)
     cfg.setdefault('provenanceGates', [])
     coach = cfg.get('coach')
     if not isinstance(coach, dict):
