@@ -748,9 +748,15 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     </div>
 
                     {promptMode === 'instructions' ? (
-                      <div><textarea name="instructions" value={config.instructions} onChange={handleChange} rows="4" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" placeholder='Instructions...'/></div>
+                      <div>
+                        <textarea name="instructions" value={config.instructions} onChange={handleChange} rows="4" className={`w-full p-3 border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder='Instructions...'/>
+                        {errors.instructions && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.instructions}</p>}
+                      </div>
                     ) : (
-                      <div><textarea name="prompt_template" value={config.prompt_template} onChange={handleChange} rows="4" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" placeholder="Template..."/></div>
+                      <div>
+                        <textarea name="prompt_template" value={config.prompt_template} onChange={handleChange} rows="4" className={`w-full p-3 border ${errors.prompt_template ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder="Template..."/>
+                        {errors.prompt_template && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.prompt_template}</p>}
+                      </div>
                     )}
 
                     <div className="pt-4">
