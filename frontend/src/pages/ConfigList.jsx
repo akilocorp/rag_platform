@@ -277,9 +277,9 @@ const ConfigListPage = () => {
           onClick={() => navigate('/config_list')}
         >
           <img
-            src="/actrlabs-wordmark.jpg"
+            src="/actrlabs-wordmark.png"
             alt="ACTRLabs"
-            className="h-10 lg:h-12 w-auto object-contain mix-blend-multiply"
+            className="h-10 lg:h-12 w-auto object-contain"
           />
         </div>
         <div className="flex items-center space-x-6 lg:space-x-8">
