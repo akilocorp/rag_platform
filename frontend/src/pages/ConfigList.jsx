@@ -354,19 +354,29 @@ const ConfigListPage = () => {
               </div>
 
               <div className="flex items-center gap-3 flex-shrink-0">
-                {/* View toggle */}
-                <div className="flex p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
+                {/* View toggle — Apple-style: a single pill slides between
+                    the two segments instead of each toggling its own bg. */}
+                <div className="relative flex p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
+                  {/* Sliding indicator (springy glide w/ slight overshoot) */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1 bottom-1 left-1 w-9 rounded-lg bg-[#F0F6FB]"
+                    style={{
+                      transform: view === 'grid' ? 'translateX(100%)' : 'translateX(0)',
+                      transition: 'transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    }}
+                  />
                   <button
                     onClick={() => setView('list')}
                     title="List view"
-                    className={`p-2 rounded-lg transition-colors ${view === 'list' ? 'bg-[#F0F6FB] text-[#FA6C43]' : 'text-gray-400 hover:text-gray-600'}`}
+                    className={`relative z-10 w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${view === 'list' ? 'text-[#FA6C43]' : 'text-gray-400 hover:text-gray-600'}`}
                   >
                     <FaList className="text-sm" />
                   </button>
                   <button
                     onClick={() => setView('grid')}
                     title="Grid view"
-                    className={`p-2 rounded-lg transition-colors ${view === 'grid' ? 'bg-[#F0F6FB] text-[#FA6C43]' : 'text-gray-400 hover:text-gray-600'}`}
+                    className={`relative z-10 w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${view === 'grid' ? 'text-[#FA6C43]' : 'text-gray-400 hover:text-gray-600'}`}
                   >
                     <FaThLarge className="text-sm" />
                   </button>
