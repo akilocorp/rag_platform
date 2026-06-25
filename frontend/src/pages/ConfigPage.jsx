@@ -718,7 +718,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-[13px] font-semibold text-gray-700">Start from a template <span className="font-normal text-gray-400">(optional)</span></p>
                         {selectedTemplateId && (
-                          <button type="button" onClick={() => setSelectedTemplateId(null)} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
+                          <button type="button" onClick={() => { setSelectedTemplateId(null); setConfig(prev => ({ ...prev, instructions: '' })); setErrors(prev => ({ ...prev, instructions: null })); }} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-3">
