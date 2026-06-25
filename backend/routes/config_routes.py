@@ -34,11 +34,11 @@ def validate_class_usage(source, target, current_config_id=None):
     Returns an error (response, status) tuple on failure, or None on success.
     No class_code → nothing written (not a class bot).
     """
-    raw_code = (source.get('class_code') or '').strip().lower()
+    raw_code = (source.get('class_code') or '').strip().upper()
     if not raw_code:
         return None
-    if not re.match(r'^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$', raw_code):
-        return jsonify({"error": "Class code must be 3–20 characters (letters, numbers, hyphens)."}), 400
+    if not re.match(r'^[A-Z0-9]{3,20}$', raw_code):
+        return jsonify({"error": "Class code must be 3–20 characters (uppercase letters and numbers)."}), 400
     existing = Config.get_collection().find_one({"class_code": raw_code})
     if existing and (current_config_id is None or str(existing['_id']) != str(current_config_id)):
         return jsonify({"error": "Class code already taken. Choose a different one."}), 409
@@ -450,7 +450,7 @@ def get_config_by_class(class_code):
     try:
         from models.config import Config as mongo_collection
         doc = mongo_collection.get_collection().find_one(
-            {"class_code": class_code.strip().lower()},
+            {"class_code": class_code.strip().upper()},
             {"bot_name": 1, "assignment_type": 1}
         )
         if not doc:

@@ -73,7 +73,7 @@ def enroll():
     """Add the current student to a class by class code."""
     user_id = get_jwt_identity()
     data = request.get_json() or {}
-    class_code = (data.get('class_code') or '').strip().lower()
+    class_code = (data.get('class_code') or '').strip().upper()
     if not class_code:
         return jsonify({'error': 'class_code is required'}), 400
 
