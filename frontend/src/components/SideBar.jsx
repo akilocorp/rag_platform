@@ -13,6 +13,7 @@ import {
   FiTrash2,
   FiFolder,
   FiBarChart2,
+  FiHome,
 } from 'react-icons/fi';
 import { RiRobot2Line } from 'react-icons/ri';
 import { FaSpinner } from 'react-icons/fa';
@@ -225,16 +226,20 @@ export const ChatSidebar = ({
           <Link
             to="/config_list"
             onClick={handleLogoClick}
-            className={`flex items-center justify-center hover:opacity-90 transition-opacity shrink-0 ${
+            className={`group relative flex items-center justify-center shrink-0 ${
               isCollapsed ? 'w-full' : ''
             }`}
             title="ACTR Labs — Agent list"
           >
+            {/* Logo cross-fades to a Home icon on hover (links to the agent list) */}
             <img
               src={isCollapsed ? logo : '/actrlabs-wordmark.jpg'}
               alt="ACTR Labs"
-              className={`w-auto object-contain ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
+              className={`w-auto object-contain transition-opacity duration-300 ease-out group-hover:opacity-0 ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+              <FiHome className={`text-[#FA6C43] ${isCollapsed ? 'w-7 h-7' : 'w-8 h-8'}`} />
+            </span>
           </Link>
           <button
             type="button"
