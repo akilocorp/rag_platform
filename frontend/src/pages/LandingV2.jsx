@@ -1726,11 +1726,11 @@ const LandingV2 = () => {
       {/* === FOOTER === */}
       <footer
         className="px-6 lg:px-12 py-8 text-sm relative z-10"
-        style={{ backgroundColor: '#FAFAF7', color: '#888', fontFamily: FONT_BODY }}
+        style={{ backgroundColor: '#1f1f1f', color: '#B8B8B8', fontFamily: FONT_BODY }}
       >
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto">
           <span>&copy; 2026 ACTRLabs</span>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-5" style={{ color: '#EDEDED' }}>
             <Link to="/about" className="hover:opacity-80">About</Link>
             <a href="mailto:hello@actrlab.com" className="hover:opacity-80">Contact</a>
             <Link to="/login" className="hover:opacity-80">Sign in</Link>
