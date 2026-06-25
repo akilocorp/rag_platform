@@ -37,6 +37,21 @@ const econOilShock = {
       'The Strait of Hormuz closes; oil spikes to $150/barrel. Start from the baseline model you already know, then add real-world complications and watch how the picture changes.',
   },
 
+  // Caption under each chart. Discipline-specific here; generic labs set their own.
+  chartCaption: 'response over 8 quarters (% deviation from baseline). Each line is a model.',
+
+  // The student can localize the shock to a real economy; grounded:true reruns
+  // the scenario against current conditions for that country before the lab starts.
+  studentChoices: [
+    {
+      id: 'country',
+      label: 'Country',
+      type: 'text',
+      grounded: true,
+      prompt: 'Set this shock in a specific economy (e.g. Nigeria) and we’ll ground it in current conditions — or leave blank for the generic small open economy.',
+    },
+  ],
+
   analyst: {
     persona:
       'You are a macro teaching analyst helping an MBA student extend the baseline (representative-agent) model they already know to richer models — financial frictions and household heterogeneity. When the student asks a free-form question, explain the relevant mechanism clearly and briefly, always connecting the advanced model back to the baseline intuition. Nudge, do not lecture.',

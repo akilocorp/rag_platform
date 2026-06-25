@@ -8,10 +8,18 @@ import { validateExperientialConfig } from '../../configs/experiential/schema';
 // prompt, hits Generate, and Claude (grounded in the config's knowledge base
 // when a configId is supplied) returns a full lab config. We validate it client
 // side and show a preview before the prof saves.
+// Generation templates the prof can pick. "econ" keeps the opinionated macro
+// spine; "generic" works for any discipline with a flexible shape.
+const GEN_TEMPLATES = [
+  { id: 'econ', label: 'Economics (baseline → complications)' },
+  { id: 'generic', label: 'Generic (any discipline)' },
+];
+
 export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [grounded, setGrounded] = useState(false);
+  const [template, setTemplate] = useState('econ');
 
   const handleGenerate = async () => {
     const p = (prompt || '').trim();
@@ -19,7 +27,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
     setGenerating(true);
     setError(null);
     try {
-      const { data } = await apiClient.post('/experiential/generate', { prompt: p, config_id: configId || undefined });
+      const { data } = await apiClient.post('/experiential/generate', { prompt: p, template, config_id: configId || undefined });
       const { ok, errors } = validateExperientialConfig(data.config);
       if (!ok) {
         setError(`The generated lab didn't validate: ${errors.slice(0, 3).join('; ')}. Try Generate again or tweak your prompt.`);
@@ -36,6 +44,15 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
 
   return (
     <div>
+      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Discipline template</label>
+      <select
+        value={template}
+        onChange={(e) => setTemplate(e.target.value)}
+        className="w-full mb-3 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+      >
+        {GEN_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+      </select>
+
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Lab design prompt</label>
       <textarea
         value={prompt || ''}
@@ -45,7 +62,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
         className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all resize-y"
       />
       <p className="text-[11px] text-gray-400 mt-1.5">
-        Claude builds the full lab (scenario, baseline + two complications, charts, table, synthesis){configId ? ' grounded in this bot’s uploaded knowledge base' : ''}. You review it before saving.
+        Claude builds the full lab (scenario, a baseline plus complications, charts, table, synthesis){configId ? ' grounded in this bot’s uploaded knowledge base' : ''}. Probes are posed automatically in sequence. You review it before saving.
       </p>
 
       <button

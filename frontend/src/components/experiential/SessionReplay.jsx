@@ -53,7 +53,8 @@ function buildChart(layerById, snapshotIds, withGuess, chartVar, dials) {
     if (dv !== undefined) {
       const ref = Math.max(...series.flatMap((s) => s.values.map(Math.abs)), 1);
       const end = (dv / 3) * ref;
-      guess = { label: `Your call (${arrow(dv)})`, values: Array.from({ length: 8 }, (_, i) => (end * (i + 1)) / 8) };
+      const n = series[0]?.values.length || 8;
+      guess = { label: `Your call (${arrow(dv)})`, values: Array.from({ length: n }, (_, i) => (end * (i + 1)) / n) };
     }
   }
   return { series, guess, unit: UNIT_BY_KEY[chartVar] || '' };
@@ -85,7 +86,7 @@ export default function SessionReplay({ config, transcript }) {
             <SpeakerLabel name={analyst.persona ? meta.title : 'Analyst'} />
             <h3 className="font-bold text-[#222] mb-2">{b.type === 'reveal' ? lyr.name : `Comparison · ${lyr.name}`}</h3>
             <p className="text-xs text-gray-500 mb-1.5">
-              {varLabel(chartVar)} — response over 8 quarters (% deviation from baseline). Each line is a model.
+              {varLabel(chartVar)} — {config.chartCaption || 'trajectory across the series. Each line is a model.'}
             </p>
             <IrfChart series={series} guess={guess} unit={unit} />
             {b.type === 'reveal' && (
@@ -182,6 +183,16 @@ export default function SessionReplay({ config, transcript }) {
           <SpeakerLabel name="Scenario" />
           <p className="text-[15px] text-gray-800 leading-relaxed">{config.scenario?.brief}</p>
         </Card>
+      )}
+      {Array.isArray(transcript.choiceValues) && transcript.choiceValues.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Customized</span>
+          {transcript.choiceValues.map((c) => (
+            <span key={c.id} className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">
+              {c.label}: <span className="font-semibold text-[#222]">{c.value}</span>
+            </span>
+          ))}
+        </div>
       )}
       {transcript.dialsCommitted && Array.isArray(config.predictionVariables) && (
         <Card className="px-4 py-2.5 border-[#FA6C43]/40 bg-[#FA6C43]/[0.07]">

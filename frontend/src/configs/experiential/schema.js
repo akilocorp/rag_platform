@@ -45,6 +45,25 @@ export function validateExperientialConfig(config) {
   req(isObj(config.scenario) && isNonEmptyStr(config.scenario.brief),
     'scenario.brief', 'must be a non-empty string');
 
+  // chartCaption — optional caption shown under each chart.
+  if (config.chartCaption != null) req(isStr(config.chartCaption), 'chartCaption', 'must be a string');
+
+  // studentChoices — optional play-time customization the student picks before starting.
+  if (config.studentChoices != null) {
+    if (!isArr(config.studentChoices)) {
+      req(false, 'studentChoices', 'must be an array');
+    } else {
+      config.studentChoices.forEach((c, i) => {
+        const p = `studentChoices[${i}]`;
+        req(isNonEmptyStr(c.id), `${p}.id`, 'required string');
+        req(isNonEmptyStr(c.label), `${p}.label`, 'required string');
+        req(['select', 'text'].includes(c.type), `${p}.type`, 'must be select or text');
+        if (c.type === 'select') req(isArr(c.options) && c.options.length > 0, `${p}.options`, 'select needs options[]');
+        if (c.grounded != null) req(isBool(c.grounded), `${p}.grounded`, 'must be a boolean');
+      });
+    }
+  }
+
   // analyst
   const analyst = config.analyst;
   if (!isObj(analyst)) {

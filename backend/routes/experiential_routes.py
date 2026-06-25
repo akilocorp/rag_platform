@@ -16,8 +16,10 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+import pymongo
+from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from src.agentic.agent_runner import CHART_GUIDE
@@ -79,22 +81,25 @@ def _extract_json(raw):
 
 GEN_MAX_TOKENS = 5000
 
-GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential macro/econ lab. \
+ECON_GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential macro/econ lab. \
 You output ONE JSON object (no prose, no markdown fences) matching the ExperientialConfig schema below. \
 The lab teaches an advanced model by starting from the baseline model the student already knows, then \
 adding ONE complication at a time and revealing how the picture changes.
 
 Pedagogical spine (always 3 layers): a BASELINE model, then TWO complications that each amplify a \
 different variable. The student predicts how each complication changes the baseline, explains why, then \
-sees it. Ground every framing, term and rough magnitude in the professor's prompt and the lecture \
-excerpts provided. Numbers are ILLUSTRATIVE deviations from baseline — plausible and internally \
-consistent, not estimated.
+sees it. The two probes are presented to the student automatically and in order — the student does not \
+pick them; each introduces one complication. Ground every framing, term and rough magnitude in the \
+professor's prompt and the lecture excerpts provided. Numbers are ILLUSTRATIVE deviations from baseline \
+— plausible and internally consistent, not estimated.
 
 SCHEMA (fill every field):
 {
   "meta": { "id": "<kebab-id>", "title": "<short title>", "discipline": "<e.g. Macroeconomics>",
             "level": "<e.g. MBA / Graduate>", "estMinutes": 20 },
   "scenario": { "brief": "<2-3 sentence shock/setup the student reasons about>" },
+  "chartCaption": "response over 8 quarters (% deviation from baseline). Each line is a model.",
+  "studentChoices": [],
   "analyst": { "persona": "<a teaching analyst that builds from baseline intuition>",
                "stayInCharacter": true, "mode": "generative",
                "scriptedFallback": "<one fallback line if AI is unavailable>" },
@@ -140,7 +145,84 @@ FOCUS variable must show clear amplification vs baseline (larger magnitude).
 - chartSeries keys and tableRow keys are consistent across all layers.
 - The two complications must amplify DIFFERENT variables (e.g. one investment-side, one consumption-side).
 - extensionPredict.expected is the direction of CHANGE vs baseline for the focus variable ("more" = larger fall).
+- STUDENT CUSTOMIZATION (optional): if the professor's prompt asks to let students pick something (a \
+country, region, industry, era, case…), add entries to "studentChoices"; otherwise leave it []. Each \
+entry: { "id": "<key>", "label": "<Label>", "type": "select" | "text", "options": ["..."] (select only), \
+"grounded": true|false, "prompt": "<short instruction shown to the student>" }. Mark a country / place / \
+current-events choice grounded:true so its scenario is rewritten to reflect real, current conditions.
 - Keep it crisp. Output ONLY the JSON object."""
+
+
+GENERIC_GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential lab for ANY \
+discipline (economics, biology, history, marketing, engineering, law, medicine…). You output ONE JSON \
+object (no prose, no markdown fences) matching the ExperientialConfig schema below.
+
+Pedagogical spine: start from a BASELINE model or case the student already knows, then add complications \
+ONE at a time and reveal how the picture changes. For each complication the student predicts the change, \
+explains why, then sees it. The probes are presented to the student AUTOMATICALLY and IN ORDER — the \
+student does not pick them; order them so probe[i] introduces complication layer i+1. Ground every \
+framing, term and rough magnitude in the professor's prompt and the lecture excerpts provided. Numbers \
+are ILLUSTRATIVE — plausible and internally consistent, not estimated or real.
+
+SCHEMA (fill every field):
+{
+  "meta": { "id": "<kebab-id>", "title": "<short title>", "discipline": "<the field>",
+            "level": "<e.g. Undergraduate / MBA>", "estMinutes": 20 },
+  "scenario": { "brief": "<2-3 sentence setup the student reasons about>" },
+  "chartCaption": "<short caption for what the chart's series represents, e.g. 'projected across 8 periods' or 'over the reaction timeline'>",
+  "studentChoices": [],
+  "analyst": { "persona": "<a teaching analyst for this discipline that builds from baseline intuition>",
+               "stayInCharacter": true, "mode": "generative",
+               "scriptedFallback": "<one fallback line if AI is unavailable>" },
+  "predictionVariables": [   // 2 to 4 — the measures that carry the teaching point
+    { "id": "<key>", "label": "<Label>", "type": "direction", "expected": "up" | "down",
+      "intuition": "<what it surfaces>" }
+  ],
+  "layers": [   // 2 to 4: index 0 = baseline, the rest are complications
+    { "id": "baseline", "short": "Baseline", "name": "Baseline (<short code>)",
+      "predictPrompt": "Set your baseline call, then reveal its path.",
+      "changes": "<the baseline assumptions, plainly>",
+      "reveal": { "chartSeries": { "<var>": [6 to 8 numbers] },
+                  "tableRow": { "<Var>": "<cell>" }, "narrative": "<what the baseline shows>" } },
+    { "id": "<id>", "short": "+ <Short>", "name": "+ <Name>",
+      "unlockedByProbeId": "<probe id>",
+      "extensionPredict": { "focus": "<the variable label this complication most changes>",
+                            "prompt": "Before we reveal it: once <complication>, does <FOCUS> change more, about the same, or less than baseline?",
+                            "expected": "more" | "same" | "less" },
+      "changes": "<the mechanism this complication adds>",
+      "reveal": { "chartSeries": { same keys as baseline, scaled to show the change },
+                  "tableRow": { same keys as baseline }, "narrative": "<the actual mechanism — ground truth>" } }
+  ],
+  "probes": [   // one per complication, SAME ORDER as the complication layers
+    { "id": "<id>", "text": "<a short 'what if…' question that introduces the complication>",
+      "unlocksLayerId": "<layer id>", "answer": "<explains the complication>" }
+  ],
+  "provenanceGates": [],
+  "coach": { "hintAfterIdleSec": 60, "hintAfterUnproductiveProbes": 2, "maxHints": 3,
+             "tone": "Socratic, one nudge at a time" },
+  "synthesis": { "task": "<=120 word task to explain how each complication changes the baseline>",
+                 "wordLimit": 120, "rubric": ["<criterion>", "<criterion>", "<criterion>"] },
+  "scoring": { "predictionWeight": 50, "probeEfficiencyWeight": 0, "provenanceWeight": 0, "synthesisWeight": 50 }
+}
+
+RULES:
+- chartSeries: 1-2 measures, each 6 to 8 numbers, a trajectory of the measure. Each complication's \
+FOCUS measure must show a clear, visible change vs baseline.
+- chartSeries keys and tableRow keys are CONSISTENT across all layers; tableRow uses those keys with one \
+representative cell each (e.g. "-1.0%", "+3 pts", "2.4x").
+- The number of probes equals the number of complication layers, ordered to match them.
+- extensionPredict.expected is the direction of CHANGE vs baseline for the focus measure.
+- STUDENT CUSTOMIZATION (optional): if the professor's prompt asks to let students pick something (a \
+country, region, industry, era, case…), add entries to "studentChoices"; otherwise leave it []. Each \
+entry: { "id": "<key>", "label": "<Label>", "type": "select" | "text", "options": ["..."] (select only), \
+"grounded": true|false, "prompt": "<short instruction shown to the student>" }. Mark a country / place / \
+current-events choice grounded:true so its scenario is rewritten to reflect real, current conditions.
+- Keep it crisp. Output ONLY the JSON object."""
+
+
+# Generation templates the professor can pick. "econ" keeps the opinionated
+# 3-layer macro spine; "generic" is discipline-agnostic with a flexible shape.
+GEN_TEMPLATES = {'econ': ECON_GEN_SYSTEM, 'generic': GENERIC_GEN_SYSTEM}
 
 
 def _retrieve_kb(config_id, query, k=8):
@@ -198,6 +280,7 @@ def generate_experiential():
     payload = request.get_json(silent=True) or {}
     prompt = (payload.get('prompt') or '').strip()
     config_id = payload.get('config_id')
+    template = (payload.get('template') or 'econ').strip().lower()
     if not prompt:
         return jsonify({"error": "Missing 'prompt'"}), 400
 
@@ -205,6 +288,7 @@ def generate_experiential():
     if client is None:
         return jsonify({"error": err}), 503
 
+    system = GEN_TEMPLATES.get(template) or GEN_TEMPLATES['generic']
     kb_text = _retrieve_kb(config_id, prompt) if config_id else ""
 
     user_msg = f"Professor's design prompt:\n{prompt}"
@@ -216,7 +300,7 @@ def generate_experiential():
         msg = client.messages.create(
             model=EXPERIENTIAL_MODEL,
             max_tokens=GEN_MAX_TOKENS,
-            system=GEN_SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": user_msg}],
         )
         raw = _text_from_message(msg)
@@ -228,6 +312,150 @@ def generate_experiential():
     except Exception as e:  # noqa: BLE001
         logger.exception("experiential generate failed")
         return jsonify({"error": f"Generation failed: {e}"}), 502
+
+
+# ─── Adapt: re-ground a lab to the student's chosen parameters ────────────────
+# Lets a student customize a lab at play time (e.g. pick a country). Grounded
+# choices pull current real-world context via Tavily, then Claude rewrites the
+# scenario/numbers while KEEPING the structure (ids, counts) intact so the lab
+# still plays. Adaptations are cached per (lab, choices) so the cost is paid
+# once per distinct choice set, not once per student.
+
+ADAPT_CACHE_TTL_SECONDS = 86400  # re-ground once a day so "current" stays current
+
+ADAPT_SYSTEM = """You are adapting an existing experiential lab to a student's chosen parameters. You \
+receive the CURRENT lab config (JSON) plus the student's choices and, when relevant, real-world context. \
+Rewrite the lab so its scenario, narratives and ILLUSTRATIVE numbers fit those choices and reflect the \
+real-world context provided.
+
+HARD CONSTRAINTS — keep the STRUCTURE identical so the lab still plays:
+- Keep the SAME ids everywhere: meta.id, every layer id, every probe id, every predictionVariable id, \
+every chartSeries key, every tableRow key, and all cross-links (unlockedByProbeId / unlocksLayerId, \
+extensionPredict.focus must still match a predictionVariable label).
+- Keep the same NUMBER of layers, probes, predictionVariables, and the same chartSeries array lengths.
+- Change only human-readable content and numbers: meta.title, chartCaption, scenario.brief, each \
+layer.changes and layer.reveal.narrative, chartSeries numbers, tableRow cells, analyst.persona context, \
+synthesis.task and rubric wording. Keep studentChoices unchanged (or omit it).
+- Numbers stay ILLUSTRATIVE, plausible and internally consistent — and consistent with the real-world \
+context where one is given.
+
+Output ONE JSON object (the full adapted ExperientialConfig), no prose, no markdown fences."""
+
+
+def _tavily_search(query, max_results=5):
+    """Best-effort web search; returns formatted text or '' (never raises)."""
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        from tavily import TavilyClient
+        resp = TavilyClient(api_key=api_key).search(query=query, max_results=max_results, search_depth="basic")
+        results = (resp or {}).get("results") or []
+        parts = []
+        for r in results:
+            title = (r.get("title") or "").strip()
+            content = (r.get("content") or "").strip()
+            if content:
+                parts.append(f"{title}: {content}")
+        return "\n\n".join(parts)
+    except Exception:
+        logger.exception("experiential adapt web search failed")
+        return ""
+
+
+def _adapt_collection():
+    client = pymongo.MongoClient(current_app.config["MONGO_URI"], serverSelectionTimeoutMS=5000)
+    return client[current_app.config["MONGO_DB_NAME"]]["experiential_adaptations"]
+
+
+def _adapt_cache_key(base_id, choices):
+    sig = "|".join(
+        f"{c.get('id')}={str(c.get('value', '')).strip().lower()}"
+        for c in sorted(choices, key=lambda c: str(c.get('id')))
+    )
+    return f"{base_id}::{sig}"
+
+
+def _adapt_cache_get(key):
+    try:
+        doc = _adapt_collection().find_one({"cache_key": key})
+        if not doc:
+            return None
+        created = doc.get("created_at")
+        if created and (datetime.utcnow() - created).total_seconds() > ADAPT_CACHE_TTL_SECONDS:
+            return None
+        return doc.get("config")
+    except Exception:
+        logger.exception("adapt cache read failed")
+        return None
+
+
+def _adapt_cache_set(key, config):
+    try:
+        _adapt_collection().update_one(
+            {"cache_key": key},
+            {"$set": {"cache_key": key, "config": config, "created_at": datetime.utcnow()}},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("adapt cache write failed")
+
+
+@experiential_bp.route('/experiential/adapt', methods=['POST'])
+def adapt_experiential():
+    payload = request.get_json(silent=True) or {}
+    base = payload.get('config')
+    choices = payload.get('choices') or []
+    base_id = (payload.get('base_id') or '').strip()
+    if not isinstance(base, dict) or not base.get('layers'):
+        return jsonify({"error": "Missing base config"}), 400
+    # Nothing to adapt → hand the base config straight back.
+    chosen = [c for c in choices if isinstance(c, dict) and str(c.get('value', '')).strip()]
+    if not chosen:
+        return jsonify({"config": base, "cached": False})
+
+    cache_key = _adapt_cache_key(base_id, chosen)
+    cached = _adapt_cache_get(cache_key)
+    if cached:
+        return jsonify({"config": cached, "cached": True})
+
+    client, err = _get_client()
+    if client is None:
+        return jsonify({"error": err}), 503
+
+    # Pull current real-world context for any grounded choice.
+    brief = (base.get('scenario') or {}).get('brief', '')
+    web_parts = []
+    for c in chosen:
+        if c.get('grounded'):
+            q = f"{brief[:160]} — current real-world situation in {c.get('value')} ({c.get('label', '')})".strip()
+            ctx = _tavily_search(q)
+            if ctx:
+                web_parts.append(f"[{c.get('label')}: {c.get('value')}]\n{ctx}")
+    web_context = "\n\n".join(web_parts)
+
+    choices_str = "; ".join(f"{c.get('label')}: {c.get('value')}" for c in chosen)
+    user_msg = f"Student choices: {choices_str}\n\nCurrent lab config:\n{json.dumps(base)}"
+    if web_context:
+        user_msg += f"\n\nReal-world context (ground the scenario and numbers in this):\n{web_context[:12000]}"
+    user_msg += "\n\nReturn ONLY the adapted JSON ExperientialConfig object."
+
+    try:
+        msg = client.messages.create(
+            model=EXPERIENTIAL_MODEL,
+            max_tokens=GEN_MAX_TOKENS,
+            system=ADAPT_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        cfg = _extract_json(_text_from_message(msg))
+        if not isinstance(cfg, dict) or not cfg.get('layers'):
+            return jsonify({"error": "Could not parse an adapted lab config"}), 502
+        cfg = _normalize_experiential(cfg)
+        _adapt_cache_set(cache_key, cfg)
+        return jsonify({"config": cfg, "cached": False, "grounded": bool(web_context)})
+    except Exception as e:  # noqa: BLE001
+        logger.exception("experiential adapt failed")
+        return jsonify({"error": f"Adaptation failed: {e}"}), 502
 
 
 # ─── Analyst: free-form in-character replies ─────────────────────────────────
@@ -434,7 +662,7 @@ def _session_summary(doc):
 _SESSION_MUTABLE = (
     "title", "discipline", "level", "status", "total_score", "breakdown",
     "predictions", "layers_revealed", "probes_used", "synthesis_text",
-    "graded_by", "transcript",
+    "graded_by", "transcript", "effective_config",
 )
 
 

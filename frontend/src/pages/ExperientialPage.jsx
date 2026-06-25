@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  FiArrowLeft, FiRefreshCw, FiCheck, FiLock, FiMenu,
-  FiPlusCircle, FiHelpCircle, FiAward,
+  FiArrowLeft, FiRefreshCw, FiCheck, FiMenu,
+  FiHelpCircle, FiAward,
 } from 'react-icons/fi';
 import apiClient from '../api/apiClient';
 import { renderMarkdown } from '../utils/markdown';
@@ -185,7 +185,7 @@ export default function ExperientialPage() {
     );
   } else {
     columnContent = (
-      <Player
+      <LabRunner
         key={runKey}
         config={config}
         configId={configId}
@@ -310,6 +310,12 @@ function SessionColumn({ sessionId, isAuthenticated, onClose, onOpenMobileSideba
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+    // Prefer the snapshot saved with the run (reflects any student adaptation);
+    // fall back to the live config / built-in template for older sessions.
+    if (session.effective_config?.layers) {
+      setCfg(session.effective_config);
+      return () => { cancelled = true; };
+    }
     if (session.config_id) {
       apiClient.get(`/config/${session.config_id}`)
         .then((r) => { if (!cancelled) setCfg(r.data?.config?.experiential_config || null); })
@@ -363,7 +369,124 @@ function SessionColumn({ sessionId, isAuthenticated, onClose, onOpenMobileSideba
   );
 }
 
-function Player({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar }) {
+// Light fallback when a lab isn't web-grounded: fold the student's picks into
+// the scenario text so the analyst and reveals see them, without a model call.
+function injectChoices(config, chosen) {
+  const filled = chosen.filter((c) => c.value);
+  if (!filled.length) return config;
+  const suffix = ` (${filled.map((c) => `${c.label}: ${c.value}`).join(', ')})`;
+  return { ...config, scenario: { ...config.scenario, brief: (config.scenario?.brief || '') + suffix } };
+}
+
+// Gate in front of the Player: when a lab defines `studentChoices`, the student
+// picks values first. Grounded choices route through /experiential/adapt (web +
+// Claude rewrite, cached); everything else folds in locally. Then the Player
+// runs against the resulting config.
+function LabRunner(props) {
+  const { config, configId, templateId, onBack, isAuthenticated, onOpenMobileSidebar } = props;
+  const choices = config.studentChoices || [];
+  const [phase, setPhase] = useState(choices.length ? 'choose' : 'run');
+  const [values, setValues] = useState(() =>
+    Object.fromEntries(choices.map((c) => [c.id, c.type === 'select' ? (c.options?.[0] || '') : ''])),
+  );
+  const [adapting, setAdapting] = useState(false);
+  const [effectiveConfig, setEffectiveConfig] = useState(config);
+  const [choiceValues, setChoiceValues] = useState([]);
+
+  async function start() {
+    const chosen = choices.map((c) => ({
+      id: c.id, label: c.label, value: (values[c.id] || '').trim(), grounded: !!c.grounded,
+    }));
+    setChoiceValues(chosen.filter((c) => c.value));
+    const hasGrounded = chosen.some((c) => c.grounded && c.value);
+    if (!hasGrounded) {
+      setEffectiveConfig(injectChoices(config, chosen));
+      setPhase('run');
+      return;
+    }
+    setAdapting(true);
+    try {
+      const { data } = await apiClient.post('/experiential/adapt', {
+        config, choices: chosen, base_id: configId || templateId || config.meta?.id || '',
+      });
+      const { ok } = validateExperientialConfig(data.config);
+      setEffectiveConfig(ok ? data.config : injectChoices(config, chosen));
+    } catch {
+      // Grounding failed → still let the student play with their picks folded in.
+      setEffectiveConfig(injectChoices(config, chosen));
+    } finally {
+      setAdapting(false);
+      setPhase('run');
+    }
+  }
+
+  if (phase === 'choose') {
+    return (
+      <ChooserScreen
+        config={config}
+        choices={choices}
+        values={values}
+        setValues={setValues}
+        adapting={adapting}
+        onStart={start}
+        onBack={onBack}
+        isAuthenticated={isAuthenticated}
+        onOpenMobileSidebar={onOpenMobileSidebar}
+      />
+    );
+  }
+  return <Player {...props} config={effectiveConfig} choiceValues={choiceValues} />;
+}
+
+function ChooserScreen({ config, choices, values, setValues, adapting, onStart, onBack, isAuthenticated, onOpenMobileSidebar }) {
+  const field = 'w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#FA6C43]';
+  return (
+    <ColumnShell
+      title={config.meta?.title || 'Experiential Lab'}
+      subtitle={`${config.meta?.discipline || ''}${config.meta?.level ? ` · ${config.meta.level}` : ''}`}
+      onBack={onBack}
+      isAuthenticated={isAuthenticated}
+      onOpenMobileSidebar={onOpenMobileSidebar}
+    >
+      <Card accent className="p-5">
+        <SpeakerLabel name="Before you start" />
+        <p className="text-sm text-gray-600 mb-4">Make this lab yours — set the options below and we’ll build your scenario.</p>
+        <div className="space-y-4">
+          {choices.map((c) => (
+            <div key={c.id}>
+              <label className="block text-sm font-medium text-gray-800 mb-1">{c.label}</label>
+              {c.prompt && <p className="text-xs text-gray-400 mb-1.5">{c.prompt}</p>}
+              {c.type === 'select' ? (
+                <select value={values[c.id] || ''} onChange={(e) => setValues((v) => ({ ...v, [c.id]: e.target.value }))} className={field}>
+                  {(c.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input
+                  value={values[c.id] || ''}
+                  onChange={(e) => setValues((v) => ({ ...v, [c.id]: e.target.value }))}
+                  placeholder={c.prompt || 'Type your choice…'}
+                  className={field}
+                />
+              )}
+              {c.grounded && (
+                <p className="text-[11px] text-[#FA6C43] mt-1">Your scenario will reflect current, real-world conditions for this.</p>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={onStart}
+          disabled={adapting}
+          className="mt-5 inline-flex items-center gap-1.5 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+        >
+          {adapting ? <><FiRefreshCw className="animate-spin" /> Building your scenario…</> : 'Start the lab'}
+        </button>
+      </Card>
+    </ColumnShell>
+  );
+}
+
+function Player({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar, choiceValues = [] }) {
   const { meta, scenario, analyst, predictionVariables, layers, probes, provenanceGates, coach, synthesis } = config;
 
   const layerById = useMemo(() => Object.fromEntries(layers.map((l) => [l.id, l])), [layers]);
@@ -375,7 +498,6 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   const [dialsCommitted, setDialsCommitted] = useState(false);
   const [revealedIds, setRevealedIds] = useState([]);              // layers whose reveal is shown (ordered)
   const [unlockedIds, setUnlockedIds] = useState([baseLayer.id]);  // layers available to add
-  const [pendingLayerId, setPendingLayerId] = useState(null);      // layer awaiting its predict→reveal
   const [layerPredictions, setLayerPredictions] = useState({});    // layerId -> 'more'|'same'|'less'
   const [layerReasons, setLayerReasons] = useState({});            // layerId -> the student's one-line "why"
   const [usedProbeIds, setUsedProbeIds] = useState([]);
@@ -402,6 +524,10 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   // progresses, finalized on synthesis. sessionIdRef holds the row id once made.
   const sessionIdRef = useRef(null);
   const persistingRef = useRef(false);
+
+  // Probes are no longer student-picked: after the baseline commit they are
+  // posed automatically, one at a time, in config order. This cursor walks them.
+  const probeCursorRef = useRef(0);
 
   // Composer state (reused chat input box).
   const [input, setInput] = useState('');
@@ -478,8 +604,9 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
     if (hintsUsed >= coach.maxHints) return;
     const s = suggestNextProbe();
     if (!s) return;
-    const probe = probeById[s.id];
-    appendFeed({ type: 'coach', text: s.why, suggestProbe: probe ? probe.text : null, reason });
+    // Probes pose themselves now, so the coach only nudges the student's thinking
+    // — it never tells them which probe to "ask".
+    appendFeed({ type: 'coach', text: s.why, reason });
     setHintsUsed((n) => n + 1);
     unproductiveRef.current = 0;
   }
@@ -490,46 +617,40 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
     setDialsCommitted(true);
     setRevealedIds([baseLayer.id]);
     appendFeed({ type: 'reveal', layerId: baseLayer.id, snapshot: [baseLayer.id], withGuess: true });
+    // Kick off the auto-sequence: pose the first probe right after the baseline.
+    probeCursorRef.current = 0;
+    presentProbeAt(0);
   }
 
-  function handleProbe(probe) {
+  // Pose the probe at `idx` automatically: the analyst raises a "what if…",
+  // answers it, and (when it introduces a complication) immediately opens that
+  // layer's prediction — the student never chooses which probe to ask. When the
+  // probes run out, the synthesis step opens on its own.
+  function presentProbeAt(idx) {
+    const probe = probes[idx];
+    if (!probe) { openSynthesis(); return; }
     markAction();
-    if (usedProbeIds.includes(probe.id)) return;
-    setUsedProbeIds((u) => [...u, probe.id]);
-
-    // Productivity bookkeeping for the coach.
-    const productiveNow =
-      !probe.deadEnd &&
-      (probe.establishesGateId ||
-        probe.unlocksLayerId ||
-        !probe.productiveAfter ||
-        probe.productiveAfter.some((lid) => revealedIds.includes(lid)));
-    if (productiveNow) unproductiveRef.current = 0;
-    else {
-      unproductiveRef.current += 1;
-      if (unproductiveRef.current >= coach.hintAfterUnproductiveProbes) fireHint('unproductive');
-    }
-
-    // Satisfy a provenance gate (un-blurs the numbers).
+    setUsedProbeIds((u) => (u.includes(probe.id) ? u : [...u, probe.id]));
     if (probe.establishesGateId) {
       setSatisfiedGateIds((g) => (g.includes(probe.establishesGateId) ? g : [...g, probe.establishesGateId]));
     }
-    // Unlock a layer (the answer block will offer "Add layer").
+    appendFeed({ type: 'answer', probeId: probe.id });
     if (probe.unlocksLayerId) {
       setUnlockedIds((u) => (u.includes(probe.unlocksLayerId) ? u : [...u, probe.unlocksLayerId]));
+      appendFeed({ type: 'layer-predict', layerId: probe.unlocksLayerId });
+      // Wait here — advanceProbe() fires once the student reveals this layer.
+    } else {
+      advanceProbe(); // informational probe → move straight to the next
     }
-    appendFeed({ type: 'answer', probeId: probe.id });
   }
 
-  function addLayer(layerId) {
-    markAction();
-    setPendingLayerId(layerId);
-    appendFeed({ type: 'layer-predict', layerId });
+  function advanceProbe() {
+    probeCursorRef.current += 1;
+    presentProbeAt(probeCursorRef.current);
   }
 
   function revealLayer(layerId) {
     markAction();
-    setPendingLayerId(null);
     const snapshot = [...revealedIds, layerId];
     setRevealedIds((r) => (r.includes(layerId) ? r : [...r, layerId]));
     appendFeed({ type: 'comparison', layerId, snapshot });
@@ -550,7 +671,7 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
     const fallback = lyr.reveal.narrative;
 
     const k = appendFeed({ type: 'explain', layerId, pending: isGenerative });
-    if (!isGenerative) { updateFeed(k, { reply: fallback, pending: false }); return; }
+    if (!isGenerative) { updateFeed(k, { reply: fallback, pending: false }); advanceProbe(); return; }
     try {
       const question =
         `I predicted ${focus} would fall ${choiceWord} than the baseline` +
@@ -568,6 +689,9 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
       updateFeed(k, { reply: data.reply, pending: false });
     } catch (e) {
       updateFeed(k, { reply: fallback, pending: false });
+    } finally {
+      // Once the "why" lands, the next probe poses itself.
+      advanceProbe();
     }
   }
 
@@ -610,10 +734,13 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
       predictions: predictionVariables.map((v) => ({ label: v.label, call: arrow(dials[v.id]) })),
       layers_revealed: revealedIds.map((id) => layerById[id].name),
       probes_used: usedProbeIds.map((id) => probeById[id]?.text).filter(Boolean),
+      // The effective (possibly student-adapted) config drives faithful replay —
+      // a built-in template id won't reconstruct an adapted "Nigeria" scenario.
+      effective_config: config,
       transcript: {
         feed, dials, dialsCommitted, revealedIds, unlockedIds,
         layerPredictions, layerReasons, usedProbeIds, satisfiedGateIds, chartVar,
-        synthesisText,
+        synthesisText, choiceValues,
       },
     };
   }
@@ -780,20 +907,12 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
       if (dv !== undefined) {
         const ref = Math.max(...series.flatMap((s) => s.values.map(Math.abs)), 1);
         const end = (dv / 3) * ref; // magnitude 3 ≈ full scale
-        guess = { label: `Your call (${arrow(dv)})`, values: Array.from({ length: 8 }, (_, i) => (end * (i + 1)) / 8) };
+        // Match the real series length (labs aren't always 8 points).
+        const n = series[0]?.values.length || 8;
+        guess = { label: `Your call (${arrow(dv)})`, values: Array.from({ length: n }, (_, i) => (end * (i + 1)) / n) };
       }
     }
     return { series, guess, unit: UNIT_BY_KEY[chartVar] || '' };
-  }
-
-  // ── Probe chip availability ──
-  function probeState(p) {
-    if (usedProbeIds.includes(p.id)) return { state: 'used' };
-    if (p.productiveAfter && !p.productiveAfter.some((lid) => revealedIds.includes(lid))) {
-      const need = p.productiveAfter.map((lid) => layerById[lid]?.name.match(/\(([^)]+)\)/)?.[1] || lid).join(' / ');
-      return { state: 'disabled', tip: `Useful after you add the ${need} layer` };
-    }
-    return { state: 'ready' };
   }
 
   // ── Render blocks ──
@@ -812,7 +931,7 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
               <ChartVarToggle chartKeys={chartKeys} chartVar={chartVar} setChartVar={setChartVar} labels={varLabelByKey} />
             </div>
             <p className="text-xs text-gray-500 mb-1.5">
-              {varLabelByKey[chartVar] || LABEL_BY_KEY[chartVar] || chartVar} — response over 8 quarters (% deviation from baseline). Each line is a model.
+              {varLabelByKey[chartVar] || LABEL_BY_KEY[chartVar] || chartVar} — {config.chartCaption || 'trajectory across the series. Each line is a model.'}
             </p>
             <IrfChart series={series} guess={guess} unit={unit} blurNumbers={numbersBlurred} />
             {/* Baseline shows its narrative; extension layers route the "why"
@@ -828,7 +947,6 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
       }
       case 'answer': {
         const p = probeById[b.probeId];
-        const canAdd = p.unlocksLayerId && !revealedIds.includes(p.unlocksLayerId) && pendingLayerId !== p.unlocksLayerId;
         return (
           <Card key={b._k} className="p-5">
             <div className="text-sm font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
@@ -838,14 +956,6 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
             <p className="text-sm text-gray-800 leading-relaxed">{p.answer}</p>
             {p.deadEnd && (
               <p className="text-[11px] text-amber-600 mt-2 italic">Trust unchanged — more decimals isn’t more provenance.</p>
-            )}
-            {canAdd && (
-              <button
-                onClick={() => addLayer(p.unlocksLayerId)}
-                className="mt-3 inline-flex items-center gap-1.5 bg-[#FA6C43] hover:bg-[#e85a30] text-white text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors"
-              >
-                <FiPlusCircle /> Add {layerById[p.unlocksLayerId].name}
-              </button>
             )}
           </Card>
         );
@@ -913,7 +1023,6 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 mb-0.5">Coach · {coach.tone}</div>
               <p className="text-sm text-amber-900">{b.text}</p>
-              {b.suggestProbe && <p className="text-xs text-amber-700 mt-1">Try asking: “{b.suggestProbe}”</p>}
             </div>
           </div>
         );
@@ -990,12 +1099,9 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   const footer = (
     <footer className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
       <div className="w-full max-w-3xl mx-auto space-y-2.5">
-        {dialsCommitted && !scores && (
-          <ProbeTray probes={probes} probeState={probeState} onPick={handleProbe} />
-        )}
         {dialsCommitted && !scores && !synthesisOpen && (
           <button onClick={openSynthesis} className="text-xs font-semibold text-[#FA6C43] hover:underline">
-            I’m ready to write my synthesis →
+            Skip ahead to my synthesis →
           </button>
         )}
         <ChatComposer
@@ -1139,29 +1245,6 @@ function DialsCard({ variables, dials, setDials, committed, onCommit }) {
         Commit prediction & reveal baseline
       </button>
     </Card>
-  );
-}
-
-function ProbeTray({ probes, probeState, onPick }) {
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Probes</span>
-      {probes.map((p) => {
-        const { state, tip } = probeState(p);
-        const base = 'text-xs px-2.5 py-1.5 rounded-full border font-medium transition-colors';
-        if (state === 'used') {
-          return <span key={p.id} className={`${base} bg-gray-100 border-gray-200 text-gray-400 inline-flex items-center gap-1`}><FiCheck size={11} /> {p.text}</span>;
-        }
-        if (state === 'disabled') {
-          return <span key={p.id} title={tip} className={`${base} bg-gray-50 border-dashed border-gray-200 text-gray-300 cursor-not-allowed inline-flex items-center gap-1`}><FiLock size={10} /> {p.text}</span>;
-        }
-        return (
-          <button key={p.id} onClick={() => onPick(p)} className={`${base} bg-white border-[#FA6C43]/40 text-[#b8452a] hover:bg-[#F9D0C4]/30`}>
-            {p.text}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
