@@ -7,6 +7,7 @@ import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
 import InfoTip from '../components/InfoTip';
+import InstructionsInfoTip from '../components/InstructionsInfoTip';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -19,7 +20,6 @@ const EditConfigPage = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [errors, setErrors] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [promptMode, setPromptMode] = useState('instructions');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
@@ -78,8 +78,22 @@ const EditConfigPage = () => {
         }
     }
 
+    // Unified instructions panel: legacy bots created with "Advanced Template"
+    // stored their raw system prompt in prompt_template with instructions empty.
+    // Pull that text into the single instructions field so editing doesn't
+    // silently drop their prompt. Strip the standard scaffold marker if present
+    // (mirrors backend agent_runner scrubbing).
+    let resolvedInstructions = configFromState.instructions || '';
+    if (!resolvedInstructions.trim() && configFromState.prompt_template) {
+        const tmpl = configFromState.prompt_template;
+        const marker = 'Follow these specific instructions:';
+        const idx = tmpl.indexOf(marker);
+        resolvedInstructions = idx !== -1 ? tmpl.slice(idx + marker.length).trim() : tmpl.trim();
+    }
+
     setConfig({
         ...configFromState,
+        instructions: resolvedInstructions,
         bots: parsedBots,
         group_size: configFromState.group_size || 2,
         group_duration: configFromState.group_duration || 10,
@@ -89,7 +103,6 @@ const EditConfigPage = () => {
     });
     
     setInitialDocuments(configFromState.documents || []);
-    setPromptMode(configFromState.prompt_template ? 'template' : 'instructions');
   }, [location.state, navigate]);
 
   // Fetch HeyGen Avatars if needed
@@ -178,10 +191,6 @@ const EditConfigPage = () => {
     setNewFiles(prev => prev.filter(file => file.name !== fileName));
   };
 
-  const handlePromptModeChange = (mode) => {
-    setPromptMode(mode);
-  };
-
   // --- Submit Handler ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -199,8 +208,7 @@ const EditConfigPage = () => {
     } else if (config.bot_type === 'experiential') {
         if (!(config.experiential_config && config.experiential_config.layers)) newErrors.form = 'Generate the lab from your prompt before saving.';
     } else {
-        if (promptMode === 'instructions' && !config.instructions?.trim()) newErrors.instructions = 'Required';
-        if (promptMode === 'template' && !config.prompt_template?.trim()) newErrors.prompt_template = 'Required';
+        if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }
 
     if (config.bot_type === 'avatar' && !config.heygen_avatar_id) {
@@ -236,8 +244,8 @@ const EditConfigPage = () => {
           configToSubmit.instructions = `Experiential lab: ${configToSubmit.experiential_config?.meta?.title || 'custom'}`;
           configToSubmit.prompt_template = "";
       } else {
-          if (promptMode === 'instructions') configToSubmit.prompt_template = '';
-          else configToSubmit.instructions = '';
+          // Unified instructions panel — always send instructions; backend wraps it.
+          configToSubmit.prompt_template = '';
       }
 
       // scoring_spec / experiential_config are objects — serialize them
@@ -571,7 +579,6 @@ const EditConfigPage = () => {
                             type="button"
                             onClick={() => {
                               setConfig(prev => ({ ...prev, instructions: t.instructions, temperature: t.temperature }));
-                              handlePromptModeChange('instructions');
                               setShowTemplates(false);
                             }}
                             className="text-left p-3 rounded-xl border-2 border-gray-200 hover:border-[#FA6C43] hover:bg-[#F9D0C4]/20 bg-white transition-all"
@@ -587,12 +594,12 @@ const EditConfigPage = () => {
                     )}
                   </div>
 
-                  <div className="flex space-x-3 w-fit">
-                    <button type="button" onClick={() => handlePromptModeChange('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Simple Instructions</button>
-                    <button type="button" onClick={() => handlePromptModeChange('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Advanced Template</button>
-                  </div>
-
-                  <textarea name={promptMode === 'instructions' ? 'instructions' : 'prompt_template'} value={promptMode === 'instructions' ? config.instructions || '' : config.prompt_template || ''} onChange={handleChange} rows="5" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#FA6C43]" placeholder="Instructions..." />
+                  <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700">
+                    Instructions
+                    <InstructionsInfoTip />
+                  </label>
+                  <textarea name="instructions" value={config.instructions || ''} onChange={handleChange} rows="5" className={`w-full px-4 py-3 bg-white border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm outline-none focus:border-[#FA6C43]`} placeholder="Describe how the bot should behave. You can also request JSON / structured output — see the ⓘ tip." />
+                  {errors.instructions && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.instructions}</p>}
                 </div>
 
                 <div>

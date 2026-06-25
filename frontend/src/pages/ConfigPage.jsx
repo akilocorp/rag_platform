@@ -7,6 +7,7 @@ import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import InfoTip from '../components/InfoTip';
+import InstructionsInfoTip from '../components/InstructionsInfoTip';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -122,7 +123,6 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
 const ConfigModal = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
-  const [promptMode, setPromptMode] = useState('instructions');
   
   const aiModels = [
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
@@ -194,7 +194,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
       temperature: template.temperature,
       introduction: prev.introduction.trim() ? prev.introduction : template.introduction,
     }));
-    setPromptMode('instructions');
     setSelectedTemplateId(template.id);
   };
 
@@ -275,11 +274,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
         });
       } else {
-        if (promptMode === 'instructions' && !config.instructions.trim()) {
+        if (!config.instructions.trim()) {
           newErrors.instructions = 'Instructions are required';
-        }
-        if (promptMode === 'template' && !config.prompt_template.trim()) {
-          newErrors.prompt_template = 'Prompt template is required';
         }
       }
     }
@@ -364,14 +360,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
       configToSend.instructions = `Experiential lab: ${configToSend.experiential_config?.meta?.title || 'custom'}`;
       delete configToSend.prompt_template;
     } else {
-      // Standard Chat / Avatar Chat logic
+      // Standard Chat / Avatar Chat — single unified instructions panel.
+      // Always send `instructions`; the backend wraps it into the system prompt.
       configToSend.bots = [];
-      
-      if (promptMode === 'instructions') {
-        delete configToSend.prompt_template;
-      } else {
-        delete configToSend.instructions;
-      }
+      delete configToSend.prompt_template;
     }
     // --------------------------------------------------------------
 
@@ -740,24 +732,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="flex space-x-3 w-fit mb-4">
-                        <button type="button" onClick={() => setPromptMode('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Simple Instructions</button>
-                        <button type="button" onClick={() => setPromptMode('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Advanced Template</button>
-                      </div>
+                    <div>
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">
+                        Instructions
+                        <InstructionsInfoTip />
+                      </label>
+                      <textarea name="instructions" value={config.instructions} onChange={handleChange} rows="5" className={`w-full p-3 border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder='Describe how the bot should behave. You can also request JSON / structured output — see the ⓘ tip.'/>
+                      {errors.instructions && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.instructions}</p>}
                     </div>
-
-                    {promptMode === 'instructions' ? (
-                      <div>
-                        <textarea name="instructions" value={config.instructions} onChange={handleChange} rows="4" className={`w-full p-3 border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder='Instructions...'/>
-                        {errors.instructions && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.instructions}</p>}
-                      </div>
-                    ) : (
-                      <div>
-                        <textarea name="prompt_template" value={config.prompt_template} onChange={handleChange} rows="4" className={`w-full p-3 border ${errors.prompt_template ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder="Template..."/>
-                        {errors.prompt_template && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.prompt_template}</p>}
-                      </div>
-                    )}
 
                     <div className="pt-4">
                       <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
