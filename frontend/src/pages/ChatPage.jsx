@@ -1393,13 +1393,13 @@ const ChatPage = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   if (isInitializing) return (
-    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] flex-col gap-4">
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] text-[#222] flex-col gap-4">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
     </div>
   );
 
   if (!isAuthenticated && config?.is_public && !guestInfo) return (
-    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] px-4">
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
         <p className="text-sm text-gray-500 mb-6">Enter your info to get started.</p>
@@ -1463,7 +1463,7 @@ const ChatPage = () => {
   })();
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="flex h-[100dvh] overflow-hidden bg-[#F8FAFC] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isDragging && (
         <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center px-4 animate-chip-in">
           <div className="absolute inset-3 sm:inset-5 rounded-3xl border-2 border-dashed border-[#FA6C43] bg-[#FA6C43]/8 backdrop-blur-[2px]" />
