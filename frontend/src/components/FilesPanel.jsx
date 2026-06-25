@@ -345,7 +345,7 @@ const FilesPanel = ({
       {showInlineHeader && (
         <div className={`flex items-center gap-2 ${hasBreadcrumbs ? 'justify-between' : 'justify-end'}`}>
           {hasBreadcrumbs && (
-            <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
+            <div className="flex items-center gap-1 flex-1 min-w-0 pl-3 text-[12px] text-gray-500">
               {view.breadcrumbs.map((c, i) => {
                 const isLast = i === view.breadcrumbs.length - 1;
                 return (
