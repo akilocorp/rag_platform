@@ -233,7 +233,7 @@ export const ChatSidebar = ({
           >
             {/* Logo cross-fades to a Home icon on hover (links to the agent list) */}
             <img
-              src={isCollapsed ? logo : '/actrlabs-wordmark.jpg'}
+              src={logo}
               alt="ACTR Labs"
               className={`w-auto object-contain transition-opacity duration-300 ease-out group-hover:opacity-0 ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />

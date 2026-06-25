@@ -6,7 +6,6 @@ import UserInfo from '../components/UserInfo';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
-import logo from '../assets/logo.png';
 // Import your modal components here (adjust paths as needed)
 import ConfigModal from './ConfigPage';
 import ReportBugModal from './ReportBugModal';
@@ -278,9 +277,9 @@ const ConfigListPage = () => {
           onClick={() => navigate('/config_list')}
         >
           <img
-            src={logo}
-            alt="actrLabs Logo"
-            className="h-10 lg:h-12 w-auto object-contain"
+            src="/actrlabs-wordmark.jpg"
+            alt="ACTRLabs"
+            className="h-10 lg:h-12 w-auto object-contain mix-blend-multiply"
           />
         </div>
         <div className="flex items-center space-x-6 lg:space-x-8">
