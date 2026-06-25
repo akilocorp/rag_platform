@@ -334,6 +334,15 @@ const LandingV2 = () => {
   const ctaRef = useRef(null);
   const featureGridRef = useRef(null);
 
+  // Tailor the document title for this route. index.html holds the
+  // default/shared head; this gives the v2 landing its own title without
+  // pulling in a per-route head library.
+  useEffect(() => {
+    const prev = document.title;
+    document.title = 'ACTRLabs — AI Tutors & Chatbots That Redefine Learning';
+    return () => { document.title = prev; };
+  }, []);
+
   // Audience accordion state. The 7s interval restarts whenever
   // `activePanel` changes — clicking a collapsed pane resets the timer
   // so the user gets the full 7s on their chosen panel before
