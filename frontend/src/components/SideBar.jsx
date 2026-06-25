@@ -88,12 +88,18 @@ export const ChatSidebar = ({
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
+  // Viewport coords for the fixed chat menu, captured once on open so it
+  // escapes the sidebar's backdrop-blur + overflow clipping without a portal.
+  const [menuPos, setMenuPos] = useState(null);
   const [removingChatIds, setRemovingChatIds] = useState(() => new Set());
   // DOM node beside the "Files" header that FilesPanel portals its + control into.
   const [filesAddSlot, setFilesAddSlot] = useState(null);
 
   useEffect(() => {
-    const handleClickOutside = () => setOpenDropdown(null);
+    const handleClickOutside = () => {
+      setOpenDropdown(null);
+      setMenuPos(null);
+    };
     if (openDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
@@ -191,7 +197,11 @@ export const ChatSidebar = ({
     Math.min(100, Math.round(((credits?.used ?? 0) / Math.max(1, credits?.total ?? 1)) * 100)),
   );
 
+  const menuSession =
+    openDropdown && sessions.find((s) => s.session_id === openDropdown);
+
   return (
+    <>
     <aside
       className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm w-72 ${
         isCollapsed ? 'md:w-20' : 'md:w-[30%]'
@@ -385,41 +395,22 @@ export const ChatSidebar = ({
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  setOpenDropdown(
-                                    openDropdown === session.session_id ? null : session.session_id,
-                                  );
+                                  if (openDropdown === session.session_id) {
+                                    setOpenDropdown(null);
+                                    setMenuPos(null);
+                                    return;
+                                  }
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setMenuPos({
+                                    top: rect.bottom + 6,
+                                    right: window.innerWidth - rect.right,
+                                  });
+                                  setOpenDropdown(session.session_id);
                                 }}
                                 className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
                               >
                                 <FiMoreHorizontal className="w-4 h-4" />
                               </button>
-
-                              {openDropdown === session.session_id && (
-                                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[60]">
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      handleDownloadChat(session.session_id, session.title);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
-                                  >
-                                    <FiDownload className="w-4 h-4 flex-shrink-0" />
-                                    <span>Download Chat</span>
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      handleDeleteChat(session.session_id);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
-                                  >
-                                    <FiTrash2 className="w-4 h-4 flex-shrink-0" />
-                                    <span>Delete Chat</span>
-                                  </button>
-                                </div>
-                              )}
                             </div>
                             )}
                           </>
@@ -570,6 +561,44 @@ export const ChatSidebar = ({
         </div>
       </div>
     </aside>
+
+    {/* Chat actions menu — fixed to the viewport so it clears the sidebar's
+        backdrop-blur + overflow clipping (no portal needed). */}
+    {menuSession && menuPos && (
+      <div
+        className="fixed w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[120] animate-chip-in origin-top-right"
+        style={{ top: menuPos.top, right: menuPos.right }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDownloadChat(menuSession.session_id, menuSession.title);
+            setOpenDropdown(null);
+            setMenuPos(null);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiDownload className="w-4 h-4 flex-shrink-0" />
+          <span>Download Chat</span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDeleteChat(menuSession.session_id);
+            setOpenDropdown(null);
+            setMenuPos(null);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiTrash2 className="w-4 h-4 flex-shrink-0" />
+          <span>Delete Chat</span>
+        </button>
+      </div>
+    )}
+    </>
   );
 };
 
