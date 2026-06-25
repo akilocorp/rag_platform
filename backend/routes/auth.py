@@ -176,7 +176,7 @@ def student_register():
             return jsonify({"error": "That username is already taken."}), 409
 
         password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-        class_code = (data.get('class_code') or '').strip().upper()
+        class_code = (data.get('class_code') or '').strip().lower()
         new_user = {
             "email": email,
             "username": username,
