@@ -19,6 +19,7 @@ import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { renderMarkdown } from '../utils/markdown';
+import { mountDesmosGraphs } from '../utils/desmos';
 
 // --- HELPER: Get Token Safely ---
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -282,6 +283,7 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex }) => {
     if (!el) return;
     el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(text);
     if (!isUser) {
+      mountDesmosGraphs(el);
       loadDefineableSet().then((set) => {
         // Bail if message text changed underneath us between yield points.
         if (mdRef.current === el) {

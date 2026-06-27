@@ -74,6 +74,32 @@ CHART_GUIDE = (
 )
 
 
+# Always available — the frontend mounts ```desmos blocks as live, draggable
+# Desmos calculators. Only emitted for genuine math questions, so safe to ship.
+DESMOS_GUIDE = (
+    "\n\nFor a pure-mathematics question where seeing the curve, line, or "
+    "shape would genuinely aid understanding, embed a live, interactive "
+    "Desmos graph inline — placed at the exact point in your explanation "
+    "where the visual helps (right after you introduce the function or "
+    "relationship), NOT tacked on at the end. Emit a fenced code block "
+    "tagged `desmos` whose body is a JSON object, for example:\n"
+    "```desmos\n"
+    '{"expressions":["y=x^2","y=a x+1","a=1"],'
+    '"bounds":{"left":-10,"right":10,"bottom":-10,"top":10}}\n'
+    "```\n"
+    "Rules: `expressions` is an array of Desmos/LaTeX expression strings "
+    "(e.g. \"y=x^2\", \"y=\\\\sin(x)\", \"x^2+y^2=9\"). Introduce free "
+    "parameters like `a`, `k`, or `b` and give each a starting value on its "
+    "own line (\"a=1\") — Desmos turns these into draggable sliders, which is "
+    "what makes the graph interactable, so prefer a parameterized form when it "
+    "fits. `bounds` is optional {left,right,bottom,top}; omit it to let Desmos "
+    "auto-fit. Only include a graph when it truly clarifies the math — skip it "
+    "for arithmetic, proofs, or purely symbolic answers. Still explain the math "
+    "in words and LaTeX; the graph supplements, it doesn't replace, the "
+    "explanation."
+)
+
+
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
 
@@ -125,7 +151,7 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "as clickable chips below your answer."
         )
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{CHART_GUIDE}"
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{CHART_GUIDE}{DESMOS_GUIDE}"
 
 
 def _to_dict(block) -> Dict[str, Any]:

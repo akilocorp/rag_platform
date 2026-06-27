@@ -548,3 +548,35 @@ a:focus-visible {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Inline Desmos calculators embedded in AI answers. Desmos needs an explicit
+   container size; the placeholder is empty until mountDesmosGraphs runs. */
+.desmos-embed {
+  width: 100%;
+  height: 380px;
+  margin: 1rem 0;
+  border: 1px solid #E2E8F0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #FFFFFF;
+  /* Subtle entry: fade + lift in once the live calculator is mounted. */
+  opacity: 0;
+  transform: translateY(6px) scale(0.99);
+  transition: opacity 240ms ease-out, transform 240ms ease-out;
+}
+.desmos-embed--in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.desmos-embed--failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  min-height: 0;
+  padding: 0.75rem 1rem;
+  color: #64748B;
+  font-size: 0.875rem;
+  opacity: 1;
+  transform: none;
+}

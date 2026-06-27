@@ -12,6 +12,8 @@ const C_OPEN = '\uE002';
 const C_CLOSE = '\uE003';
 const V_OPEN = '\uE004';
 const V_CLOSE = '\uE005';
+const D_OPEN = '\uE006';
+const D_CLOSE = '\uE007';
 
 // Pull ```chart fenced blocks out before anything else and render each to a
 // self-contained SVG. A malformed spec falls back to a normal code block.
@@ -31,6 +33,28 @@ function extractCharts(text) {
   return { text: out, charts };
 }
 
+// Pull ```desmos fenced blocks out and swap each for a placeholder div that
+// ChatPage mounts into a live Desmos calculator after innerHTML is set. We
+// validate the JSON here so a malformed spec just stays a normal code block;
+// the spec rides along in a data attribute (base64 so quotes/newlines survive).
+function extractDesmos(text) {
+  const graphs = [];
+  const out = text.replace(/```desmos\s*\n([\s\S]*?)```/g, (whole, body) => {
+    try {
+      const spec = JSON.parse(body.trim());
+      if (!spec || !Array.isArray(spec.expressions) || !spec.expressions.length) {
+        return whole; // unusable spec → leave as a code block
+      }
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(spec))));
+      graphs.push(`<div class="desmos-embed" data-desmos="${encoded}"></div>`);
+      return `\n\n${D_OPEN}${graphs.length - 1}${D_CLOSE}\n\n`;
+    } catch {
+      return whole;
+    }
+  });
+  return { text: out, graphs };
+}
+
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
 const looksLikeMath = (tex) =>
@@ -40,8 +64,10 @@ const looksLikeMath = (tex) =>
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
 // with KaTeX, so no DOM-wide auto-render pass is needed afterwards.
 export function renderMarkdown(raw) {
-  // Pull ```chart blocks out first so marked never sees them as code.
-  const { text, charts } = extractCharts(raw || '');
+  // Pull ```chart and ```desmos blocks out first so marked never sees them as
+  // code. Desmos placeholders are mounted into live calculators by ChatPage.
+  const { text: noCharts, charts } = extractCharts(raw || '');
+  const { text, graphs } = extractDesmos(noCharts);
   const math = [];
   const stash = (tex, display) => {
     math.push({ tex, display });
@@ -101,5 +127,7 @@ export function renderMarkdown(raw) {
   // Drop the rendered chart SVGs back in (unwrap any <p> marked put around the
   // bare sentinel).
   html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'), (_, n) => charts[+n] || '');
+  // Drop the Desmos placeholder divs back in (ChatPage mounts them live).
+  html = html.replace(new RegExp(`(?:<p>)?${D_OPEN}(\\d+)${D_CLOSE}(?:</p>)?`, 'g'), (_, n) => graphs[+n] || '');
   return html;
 }
