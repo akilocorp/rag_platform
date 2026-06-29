@@ -226,7 +226,7 @@ export default function VideoResultsPage() {
   const checks     = scores?.content_checks || [];
   const gambit     = checks.find(c => c.id === 'gambit');
   const components = checks.filter(c => c.id !== 'gambit');
-  const overall    = scores?.overall != null ? scores.overall : scores?.llm_overall;
+  const overall    = scores?.llm_overall != null ? scores.llm_overall : scores?.overall;
   const talkTime   = scores?.analytics?.talk_time_sec;
   const bodyLanguage = scores?.body_language;
   const dimNames   = dimensions.map(d => d.name).filter(Boolean);
@@ -277,7 +277,7 @@ export default function VideoResultsPage() {
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
           <p className="text-sm text-gray-500 mt-0.5">
-            {dimNames.length ? `Average across ${dimNames.join(', ')}` : 'Across all scoring boxes'}
+            {dimNames.length ? `Delivery and content, weighed together (${dimNames.join(', ')})` : 'Delivery and content, weighed together'}
           </p>
         </div>
         <div className="text-right shrink-0 ml-4">

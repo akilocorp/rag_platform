@@ -45,8 +45,6 @@ FILLER_WORDS = {
 }
 FILLER_PHRASES = ["you know", "i mean", "you see", "right so", "so yeah", "and so"]
 
-IDEAL_WPM_LOW, IDEAL_WPM_HIGH = 110, 160
-
 # Universal presentation-quality standards used by Stage 1, independent of any
 # subject-specific rubric. Kept as a module constant so the general pass is
 # consistent across configs.
@@ -121,7 +119,6 @@ def _basic_analytics(transcript_text: str, duration: float, target_duration_sec:
         comp_status = "warn"
     return {
         "talk_time_sec": round(duration, 1),
-        "word_count": len(tokens),
         "completion": {
             "duration_sec": round(duration, 1),
             "target_sec": target_duration_sec,
@@ -396,6 +393,5 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
         "analytics": analytics,
         "feedback": feedback,
         "body_language": report,
-        "general_assessment": general,
         "scored_at": time.time(),
     }
