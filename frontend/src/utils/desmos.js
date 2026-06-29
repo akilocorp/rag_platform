@@ -37,6 +37,43 @@ function loadDesmos() {
   return desmosPromise;
 }
 
+// Symbols Desmos resolves on its own: graphing/parametric/polar variables and
+// built-in constants. Everything else used in an expression needs a definition.
+const BUILTIN_VARS = new Set(['x', 'y', 'r', 't', 'e']);
+// Bare function names (no backslash) so "abs(x)" / "sin(x)" don't read as vars.
+const FUNCS = [
+  'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'sin', 'cos', 'tan',
+  'csc', 'sec', 'cot', 'log', 'ln', 'exp', 'sqrt', 'abs', 'floor', 'ceil',
+  'round', 'sign', 'mod', 'gcd', 'lcm', 'nPr', 'nCr', 'mean', 'median',
+  'min', 'max', 'total', 'stdev', 'polygon', 'distance', 'midpoint',
+];
+
+// Find single-letter variables an expression references but never defines.
+// Returns those letters so the caller can supply a neutral default — this
+// guarantees a relation like |x/a|^n+|y/b|^n=1 still renders even if the
+// model forgot to give the exponent a value. A false positive only ever adds
+// a harmless unused slider; it can never blank an otherwise-valid graph.
+function findUndefinedVars(expressions) {
+  const defined = new Set();
+  expressions.forEach((ex) => {
+    const m = /^\s*([a-zA-Z])\s*=/.exec(String(ex));
+    if (m) defined.add(m[1]);
+  });
+
+  const funcRe = new RegExp(`\\b(${FUNCS.join('|')})\\b`, 'g');
+  const referenced = new Set();
+  expressions.forEach((ex) => {
+    const s = String(ex)
+      .replace(/\\left|\\right/g, ' ')   // abs/paren delimiters
+      .replace(/\\[a-zA-Z]+/g, ' ')      // latex commands: \frac, \sin, \pi…
+      .replace(funcRe, ' ')              // bare function names
+      .replace(/^\s*[a-zA-Z]\s*=/, ' '); // a definition's own LHS isn't a ref
+    (s.match(/[a-zA-Z]/g) || []).forEach((c) => referenced.add(c));
+  });
+
+  return [...referenced].filter((c) => !defined.has(c) && !BUILTIN_VARS.has(c));
+}
+
 function decodeSpec(encoded) {
   try {
     return JSON.parse(decodeURIComponent(escape(atob(encoded))));
@@ -74,6 +111,17 @@ export function mountDesmosGraphs(el) {
             calc.setExpression({ id: `e${i}`, latex: String(expr) });
           } catch {
             /* skip an individual bad expression, keep the rest */
+          }
+        });
+
+        // Backfill any variable the model referenced but forgot to define
+        // (e.g. an undefined exponent) so the graph still renders. Default to
+        // 1 — a neutral value that produces a valid curve for most relations.
+        findUndefinedVars(spec.expressions).forEach((c) => {
+          try {
+            calc.setExpression({ id: `auto-${c}`, latex: `${c}=1` });
+          } catch {
+            /* ignore — Desmos will just flag the original expression */
           }
         });
 
