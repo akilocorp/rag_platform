@@ -8,6 +8,7 @@ import apiClient from '../api/apiClient';
 import { renderMarkdown } from '../utils/markdown';
 import { getExperientialConfig } from '../configs/experiential';
 import { validateExperientialConfig } from '../configs/experiential/schema';
+import { enforceChartAccuracy } from '../configs/experiential/chartGuard';
 import { getMethod, registerMethod, DEFAULT_METHOD_ID } from '../methods/registry';
 import ChatSidebar from '../components/SideBar.jsx';
 import ChatComposer from '../components/ChatComposer';
@@ -89,7 +90,10 @@ export default function ExperientialPage() {
     return () => { cancelled = true; };
   }, [configId]);
 
-  const config = configId ? dbLab.config : getExperientialConfig(templateId);
+  const rawConfig = configId ? dbLab.config : getExperientialConfig(templateId);
+  // Guarantee accumulating-level chart series trend the right way (e.g. capital
+  // per worker can't be drawn sloping down), even for labs saved before the fix.
+  const config = useMemo(() => enforceChartAccuracy(rawConfig), [rawConfig]);
   // Each lab declares its pedagogy via `config.method`; that selects the
   // validator + player. Missing/unknown → the default predict-reveal method.
   const method = config ? (getMethod(config.method) || getMethod(DEFAULT_METHOD_ID)) : null;

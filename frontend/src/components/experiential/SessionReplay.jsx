@@ -1,6 +1,7 @@
 import React from 'react';
 import { FiHelpCircle, FiAward } from 'react-icons/fi';
 import { renderMarkdown } from '../../utils/markdown';
+import { enforceChartAccuracy } from '../../configs/experiential/chartGuard';
 import IrfChart from './IrfChart';
 import ComparisonTable from './ComparisonTable';
 
@@ -60,11 +61,14 @@ function buildChart(layerById, snapshotIds, withGuess, chartVar, dials) {
   return { series, guess, unit: UNIT_BY_KEY[chartVar] || '' };
 }
 
-export default function SessionReplay({ config, transcript }) {
-  if (!config || !transcript || !Array.isArray(transcript.feed)) {
+export default function SessionReplay({ config: rawConfig, transcript }) {
+  if (!rawConfig || !transcript || !Array.isArray(transcript.feed)) {
     return <p className="text-sm text-gray-500">No transcript was recorded for this session.</p>;
   }
 
+  // Same accumulating-level guarantee as the live player, so replays of older
+  // runs also render an accurate chart.
+  const config = enforceChartAccuracy(rawConfig);
   const { meta = {}, layers = [], probes = [], analyst = {}, coach = {} } = config;
   const layerById = Object.fromEntries(layers.map((l) => [l.id, l]));
   const probeById = Object.fromEntries(probes.map((p) => [p.id, p]));
