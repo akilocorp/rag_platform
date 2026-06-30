@@ -24,6 +24,11 @@ SCHEMA (fill every field):
             "level": "<e.g. Undergraduate / MBA>", "estMinutes": 20 },
   "scenario": { "brief": "<2-3 sentence setup the student reasons about>" },
   "chartCaption": "<short caption for what the chart's series represents, e.g. 'projected across 8 periods' or 'over the reaction timeline'>",
+  "model": {   // OPTIONAL — include ONLY when the trajectory is genuinely computable (see MODEL rule)
+    "horizon": <int = the chartSeries length>,
+    "variables": ["<var>", ...],   // EXACTLY the chartSeries keys, same order
+    "code": "def simulate(p):\\n    ...\\n    return {\\"<var>\\": [<horizon numbers>], ...}"
+  },
   "studentChoices": [],
   "analyst": { "persona": "<a teaching analyst for this discipline that builds from baseline intuition>",
                "stayInCharacter": true, "mode": "generative",
@@ -36,6 +41,7 @@ SCHEMA (fill every field):
     { "id": "baseline", "short": "Baseline", "name": "Baseline (<short code>)",
       "predictPrompt": "Set your baseline call, then reveal its path.",
       "changes": "<the baseline assumptions, plainly>",
+      "params": { "<param>": <number>, ... },   // include ONLY if you included a top-level "model"
       "reveal": { "chartSeries": { "<var>": [6 to 8 numbers] },
                   "tableRow": { "<Var>": "<cell>" }, "narrative": "<what the baseline shows>" } },
     { "id": "<id>", "short": "+ <Short>", "name": "+ <Name>",
@@ -70,6 +76,15 @@ the narrative says is rising must trend UP — never plot it falling. If the tea
 GROWTH or RATE slows or accelerates, make the measure that rate and name it as one, rather than naming it after \
 a level and plotting it moving the "wrong" way. The predictionVariable's expected direction, the measure name, \
 the chartSeries sign, and reveal.narrative must all tell the same story.
+- MODEL (optional, but STRONGLY preferred when the dynamics are computable — e.g. population/logistic growth, \
+kinetics, compound interest, diffusion, any recurrence): include a top-level "model" and per-layer "params", and \
+the backend will EXECUTE `simulate(p)` to draw the exact chartSeries instead of trusting your numbers. \
+`model.code` is a Python string defining `def simulate(p):` that returns a dict mapping each `model.variables` \
+key to a list of exactly `horizon` numbers; `p` is the layer's `params`. Compute a LEVEL via a recurrence so it \
+provably moves the right way, and a RATE as its period change. A complication changes ONE parameter so its curve \
+is a real consequence. Code = pure arithmetic; `math` is available; NO imports, NO `while`, NO IO, no names \
+starting with underscore. Omit "model"/"params" entirely for qualitative trajectories that aren't computable \
+(e.g. a historical narrative) and just use illustrative chartSeries. Always keep chartSeries filled as a fallback.
 - chartSeries keys and tableRow keys are CONSISTENT across all layers; tableRow uses those keys with one \
 representative cell each (e.g. "-1.0%", "+3 pts", "2.4x").
 - The number of probes equals the number of complication layers, ordered to match them.

@@ -25,6 +25,11 @@ SCHEMA (fill every field):
             "level": "<e.g. MBA / Graduate>", "estMinutes": 20 },
   "scenario": { "brief": "<2-3 sentence shock/setup the student reasons about>" },
   "chartCaption": "response over 8 quarters (% deviation from baseline). Each line is a model.",
+  "model": {   // THE SOURCE OF TRUTH for every chart line — see MODEL rules below
+    "horizon": 8,
+    "variables": ["<var1>", "<var2>"],   // EXACTLY the chartSeries keys, same order
+    "code": "def simulate(p):\\n    # compute each variable from p over horizon periods\\n    ...\\n    return {\\"<var1>\\": [<8 numbers>], \\"<var2>\\": [<8 numbers>]}"
+  },
   "studentChoices": [],
   "analyst": { "persona": "<a teaching analyst that builds from baseline intuition>",
                "stayInCharacter": true, "mode": "generative",
@@ -37,6 +42,7 @@ SCHEMA (fill every field):
     { "id": "baseline", "short": "Baseline", "name": "Baseline model (<CODE>)",
       "predictPrompt": "Set your baseline call, then reveal its path.",
       "changes": "<the baseline assumptions, plainly>",
+      "params": { "<param>": <number>, ... },   // the model parameters for THIS layer (see MODEL rules)
       "reveal": { "chartSeries": { "<var1>": [8 numbers], "<var2>": [8 numbers] },
                   "tableRow": { "<Var1>": "<cell>", "<Var2>": "<cell>", "<Var3>": "<cell>" },
                   "narrative": "<what the baseline shows>" } },
@@ -46,6 +52,7 @@ SCHEMA (fill every field):
                             "prompt": "Before we reveal it: once <complication>, does <FOCUS> fall more, about the same, or less than baseline?",
                             "expected": "more" | "same" | "less" },
       "changes": "<the mechanism this complication adds>",
+      "params": { same keys as baseline, with the ONE parameter this complication changes },
       "reveal": { "chartSeries": { same keys as baseline, scaled to show amplification },
                   "tableRow": { same keys as baseline },
                   "narrative": "<the actual mechanism — used as ground truth>" } },
@@ -78,6 +85,21 @@ the teaching point is "growth slows toward steady state", make the variable a gr
 it after a level like "capital_per_worker" and then plot it falling. Keep the predictionVariable's expected \
 direction, the variable's name (level vs rate), the chartSeries sign, and reveal.narrative all telling the \
 same story.
+- MODEL (the chart's source of truth): the backend EXECUTES your `model.code` once per layer to compute the \
+actual chartSeries — your job is to write the model correctly, not to eyeball the numbers. The plotted line is \
+whatever `simulate(p)` returns, so direction errors become impossible when the equations are right.
+  · `model.code` is a Python string defining `def simulate(p):` that returns a dict mapping EACH variable in \
+`model.variables` to a list of exactly `horizon` numbers (Q1..Q8). `p` is that layer's `params` dict.
+  · Write the genuine dynamics: a LEVEL (capital per worker K/L, productivity, output per worker) must \
+ACCUMULATE via a recurrence over the horizon — e.g. k = k + p["s"]*f(k) - p["delta"]*k each period — so it \
+provably rises while net investment is positive; a GROWTH RATE is the period-over-period change of that level \
+and naturally falls as diminishing returns bite. Return the SAME quantity the chartCaption describes (e.g. % \
+deviation from baseline). Each variable's computed trend MUST match its predictionVariable `expected`.
+  · Each layer's `params` holds the model parameters; a complication changes ONE parameter (e.g. a higher \
+savings rate, or negative labour-force growth) so its amplified curve is a real consequence of the math.
+  · Code constraints: pure arithmetic only. You MAY use `math` (e.g. math.exp, math.log). NO imports, NO file/\
+network/IO, NO `while` loops (use `for t in range(...)`), no names starting with underscore. Keep it short and \
+deterministic. Still fill chartSeries with plausible numbers as a FALLBACK — they are used only if the code fails.
 - tableRow: the SAME 3 keys across all three layers, with the Q1 cell for each (e.g. "-1.0%", "+1.5pp").
 - chartSeries keys and tableRow keys are consistent across all layers.
 - The two complications must amplify DIFFERENT variables (e.g. one investment-side, one consumption-side).

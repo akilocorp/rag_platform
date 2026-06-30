@@ -146,11 +146,51 @@ def _coerce_chart_series(cfg):
                 cs.pop(k, None)
 
 
+def _apply_model_computation(cfg):
+    """Replace each layer's chartSeries with values COMPUTED from the lab's model.
+
+    When the generator supplies a top-level `model` block (Python `simulate(p)`
+    plus a variable list) and per-layer `params`, we run the model deterministically
+    and overwrite chartSeries — so the curve is real math, not the model's guess.
+    Any problem (no model block, unsafe code, bad shape) leaves the illustrative
+    chartSeries untouched: accuracy when we can, graceful fallback when we can't.
+    """
+    model = cfg.get('model')
+    layers = cfg.get('layers')
+    if not isinstance(model, dict) or not isinstance(layers, list):
+        return
+    variables = model.get('variables')
+    if not isinstance(variables, list) or not variables:
+        # Infer the chart keys from the baseline layer when omitted.
+        base_cs = ((layers[0] or {}).get('reveal') or {}).get('chartSeries') or {}
+        variables = list(base_cs.keys())
+    horizon = model.get('horizon')
+    if not isinstance(horizon, int):
+        horizon = 8
+    param_sets = [(lyr.get('params') if isinstance(lyr, dict) else None) or {} for lyr in layers]
+    try:
+        from src.experiential.model_runner import run_model, ModelError
+        computed = run_model(model.get('code'), param_sets, variables, horizon)
+    except ModelError as e:
+        logger.warning("experiential model compute skipped (%s) — using model's illustrative series", e)
+        return
+    except Exception:  # noqa: BLE001 — never let compute break generation
+        logger.exception("experiential model compute crashed — using illustrative series")
+        return
+    for lyr, series in zip(layers, computed):
+        reveal = lyr.get('reveal')
+        if not isinstance(reveal, dict):
+            reveal = {}
+            lyr['reveal'] = reveal
+        reveal['chartSeries'] = series
+
+
 def _normalize_experiential(cfg):
     """Fill safe defaults so small model omissions don't fail client validation."""
     if not isinstance(cfg, dict):
         return cfg
     _coerce_chart_series(cfg)
+    _apply_model_computation(cfg)
     cfg.setdefault('provenanceGates', [])
     coach = cfg.get('coach')
     if not isinstance(coach, dict):
@@ -242,6 +282,9 @@ HARD CONSTRAINTS — keep the STRUCTURE identical so the lab still plays:
 every chartSeries key, every tableRow key, and all cross-links (unlockedByProbeId / unlocksLayerId, \
 extensionPredict.focus must still match a predictionVariable label).
 - Keep the same NUMBER of layers, probes, predictionVariables, and the same chartSeries array lengths.
+- Keep model.code and model.variables EXACTLY as given (the backend re-runs the model to draw the charts). \
+You MAY adjust each layer's `params` numbers to fit the chosen parameters/real-world context — the curves \
+recompute from them. Keep the same param keys.
 - Change only human-readable content and numbers: meta.title, chartCaption, scenario.brief, each \
 layer.changes and layer.reveal.narrative, chartSeries numbers, tableRow cells, analyst.persona context, \
 synthesis.task and rubric wording. Keep studentChoices unchanged (or omit it).
