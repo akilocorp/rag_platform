@@ -1,25 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import apiClient from '../../api/apiClient';
 import { validateExperientialConfig } from '../../configs/experiential/schema';
 
-// Generate-on-save UI for experiential labs: the professor writes a design
-// prompt, hits Generate, and Claude (grounded in the config's knowledge base
-// when a configId is supplied) returns a full lab config. We validate it client
-// side and show a preview before the prof saves.
-// Generation templates the prof can pick. "econ" keeps the opinionated macro
-// spine; "generic" works for any discipline with a flexible shape.
-const GEN_TEMPLATES = [
-  { id: 'econ', label: 'Economics (baseline → complications)' },
-  { id: 'generic', label: 'Generic (any discipline)' },
+// Generate-on-save UI for experiential labs: the professor picks a pedagogical
+// method, writes a design prompt that fine-tunes it, hits Generate, and Claude
+// (grounded in the config's knowledge base when a configId is supplied) returns
+// a full lab config. We validate it client side and show a preview before save.
+// The method list comes from the backend registry (one file per pedagogy in
+// backend/src/experiential/methods/), so adding a method needs no frontend edit.
+const FALLBACK_METHODS = [
+  { id: 'econ', label: 'Economics (baseline → complications)', description: '', prompt_hint: '' },
+  { id: 'generic', label: 'Generic (any discipline)', description: '', prompt_hint: '' },
 ];
 
 export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [grounded, setGrounded] = useState(false);
+  const [methods, setMethods] = useState(FALLBACK_METHODS);
   const [template, setTemplate] = useState('econ');
+
+  // Load the pedagogical methods the registry exposes. Falls back to the two
+  // built-ins if the endpoint is unavailable so the generator still works.
+  useEffect(() => {
+    let alive = true;
+    apiClient.get('/experiential/methods')
+      .then(({ data }) => {
+        const list = data?.methods;
+        if (alive && Array.isArray(list) && list.length) {
+          setMethods(list);
+          setTemplate((t) => (list.some((m) => m.id === t) ? t : list[0].id));
+        }
+      })
+      .catch(() => { /* keep fallback methods */ });
+    return () => { alive = false; };
+  }, []);
+
+  const activeMethod = methods.find((m) => m.id === template) || methods[0];
 
   const handleGenerate = async () => {
     const p = (prompt || '').trim();
@@ -56,21 +75,24 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
 
   return (
     <div>
-      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Discipline template</label>
+      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Pedagogical method</label>
       <select
         value={template}
         onChange={(e) => setTemplate(e.target.value)}
-        className="w-full mb-3 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+        className="w-full mb-1.5 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
       >
-        {GEN_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        {methods.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
       </select>
+      {activeMethod?.description && (
+        <p className="text-[11px] text-gray-400 mb-3">{activeMethod.description}</p>
+      )}
 
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Lab design prompt</label>
       <textarea
         value={prompt || ''}
         onChange={(e) => onPromptChange(e.target.value)}
         rows={5}
-        placeholder="e.g. Teach how adding financial frictions and household heterogeneity change a baseline oil-shock response. Start from the representative-agent model students know, then add BGG and HANK. Ground it in Lectures 5–7."
+        placeholder={activeMethod?.prompt_hint || 'Describe the lab: the baseline students know, the complications to add, the measures that move, and the lectures to ground it in.'}
         className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all resize-y"
       />
       <p className="text-[11px] text-gray-400 mt-1.5">

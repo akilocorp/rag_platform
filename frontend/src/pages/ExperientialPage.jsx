@@ -8,6 +8,7 @@ import apiClient from '../api/apiClient';
 import { renderMarkdown } from '../utils/markdown';
 import { getExperientialConfig } from '../configs/experiential';
 import { validateExperientialConfig } from '../configs/experiential/schema';
+import { getMethod, registerMethod, DEFAULT_METHOD_ID } from '../methods/registry';
 import ChatSidebar from '../components/SideBar.jsx';
 import ChatComposer from '../components/ChatComposer';
 import StickyHeader from '../components/experiential/StickyHeader';
@@ -89,9 +90,12 @@ export default function ExperientialPage() {
   }, [configId]);
 
   const config = configId ? dbLab.config : getExperientialConfig(templateId);
+  // Each lab declares its pedagogy via `config.method`; that selects the
+  // validator + player. Missing/unknown → the default predict-reveal method.
+  const method = config ? (getMethod(config.method) || getMethod(DEFAULT_METHOD_ID)) : null;
   const validation = useMemo(
-    () => (config ? validateExperientialConfig(config) : { ok: false, errors: [configId ? (dbLab.error || 'loading…') : 'template not found'] }),
-    [config, configId, dbLab.error],
+    () => (config && method ? method.validate(config) : { ok: false, errors: [configId ? (dbLab.error || 'loading…') : 'template not found'] }),
+    [config, method, configId, dbLab.error],
   );
 
   // Bump this to remount the whole player on reset.
@@ -184,8 +188,9 @@ export default function ExperientialPage() {
       </ColumnShell>
     );
   } else {
+    const Runner = method.Runner;
     columnContent = (
-      <LabRunner
+      <Runner
         key={runKey}
         config={config}
         configId={configId}
@@ -1344,3 +1349,14 @@ function DebriefCard({ scores, onReset }) {
     </Card>
   );
 }
+
+// Register the built-in predict → commit → reveal → explain pedagogy. Its player
+// (LabRunner) lives in this file for now; new pedagogies are self-contained
+// subfolders under src/methods/ (see src/methods/README.md). Relocating this one
+// into its own subfolder later is a pure move — the dispatch seam is unchanged.
+registerMethod({
+  id: 'predict-reveal',
+  label: 'Predict → commit → reveal → explain',
+  validate: validateExperientialConfig,
+  Runner: LabRunner,
+});
