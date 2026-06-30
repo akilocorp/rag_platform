@@ -23,6 +23,7 @@ from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from src.agentic.agent_runner import CHART_GUIDE
+from src.experiential import registry as method_registry
 from models.experiential_session import ExperientialSession
 from models.config import Config
 from models.user import User
@@ -81,150 +82,9 @@ def _extract_json(raw):
 
 GEN_MAX_TOKENS = 5000
 
-ECON_GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential macro/econ lab. \
-You output ONE JSON object (no prose, no markdown fences) matching the ExperientialConfig schema below. \
-The lab teaches an advanced model by starting from the baseline model the student already knows, then \
-adding ONE complication at a time and revealing how the picture changes.
-
-Pedagogical spine (always 3 layers): a BASELINE model, then TWO complications that each amplify a \
-different variable. The student predicts how each complication changes the baseline, explains why, then \
-sees it. The two probes are presented to the student automatically and in order — the student does not \
-pick them; each introduces one complication. Ground every framing, term and rough magnitude in the \
-professor's prompt and the lecture excerpts provided. Numbers are ILLUSTRATIVE deviations from baseline \
-— plausible and internally consistent, not estimated.
-
-SCHEMA (fill every field):
-{
-  "meta": { "id": "<kebab-id>", "title": "<short title>", "discipline": "<e.g. Macroeconomics>",
-            "level": "<e.g. MBA / Graduate>", "estMinutes": 20 },
-  "scenario": { "brief": "<2-3 sentence shock/setup the student reasons about>" },
-  "chartCaption": "response over 8 quarters (% deviation from baseline). Each line is a model.",
-  "studentChoices": [],
-  "analyst": { "persona": "<a teaching analyst that builds from baseline intuition>",
-               "stayInCharacter": true, "mode": "generative",
-               "scriptedFallback": "<one fallback line if AI is unavailable>" },
-  "predictionVariables": [   // EXACTLY 3 — the variables that carry the teaching point
-    { "id": "<key>", "label": "<Label>", "type": "direction", "expected": "up" | "down",
-      "intuition": "<what it surfaces>" }, ... x3
-  ],
-  "layers": [   // EXACTLY 3: index 0 = baseline, 1 & 2 = complications
-    { "id": "baseline", "short": "Baseline", "name": "Baseline model (<CODE>)",
-      "predictPrompt": "Set your baseline call, then reveal its path.",
-      "changes": "<the baseline assumptions, plainly>",
-      "reveal": { "chartSeries": { "<var1>": [8 numbers], "<var2>": [8 numbers] },
-                  "tableRow": { "<Var1>": "<cell>", "<Var2>": "<cell>", "<Var3>": "<cell>" },
-                  "narrative": "<what the baseline shows>" } },
-    { "id": "<id>", "short": "+ <Short>", "name": "+ <Name> (<CODE>)",
-      "unlockedByProbeId": "<probe id>",
-      "extensionPredict": { "focus": "<the Variable label this complication most amplifies>",
-                            "prompt": "Before we reveal it: once <complication>, does <FOCUS> fall more, about the same, or less than baseline?",
-                            "expected": "more" | "same" | "less" },
-      "changes": "<the mechanism this complication adds>",
-      "reveal": { "chartSeries": { same keys as baseline, scaled to show amplification },
-                  "tableRow": { same keys as baseline },
-                  "narrative": "<the actual mechanism — used as ground truth>" } },
-    { ... second complication amplifying a DIFFERENT variable ... }
-  ],
-  "probes": [   // EXACTLY 2, one per complication
-    { "id": "<id>", "text": "<a short 'what if...' question>", "unlocksLayerId": "<layer id>",
-      "answer": "<explains the complication, offers to add it>" }, ... x2
-  ],
-  "provenanceGates": [],
-  "coach": { "hintAfterIdleSec": 60, "hintAfterUnproductiveProbes": 2, "maxHints": 3,
-             "tone": "Socratic, one nudge at a time" },
-  "synthesis": { "task": "<=120 word task to explain how each complication changes the baseline>",
-                 "wordLimit": 120,
-                 "rubric": ["<criterion>", "<criterion>", "<criterion>", "<criterion>"] },
-  "scoring": { "predictionWeight": 50, "probeEfficiencyWeight": 0, "provenanceWeight": 0, "synthesisWeight": 50 }
-}
-
-RULES:
-- chartSeries: 1-2 variables, EXACTLY 8 numbers each (Q1..Q8), deviations from baseline. Each complication's \
-FOCUS variable must show clear amplification vs baseline (larger magnitude). Every chartSeries value is a \
-RAW JSON number — no quotes, no % sign, no units (write -1.5, NOT "-1.5%").
-- tableRow: the SAME 3 keys across all three layers, with the Q1 cell for each (e.g. "-1.0%", "+1.5pp").
-- chartSeries keys and tableRow keys are consistent across all layers.
-- The two complications must amplify DIFFERENT variables (e.g. one investment-side, one consumption-side).
-- extensionPredict.expected is the direction of CHANGE vs baseline for the focus variable ("more" = larger fall).
-- STUDENT CUSTOMIZATION (optional): if the professor's prompt asks to let students pick something (a \
-country, region, industry, era, case…), add entries to "studentChoices"; otherwise leave it []. Each \
-entry: { "id": "<key>", "label": "<Label>", "type": "select" | "text", "options": ["..."] (select only), \
-"grounded": true|false, "prompt": "<short instruction shown to the student>" }. Mark a country / place / \
-current-events choice grounded:true so its scenario is rewritten to reflect real, current conditions.
-- Keep it crisp. Output ONLY the JSON object."""
-
-
-GENERIC_GEN_SYSTEM = """You are an instructional designer building a STRUCTURED experiential lab for ANY \
-discipline (economics, biology, history, marketing, engineering, law, medicine…). You output ONE JSON \
-object (no prose, no markdown fences) matching the ExperientialConfig schema below.
-
-Pedagogical spine: start from a BASELINE model or case the student already knows, then add complications \
-ONE at a time and reveal how the picture changes. For each complication the student predicts the change, \
-explains why, then sees it. The probes are presented to the student AUTOMATICALLY and IN ORDER — the \
-student does not pick them; order them so probe[i] introduces complication layer i+1. Ground every \
-framing, term and rough magnitude in the professor's prompt and the lecture excerpts provided. Numbers \
-are ILLUSTRATIVE — plausible and internally consistent, not estimated or real.
-
-SCHEMA (fill every field):
-{
-  "meta": { "id": "<kebab-id>", "title": "<short title>", "discipline": "<the field>",
-            "level": "<e.g. Undergraduate / MBA>", "estMinutes": 20 },
-  "scenario": { "brief": "<2-3 sentence setup the student reasons about>" },
-  "chartCaption": "<short caption for what the chart's series represents, e.g. 'projected across 8 periods' or 'over the reaction timeline'>",
-  "studentChoices": [],
-  "analyst": { "persona": "<a teaching analyst for this discipline that builds from baseline intuition>",
-               "stayInCharacter": true, "mode": "generative",
-               "scriptedFallback": "<one fallback line if AI is unavailable>" },
-  "predictionVariables": [   // 2 to 4 — the measures that carry the teaching point
-    { "id": "<key>", "label": "<Label>", "type": "direction", "expected": "up" | "down",
-      "intuition": "<what it surfaces>" }
-  ],
-  "layers": [   // 2 to 4: index 0 = baseline, the rest are complications
-    { "id": "baseline", "short": "Baseline", "name": "Baseline (<short code>)",
-      "predictPrompt": "Set your baseline call, then reveal its path.",
-      "changes": "<the baseline assumptions, plainly>",
-      "reveal": { "chartSeries": { "<var>": [6 to 8 numbers] },
-                  "tableRow": { "<Var>": "<cell>" }, "narrative": "<what the baseline shows>" } },
-    { "id": "<id>", "short": "+ <Short>", "name": "+ <Name>",
-      "unlockedByProbeId": "<probe id>",
-      "extensionPredict": { "focus": "<the variable label this complication most changes>",
-                            "prompt": "Before we reveal it: once <complication>, does <FOCUS> change more, about the same, or less than baseline?",
-                            "expected": "more" | "same" | "less" },
-      "changes": "<the mechanism this complication adds>",
-      "reveal": { "chartSeries": { same keys as baseline, scaled to show the change },
-                  "tableRow": { same keys as baseline }, "narrative": "<the actual mechanism — ground truth>" } }
-  ],
-  "probes": [   // one per complication, SAME ORDER as the complication layers
-    { "id": "<id>", "text": "<a short 'what if…' question that introduces the complication>",
-      "unlocksLayerId": "<layer id>", "answer": "<explains the complication>" }
-  ],
-  "provenanceGates": [],
-  "coach": { "hintAfterIdleSec": 60, "hintAfterUnproductiveProbes": 2, "maxHints": 3,
-             "tone": "Socratic, one nudge at a time" },
-  "synthesis": { "task": "<=120 word task to explain how each complication changes the baseline>",
-                 "wordLimit": 120, "rubric": ["<criterion>", "<criterion>", "<criterion>"] },
-  "scoring": { "predictionWeight": 50, "probeEfficiencyWeight": 0, "provenanceWeight": 0, "synthesisWeight": 50 }
-}
-
-RULES:
-- chartSeries: 1-2 measures, each 6 to 8 numbers, a trajectory of the measure. Each complication's \
-FOCUS measure must show a clear, visible change vs baseline. Every chartSeries value is a RAW JSON number \
-— no quotes, no % sign, no units (write -1.5, NOT "-1.5%").
-- chartSeries keys and tableRow keys are CONSISTENT across all layers; tableRow uses those keys with one \
-representative cell each (e.g. "-1.0%", "+3 pts", "2.4x").
-- The number of probes equals the number of complication layers, ordered to match them.
-- extensionPredict.expected is the direction of CHANGE vs baseline for the focus measure.
-- STUDENT CUSTOMIZATION (optional): if the professor's prompt asks to let students pick something (a \
-country, region, industry, era, case…), add entries to "studentChoices"; otherwise leave it []. Each \
-entry: { "id": "<key>", "label": "<Label>", "type": "select" | "text", "options": ["..."] (select only), \
-"grounded": true|false, "prompt": "<short instruction shown to the student>" }. Mark a country / place / \
-current-events choice grounded:true so its scenario is rewritten to reflect real, current conditions.
-- Keep it crisp. Output ONLY the JSON object."""
-
-
-# Generation templates the professor can pick. "econ" keeps the opinionated
-# 3-layer macro spine; "generic" is discipline-agnostic with a flexible shape.
-GEN_TEMPLATES = {'econ': ECON_GEN_SYSTEM, 'generic': GENERIC_GEN_SYSTEM}
+# Pedagogical method system prompts now live in backend/src/experiential/methods/
+# (one file per method). Drop a file there to add a method — see that folder's
+# README. The professor's own design prompt fine-tunes the chosen method.
 
 
 def _retrieve_kb(config_id, query, k=8):
@@ -316,6 +176,12 @@ def _normalize_experiential(cfg):
     return cfg
 
 
+@experiential_bp.route('/experiential/methods', methods=['GET'])
+def list_methods():
+    """Pedagogical methods the professor can pick (drives the generator dropdown)."""
+    return jsonify({"methods": method_registry.list_methods()})
+
+
 @experiential_bp.route('/experiential/generate', methods=['POST'])
 def generate_experiential():
     payload = request.get_json(silent=True) or {}
@@ -329,7 +195,7 @@ def generate_experiential():
     if client is None:
         return jsonify({"error": err}), 503
 
-    system = GEN_TEMPLATES.get(template) or GEN_TEMPLATES['generic']
+    system = method_registry.get_system_prompt(template)
     kb_text = _retrieve_kb(config_id, prompt) if config_id else ""
 
     user_msg = f"Professor's design prompt:\n{prompt}"
@@ -349,6 +215,8 @@ def generate_experiential():
         if not isinstance(cfg, dict) or not cfg.get('layers'):
             return jsonify({"error": "Could not parse a lab config from the model"}), 502
         cfg = _normalize_experiential(cfg)
+        # Stamp the pedagogy so the player page mounts the right validator + UI.
+        cfg['method'] = method_registry.get_schema(template)
         return jsonify({"config": cfg, "grounded": bool(kb_text)})
     except Exception as e:  # noqa: BLE001
         logger.exception("experiential generate failed")
@@ -492,6 +360,8 @@ def adapt_experiential():
         if not isinstance(cfg, dict) or not cfg.get('layers'):
             return jsonify({"error": "Could not parse an adapted lab config"}), 502
         cfg = _normalize_experiential(cfg)
+        # Adaptation rewrites content but keeps the pedagogy — carry it through.
+        cfg['method'] = base.get('method') or 'predict-reveal'
         _adapt_cache_set(cache_key, cfg)
         return jsonify({"config": cfg, "cached": False, "grounded": bool(web_context)})
     except Exception as e:  # noqa: BLE001
