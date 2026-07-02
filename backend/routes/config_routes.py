@@ -322,7 +322,9 @@ Answer:"""
                     exp_config = json.loads(exp_config)
                 except json.JSONDecodeError:
                     exp_config = None
-            if not template_id and not (isinstance(exp_config, dict) and exp_config.get('layers')):
+            # A generated lab is valid if it carries a pedagogy stamp (`method`,
+            # e.g. shock-world) or the legacy predict-reveal `layers` shape.
+            if not template_id and not (isinstance(exp_config, dict) and (exp_config.get('method') or exp_config.get('layers'))):
                 return jsonify({"error": "Experiential labs require either a template id or a generated lab config"}), 400
             config_document['experiential_template_id'] = template_id
             config_document['experiential_prompt'] = exp_prompt

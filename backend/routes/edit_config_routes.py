@@ -149,7 +149,9 @@ def update_existing_config(config_id):
                     experiential_config = json.loads(experiential_config)
                 except json.JSONDecodeError:
                     experiential_config = None
-            if isinstance(experiential_config, dict) and experiential_config.get('layers'):
+            # Persist a lab that carries a pedagogy stamp (`method`, e.g.
+            # shock-world) or the legacy predict-reveal `layers` shape.
+            if isinstance(experiential_config, dict) and (experiential_config.get('method') or experiential_config.get('layers')):
                 update_data['experiential_config'] = experiential_config
 
         # Class rollout — validate code + usage tier/pool (any bot type).

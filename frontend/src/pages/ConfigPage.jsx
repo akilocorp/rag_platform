@@ -262,8 +262,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 1 && (!config.bot_name || !config.bot_name.trim())) {
       newErrors.bot_name = 'Name is required';
     }
-    if (step === 1 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.method)) {
-      newErrors.experiential_config = 'Generate the lab from your prompt before continuing';
+    if (step === 3 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.method)) {
+      newErrors.experiential_config = 'Generate the lab before saving';
     }
     if (step === 4) {
       if (config.bot_type === 'video_analysis') {
@@ -289,7 +289,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const stepsFor = (botType) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
-    if (botType === 'experiential') return [1, 3]; // name + design prompt, then knowledge base
+    if (botType === 'experiential') return [1, 3]; // name + type + upload course files, then generate the lab (grounded in them)
     return [1, 2, 3, 4, 5];
   };
 
@@ -533,14 +533,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                 {config.bot_type === 'experiential' && (
                   <div className="pt-2 border-t border-gray-100">
-                    <LabGenerator
-                      prompt={config.experiential_prompt}
-                      onPromptChange={(v) => setConfig((prev) => ({ ...prev, experiential_prompt: v }))}
-                      generated={config.experiential_config}
-                      onGenerated={(cfg) => setConfig((prev) => ({ ...prev, experiential_config: cfg }))}
-                    />
-                    {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
-                    <p className="text-[11px] text-gray-400 mt-2">Upload your lecture files on the next step — then you can <span className="font-medium">regenerate</span> from the editor to ground the lab in them.</p>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Course materials</label>
+                    <p className="text-[11px] text-gray-400 mb-3">Upload the lecture files the lab should be built from — the next step generates the lab <span className="font-medium">grounded in them</span>.</p>
+                    <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
                   </div>
                 )}
 
@@ -572,13 +567,32 @@ const ConfigModal = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* STEP 3: Knowledge Base */}
+            {/* STEP 3: Knowledge Base — or, for experiential labs, generate the
+                lab grounded in the files uploaded on the previous step. */}
             {step === 3 && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
-                <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Upload Knowledge Base</h2>
-                <p className="text-center text-sm text-gray-500 mb-4">{config.bot_type === 'group_chat' ? 'These files will be shared across the entire group chat and all AI agents.' : 'Provide documents for the AI to study.'}</p>
-                <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
-              </div>
+              config.bot_type === 'experiential' ? (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Generate the Lab</h2>
+                  <p className="text-center text-sm text-gray-500 mb-4">
+                    Claude builds the lab from your design prompt
+                    {config.rag_files?.length ? `, grounded in the ${config.rag_files.length} file${config.rag_files.length > 1 ? 's' : ''} you uploaded` : ''}.
+                  </p>
+                  <LabGenerator
+                    prompt={config.experiential_prompt}
+                    onPromptChange={(v) => setConfig((prev) => ({ ...prev, experiential_prompt: v }))}
+                    generated={config.experiential_config}
+                    onGenerated={(cfg) => setConfig((prev) => ({ ...prev, experiential_config: cfg }))}
+                    files={config.rag_files}
+                  />
+                  {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
+                </div>
+              ) : (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Upload Knowledge Base</h2>
+                  <p className="text-center text-sm text-gray-500 mb-4">{config.bot_type === 'group_chat' ? 'These files will be shared across the entire group chat and all AI agents.' : 'Provide documents for the AI to study.'}</p>
+                  <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
+                </div>
+              )
             )}
 
             {/* STEP 4: AI Behavior OR Group Configuration */}

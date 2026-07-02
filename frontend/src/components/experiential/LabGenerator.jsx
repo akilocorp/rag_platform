@@ -16,7 +16,7 @@ const FALLBACK_METHODS = [
   { id: 'generic', label: 'Generic (any discipline)', description: '', prompt_hint: '' },
 ];
 
-export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId }) {
+export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId, files }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [grounded, setGrounded] = useState(false);
@@ -57,11 +57,27 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
     try {
       // Generation is a single long Claude call (~30-60s). Give it room so a
       // slow-but-successful response isn't aborted by a default client timeout.
-      const { data } = await apiClient.post(
-        '/experiential/generate',
-        { prompt: p, template, config_id: configId || undefined, method_params: methodParams },
-        { timeout: 180000 },
-      );
+      // When the create wizard supplies not-yet-saved files, send them multipart
+      // so the generator can ground the lab in them; otherwise send JSON (the
+      // editor grounds via the saved knowledge base by config_id).
+      let data;
+      if (files && files.length) {
+        const fd = new FormData();
+        fd.append('prompt', p);
+        fd.append('template', template);
+        if (configId) fd.append('config_id', configId);
+        fd.append('method_params', JSON.stringify(methodParams));
+        files.forEach((f) => fd.append('files', f));
+        ({ data } = await apiClient.post('/experiential/generate', fd, {
+          timeout: 180000, headers: { 'Content-Type': 'multipart/form-data' },
+        }));
+      } else {
+        ({ data } = await apiClient.post(
+          '/experiential/generate',
+          { prompt: p, template, config_id: configId || undefined, method_params: methodParams },
+          { timeout: 180000 },
+        ));
+      }
       // Validate with the generated pedagogy's own validator when it ships one,
       // else the built-in predict-reveal validator.
       const validate = getMethod(data.config?.method)?.validate || validateExperientialConfig;
@@ -116,7 +132,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
         className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all resize-y"
       />
       <p className="text-[11px] text-gray-400 mt-1.5">
-        Claude builds the full lab (scenario, a baseline plus complications, charts, table, synthesis){configId ? ' grounded in this bot’s uploaded knowledge base' : ''}. Probes are posed automatically in sequence. You review it before saving.
+        Claude builds the full lab from your design prompt{(configId || (files && files.length)) ? ' grounded in your uploaded course materials' : ''}. You review it before saving.
       </p>
 
       <button

@@ -222,16 +222,71 @@ def list_methods():
     return jsonify({"methods": method_registry.list_methods()})
 
 
+def _extract_files_text(files, max_chars=12000):
+    """Pull plain text from uploaded lecture files for at-creation grounding.
+
+    Used when the create wizard sends the professor's files straight to the
+    generator (before a config exists to vector-search). Text layer only — no
+    OCR — so scanned-only PDFs yield nothing here and are grounded later via the
+    editor's vector path. Each loader is best-effort; a missing dep or unreadable
+    file is skipped, never fatal.
+    """
+    parts = []
+    for f in files:
+        try:
+            name = (getattr(f, 'filename', '') or '').lower()
+            data = f.read()
+            if not data:
+                continue
+            text = ''
+            if name.endswith('.pdf'):
+                import fitz  # PyMuPDF
+                with fitz.open(stream=data, filetype='pdf') as doc:
+                    text = "\n".join(page.get_text() for page in doc)
+            elif name.endswith('.pptx'):
+                import io
+                from pptx import Presentation
+                prs = Presentation(io.BytesIO(data))
+                text = "\n".join(
+                    shape.text_frame.text
+                    for slide in prs.slides for shape in slide.shapes
+                    if getattr(shape, 'has_text_frame', False)
+                )
+            elif name.endswith('.docx'):
+                import io
+                import docx2txt
+                text = docx2txt.process(io.BytesIO(data)) or ''
+            elif name.endswith(('.txt', '.md')):
+                text = data.decode('utf-8', errors='ignore')
+            if text.strip():
+                parts.append(f"[{getattr(f, 'filename', 'file')}]\n{text.strip()}")
+        except Exception:  # noqa: BLE001 — one bad file shouldn't fail generation
+            logger.exception("generate: could not extract text from %s", getattr(f, 'filename', ''))
+    return ("\n\n".join(parts))[:max_chars]
+
+
 @experiential_bp.route('/experiential/generate', methods=['POST'])
 def generate_experiential():
-    payload = request.get_json(silent=True) or {}
-    prompt = (payload.get('prompt') or '').strip()
-    config_id = payload.get('config_id')
-    template = (payload.get('template') or 'econ').strip().lower()
+    # Two intake shapes: multipart (create wizard sends the prof's files for
+    # at-creation grounding) or JSON (editor regenerate, grounded via the KB).
+    uploaded = request.files.getlist('files') if request.files else []
+    if uploaded:
+        prompt = (request.form.get('prompt') or '').strip()
+        config_id = request.form.get('config_id') or None
+        template = (request.form.get('template') or 'econ').strip().lower()
+        try:
+            method_params = json.loads(request.form.get('method_params') or '{}')
+        except (ValueError, TypeError):
+            method_params = {}
+    else:
+        payload = request.get_json(silent=True) or {}
+        prompt = (payload.get('prompt') or '').strip()
+        config_id = payload.get('config_id')
+        template = (payload.get('template') or 'econ').strip().lower()
+        method_params = payload.get('method_params')
     # Method-owned structured inputs from the professor's ConfigForm (e.g. a
     # shock-world country list / round count). Opaque here — the method's own
     # normalize() reads them; other methods ignore them.
-    method_params = payload.get('method_params')
     if not isinstance(method_params, dict):
         method_params = {}
     if not prompt:
@@ -243,7 +298,8 @@ def generate_experiential():
 
     m = method_registry.get_method(template)
     system = method_registry.get_system_prompt(template)
-    kb_text = _retrieve_kb(config_id, prompt) if config_id else ""
+    # Ground in the uploaded files (create wizard) or the saved KB (editor).
+    kb_text = _extract_files_text(uploaded) if uploaded else (_retrieve_kb(config_id, prompt) if config_id else "")
 
     user_msg = f"Professor's design prompt:\n{prompt}"
     if method_params:
