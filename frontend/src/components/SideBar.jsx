@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import {
@@ -11,6 +12,7 @@ import {
   FiMoreHorizontal,
   FiDownload,
   FiTrash2,
+  FiEdit2,
   FiFolder,
   FiBarChart2,
   FiHome,
@@ -78,6 +80,7 @@ export const ChatSidebar = ({
   onFetchUrl,
   isFetchingUrl = false,
   onDeleteSession = () => {},
+  onRenameSession = () => {},
   // Session list customization (experiential labs reuse this list)
   sessionTo = null,            // (session) => path; defaults to the chat route
   hideSessionMenu = false,     // hide the download/delete dropdown
@@ -95,6 +98,10 @@ export const ChatSidebar = ({
   const [removingChatIds, setRemovingChatIds] = useState(() => new Set());
   // DOM node beside the "Files" header that FilesPanel portals its + control into.
   const [filesAddSlot, setFilesAddSlot] = useState(null);
+  // Rename modal: the session being renamed + the draft title.
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -177,6 +184,33 @@ export const ChatSidebar = ({
         });
       }
     }, 220);
+  };
+
+  const openRename = (session) => {
+    setRenameTarget(session);
+    setRenameValue(session.title || '');
+    setOpenDropdown(null);
+    setMenuPos(null);
+  };
+
+  const closeRename = () => {
+    setRenameTarget(null);
+    setRenameValue('');
+    setRenameSaving(false);
+  };
+
+  const handleRenameSubmit = async () => {
+    const title = renameValue.trim();
+    if (!renameTarget || !title || renameSaving) return;
+    setRenameSaving(true);
+    try {
+      await apiClient.patch(`/chat/${configId}/${renameTarget.session_id}/title`, { title });
+      onRenameSession(renameTarget.session_id, title);
+      closeRename();
+    } catch (error) {
+      console.error('Error renaming chat:', error);
+      setRenameSaving(false);
+    }
   };
 
   const goConfigList = () => navigate('/config_list');
@@ -406,10 +440,20 @@ export const ChatSidebar = ({
                                     return;
                                   }
                                   const rect = e.currentTarget.getBoundingClientRect();
-                                  setMenuPos({
-                                    top: rect.bottom + 6,
-                                    right: window.innerWidth - rect.right,
-                                  });
+                                  // Clamp so the w-44 (176px) menu stays fully
+                                  // on-screen; flip above the button if there
+                                  // isn't room below it.
+                                  const MENU_W = 176;
+                                  const MENU_H = 132;
+                                  const right = Math.min(
+                                    Math.max(8, window.innerWidth - rect.right),
+                                    window.innerWidth - MENU_W - 8
+                                  );
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const top = spaceBelow < MENU_H + 12
+                                    ? Math.max(8, rect.top - 6 - MENU_H)
+                                    : rect.bottom + 6;
+                                  setMenuPos({ top, right });
                                   setOpenDropdown(session.session_id);
                                 }}
                                 className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
@@ -567,14 +611,25 @@ export const ChatSidebar = ({
       </div>
     </aside>
 
-    {/* Chat actions menu — fixed to the viewport so it clears the sidebar's
-        backdrop-blur + overflow clipping (no portal needed). */}
-    {menuSession && menuPos && (
+    {/* Chat actions menu — portaled to <body> so no ancestor's backdrop-blur,
+        transform or overflow can clip it; positioned via fixed viewport coords. */}
+    {menuSession && menuPos && createPortal(
       <div
         className="fixed w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[120] animate-chip-in origin-top-right"
         style={{ top: menuPos.top, right: menuPos.right }}
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openRename(menuSession);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiEdit2 className="w-4 h-4 flex-shrink-0" />
+          <span>Rename Chat</span>
+        </button>
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -601,7 +656,52 @@ export const ChatSidebar = ({
           <FiTrash2 className="w-4 h-4 flex-shrink-0" />
           <span>Delete Chat</span>
         </button>
-      </div>
+      </div>,
+      document.body
+    )}
+
+    {/* Rename modal — portaled + centered. */}
+    {renameTarget && createPortal(
+      <div
+        className="fixed inset-0 z-[130] flex items-center justify-center px-4 bg-black/40 animate-in fade-in duration-150"
+        onClick={closeRename}
+      >
+        <div
+          className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 animate-chip-in origin-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-base font-semibold text-[#222] mb-3">Rename chat</h3>
+          <input
+            autoFocus
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameSubmit();
+              if (e.key === 'Escape') closeRename();
+            }}
+            maxLength={120}
+            placeholder="Chat name"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/40 focus:border-[#FA6C43] transition-shadow"
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              onClick={closeRename}
+              className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRenameSubmit}
+              disabled={!renameValue.trim() || renameSaving}
+              className="px-4 py-2 text-sm font-semibold text-white bg-[#FA6C43] hover:bg-[#e85a30] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+            >
+              {renameSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
     )}
     </>
   );

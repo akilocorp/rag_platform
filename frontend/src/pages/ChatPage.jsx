@@ -1560,6 +1560,7 @@ const ChatPage = () => {
               selectedFileIds={selectedFileIds}
               onToggleFile={toggleFileSelection}
               onDeleteSession={(id) => setSessions(prev => prev.filter(s => s.session_id !== id))}
+              onRenameSession={(id, title) => setSessions(prev => prev.map(s => s.session_id === id ? { ...s, title } : s))}
           />
       )}
 

@@ -405,6 +405,31 @@ def get_config_sessions(config_id):
         return jsonify({"message": "An internal server error occurred."}), 500
 
 
+@chat_bp.route('/chat/<string:config_id>/<string:chat_id>/title', methods=['PATCH'])
+@jwt_required()
+def rename_chat(config_id, chat_id):
+    """Rename a chat session's title. Ownership-checked, mirrors delete_chat."""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json(silent=True) or {}
+        title = (data.get('title') or '').strip()
+        if not title:
+            return jsonify({"message": "Title is required"}), 400
+        title = title[:120]  # keep titles sane
+
+        db = current_app.config['MONGO_DB']
+        result = db["chat_session_metadata"].update_one(
+            {"session_id": chat_id, "config_id": config_id, "user_id": user_id},
+            {"$set": {"title": title}},
+        )
+        if result.matched_count == 0:
+            return jsonify({"message": "Not found"}), 404
+        return jsonify({"message": "Renamed", "title": title}), 200
+    except Exception as e:
+        logger.error(f"Error renaming chat {chat_id}: {e}", exc_info=True)
+        return jsonify({"message": "An internal server error occurred."}), 500
+
+
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['DELETE'])
 @jwt_required()
 def delete_chat(config_id, chat_id):
