@@ -32,7 +32,7 @@ export function FeedBlock({ block }) {
   if (block.type === 'question') {
     return (
       <Card className="p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{block.gate ? 'Warm-up' : `Round ${block.round}`}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{block.gate ? 'Warm-up' : `Question ${block.n}`}</div>
         <div className="text-sm font-semibold text-gray-800">{block.text}</div>
       </Card>
     );

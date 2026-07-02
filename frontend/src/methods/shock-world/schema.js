@@ -6,10 +6,6 @@ function isNonEmptyString(v) {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
-function isQuestion(q) {
-  return q && isNonEmptyString(q.text) && Array.isArray(q.options) && q.options.length >= 2;
-}
-
 export function validate(config) {
   const errors = [];
   const c = config || {};
@@ -17,21 +13,21 @@ export function validate(config) {
   if (c.method !== 'shock-world') errors.push("method must be 'shock-world'");
   if (!c.meta || typeof c.meta !== 'object') errors.push('meta is missing');
   if (!c.scenario || !isNonEmptyString(c.scenario.brief)) errors.push('scenario.brief is missing');
+  if (!isNonEmptyString(c.endGoal)) errors.push('endGoal is missing');
 
   if (!Array.isArray(c.countries) || c.countries.length === 0) {
     errors.push('countries must be a non-empty list');
   }
 
   if (!Number.isInteger(c.maxRounds) || c.maxRounds < 1) {
-    errors.push('maxRounds must be an integer ≥ 1');
+    errors.push('maxRounds (reply budget) must be an integer ≥ 1');
   }
 
-  if (!Array.isArray(c.targetIntuitions) || c.targetIntuitions.length === 0) {
-    errors.push('targetIntuitions must be a non-empty list');
+  if (!Array.isArray(c.keyIdeas) || c.keyIdeas.length === 0) {
+    errors.push('keyIdeas must be a non-empty list');
   } else {
-    c.targetIntuitions.forEach((t, i) => {
-      if (!t || !isNonEmptyString(t.label)) errors.push(`targetIntuitions[${i}].label is missing`);
-      if (!isQuestion(t?.seedQuestion)) errors.push(`targetIntuitions[${i}].seedQuestion is missing or malformed`);
+    c.keyIdeas.forEach((k, i) => {
+      if (!k || !isNonEmptyString(k.label)) errors.push(`keyIdeas[${i}].label is missing`);
     });
   }
 

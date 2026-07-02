@@ -35,7 +35,7 @@ export default function ConfigForm({ params, onChange }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <label className="text-[13px] font-semibold text-gray-700">Rounds (N)</label>
+        <label className="text-[13px] font-semibold text-gray-700">Reply budget (N)</label>
         <input
           type="number"
           min={1}
@@ -44,7 +44,7 @@ export default function ConfigForm({ params, onChange }) {
           onChange={(e) => set({ maxRounds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
           className="w-20 p-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
         />
-        <span className="text-[11px] text-gray-400">Intuitions the student reasons through before the lab ends.</span>
+        <span className="text-[11px] text-gray-400">Max exchanges the tutor gets to guide the student to your end goal — they should reach it in fewer.</span>
       </div>
 
       <label className="flex items-center gap-2 text-[13px] text-gray-700 cursor-pointer">
