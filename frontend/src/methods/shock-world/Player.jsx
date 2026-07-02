@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
 import apiClient from '../../api/apiClient';
+import ChatComposer from '../../components/ChatComposer';
 import { Card, FeedBlock } from './blocks.jsx';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -311,25 +312,13 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2">
-            <textarea
-              value={why}
-              onChange={(e) => setWhy(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-              rows={2}
-              disabled={busy}
-              placeholder={mode === 'mc' ? 'In a sentence — why?' : 'Your reasoning…'}
-              className="flex-1 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all resize-none"
-            />
-            <button
-              type="button"
-              onClick={submit}
-              disabled={busy}
-              className="inline-flex items-center gap-2 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
-            >
-              {busy ? <FaSpinner className="animate-spin" /> : 'Send'}
-            </button>
-          </div>
+          <ChatComposer
+            input={why}
+            setInput={setWhy}
+            onSend={() => submit()}
+            isLoading={busy}
+            showAttach={false}
+          />
           {error && <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1"><FiAlertTriangle /> {error}</p>}
         </div>
       </footer>
