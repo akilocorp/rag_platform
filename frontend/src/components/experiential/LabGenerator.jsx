@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import apiClient from '../../api/apiClient';
@@ -41,6 +41,24 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       .catch(() => { /* keep fallback methods */ });
     return () => { alive = false; };
   }, []);
+
+  // When EDITING an existing lab, preselect the pedagogy it was generated with
+  // and seed its structured settings, so Regenerate keeps the same kind of lab
+  // (not the default 'econ') and carries the professor's settings over. Runs once
+  // the methods list is loaded so the method id can be validated; predict-reveal
+  // labs (method='predict-reveal', not a backend template id) keep the default.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !generated?.method) return;
+    if (!methods.some((m) => m.id === generated.method)) return;
+    seededRef.current = true;
+    setTemplate(generated.method);
+    setMethodParams({
+      ...(Array.isArray(generated.countries) ? { countries: generated.countries } : {}),
+      ...(Number.isInteger(generated.maxRounds) ? { maxRounds: generated.maxRounds } : {}),
+      ...(typeof generated.courseOnly === 'boolean' ? { courseOnly: generated.courseOnly } : {}),
+    });
+  }, [generated, methods]);
 
   const activeMethod = methods.find((m) => m.id === template) || methods[0];
   // The self-contained frontend method (validator + player + optional ConfigForm),
