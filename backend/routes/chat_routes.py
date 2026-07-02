@@ -13,7 +13,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, message_to_dict
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, message_to_dict
 from bson import ObjectId
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
@@ -628,6 +628,52 @@ def _parse_image_blocks(images):
     return blocks
 
 
+# Supported inline image types (shared by both the Anthropic-native block
+# builder above and the LangChain image_url builder below).
+_SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+
+def _image_url_blocks(images):
+    """Convert the frontend dataUrl list to LangChain multimodal `image_url`
+    content blocks. This provider-agnostic shape is accepted by ChatOpenAI,
+    ChatAnthropic and ChatGoogleGenerativeAI, so the legacy chain can hand the
+    same blocks to any vision-capable model."""
+    blocks = []
+    for img in (images or []):
+        data_url = img.get('dataUrl', '')
+        if not data_url.startswith('data:'):
+            continue
+        try:
+            header, _b64 = data_url.split(',', 1)
+            media_type = header.split(':')[1].split(';')[0]
+        except Exception:
+            continue
+        if media_type not in _SUPPORTED_IMAGE_TYPES:
+            continue
+        blocks.append({"type": "image_url", "image_url": {"url": data_url}})
+    return blocks
+
+
+def _model_supports_vision(model_name):
+    """Whether a model can accept image input. Vision is model-specific, not
+    just provider-specific (gpt-4o sees images, gpt-3.5-turbo does not), so we
+    match on known families and default to False for anything unrecognized —
+    unknown models get a "can't see the image" note instead of an API error."""
+    m = (model_name or "").lower()
+    if m.startswith("claude") or m.startswith("gemini"):
+        return True
+    if m.startswith("qwen") and "-vl" in m:  # Qwen-VL vision variants only
+        return True
+    if m.startswith("gpt-3.5"):
+        return False
+    if (m.startswith("gpt-4o") or m.startswith("chatgpt-4o")
+            or m.startswith("gpt-4.1") or m.startswith("gpt-5")
+            or m.startswith("gpt-4-turbo") or m.startswith("gpt-4-vision")
+            or m.startswith("o1") or m.startswith("o3") or m.startswith("o4")):
+        return True
+    return False
+
+
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
@@ -881,6 +927,11 @@ def chat(config_id, chat_id):
 
             # -- STEP B: PREPARE LLM --
             context_text = "\n\n".join(d.page_content for d in docs)
+
+            # Multimodal: did the user attach image(s), and can this model see them?
+            image_blocks = _image_url_blocks(images) if images else []
+            supports_vision = _model_supports_vision(config_doc.get("model_name"))
+
             base_instruction = config_doc.get("prompt_template", "Answer based on context.")
             # Escape any {var} in user prompt that isn't our template vars (context, history, question)
             base_instruction = _escape_prompt_variables(base_instruction)
@@ -894,6 +945,16 @@ def chat(config_id, chat_id):
             Context:
             {{context}}
             """ + _escape_prompt_variables(FORMATTING_GUIDE)
+
+            # Image attached but this model can't see it: tell the model so it
+            # answers honestly instead of erroring or pretending. (No braces in
+            # this note, so appending after escaping is safe.)
+            if image_blocks and not supports_vision:
+                system_message += (
+                    "\n\n[Note: The user attached an image, but this model cannot "
+                    "view images. Politely tell them you can't see it and ask them "
+                    "to describe it.]"
+                )
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_message),
@@ -982,6 +1043,76 @@ def chat(config_id, chat_id):
                     llm = primary_llm.with_fallbacks([fallback_llm])
                 else:
                     llm = primary_llm
+
+            # -- STEP B2: MULTIMODAL TURN --
+            # If the user attached image(s) and the model can see them, bypass
+            # RunnableWithMessageHistory and stream the model directly with a
+            # multimodal HumanMessage. This keeps the base64 image out of the
+            # persisted history (we save text-only below), mirroring how the
+            # agentic path treats images as current-turn-only.
+            if image_blocks and supports_vision:
+                history_obj = get_session_history(
+                    session_id=chat_id,
+                    user_id=user_id_for_history,
+                    config_id=config_id,
+                    user_input=user_input,
+                    qualtrics_id=qualtrics_id,
+                    student_label=student_label,
+                    student_email=student_email,
+                    marketing_opt_in=marketing_opt_in,
+                )
+
+                # Rebuild the system text from the RAW prompt template — the
+                # {{ }}-escaped `system_message` above is only correct once a
+                # ChatPromptTemplate unescapes it, which we don't use here.
+                raw_instruction = config_doc.get("prompt_template", "Answer based on context.")
+                system_text = (
+                    f"{raw_instruction}\n\n"
+                    "Use the provided Context (retrieved documents) and the "
+                    "Conversation History to answer.\n"
+                    "If the user asks about previous messages, look at the History.\n\n"
+                    f"Context:\n{context_text}\n" + FORMATTING_GUIDE
+                )
+
+                messages = [SystemMessage(content=system_text)]
+                messages.extend(history_obj.messages)  # prior turns (text only)
+                messages.append(HumanMessage(
+                    content=[{"type": "text", "text": user_input}] + image_blocks
+                ))
+
+                got_any = False
+                full_text = ""
+                for chunk in llm.stream(messages):
+                    piece = getattr(chunk, "content", "")
+                    # Some providers stream content as a list of blocks.
+                    if isinstance(piece, list):
+                        piece = "".join(
+                            b.get("text", "") for b in piece if isinstance(b, dict)
+                        )
+                    if piece:
+                        got_any = True
+                        full_text += piece
+                        yield json.dumps({"type": "token", "data": piece}) + "\n"
+
+                # Persist text-only user message + AI reply. The image is NOT
+                # saved (current-turn-only), so it won't survive a reload.
+                if got_any:
+                    try:
+                        if attached_files:
+                            history_obj.pending_attached_files = attached_files
+                        history_obj.add_user_message(user_input)
+                        history_obj.add_ai_message(full_text)
+                    except Exception as e:
+                        logger.error(f"Failed to persist multimodal turn: {e}", exc_info=True)
+
+                done_payload = {"type": "done"}
+                if identity is not None and got_any:
+                    try:
+                        done_payload["usage"] = usage_limits.consume(identity, 1)
+                    except Exception as e:
+                        logger.error("usage consume (multimodal) failed: %s", e)
+                yield json.dumps(done_payload) + "\n"
+                return
 
             # -- STEP C: STREAMING INFERENCE --
             chain = prompt | llm | StrOutputParser()
