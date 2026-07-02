@@ -453,7 +453,7 @@ def get_config_by_class(class_code):
         from models.config import Config as mongo_collection
         doc = mongo_collection.get_collection().find_one(
             {"class_code": class_code.strip().lower()},
-            {"bot_name": 1, "assignment_type": 1}
+            {"bot_name": 1, "assignment_type": 1, "bot_type": 1}
         )
         if not doc:
             return jsonify({"error": "Class code not found"}), 404
@@ -461,6 +461,7 @@ def get_config_by_class(class_code):
             "config_id": str(doc["_id"]),
             "bot_name": doc.get("bot_name", "Assignment"),
             "assignment_type": doc.get("assignment_type", ""),
+            "bot_type": doc.get("bot_type", "chat"),
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)

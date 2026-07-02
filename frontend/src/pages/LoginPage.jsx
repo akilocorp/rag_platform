@@ -86,8 +86,9 @@ const LoginPage = () => {
         setErrors({});
         setFormError(null);
         if (userRole === 'student' && classCode) {
-          await apiClient.post('/student/enroll', { class_code: classCode }).catch(() => {});
-          navigate('/student-dashboard', { replace: true });
+          // Route through /join so it enrolls and dispatches into the right bot
+          // by bot_type (chat / experiential / group chat / video dashboard).
+          navigate(`/join/${encodeURIComponent(classCode)}`, { replace: true });
         } else {
           navigate(userRole === 'student' ? '/student-dashboard' : '/config_list', { replace: true });
         }

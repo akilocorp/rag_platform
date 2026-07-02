@@ -1,4 +1,4 @@
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes } from 'react-icons/fa';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -21,9 +21,83 @@ const primaryActionLabel = (botType) => {
   }
 };
 
+// The direct student-facing URL for a config, by bot_type (fallback when no
+// class code is set).
+const directStudentLink = (config) => {
+  const origin = window.location.origin;
+  switch (config.bot_type) {
+    case 'experiential':   return `${origin}/experiential/c/${config.config_id}`;
+    case 'group_chat':     return `${origin}/group-chat/${config.config_id}`;
+    case 'video_analysis': return `${origin}/video-upload/${config.config_id}`;
+    default:               return `${origin}/chat/${config.config_id}`;
+  }
+};
+
+// "Share to class" popup: shows the class-invite link (/join/<code>) when the
+// bot has a class code, else the direct link. Copy + Cancel.
+const ShareModal = ({ isOpen, onClose, config }) => {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { if (isOpen) setCopied(false); }, [isOpen]);
+  if (!isOpen) return null;
+
+  const classLink = config.class_code ? `${window.location.origin}/join/${config.class_code}` : '';
+  const link = classLink || directStudentLink(config);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+    >
+      <div
+        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in zoom-in-95 duration-200 p-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={onClose} title="Close" className="absolute top-5 right-5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all">
+          <FaTimes />
+        </button>
+
+        <div className="w-12 h-12 rounded-full bg-[#FFF5F2] flex items-center justify-center mb-4">
+          <FaShareAlt className="text-[#FA6C43]" />
+        </div>
+        <h2 className="text-xl font-extrabold text-[#222] mb-1">Share to class</h2>
+        <p className="text-sm text-gray-500 mb-5">
+          {classLink
+            ? 'Share this link with your students — they’ll join your class and land straight in the bot.'
+            : 'This bot has no class code yet. You can share the direct link below, or add a class code under Customize for a class-invite link.'}
+        </p>
+
+        <div className="flex items-center gap-2 mb-6">
+          <code className="flex-1 text-sm text-gray-700 truncate bg-[#FFF5F2] border border-[#FA6C43]/20 px-3 py-2.5 rounded-xl">{link}</code>
+          <button
+            onClick={copy}
+            className="px-4 py-2.5 rounded-xl bg-[#FA6C43] text-white text-sm font-semibold flex items-center gap-2 shrink-0 hover:bg-[#E55B34] transition-colors"
+          >
+            {copied ? <FaCheck /> : <FaCopy />} {copied ? 'Copied' : 'Copy link'}
+          </button>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const ListIcon = getBotAvatarIconComponent(config.bot_avatar);
   const isList = view === 'list';
 
@@ -42,6 +116,13 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
   // they line up with Customize / Chat Now on one vertically-centered row.
   const actionButtons = (
     <>
+      <button
+        onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
+        title="Share to class"
+        className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
+      >
+        <FaShareAlt className="text-sm" />
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); onResponses(config); }}
         title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : 'Responses'}
@@ -145,6 +226,8 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
           </div>
         )}
       </div>
+
+      <ShareModal isOpen={shareOpen} onClose={() => setShareOpen(false)} config={config} />
     </div>
   );
 };
