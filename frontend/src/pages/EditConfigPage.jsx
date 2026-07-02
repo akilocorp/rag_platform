@@ -206,7 +206,7 @@ const EditConfigPage = () => {
     } else if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
     } else if (config.bot_type === 'experiential') {
-        if (!(config.experiential_config && config.experiential_config.layers)) newErrors.form = 'Generate the lab from your prompt before saving.';
+        if (!(config.experiential_config && config.experiential_config.method)) newErrors.form = 'Generate the lab from your prompt before saving.';
     } else {
         if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }

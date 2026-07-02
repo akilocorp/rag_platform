@@ -10,8 +10,8 @@ method sets the shape and the professor fills the content.
 
 See README.md in this folder for the dev workflow ("how to add a method").
 """
-from dataclasses import dataclass
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Optional
 
 
 @dataclass
@@ -26,6 +26,15 @@ class Method:
     # prompt-methods can share one frontend schema (e.g. econ + generic both
     # target 'predict-reveal'); a brand-new flow sets its own.
     schema: str = 'predict-reveal'
+    # OPTIONAL post-generation hook: (cfg, method_params) -> cfg. Fills THIS
+    # method's defaults and stamps the professor's structured params onto the
+    # config. When absent, the routes apply the default predict-reveal normalize.
+    normalize: Optional[Callable] = None
+    # OPTIONAL runtime handlers this method owns: { "<action>": handler }, where
+    # handler(payload, ctx) returns a JSON-able dict OR yields NDJSON dicts (a
+    # generator → streamed). Reached via POST /experiential/method/<id>/<action>,
+    # so a method's live behaviour lives in its own file, not the routes.
+    actions: Dict[str, Callable] = field(default_factory=dict)
 
 
 # id -> Method. Populated as a side-effect of importing the method modules.
@@ -33,7 +42,9 @@ METHODS: Dict[str, Method] = {}
 
 
 def method(id: str, label: str, description: str, system_prompt: str,
-           prompt_hint: str = '', schema: str = 'predict-reveal'):
+           prompt_hint: str = '', schema: str = 'predict-reveal',
+           normalize: Optional[Callable] = None,
+           actions: Optional[Dict[str, Callable]] = None):
     """Register a pedagogical method. Call once per method file.
 
     Raises on id collision so two files can't silently claim the same id.
@@ -50,6 +61,8 @@ def method(id: str, label: str, description: str, system_prompt: str,
         system_prompt=system_prompt,
         prompt_hint=prompt_hint,
         schema=schema,
+        normalize=normalize,
+        actions=actions or {},
     )
     METHODS[id] = m
     return m

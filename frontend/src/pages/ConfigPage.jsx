@@ -262,7 +262,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 1 && (!config.bot_name || !config.bot_name.trim())) {
       newErrors.bot_name = 'Name is required';
     }
-    if (step === 1 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.layers)) {
+    if (step === 1 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.method)) {
       newErrors.experiential_config = 'Generate the lab from your prompt before continuing';
     }
     if (step === 4) {

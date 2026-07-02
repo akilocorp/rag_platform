@@ -19,7 +19,7 @@ import re
 from datetime import datetime
 
 import pymongo
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, Response, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from src.agentic.agent_runner import CHART_GUIDE
@@ -228,6 +228,12 @@ def generate_experiential():
     prompt = (payload.get('prompt') or '').strip()
     config_id = payload.get('config_id')
     template = (payload.get('template') or 'econ').strip().lower()
+    # Method-owned structured inputs from the professor's ConfigForm (e.g. a
+    # shock-world country list / round count). Opaque here — the method's own
+    # normalize() reads them; other methods ignore them.
+    method_params = payload.get('method_params')
+    if not isinstance(method_params, dict):
+        method_params = {}
     if not prompt:
         return jsonify({"error": "Missing 'prompt'"}), 400
 
@@ -235,13 +241,16 @@ def generate_experiential():
     if client is None:
         return jsonify({"error": err}), 503
 
+    m = method_registry.get_method(template)
     system = method_registry.get_system_prompt(template)
     kb_text = _retrieve_kb(config_id, prompt) if config_id else ""
 
     user_msg = f"Professor's design prompt:\n{prompt}"
+    if method_params:
+        user_msg += "\n\nProfessor's structured settings (honour these exactly):\n" + json.dumps(method_params)
     if kb_text:
         user_msg += f"\n\nRelevant lecture excerpts (ground the lab in these):\n{kb_text[:12000]}"
-    user_msg += "\n\nReturn ONLY the JSON ExperientialConfig object."
+    user_msg += "\n\nReturn ONLY the JSON config object."
 
     try:
         msg = client.messages.create(
@@ -252,15 +261,118 @@ def generate_experiential():
         )
         raw = _text_from_message(msg)
         cfg = _extract_json(raw)
-        if not isinstance(cfg, dict) or not cfg.get('layers'):
+        if not isinstance(cfg, dict):
             return jsonify({"error": "Could not parse a lab config from the model"}), 502
-        cfg = _normalize_experiential(cfg)
+        # Each method owns how its config is finalized. A method with its own
+        # normalize() stamps its structured params + defaults; methods without
+        # one keep the predict-reveal path (which requires `layers`).
+        if m is not None and m.normalize is not None:
+            cfg = m.normalize(cfg, method_params)
+        else:
+            if not cfg.get('layers'):
+                return jsonify({"error": "Could not parse a lab config from the model"}), 502
+            cfg = _normalize_experiential(cfg)
         # Stamp the pedagogy so the player page mounts the right validator + UI.
         cfg['method'] = method_registry.get_schema(template)
         return jsonify({"config": cfg, "grounded": bool(kb_text)})
     except Exception as e:  # noqa: BLE001
         logger.exception("experiential generate failed")
         return jsonify({"error": f"Generation failed: {e}"}), 502
+
+
+# ─── Generic method-action dispatch ───────────────────────────────────────────
+# A method registers runtime handlers in its own file (Method.actions). This ONE
+# route dispatches to them so a new pedagogy's live behaviour never touches this
+# file: POST /experiential/method/<id>/<action>. Handlers get (payload, ctx);
+# returning a dict → JSON, yielding dicts → streamed NDJSON.
+
+class MethodContext:
+    """Shared services handed to a method's runtime handlers, so each method
+    reuses the same Anthropic client, KB retrieval, web search and cache without
+    importing route internals."""
+
+    def __init__(self, client):
+        self.client = client
+        self.model = EXPERIENTIAL_MODEL
+
+    # LLM helpers
+    @staticmethod
+    def extract_json(raw):
+        return _extract_json(raw)
+
+    @staticmethod
+    def text_from_message(msg):
+        return _text_from_message(msg)
+
+    # Grounding helpers
+    @staticmethod
+    def retrieve_kb(config_id, query, k=8):
+        return _retrieve_kb(config_id, query, k)
+
+    @staticmethod
+    def tavily_search(query, max_results=5):
+        return _tavily_search(query, max_results)
+
+    # Generic per-collection cache (TTL in seconds). Mirrors the adapt cache but
+    # any method can pick its own collection + key namespace.
+    @staticmethod
+    def cache_get(collection, key, ttl):
+        try:
+            db = pymongo.MongoClient(current_app.config["MONGO_URI"], serverSelectionTimeoutMS=5000)[current_app.config["MONGO_DB_NAME"]]
+            doc = db[collection].find_one({"cache_key": key})
+            if not doc:
+                return None
+            created = doc.get("created_at")
+            if created and (datetime.utcnow() - created).total_seconds() > ttl:
+                return None
+            return doc.get("value")
+        except Exception:
+            logger.exception("method cache read failed")
+            return None
+
+    @staticmethod
+    def cache_set(collection, key, value):
+        try:
+            db = pymongo.MongoClient(current_app.config["MONGO_URI"], serverSelectionTimeoutMS=5000)[current_app.config["MONGO_DB_NAME"]]
+            db[collection].update_one(
+                {"cache_key": key},
+                {"$set": {"cache_key": key, "value": value, "created_at": datetime.utcnow()}},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("method cache write failed")
+
+
+@experiential_bp.route('/experiential/method/<method_id>/<action>', methods=['POST'])
+def method_action(method_id, action):
+    m = method_registry.get_method((method_id or '').strip().lower())
+    handler = (m.actions or {}).get(action) if m is not None else None
+    if handler is None:
+        return jsonify({"error": f"Unknown method action '{method_id}/{action}'"}), 404
+
+    client, err = _get_client()
+    if client is None:
+        return jsonify({"error": err}), 503
+
+    payload = request.get_json(silent=True) or {}
+    ctx = MethodContext(client)
+    try:
+        result = handler(payload, ctx)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("method action %s/%s failed", method_id, action)
+        return jsonify({"error": f"{action} failed: {e}"}), 502
+
+    # Generator → stream as NDJSON; plain dict → single JSON response.
+    if hasattr(result, '__iter__') and not isinstance(result, (dict, list, str, bytes)):
+        def _stream():
+            try:
+                for event in result:
+                    yield json.dumps(event) + "\n"
+            except Exception as e:  # noqa: BLE001 — end the stream cleanly
+                logger.exception("method action %s/%s stream failed", method_id, action)
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+        return Response(stream_with_context(_stream()), mimetype='application/x-ndjson')
+    return jsonify(result)
 
 
 # ─── Adapt: re-ground a lab to the student's chosen parameters ────────────────

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiAward } from 'react-icons/fi';
 import apiClient from '../api/apiClient';
 import { getExperientialConfig } from '../configs/experiential';
+import { getMethod } from '../methods/registry';
 import SessionReplay from '../components/experiential/SessionReplay';
 import SessionReport from '../components/experiential/SessionReport';
 
@@ -40,7 +41,11 @@ export default function ExperientialSessionPage() {
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
-    if (session.config_id) {
+    // Prefer the snapshot saved with the run (carries grounding / adaptation);
+    // fall back to the live config or built-in template for older runs.
+    if (session.effective_config?.method || session.effective_config?.layers) {
+      setConfig(session.effective_config);
+    } else if (session.config_id) {
       apiClient.get(`/config/${session.config_id}`)
         .then((r) => { if (!cancelled) setConfig(r.data?.config?.experiential_config || null); })
         .catch(() => { if (!cancelled) setConfig(null); });
@@ -102,7 +107,10 @@ export default function ExperientialSessionPage() {
 
             {/* Session replay */}
             {tab === 'session' && (
-              config ? <SessionReplay config={config} transcript={session.transcript} />
+              config ? (() => {
+                const ReplayComp = getMethod(config.method)?.Replay || SessionReplay;
+                return <ReplayComp config={config} transcript={session.transcript} />;
+              })()
                 : <div className="bg-white border border-gray-200 rounded-2xl p-6 text-gray-500 text-sm">Loading the lab…</div>
             )}
 

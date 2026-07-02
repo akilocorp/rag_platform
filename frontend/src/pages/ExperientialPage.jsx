@@ -83,7 +83,10 @@ export default function ExperientialPage() {
       .then((res) => {
         if (cancelled) return;
         const ec = res.data?.config?.experiential_config;
-        if (ec && ec.layers) setDbLab({ loading: false, config: ec, error: null });
+        // Method-agnostic: any lab with a `method` stamp is playable (predict-reveal
+        // has `layers`; other pedagogies like shock-world don't). The method's own
+        // validator decides validity downstream.
+        if (ec && (ec.method || ec.layers)) setDbLab({ loading: false, config: ec, error: null });
         else setDbLab({ loading: false, config: null, error: 'This lab has no generated config yet — generate it from the config editor.' });
       })
       .catch(() => { if (!cancelled) setDbLab({ loading: false, config: null, error: 'Could not load this lab.' }); });
@@ -321,7 +324,8 @@ function SessionColumn({ sessionId, isAuthenticated, onClose, onOpenMobileSideba
     let cancelled = false;
     // Prefer the snapshot saved with the run (reflects any student adaptation);
     // fall back to the live config / built-in template for older sessions.
-    if (session.effective_config?.layers) {
+    // Method-agnostic: a snapshot with either a `method` stamp or `layers` is usable.
+    if (session.effective_config?.method || session.effective_config?.layers) {
       setCfg(session.effective_config);
       return () => { cancelled = true; };
     }
@@ -370,7 +374,12 @@ function SessionColumn({ sessionId, isAuthenticated, onClose, onOpenMobileSideba
       {data.loading && <Card className="p-6"><p className="text-gray-500">Loading…</p></Card>}
       {data.error && <Card className="p-6"><p className="text-gray-600">{data.error}</p></Card>}
       {session && tab === 'session' && (
-        cfg ? <SessionReplay config={cfg} transcript={session.transcript} />
+        cfg ? (() => {
+          // Each pedagogy replays its own transcript shape; a method ships a
+          // `Replay` for its feed, else the built-in predict-reveal replay.
+          const ReplayComp = getMethod(cfg.method)?.Replay || SessionReplay;
+          return <ReplayComp config={cfg} transcript={session.transcript} />;
+        })()
           : <Card className="p-6"><p className="text-gray-500">Loading the lab…</p></Card>
       )}
       {session && tab === 'report' && <SessionReport session={session} />}

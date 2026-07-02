@@ -3,6 +3,7 @@ import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import apiClient from '../../api/apiClient';
 import { validateExperientialConfig } from '../../configs/experiential/schema';
+import { getMethod } from '../../methods/registry';
 
 // Generate-on-save UI for experiential labs: the professor picks a pedagogical
 // method, writes a design prompt that fine-tunes it, hits Generate, and Claude
@@ -21,6 +22,9 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
   const [grounded, setGrounded] = useState(false);
   const [methods, setMethods] = useState(FALLBACK_METHODS);
   const [template, setTemplate] = useState('econ');
+  // Method-owned structured inputs (e.g. shock-world's countries / N / course-only).
+  // Opaque here — the selected method's ConfigForm reads/writes this shape.
+  const [methodParams, setMethodParams] = useState({});
 
   // Load the pedagogical methods the registry exposes. Falls back to the two
   // built-ins if the endpoint is unavailable so the generator still works.
@@ -39,6 +43,11 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
   }, []);
 
   const activeMethod = methods.find((m) => m.id === template) || methods[0];
+  // The self-contained frontend method (validator + player + optional ConfigForm),
+  // if this pedagogy ships one. Keyed by the backend method id, which for a
+  // brand-new pedagogy equals its frontend schema id (e.g. 'shock-world').
+  const frontendMethod = getMethod(template);
+  const ConfigForm = frontendMethod?.ConfigForm || null;
 
   const handleGenerate = async () => {
     const p = (prompt || '').trim();
@@ -50,10 +59,13 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       // slow-but-successful response isn't aborted by a default client timeout.
       const { data } = await apiClient.post(
         '/experiential/generate',
-        { prompt: p, template, config_id: configId || undefined },
+        { prompt: p, template, config_id: configId || undefined, method_params: methodParams },
         { timeout: 180000 },
       );
-      const { ok, errors } = validateExperientialConfig(data.config);
+      // Validate with the generated pedagogy's own validator when it ships one,
+      // else the built-in predict-reveal validator.
+      const validate = getMethod(data.config?.method)?.validate || validateExperientialConfig;
+      const { ok, errors } = validate(data.config);
       if (!ok) {
         setError(`The generated lab didn't validate: ${errors.slice(0, 3).join('; ')}. Try Generate again or tweak your prompt.`);
         setGenerating(false);
@@ -78,13 +90,21 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Pedagogical method</label>
       <select
         value={template}
-        onChange={(e) => setTemplate(e.target.value)}
+        onChange={(e) => { setTemplate(e.target.value); setMethodParams({}); }}
         className="w-full mb-1.5 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
       >
         {methods.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
       </select>
       {activeMethod?.description && (
         <p className="text-[11px] text-gray-400 mb-3">{activeMethod.description}</p>
+      )}
+
+      {/* Method-owned structured inputs, rendered generically when the selected
+          pedagogy ships a ConfigForm (e.g. shock-world's countries / N / course-only). */}
+      {ConfigForm && (
+        <div className="mb-3">
+          <ConfigForm params={methodParams} onChange={setMethodParams} />
+        </div>
       )}
 
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Lab design prompt</label>
@@ -116,6 +136,33 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
 
       {generated && generated.layers && (
         <LabPreview cfg={generated} grounded={grounded} />
+      )}
+      {generated && !generated.layers && (
+        <GenericLabPreview cfg={generated} grounded={grounded} />
+      )}
+    </div>
+  );
+}
+
+// Fallback confirmation for pedagogies that don't use the predict-reveal
+// layers shape (e.g. shock-world). Keeps the generator method-agnostic.
+function GenericLabPreview({ cfg, grounded }) {
+  const chips = Array.isArray(cfg.countries) ? cfg.countries
+    : (Array.isArray(cfg.targetIntuitions) ? cfg.targetIntuitions.map((t) => t.label || t.id) : []);
+  return (
+    <div className="mt-4 rounded-2xl border border-green-200 bg-green-50/40 p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-green-700 mb-2">
+        <FiCheckCircle /> Lab ready — preview
+        {grounded && <span className="text-[10px] font-semibold uppercase tracking-wide bg-green-100 text-green-700 px-1.5 py-0.5 rounded">grounded in lectures</span>}
+      </div>
+      <div className="text-sm text-gray-800 font-bold">{cfg.meta?.title}</div>
+      <p className="text-xs text-gray-600 mt-0.5 mb-3">{cfg.scenario?.brief}</p>
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c, i) => (
+            <span key={i} className="text-xs px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">{c}</span>
+          ))}
+        </div>
       )}
     </div>
   );
