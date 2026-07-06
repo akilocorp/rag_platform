@@ -9,6 +9,7 @@ from src.utils.vector_stores.store_vector_stores import process_files_and_create
 from models.config import Config
 from models.user import User
 from src.usage import limits as usage_limits
+from src.facilitator.config import normalize_config as normalize_facilitator
 
 import re
 import json
@@ -297,6 +298,7 @@ Answer:"""
             "web_access": bool(config_data.get('web_access', True)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
+            "facilitator": normalize_facilitator(config_data.get('facilitator')),
         }
 
         # Video-analysis configs carry an assignment type + an editable scoring spec.

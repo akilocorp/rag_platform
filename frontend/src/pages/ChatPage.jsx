@@ -9,6 +9,7 @@ import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
+import FacilitatorBlock, { FacilitatorPending } from '../facilitator/FacilitatorBlock';
 import ChatComposer from '../components/ChatComposer';
 import DefinitionPopover from '../components/DefinitionPopover';
 import EVIAudioControls from '../components/EVIAudioControls';
@@ -256,7 +257,7 @@ const SourceChip = ({ source, index }) => {
 };
 
 // --- MODERN CHAT MESSAGE COMPONENT ---
-const ChatMessage = React.memo(({ message, botAvatarId, fileIndex }) => {
+const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
   const attachedFiles = message.attachedFiles || [];
@@ -437,6 +438,18 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex }) => {
                 isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
               }`}
             />
+          )}
+
+          {!isUser && message.facilitator && (
+            <FacilitatorBlock
+              block={message.facilitator}
+              onSubmit={(value) => onFacilitatorSubmit?.(value)}
+              disabled={!isLast}
+            />
+          )}
+
+          {!isUser && message.facilitatorPending && !message.facilitator && (
+            <FacilitatorPending />
           )}
       </div>
 
@@ -1056,11 +1069,13 @@ const ChatPage = () => {
         setMessages(historyData.map(msg => {
           const trace = msg.data?.additional_kwargs?.tool_trace;
           const attached = msg.data?.additional_kwargs?.attached_files;
+          const facilitator = msg.data?.additional_kwargs?.facilitator;
           return {
             sender: msg.type === 'human' ? 'user' : 'ai',
             text: msg.data.content,
             tool_calls: trace ? extractToolCallsFromTrace(trace) : [],
             attachedFiles: Array.isArray(attached) ? attached : [],
+            facilitator: facilitator && facilitator.widget ? facilitator : undefined,
           };
         }));
       } catch (e) { console.error("History load failed", e); }
@@ -1211,6 +1226,31 @@ const ChatPage = () => {
                       ? { ...tc, result: data.content, is_error: !!data.is_error }
                       : tc
                   ),
+                };
+                return newMsgs;
+              });
+            } else if (data.type === 'facilitator_pending') {
+              // The facilitator post-pass is running (an extra model call).
+              // Show a "building…" skeleton until the result arrives.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: true };
+                return newMsgs;
+              });
+            } else if (data.type === 'facilitator') {
+              // Result of the post-pass. `widget` is null when no widget fits —
+              // in that case just clear the skeleton and render nothing.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = {
+                  ...newMsgs[lastIdx],
+                  isTyping: false,
+                  facilitatorPending: false,
+                  facilitator: data.widget ? { widget: data.widget, data: data.data } : undefined,
                 };
                 return newMsgs;
               });
@@ -1754,7 +1794,14 @@ const ChatPage = () => {
                             </div>
                         )}
                         {messages.map((msg, i) => (
-                          <ChatMessage key={i} message={msg} botAvatarId={config?.bot_avatar} fileIndex={fileIndex} />
+                          <ChatMessage
+                            key={i}
+                            message={msg}
+                            botAvatarId={config?.bot_avatar}
+                            fileIndex={fileIndex}
+                            isLast={i === messages.length - 1}
+                            onFacilitatorSubmit={handleSendWithAnimation}
+                          />
                         ))}
                         <div ref={messagesEndRef} />
                      </div>

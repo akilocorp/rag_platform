@@ -8,6 +8,7 @@ import json
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from routes.config_routes import validate_class_usage
+from src.facilitator.config import normalize_config as normalize_facilitator
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -153,6 +154,11 @@ def update_existing_config(config_id):
             # shock-world) or the legacy predict-reveal `layers` shape.
             if isinstance(experiential_config, dict) and (experiential_config.get('method') or experiential_config.get('layers')):
                 update_data['experiential_config'] = experiential_config
+
+        # --- FACILITATOR BLOCK (structured-UI layer; any bot type) ---
+        facilitator = data.get('facilitator')
+        if facilitator is not None:
+            update_data['facilitator'] = normalize_facilitator(facilitator)
 
         # Class rollout — validate code + usage tier/pool (any bot type).
         # Recomputes usage_pool; the existing class_pool counter is preserved so

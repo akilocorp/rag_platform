@@ -99,7 +99,10 @@ const EditConfigPage = () => {
         group_duration: configFromState.group_duration || 10,
         web_access: configFromState.web_access !== undefined ? configFromState.web_access : true,
         audio_enabled: !!configFromState.audio_enabled,
-        hume_config_id: configFromState.hume_config_id || ''
+        hume_config_id: configFromState.hume_config_id || '',
+        facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
+            ? { enabled: false, instruction: '', allowedWidgets: null, presets: [], ...configFromState.facilitator }
+            : { enabled: false, instruction: '', allowedWidgets: null, presets: [] }
     });
     
     setInitialDocuments(configFromState.documents || []);
@@ -252,9 +255,10 @@ const EditConfigPage = () => {
       // (the generic loop would coerce to "[object Object]").
       const scoringSpec = configToSubmit.scoring_spec;
       const experientialConfig = configToSubmit.experiential_config;
+      const facilitator = configToSubmit.facilitator;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator') {
           formData.append(key, value);
         }
       });
@@ -263,6 +267,9 @@ const EditConfigPage = () => {
       }
       if (experientialConfig && typeof experientialConfig === 'object') {
         formData.append('experiential_config', JSON.stringify(experientialConfig));
+      }
+      if (facilitator && typeof facilitator === 'object') {
+        formData.append('facilitator', JSON.stringify(facilitator));
       }
       
       // Append bots safely
@@ -624,6 +631,38 @@ const EditConfigPage = () => {
                       <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
                     </label>
                   </div>
+                </div>
+
+                {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
+                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Facilitator (interactive UI)</label>
+                      <p className="text-xs text-gray-500 font-medium">After each reply, offer the user structured UI — e.g. multiple-choice options — instead of only text.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={!!config.facilitator?.enabled}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
+                  </div>
+                  {config.facilitator?.enabled && (
+                    <div className="mt-4">
+                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                      <textarea
+                        rows={3}
+                        value={config.facilitator?.instruction || ''}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                        placeholder="e.g. Whenever the reply asks the user to choose between options or a next step, present it as multiple choice. Keep options short (2–4)."
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart. More coming soon.</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Class rollout — optional class code + shared message pool */}

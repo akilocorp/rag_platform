@@ -376,6 +376,41 @@
     100% { background-position: -200% 0; }
   }
 
+  /* Facilitator widgets — entrance + chart draw-on + pending shimmer */
+  .fac-enter { animation: fac-enter 0.32s ease-out both; }
+  @keyframes fac-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .fac-chart-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: fac-draw 0.9s ease-out forwards;
+  }
+  @keyframes fac-draw { to { stroke-dashoffset: 0; } }
+
+  .fac-chart-dot { opacity: 0; animation: fac-fade-in 0.3s ease-out forwards; }
+  @keyframes fac-fade-in { to { opacity: 1; } }
+
+  .fac-chart-bar {
+    transform: scaleY(0);
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: fac-grow 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes fac-grow { to { transform: scaleY(1); } }
+
+  .fac-pending-bar {
+    background: linear-gradient(90deg, #eef2f6 25%, #e2e8f0 37%, #eef2f6 63%);
+    background-size: 400% 100%;
+    animation: fac-pending 1.4s ease infinite;
+  }
+  @keyframes fac-pending {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+
   .input-field {
     @apply w-full px-4 py-3 pl-10 text-white bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent;
   }

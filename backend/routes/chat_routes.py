@@ -21,6 +21,7 @@ from langchain_anthropic import ChatAnthropic
 
 from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
+from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
 from models.user import User
 
@@ -699,6 +700,49 @@ def _model_supports_vision(model_name):
     return False
 
 
+def _facilitator_enabled(config_doc):
+    """True when this bot's config turns the facilitator on."""
+    fac_cfg = config_doc.get("facilitator")
+    return bool(isinstance(fac_cfg, dict) and fac_cfg.get("enabled"))
+
+
+def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
+    """Run the facilitator post-pass for this turn; returns a {widget, data}
+    block or None. Never raises — degrades to None on any failure."""
+    fac_cfg = config_doc.get("facilitator")
+    if not (isinstance(fac_cfg, dict) and fac_cfg.get("enabled")):
+        return None
+    try:
+        history = list(history_messages or [])
+        if user_input:
+            history = history + [{"role": "user", "content": user_input}]
+        return run_facilitator(reply_text, history=history, facilitator_cfg=fac_cfg)
+    except Exception:
+        logger.exception("facilitator stage failed")
+        return None
+
+
+def _attach_facilitator_to_last_ai(chat_id, block):
+    """Attach a facilitator block to `additional_kwargs` of the most recently
+    stored AI message for this session (used by the legacy path, where the AI
+    message is persisted implicitly by RunnableWithMessageHistory)."""
+    try:
+        coll = current_app.config['MONGO_DB']['chat_histories']
+        doc = coll.find_one({"SessionId": chat_id}, sort=[("_id", -1)])
+        if not doc:
+            return
+        history = doc.get("History")
+        parsed = json.loads(history) if isinstance(history, str) else history
+        if not isinstance(parsed, dict) or parsed.get("type") != "ai":
+            return
+        data = parsed.setdefault("data", {})
+        ak = data.get("additional_kwargs")
+        data["additional_kwargs"] = {**(ak if isinstance(ak, dict) else {}), "facilitator": block}
+        coll.update_one({"_id": doc["_id"]}, {"$set": {"History": json.dumps(parsed)}})
+    except Exception:
+        logger.exception("attach facilitator (legacy) failed")
+
+
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
@@ -768,6 +812,24 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                         logger.error("usage consume (agentic) failed: %s", e)
                 yield json.dumps(done_payload) + "\n"
 
+        # Facilitator post-pass — wrap the reply with an interactive UI widget
+        # (e.g. multiple choice or a chart) when the bot's config enables it.
+        # Best-effort; a failure never affects the turn. Emit a `pending` signal
+        # first so the UI can show a "building…" skeleton during the extra call,
+        # then always emit a result (widget or null) so the skeleton clears.
+        facilitator_block = None
+        if (final_stop_reason != "error" and accumulated_text.strip()
+                and _facilitator_enabled(config_doc)):
+            yield json.dumps({"type": "facilitator_pending"}) + "\n"
+            facilitator_block = _facilitator_stage(
+                config_doc, accumulated_text, history_messages, user_input,
+            )
+            yield json.dumps({
+                "type": "facilitator",
+                "widget": facilitator_block["widget"] if facilitator_block else None,
+                "data": facilitator_block["data"] if facilitator_block else None,
+            }) + "\n"
+
         # Persist this turn. User message first, then AI message with the
         # full trace so frontend replay can re-render the tool pills.
         # Skip on error — don't write a user-visible error string as if it
@@ -777,9 +839,14 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 if attached_files:
                     history_obj.pending_attached_files = attached_files
                 history_obj.add_user_message(user_input)
+                extra_kwargs = {}
+                if full_trace:
+                    extra_kwargs["tool_trace"] = full_trace
+                if facilitator_block:
+                    extra_kwargs["facilitator"] = facilitator_block
                 ai_msg = AIMessage(
                     content=accumulated_text,
-                    additional_kwargs={"tool_trace": full_trace} if full_trace else {},
+                    additional_kwargs=extra_kwargs,
                 )
                 history_obj.add_message(ai_msg)
             except Exception as e:
@@ -819,6 +886,7 @@ def chat(config_id, chat_id):
             "is_public": 1, "user_id": 1,
             "web_access": 1, "bot_name": 1, "instructions": 1,
             "class_code": 1, "usage_pool": 1, "is_playground": 1, "is_personal": 1,
+            "facilitator": 1,
         }
     )
 
@@ -1165,12 +1233,14 @@ def chat(config_id, chat_id):
             )
 
             got_any = False
+            accumulated_text = ""
             for chunk in chain_with_history.stream(
                 {"question": user_input, "context": context_text},
                 config={"configurable": {"session_id": chat_id}}
             ):
                 if chunk:
                     got_any = True
+                    accumulated_text += chunk
                 yield json.dumps({"type": "token", "data": chunk}) + "\n"
 
             # Charge one message only if the turn actually produced output.
@@ -1181,6 +1251,25 @@ def chat(config_id, chat_id):
                 except Exception as e:
                     logger.error("usage consume (legacy) failed: %s", e)
             yield json.dumps(done_payload) + "\n"
+
+            # Facilitator post-pass — wrap the reply with an interactive UI widget
+            # when the bot's config enables it. The AI message was persisted
+            # implicitly above, so attach the block to that stored message. Emit a
+            # `pending` signal first so the UI can show a "building…" skeleton,
+            # then always emit a result (widget or null) so the skeleton clears.
+            if got_any and accumulated_text.strip() and _facilitator_enabled(config_doc):
+                yield json.dumps({"type": "facilitator_pending"}) + "\n"
+                facilitator_block = _facilitator_stage(
+                    config_doc, accumulated_text,
+                    [{"role": "user", "content": user_input}], None,
+                )
+                yield json.dumps({
+                    "type": "facilitator",
+                    "widget": facilitator_block["widget"] if facilitator_block else None,
+                    "data": facilitator_block["data"] if facilitator_block else None,
+                }) + "\n"
+                if facilitator_block:
+                    _attach_facilitator_to_last_ai(chat_id, facilitator_block)
 
         except Exception as e:
             logger.error(f"Stream Error: {e}")

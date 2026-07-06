@@ -155,6 +155,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     web_access: true,
     audio_enabled: false,
     hume_config_id: '',
+    facilitator: { enabled: false, instruction: '', allowedWidgets: null, presets: [] },
     bot_avatar: 'robot',
     introduction: '',
     // Video Analysis Specifics
@@ -750,6 +751,38 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
                         </span>
                       </label>
+                    </div>
+
+                    {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center justify-between cursor-pointer gap-4">
+                        <div>
+                          <p className="text-[13px] font-semibold text-gray-700">Facilitator (interactive UI)</p>
+                          <p className="text-xs text-gray-500 mt-0.5">After each reply, offer the user structured UI — e.g. multiple-choice options — instead of only text.</p>
+                        </div>
+                        <span className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={!!config.facilitator?.enabled}
+                            onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                          />
+                          <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
+                        </span>
+                      </label>
+                      {config.facilitator?.enabled && (
+                        <div className="mt-3">
+                          <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                          <textarea
+                            rows={3}
+                            value={config.facilitator?.instruction || ''}
+                            onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                            placeholder="e.g. Whenever the reply asks the user to choose between options or a next step, present it as multiple choice. Keep options short (2–4)."
+                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart. More coming soon.</p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Class rollout — optional class code + shared message pool */}
