@@ -156,7 +156,15 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "as clickable chips below your answer."
         )
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{CHART_GUIDE}{DESMOS_GUIDE}"
+    # When the facilitator is enabled it owns charts (rendered as an interactive
+    # widget after the reply), so drop the inline ```chart guidance — otherwise
+    # the bot draws one chart AND the facilitator draws another. Desmos (math
+    # graphs) is unaffected and still available.
+    fac = config.get('facilitator')
+    facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
+    chart_guide = '' if facilitator_on else CHART_GUIDE
+
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{chart_guide}{DESMOS_GUIDE}"
 
 
 def _to_dict(block) -> Dict[str, Any]:
