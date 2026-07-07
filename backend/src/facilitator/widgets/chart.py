@@ -27,6 +27,61 @@ def _num(v):
     return f
 
 
+def _validate_function_mode(data):
+    """Validate the interactive function-graph shape, or None if not that mode.
+
+    Returns None when the data doesn't look like a function graph so the caller
+    falls through to the static-series validator.
+    """
+    raw_fns = data.get("functions")
+    raw_range = data.get("x_range")
+    if not isinstance(raw_fns, list) or not raw_fns or not isinstance(raw_range, list):
+        return None
+
+    lo, hi = (_num(raw_range[0]) if len(raw_range) > 0 else None,
+              _num(raw_range[1]) if len(raw_range) > 1 else None)
+    if lo is None or hi is None or lo == hi:
+        return None
+
+    functions = []
+    for f in raw_fns:
+        if not isinstance(f, dict):
+            continue
+        expr = str(f.get("expr") or "").strip()
+        if not expr:
+            continue
+        name = str(f.get("name") or "").strip() or f"y{len(functions) + 1}"
+        functions.append({"name": name, "expr": expr})
+    if not functions:
+        return None
+
+    params = []
+    for p in data.get("params") or []:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or "").strip()
+        pmin, pmax = _num(p.get("min")), _num(p.get("max"))
+        if not name or pmin is None or pmax is None:
+            continue
+        param = {"name": name, "min": pmin, "max": pmax}
+        default = _num(p.get("default"))
+        param["default"] = default if default is not None else pmin
+        step = _num(p.get("step"))
+        if step is not None and step > 0:
+            param["step"] = step
+        params.append(param)
+
+    out = {"type": "line", "x_range": [lo, hi], "functions": functions, "params": params}
+    samples = _num(data.get("samples"))
+    if samples is not None:
+        out["samples"] = int(samples)
+    for key in ("title", "y_label", "caption"):
+        val = str(data.get(key) or "").strip()
+        if val:
+            out[key] = val
+    return out
+
+
 @widget(
     id="chart",
     label="Chart",
@@ -47,12 +102,27 @@ def _num(v):
         ),
         "y_label": "optional string — what the y-axis measures",
         "caption": "optional string — a one-line takeaway shown under the chart",
+        "__function_mode__": (
+            "ALTERNATIVELY, for a math function the user can manipulate, OMIT "
+            "x_labels/series and instead provide: x_range [min,max]; params "
+            "(array of {name,min,max,default,step} sliders); functions (array of "
+            "{name, expr} where expr is an explicit y=f(x) in terms of x and the "
+            "param names, using + - * / ^ and sin/cos/tan/exp/log/ln/sqrt/abs). "
+            "Only explicit y=f(x) — no implicit relations."
+        ),
     },
     interactive=False,
 )
 def validate(data):
     if not isinstance(data, dict):
         return None
+
+    # Function-graph mode: x_range + functions (params optional). Validated
+    # loosely — the frontend compiles/evaluates the expressions and just skips
+    # any that don't parse, so we only guarantee the shape is render-ready.
+    fn = _validate_function_mode(data)
+    if fn is not None:
+        return fn
 
     raw_labels = data.get("x_labels")
     if not isinstance(raw_labels, list) or len(raw_labels) < 2:

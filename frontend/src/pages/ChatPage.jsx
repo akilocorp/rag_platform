@@ -20,7 +20,6 @@ import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { renderMarkdown } from '../utils/markdown';
-import { mountDesmosGraphs } from '../utils/desmos';
 import { mountCharts } from '../utils/chartMount';
 
 // --- HELPER: Get Token Safely ---
@@ -285,7 +284,6 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
     if (!el) return;
     el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(text);
     if (!isUser) {
-      mountDesmosGraphs(el);
       mountCharts(el);
       loadDefineableSet().then((set) => {
         // Bail if message text changed underneath us between yield points.

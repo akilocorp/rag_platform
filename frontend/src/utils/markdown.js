@@ -11,16 +11,30 @@ const C_OPEN = '\uE002';
 const C_CLOSE = '\uE003';
 const V_OPEN = '\uE004';
 const V_CLOSE = '\uE005';
-const D_OPEN = '\uE006';
-const D_CLOSE = '\uE007';
 
 // Normalize an inline ```chart spec to the canonical chart widget's data shape.
-// The old inline spec used {x, series:[{name, values}], unit}; the widget uses
-// {x_labels, series:[{name, points}], y_label}. `unit` used to be appended to
-// every y-axis tick ("52.4value"); we carry it to the single y_label axis title
-// instead, so a real unit like "%" still reads without smearing onto each row.
+// Two modes:
+//  \u2022 static data \u2014 {x|x_labels, series:[{name, values|points}], unit}; the widget
+//    uses {x_labels, series:[{name, points}], y_label}. `unit` used to be appended
+//    to every y-axis tick ("52.4value"); we carry it to the single y_label axis
+//    title so a real unit like "%" still reads without smearing onto every row.
+//  \u2022 function graph \u2014 {x_range, params, functions} passes straight through; the
+//    widget evaluates the expressions and renders draggable parameter sliders.
 function toChartWidgetData(spec) {
   if (!spec || typeof spec !== 'object') return null;
+
+  // Function-graph mode: hand the widget the parametric fields verbatim.
+  if (Array.isArray(spec.functions) && spec.functions.length && Array.isArray(spec.x_range)) {
+    const data = { type: 'line', x_range: spec.x_range, functions: spec.functions };
+    if (Array.isArray(spec.params)) data.params = spec.params;
+    if (spec.samples) data.samples = spec.samples;
+    if (spec.title) data.title = String(spec.title);
+    const yl = spec.y_label || spec.unit;
+    if (yl) data.y_label = String(yl);
+    if (spec.caption) data.caption = String(spec.caption);
+    return data;
+  }
+
   const rawSeries = Array.isArray(spec.series) ? spec.series : [];
   const series = rawSeries
     .map((s) => {
@@ -63,28 +77,6 @@ function extractCharts(text) {
   return { text: out, charts };
 }
 
-// Pull ```desmos fenced blocks out and swap each for a placeholder div that
-// ChatPage mounts into a live Desmos calculator after innerHTML is set. We
-// validate the JSON here so a malformed spec just stays a normal code block;
-// the spec rides along in a data attribute (base64 so quotes/newlines survive).
-function extractDesmos(text) {
-  const graphs = [];
-  const out = text.replace(/```desmos\s*\n([\s\S]*?)```/g, (whole, body) => {
-    try {
-      const spec = JSON.parse(body.trim());
-      if (!spec || !Array.isArray(spec.expressions) || !spec.expressions.length) {
-        return whole; // unusable spec → leave as a code block
-      }
-      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(spec))));
-      graphs.push(`<div class="desmos-embed" data-desmos="${encoded}"></div>`);
-      return `\n\n${D_OPEN}${graphs.length - 1}${D_CLOSE}\n\n`;
-    } catch {
-      return whole;
-    }
-  });
-  return { text: out, graphs };
-}
-
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
 const looksLikeMath = (tex) =>
@@ -94,10 +86,9 @@ const looksLikeMath = (tex) =>
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
 // with KaTeX, so no DOM-wide auto-render pass is needed afterwards.
 export function renderMarkdown(raw) {
-  // Pull ```chart and ```desmos blocks out first so marked never sees them as
-  // code. Desmos placeholders are mounted into live calculators by ChatPage.
-  const { text: noCharts, charts } = extractCharts(raw || '');
-  const { text, graphs } = extractDesmos(noCharts);
+  // Pull ```chart blocks out first so marked never sees them as code. The chart
+  // placeholders are mounted into live, interactive widgets by ChatPage.
+  const { text, charts } = extractCharts(raw || '');
   const math = [];
   const stash = (tex, display) => {
     math.push({ tex, display });
@@ -158,7 +149,5 @@ export function renderMarkdown(raw) {
   // (unwrap any <p> marked put around the bare sentinel).
   html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'),
     (_, n) => (charts[+n] ? `<div class="chart-embed" data-chart="${charts[+n]}"></div>` : ''));
-  // Drop the Desmos placeholder divs back in (ChatPage mounts them live).
-  html = html.replace(new RegExp(`(?:<p>)?${D_OPEN}(\\d+)${D_CLOSE}(?:</p>)?`, 'g'), (_, n) => graphs[+n] || '');
   return html;
 }

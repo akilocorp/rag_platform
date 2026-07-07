@@ -70,38 +70,24 @@ CHART_GUIDE = (
     "labels; `series` is one or more {name, values} with values aligned to `x`; "
     "`unit` is optional. Keep to 4 series or fewer. Use numbers grounded in the "
     "discussion or the knowledge base — never invent false precision. Use a "
-    "Markdown table for exact figures and a chart for shape/trend."
-)
-
-
-# Always available — the frontend mounts ```desmos blocks as live, draggable
-# Desmos calculators. Only emitted for genuine math questions, so safe to ship.
-DESMOS_GUIDE = (
-    "\n\nFor a pure-mathematics question where seeing the curve, line, or "
-    "shape would genuinely aid understanding, embed a live, interactive "
-    "Desmos graph inline — placed at the exact point in your explanation "
-    "where the visual helps (right after you introduce the function or "
-    "relationship), NOT tacked on at the end. Emit a fenced code block "
-    "tagged `desmos` whose body is a JSON object, for example:\n"
-    "```desmos\n"
-    '{"expressions":["y=x^2","y=a x+1","a=1"],'
-    '"bounds":{"left":-10,"right":10,"bottom":-10,"top":10}}\n'
+    "Markdown table for exact figures and a chart for shape/trend.\n\n"
+    "For a MATH function whose shape depends on parameters — where letting the "
+    "reader drag a coefficient and watch the curve change would aid "
+    "understanding (e.g. exponential bases, a line's slope/intercept, a "
+    "parabola's coefficients, sine amplitude/frequency) — use the same `chart` "
+    "block in its function form instead:\n"
+    "```chart\n"
+    '{"type":"line","title":"Exponential growth: y = b^x",'
+    '"x_range":[-2,4],"params":[{"name":"b","min":1.1,"max":4,"default":2,"step":0.1}],'
+    '"functions":[{"name":"y","expr":"b^x"}],"y_label":"y"}\n'
     "```\n"
-    "Rules: `expressions` is an array of Desmos/LaTeX expression strings "
-    "(e.g. \"y=x^2\", \"y=\\\\sin(x)\", \"x^2+y^2=9\"). EVERY symbol other "
-    "than x and y — coefficients AND exponents — must be given a numeric "
-    "starting value on its own line, or the graph will error out and nothing "
-    "will draw. An undefined exponent is the most common failure: to graph "
-    "\"|x/a|^n+|y/b|^n=1\" you must include a, b, AND n (e.g. add \"a=3\", "
-    "\"b=2\", \"n=4\") — defining a and b but leaving n undefined makes the "
-    "whole relation undefined and the curve disappears. Desmos turns these "
-    "definitions into draggable sliders, which is what makes the graph "
-    "interactable, so prefer a parameterized form when it fits. `bounds` is "
-    "optional {left,right,bottom,top}; omit it to let Desmos "
-    "auto-fit. Only include a graph when it truly clarifies the math — skip it "
-    "for arithmetic, proofs, or purely symbolic answers. Still explain the math "
-    "in words and LaTeX; the graph supplements, it doesn't replace, the "
-    "explanation."
+    "Rules for the function form: `x_range` is [min,max]; `params` is a list of "
+    "sliders {name,min,max,default,step} the user can drag; `functions` is one "
+    "or more {name, expr} where `expr` is an explicit y = f(x) written in terms "
+    "of x and the param names. Use standard operators (+ - * / ^) and functions "
+    "(sin, cos, tan, exp, log, ln, sqrt, abs). Only explicit y = f(x) is "
+    "supported — no implicit relations like x^2+y^2=9. Prefer this whenever a "
+    "parameter is the point of the explanation."
 )
 
 
@@ -158,13 +144,13 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
 
     # When the facilitator is enabled it owns charts (rendered as an interactive
     # widget after the reply), so drop the inline ```chart guidance — otherwise
-    # the bot draws one chart AND the facilitator draws another. Desmos (math
-    # graphs) is unaffected and still available.
+    # the bot draws one chart AND the facilitator draws another. The chart guide
+    # covers both data charts and interactive function graphs (with sliders).
     fac = config.get('facilitator')
     facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
     chart_guide = '' if facilitator_on else CHART_GUIDE
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{chart_guide}{DESMOS_GUIDE}"
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{chart_guide}"
 
 
 def _to_dict(block) -> Dict[str, Any]:

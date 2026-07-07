@@ -5,8 +5,10 @@
 // Because the canonical chart is a live React widget (hover crosshair + value
 // tooltip, click-to-expand) it can't ride along in innerHTML — ChatPage calls
 // mountCharts(el) after setting innerHTML to render the widget into each
-// placeholder. This is the same pattern mountDesmosGraphs uses for graphs, and
-// it means every chart in the app flows through the one canonical renderer.
+// placeholder. Mounting a live React root (rather than injecting static SVG)
+// is what lets the widget be interactive — hover tooltips and, for function
+// graphs, draggable parameter sliders — so every chart in the app flows through
+// the one canonical renderer.
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
