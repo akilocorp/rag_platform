@@ -256,6 +256,45 @@ const SourceChip = ({ source, index }) => {
   );
 };
 
+// Normalize a line for loose comparison: drop markdown emphasis, any leading
+// list/option marker (A), 1., -, *), surrounding whitespace and trailing
+// punctuation/emoji, then lowercase. So prose "A) Berlin" and a widget option
+// "Berlin" collapse to the same key.
+const normalizeLine = (s) =>
+  (s || '')
+    .replace(/[*_`~]/g, '')
+    .replace(/^\s*(?:[-*+]|\(?[A-Za-z0-9]{1,2}[.)])\s+/, '')
+    .trim()
+    .replace(/[^\p{L}\p{N}]+$/u, '')
+    .toLowerCase();
+
+// When an interactive multiple_choice widget is attached, the widget already
+// shows the question + options — so the bot's prose restatement of them is
+// redundant. Strip the duplicated question line, each option line, and a short
+// trailing answer-prompt ("What's your answer?"), keeping any genuine lead-in.
+// Degrades to the original text if nothing matches.
+function stripRedundantMcqText(text, facilitator) {
+  const data = facilitator?.data;
+  const question = data?.question;
+  const options = Array.isArray(data?.options) ? data.options : [];
+  if (!text || !question || options.length === 0) return text;
+
+  const qNorm = normalizeLine(question);
+  const optNorms = new Set(options.map(normalizeLine).filter(Boolean));
+
+  const kept = text.split('\n').filter((line) => {
+    const norm = normalizeLine(line);
+    if (!norm) return true;                 // keep blanks; collapsed below
+    if (norm === qNorm) return false;       // the duplicated question
+    if (optNorms.has(norm)) return false;   // a duplicated option
+    // a short trailing answer-prompt line, e.g. "What's your answer? 😊"
+    if (norm.length <= 40 && /\banswer\b/.test(norm) && line.includes('?')) return false;
+    return true;
+  });
+
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // --- MODERN CHAT MESSAGE COMPONENT ---
 const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit }) => {
   const { sender, text, isTyping } = message;
@@ -267,6 +306,10 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
   const hasAttachedFiles = isUser && attachedFiles.length > 0;
   const hasAttachedImages = isUser && attachedImages.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
+  // Drop the prose MCQ once its interactive widget is attached (see helper above).
+  const displayText = (!isUser && message.facilitator?.widget === 'multiple_choice')
+    ? stripRedundantMcqText(text, message.facilitator)
+    : text;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
   const sources = !isUser ? extractSources(toolCalls, fileIndex) : [];
@@ -282,7 +325,7 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
     if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(text);
+    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(displayText);
     if (!isUser) {
       mountCharts(el);
       loadDefineableSet().then((set) => {
@@ -292,7 +335,7 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
         }
       });
     }
-  }, [text, showThinking, isUser]);
+  }, [displayText, showThinking, isUser]);
 
   // React synthetic mouseover/mouseout bubble up from the .defineable spans
   // through the markdown root. Using JSX handlers (not addEventListener)
