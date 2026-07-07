@@ -1,6 +1,5 @@
 import { marked } from 'marked';
 import katex from 'katex';
-import { renderChartSvg } from './viz';
 
 marked.use({ gfm: true, breaks: true });
 
@@ -15,16 +14,47 @@ const V_CLOSE = '\uE005';
 const D_OPEN = '\uE006';
 const D_CLOSE = '\uE007';
 
-// Pull ```chart fenced blocks out before anything else and render each to a
-// self-contained SVG. A malformed spec falls back to a normal code block.
+// Normalize an inline ```chart spec to the canonical chart widget's data shape.
+// The old inline spec used {x, series:[{name, values}], unit}; the widget uses
+// {x_labels, series:[{name, points}], y_label}. `unit` used to be appended to
+// every y-axis tick ("52.4value"); we carry it to the single y_label axis title
+// instead, so a real unit like "%" still reads without smearing onto each row.
+function toChartWidgetData(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+  const rawSeries = Array.isArray(spec.series) ? spec.series : [];
+  const series = rawSeries
+    .map((s) => {
+      const pts = s && (Array.isArray(s.points) ? s.points : s.values);
+      return { name: s && s.name != null ? String(s.name) : '', points: Array.isArray(pts) ? pts : [] };
+    })
+    .filter((s) => s.points.length);
+  if (!series.length) return null;
+
+  const xRaw = Array.isArray(spec.x_labels) ? spec.x_labels : (Array.isArray(spec.x) ? spec.x : []);
+  const data = {
+    type: spec.type === 'bar' ? 'bar' : 'line',
+    x_labels: xRaw.map((l) => String(l)),
+    series,
+  };
+  if (spec.title) data.title = String(spec.title);
+  const yl = spec.y_label || spec.unit;
+  if (yl) data.y_label = String(yl);
+  if (spec.caption) data.caption = String(spec.caption);
+  return data;
+}
+
+// Pull ```chart fenced blocks out before anything else and stash each as base64
+// widget data. ChatPage mounts these into the live, interactive chart widget
+// after innerHTML is set. A malformed spec falls back to a normal code block.
 function extractCharts(text) {
   const charts = [];
   const out = text.replace(/```chart\s*\n([\s\S]*?)```/g, (whole, body) => {
     try {
       const spec = JSON.parse(body.trim());
-      const html = renderChartSvg(spec);
-      if (!html) return whole; // unusable spec \u2192 leave as a code block
-      charts.push(html);
+      const data = toChartWidgetData(spec);
+      if (!data) return whole; // unusable spec \u2192 leave as a code block
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+      charts.push(encoded);
       return `\n\n${V_OPEN}${charts.length - 1}${V_CLOSE}\n\n`;
     } catch {
       return whole;
@@ -124,9 +154,10 @@ export function renderMarkdown(raw) {
       return tex;
     }
   });
-  // Drop the rendered chart SVGs back in (unwrap any <p> marked put around the
-  // bare sentinel).
-  html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'), (_, n) => charts[+n] || '');
+  // Drop chart placeholders back in for ChatPage to mount as live widgets
+  // (unwrap any <p> marked put around the bare sentinel).
+  html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'),
+    (_, n) => (charts[+n] ? `<div class="chart-embed" data-chart="${charts[+n]}"></div>` : ''));
   // Drop the Desmos placeholder divs back in (ChatPage mounts them live).
   html = html.replace(new RegExp(`(?:<p>)?${D_OPEN}(\\d+)${D_CLOSE}(?:</p>)?`, 'g'), (_, n) => graphs[+n] || '');
   return html;

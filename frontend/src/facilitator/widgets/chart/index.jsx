@@ -229,7 +229,7 @@ function Renderer({ data }) {
         title="Click to expand"
       >
         <div className="flex items-center justify-between mb-1.5 px-1">
-          {data.title ? <p className="text-sm font-semibold text-[#222]">{data.title}</p> : <span />}
+          {data.title ? <p className="text-lg font-semibold text-[#222]">{data.title}</p> : <span />}
           <span className="text-[11px] text-gray-400">Click to expand ⤢</span>
         </div>
         <ChartSvg data={data} />
