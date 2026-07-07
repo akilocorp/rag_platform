@@ -80,7 +80,9 @@ function extractCharts(text) {
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
 const looksLikeMath = (tex) =>
-  /[\\^_{}=]/.test(tex) || /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim());
+  /[\\^_{}=]/.test(tex) ||
+  /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
+  /^[-+]?[\d.,]+$/.test(tex.trim());
 
 // Render AI markdown to HTML. Math segments are pulled out BEFORE marked runs
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
