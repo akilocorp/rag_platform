@@ -9,6 +9,7 @@ branch. Step 6 teaches the frontend to render the new event types.
 """
 import logging
 import os
+import time
 from typing import Any, Dict, Iterator, List
 
 from src.agentic.constants import (
@@ -20,6 +21,44 @@ from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
+
+# Transient API failures (overloaded / rate-limited / 5xx / dropped
+# connection) are retried with exponential backoff before we surface
+# anything to the user. Overloaded (HTTP 529) in particular means
+# Anthropic's servers are momentarily busy and the request should just be
+# retried.
+STREAM_MAX_ATTEMPTS = 3
+STREAM_BACKOFF_BASE_SECONDS = 1.0
+
+# User-facing copy when retries are exhausted — never leak raw exception dicts.
+BUSY_MESSAGE = (
+    "⚠️ The assistant is experiencing high demand right now. "
+    "Please try again in a moment."
+)
+GENERIC_ERROR_MESSAGE = (
+    "⚠️ Something went wrong reaching the assistant. "
+    "Please try again in a moment."
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True when an Anthropic stream failure is worth retrying.
+
+    Covers overloaded (529), rate limits (429), 5xx, and connection drops.
+    We inspect status_code and the message text rather than importing the
+    SDK's exception classes so this stays robust across SDK versions.
+    """
+    status = getattr(exc, "status_code", None)
+    if status in (429, 500, 502, 503, 504, 529):
+        return True
+    text = str(exc).lower()
+    return (
+        "overloaded" in text
+        or "rate limit" in text
+        or "timeout" in text
+        or "timed out" in text
+        or "connection" in text
+    )
 
 # Shared by the legacy LangChain path in chat_routes.py so every model
 # (GPT/Gemini/Qwen/non-agentic Claude) formats replies the same way.
@@ -261,17 +300,37 @@ def stream_agentic_response(
         if tools_param:
             kwargs["tools"] = tools_param
 
-        try:
-            with client.messages.stream(**kwargs) as stream:
-                for chunk in stream.text_stream:
-                    if chunk:
-                        yield {"type": "token", "data": chunk}
-                final_message = stream.get_final_message()
-        except Exception as e:
-            logger.error("Anthropic stream failed (round %d): %s", round_idx, e, exc_info=True)
-            yield {"type": "token", "data": f"\n\n[Connection error: {e}]"}
-            yield {"type": "done", "stop_reason": "error", "assistant_blocks": full_trace}
-            return
+        final_message = None
+        for attempt in range(STREAM_MAX_ATTEMPTS):
+            yielded_any = False
+            try:
+                with client.messages.stream(**kwargs) as stream:
+                    for chunk in stream.text_stream:
+                        if chunk:
+                            yielded_any = True
+                            yield {"type": "token", "data": chunk}
+                    final_message = stream.get_final_message()
+                break
+            except Exception as e:
+                last_attempt = attempt == STREAM_MAX_ATTEMPTS - 1
+                # Once tokens have streamed to the user we can't cleanly retry
+                # (we'd duplicate partial output), so only retry a transient
+                # failure that hit before any text was emitted.
+                retryable = _is_transient_error(e) and not yielded_any and not last_attempt
+                logger.error(
+                    "Anthropic stream failed (round %d, attempt %d/%d, retry=%s): %s",
+                    round_idx, attempt + 1, STREAM_MAX_ATTEMPTS, retryable, e,
+                    exc_info=True,
+                )
+                if retryable:
+                    time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                    continue
+                friendly = BUSY_MESSAGE if _is_transient_error(e) else GENERIC_ERROR_MESSAGE
+                # Space it off from any partial text already streamed.
+                prefix = "\n\n" if yielded_any else ""
+                yield {"type": "token", "data": prefix + friendly}
+                yield {"type": "done", "stop_reason": "error", "assistant_blocks": full_trace}
+                return
 
         assistant_blocks = [_to_dict(b) for b in final_message.content]
         full_trace.extend(assistant_blocks)
