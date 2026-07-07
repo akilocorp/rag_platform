@@ -98,9 +98,12 @@ export function mountDesmosGraphs(el) {
         if (!spec || !Array.isArray(spec.expressions)) return;
         node.setAttribute('data-mounted', '1');
 
+        // Show the expression/slider panel so users can drag the parameters the
+        // bot defined (a, n, …) and watch the curve re-render live — the whole
+        // point of embedding a live calculator rather than a static image.
         const calc = Desmos.GraphingCalculator(node, {
-          expressionsCollapsed: true,
-          settingsMenu: false,
+          expressionsCollapsed: false,
+          settingsMenu: true,
           lockViewport: false,
           border: false,
           zoomButtons: true,
