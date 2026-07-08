@@ -401,6 +401,25 @@
   }
   @keyframes fac-grow { to { transform: scaleY(1); } }
 
+  /* flashcard — 3D flip. The button sets the perspective; the inner layer
+     rotates; each face is back-face-hidden so only one shows at a time. */
+  .fac-flip { perspective: 900px; }
+  .fac-flip-inner {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .fac-flip-inner.is-flipped { transform: rotateY(180deg); }
+  .fac-flip-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .fac-flip-back { transform: rotateY(180deg); }
+
   .fac-pending-bar {
     background: linear-gradient(90deg, #eef2f6 25%, #e2e8f0 37%, #eef2f6 63%);
     background-size: 400% 100%;
