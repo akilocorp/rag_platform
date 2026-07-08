@@ -303,6 +303,10 @@ function widgetEchoStrings(widget, data) {
       pushArr(data.x_labels);
       rows(data.series).forEach((s) => push(s?.name));
       break;
+    case 'impact_map':
+      push(data.title); push(data.scenario); push(data.caption);
+      rows(data.regions).forEach((r) => { push(r?.country); push(r?.note); });
+      break;
     default:
       break;
   }

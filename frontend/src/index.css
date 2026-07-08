@@ -428,6 +428,11 @@
   .fac-mm-handle:hover { transform: scale(1.18); }
   .fac-mm-badge { animation: dictionary-pop-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+  /* impact_map — subtle country hover lift; highlighted countries get a pointer */
+  .fac-im-country { transition: fill-opacity 0.15s ease; }
+  .fac-im-hit { cursor: pointer; }
+  .fac-im-hit:hover { fill-opacity: 1; }
+
   .fac-pending-bar {
     background: linear-gradient(90deg, #eef2f6 25%, #e2e8f0 37%, #eef2f6 63%);
     background-size: 400% 100%;
