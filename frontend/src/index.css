@@ -584,3 +584,156 @@ a:focus-visible {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── macro101 morphing MCQ input (shock-world) ──────────────────────────────
+   The options render as full-width buttons; picking one collapses the others
+   and morphs the chosen button into a "Why?" field. All motion is CSS. */
+.sw-morph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sw-row {
+  overflow: hidden;
+  max-height: 240px;
+  transition:
+    max-height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease,
+    margin 0.3s ease,
+    transform 0.3s ease;
+}
+/* An unpicked option, once a sibling is chosen: collapse it out of the way. */
+.sw-row.is-hidden {
+  max-height: 0;
+  opacity: 0;
+  margin-top: -0.5rem;   /* absorb the flex gap as it vanishes */
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+.sw-option-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+  animation: sw-opt-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sw-option-btn:hover:not(:disabled) {
+  border-color: #FA6C43;
+  color: #FA6C43;
+  box-shadow: 0 4px 14px rgba(250, 108, 67, 0.14);
+}
+.sw-option-btn:active:not(:disabled) { transform: scale(0.99); }
+.sw-option-btn:disabled { opacity: 0.6; cursor: default; }
+/* Gentle stagger so the option stack cascades in. */
+.sw-morph .sw-row:nth-child(1) .sw-option-btn { animation-delay: 0.00s; }
+.sw-morph .sw-row:nth-child(2) .sw-option-btn { animation-delay: 0.05s; }
+.sw-morph .sw-row:nth-child(3) .sw-option-btn { animation-delay: 0.10s; }
+.sw-morph .sw-row:nth-child(4) .sw-option-btn { animation-delay: 0.15s; }
+.sw-morph .sw-row:nth-child(5) .sw-option-btn { animation-delay: 0.20s; }
+.sw-morph .sw-row:nth-child(6) .sw-option-btn { animation-delay: 0.25s; }
+
+/* The chosen option, now an input box. */
+.sw-input-shell {
+  border: 1.5px solid #FA6C43;
+  border-radius: 16px;
+  background: #fff;
+  padding: 0.6rem 0.7rem 0.55rem;
+  box-shadow: 0 8px 26px rgba(250, 108, 67, 0.18);
+  transform-origin: top center;
+  animation: sw-morph-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sw-shell-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  animation: sw-fade-up 0.32s ease both;
+  animation-delay: 0.1s;
+}
+.sw-chip {
+  min-width: 0;
+  max-width: calc(100% - 5.5rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(250, 108, 67, 0.1);
+  color: #b8452a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 9999px;
+}
+.sw-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+.sw-back:hover:not(:disabled) { color: #FA6C43; }
+.sw-back:disabled { opacity: 0.5; cursor: default; }
+.sw-shell-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: sw-fade-up 0.34s ease both;
+  animation-delay: 0.16s;
+}
+.sw-why {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #222;
+  font-size: 1rem;
+  padding: 0.35rem 0.25rem;
+}
+.sw-why::placeholder { color: #9ca3af; }
+.sw-send {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #FA6C43;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(250, 108, 67, 0.45);
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+.sw-send:hover:not(:disabled) { opacity: 0.9; }
+.sw-send:active:not(:disabled) { transform: scale(0.95); }
+.sw-send:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+@keyframes sw-opt-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sw-morph-in {
+  from { opacity: 0.3; transform: scaleY(0.62) translateY(-4px); }
+  to   { opacity: 1;   transform: scaleY(1) translateY(0); }
+}
+@keyframes sw-fade-up {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sw-row, .sw-option-btn, .sw-input-shell, .sw-shell-top, .sw-shell-bottom {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

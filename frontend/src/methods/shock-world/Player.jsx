@@ -82,12 +82,77 @@ function Shell({ title, subtitle, onBack, headerExtra, footer, children, isAuthe
   );
 }
 
+// macro101's morphing MCQ input. The options render as full-width buttons in
+// place of a composer; picking one collapses the rest and morphs the chosen
+// button into a "Why?" field (the entrance + collapse are CSS — see .sw-morph
+// in index.css). The "why" is unskippable: send stays disabled until it's typed.
+function AnswerMorph({ options, pick, why, setWhy, busy, onPick, onChangeAnswer, onSend }) {
+  const canSend = !!why.trim() && !busy;
+  return (
+    <div className="sw-morph">
+      {options.map((opt) => {
+        const isChosen = pick === opt;
+        const isHidden = pick && !isChosen; // a different option was picked
+        return (
+          <div key={opt} className={`sw-row${isHidden ? ' is-hidden' : ''}${isChosen ? ' is-chosen' : ''}`}>
+            {isChosen ? (
+              <div className="sw-input-shell">
+                <div className="sw-shell-top">
+                  <span className="sw-chip" title={opt}>{opt}</span>
+                  <button type="button" className="sw-back" onClick={onChangeAnswer} disabled={busy}>
+                    <FiArrowLeft /> Change
+                  </button>
+                </div>
+                <div className="sw-shell-bottom">
+                  <input
+                    autoFocus
+                    type="text"
+                    className="sw-why"
+                    placeholder="Why?"
+                    value={why}
+                    disabled={busy}
+                    onChange={(e) => setWhy(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) onSend(); }
+                    }}
+                  />
+                  <button type="button" className="sw-send" onClick={onSend} disabled={!canSend} aria-label="Send" title="Send">
+                    {busy ? <FaSpinner className="animate-spin" /> : (
+                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+                        <path d="M10 16V4M10 4l-5 5M10 4l5 5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="sw-option-btn" onClick={() => onPick(opt)} disabled={busy}>
+                {opt}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Empty tally, accumulated across adaptive exchanges (the warm-up gate is excluded).
 const EMPTY_TALLY = { exchanges: 0, goal_reached: false, demonstrated_count: 0, key_ideas_total: 0, explained_why: 0, revised_after_nudge: 0, worked_through_contradiction: 0, low_effort: 0 };
 
 export default function Runner({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar }) {
   const keyIdeas = useMemo(() => (Array.isArray(config.keyIdeas) ? config.keyIdeas : []), [config]);
   const budget = Math.max(1, config.maxRounds || 6);
+
+  // macro101 gets the morphing MCQ input (option button → "Why?" field). Gate on
+  // the parent doc's class_code (threaded in as `_classCode`) or the lab title so
+  // it lights up regardless of which identifier the professor set. Other
+  // shock-world labs keep the plain options-above-composer footer.
+  const isMorphLab = useMemo(() => {
+    const code = String(config._classCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const title = String(config.meta?.title || '').toLowerCase();
+    return code === 'MACRO101' || /macro\s*-?\s*101/.test(title);
+  }, [config]);
 
   const [phase, setPhase] = useState('country-pick'); // country-pick | grounding | gate | rounds | grading | done
   const [country, setCountry] = useState(config.countries?.[0] || '');
@@ -307,31 +372,51 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
   // ── Footer input (MC pills when applicable + the shared composer) ───────────
   let footer = null;
   if (phase === 'gate' || phase === 'rounds') {
+    const options = currentQuestion?.options || [];
+    // macro101: the input box *is* the options; picking one morphs it into a
+    // "Why?" field (see AnswerMorph). Only for the multiple-choice step — the
+    // free-text follow-up nudge keeps the plain composer.
+    const useMorph = isMorphLab && mode === 'mc' && options.length > 0;
     footer = (
       <footer className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
         <div className="w-full max-w-3xl mx-auto">
-          {mode === 'mc' && currentQuestion?.options?.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {currentQuestion.options.map((opt, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => choose(opt)}
-                  className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${pickRef.current === opt ? 'bg-[#FA6C43] text-white border-[#FA6C43]' : 'bg-white text-gray-700 border-gray-200 hover:border-[#FA6C43]'}`}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
+          {useMorph ? (
+            <AnswerMorph
+              options={options}
+              pick={pickRef.current}
+              why={why}
+              setWhy={setWhy}
+              busy={busy}
+              onPick={choose}
+              onChangeAnswer={() => { pickRef.current = ''; setWhy(''); forcePick((n) => n + 1); }}
+              onSend={submit}
+            />
+          ) : (
+            <>
+              {mode === 'mc' && options.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {options.map((opt, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => choose(opt)}
+                      className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${pickRef.current === opt ? 'bg-[#FA6C43] text-white border-[#FA6C43]' : 'bg-white text-gray-700 border-gray-200 hover:border-[#FA6C43]'}`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <ChatComposer
+                input={why}
+                setInput={setWhy}
+                onSend={() => submit()}
+                isLoading={busy}
+                showAttach={false}
+              />
+            </>
           )}
-          <ChatComposer
-            input={why}
-            setInput={setWhy}
-            onSend={() => submit()}
-            isLoading={busy}
-            showAttach={false}
-          />
           {error && <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1"><FiAlertTriangle /> {error}</p>}
         </div>
       </footer>
