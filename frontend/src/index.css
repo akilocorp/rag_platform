@@ -591,6 +591,7 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  font-kerning: none; /* uniform character spacing — no kerning */
 }
 .sw-row {
   overflow: hidden;
@@ -647,6 +648,7 @@ a:focus-visible {
   padding: 0.6rem 0.7rem 0.55rem;
   box-shadow: 0 8px 26px rgba(250, 108, 67, 0.18);
   transform-origin: top center;
+  font-kerning: none; /* uniform character spacing — no kerning */
   animation: sw-morph-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .sw-shell-top {
