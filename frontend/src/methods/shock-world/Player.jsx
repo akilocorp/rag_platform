@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
 import apiClient from '../../api/apiClient';
-import ChatComposer from '../../components/ChatComposer';
 import { Card, FeedBlock } from './blocks.jsx';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -82,12 +81,40 @@ function Shell({ title, subtitle, onBack, headerExtra, footer, children, isAuthe
   );
 }
 
-// macro101's morphing MCQ input. The options render as full-width buttons in
-// place of a composer; picking one collapses the rest and morphs the chosen
-// button into a "Why?" field (the entrance + collapse are CSS — see .sw-morph
-// in index.css). The "why" is unskippable: send stays disabled until it's typed.
-function AnswerMorph({ options, pick, why, setWhy, busy, onPick, onChangeAnswer, onSend }) {
+// The compact "Why?" field: a single-line input + circular send button. Shared
+// by the morphed MCQ answer and the free-text follow-up nudge so neither needs
+// the tall chat composer. Send is disabled until a reason is typed.
+function WhyInput({ why, setWhy, busy, onSend, placeholder }) {
   const canSend = !!why.trim() && !busy;
+  return (
+    <div className="sw-shell-bottom">
+      <input
+        autoFocus
+        type="text"
+        className="sw-why"
+        placeholder={placeholder}
+        value={why}
+        disabled={busy}
+        onChange={(e) => setWhy(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) onSend(); }
+        }}
+      />
+      <button type="button" className="sw-send" onClick={onSend} disabled={!canSend} aria-label="Send" title="Send">
+        {busy ? <FaSpinner className="animate-spin" /> : (
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+            <path d="M10 16V4M10 4l-5 5M10 4l5 5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// The morphing MCQ input. The options ARE the input area — full-width buttons,
+// no composer below. Picking one collapses the rest and morphs the chosen button
+// into a "Why?" field (entrance + collapse are CSS — see .sw-morph in index.css).
+function AnswerMorph({ options, pick, why, setWhy, busy, onPick, onChangeAnswer, onSend }) {
   return (
     <div className="sw-morph">
       {options.map((opt) => {
@@ -103,27 +130,7 @@ function AnswerMorph({ options, pick, why, setWhy, busy, onPick, onChangeAnswer,
                     <FiArrowLeft /> Change
                   </button>
                 </div>
-                <div className="sw-shell-bottom">
-                  <input
-                    autoFocus
-                    type="text"
-                    className="sw-why"
-                    placeholder="Why?"
-                    value={why}
-                    disabled={busy}
-                    onChange={(e) => setWhy(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) onSend(); }
-                    }}
-                  />
-                  <button type="button" className="sw-send" onClick={onSend} disabled={!canSend} aria-label="Send" title="Send">
-                    {busy ? <FaSpinner className="animate-spin" /> : (
-                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
-                        <path d="M10 16V4M10 4l-5 5M10 4l5 5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
+                <WhyInput why={why} setWhy={setWhy} busy={busy} onSend={onSend} placeholder="Why?" />
               </div>
             ) : (
               <button type="button" className="sw-option-btn" onClick={() => onPick(opt)} disabled={busy}>
@@ -143,16 +150,6 @@ const EMPTY_TALLY = { exchanges: 0, goal_reached: false, demonstrated_count: 0, 
 export default function Runner({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar }) {
   const keyIdeas = useMemo(() => (Array.isArray(config.keyIdeas) ? config.keyIdeas : []), [config]);
   const budget = Math.max(1, config.maxRounds || 6);
-
-  // macro101 gets the morphing MCQ input (option button → "Why?" field). Gate on
-  // the parent doc's class_code (threaded in as `_classCode`) or the lab title so
-  // it lights up regardless of which identifier the professor set. Other
-  // shock-world labs keep the plain options-above-composer footer.
-  const isMorphLab = useMemo(() => {
-    const code = String(config._classCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const title = String(config.meta?.title || '').toLowerCase();
-    return code === 'MACRO101' || /macro\s*-?\s*101/.test(title);
-  }, [config]);
 
   const [phase, setPhase] = useState('country-pick'); // country-pick | grounding | gate | rounds | grading | done
   const [country, setCountry] = useState(config.countries?.[0] || '');
@@ -369,18 +366,18 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
       </span>
     ) : null;
 
-  // ── Footer input (MC pills when applicable + the shared composer) ───────────
+  // ── Footer input ────────────────────────────────────────────────────────────
+  // The multiple-choice step shows only the options (they ARE the input box);
+  // picking one morphs it into a "Why?" field. The free-text follow-up nudge
+  // shows a single compact input. Neither uses the tall chat composer.
   let footer = null;
   if (phase === 'gate' || phase === 'rounds') {
     const options = currentQuestion?.options || [];
-    // macro101: the input box *is* the options; picking one morphs it into a
-    // "Why?" field (see AnswerMorph). Only for the multiple-choice step — the
-    // free-text follow-up nudge keeps the plain composer.
-    const useMorph = isMorphLab && mode === 'mc' && options.length > 0;
+    const isMc = mode === 'mc' && options.length > 0;
     footer = (
       <footer className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
         <div className="w-full max-w-3xl mx-auto">
-          {useMorph ? (
+          {isMc ? (
             <AnswerMorph
               options={options}
               pick={pickRef.current}
@@ -392,30 +389,9 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
               onSend={submit}
             />
           ) : (
-            <>
-              {mode === 'mc' && options.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {options.map((opt, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => choose(opt)}
-                      className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${pickRef.current === opt ? 'bg-[#FA6C43] text-white border-[#FA6C43]' : 'bg-white text-gray-700 border-gray-200 hover:border-[#FA6C43]'}`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <ChatComposer
-                input={why}
-                setInput={setWhy}
-                onSend={() => submit()}
-                isLoading={busy}
-                showAttach={false}
-              />
-            </>
+            <div className="sw-input-shell">
+              <WhyInput why={why} setWhy={setWhy} busy={busy} onSend={submit} placeholder="Type your reasoning…" />
+            </div>
           )}
           {error && <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1"><FiAlertTriangle /> {error}</p>}
         </div>

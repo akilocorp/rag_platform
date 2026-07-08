@@ -86,12 +86,7 @@ export default function ExperientialPage() {
         // Method-agnostic: any lab with a `method` stamp is playable (predict-reveal
         // has `layers`; other pedagogies like shock-world don't). The method's own
         // validator decides validity downstream.
-        // Stash the parent doc's class_code onto the lab config so a method player
-        // can gate lab-specific UI (e.g. macro101's morphing MCQ input) on it.
-        if (ec && (ec.method || ec.layers)) {
-          const classCode = res.data?.config?.class_code || '';
-          setDbLab({ loading: false, config: { ...ec, _classCode: classCode }, error: null });
-        }
+        if (ec && (ec.method || ec.layers)) setDbLab({ loading: false, config: ec, error: null });
         else setDbLab({ loading: false, config: null, error: 'This lab has no generated config yet — generate it from the config editor.' });
       })
       .catch(() => { if (!cancelled) setDbLab({ loading: false, config: null, error: 'Could not load this lab.' }); });
