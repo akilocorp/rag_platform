@@ -268,27 +268,68 @@ const normalizeLine = (s) =>
     .replace(/[^\p{L}\p{N}]+$/u, '')
     .toLowerCase();
 
-// When an interactive multiple_choice widget is attached, the widget already
-// shows the question + options — so the bot's prose restatement of them is
-// redundant. Strip the duplicated question line, each option line, and a short
-// trailing answer-prompt ("What's your answer?"), keeping any genuine lead-in.
-// Degrades to the original text if nothing matches.
-function stripRedundantMcqText(text, facilitator) {
-  const data = facilitator?.data;
-  const question = data?.question;
-  const options = Array.isArray(data?.options) ? data.options : [];
-  if (!text || !question || options.length === 0) return text;
+// The strings a widget already renders on screen — used to strip the bot's prose
+// restatement of the same content. Each case mirrors that widget's data shape.
+function widgetEchoStrings(widget, data) {
+  if (!data) return [];
+  const out = [];
+  const push = (v) => { if (typeof v === 'string' && v.trim()) out.push(v); };
+  const pushArr = (a) => { if (Array.isArray(a)) a.forEach(push); };
+  const rows = (a) => (Array.isArray(a) ? a : []);
 
-  const qNorm = normalizeLine(question);
-  const optNorms = new Set(options.map(normalizeLine).filter(Boolean));
+  switch (widget) {
+    case 'multiple_choice':
+      push(data.question); pushArr(data.options);
+      break;
+    case 'flashcard':
+      push(data.title);
+      rows(data.cards).forEach((c) => { push(c?.front); push(c?.back); });
+      break;
+    case 'timeline':
+      push(data.title);
+      rows(data.steps).forEach((s) => { push(s?.label); push(s?.detail); });
+      break;
+    case 'comparison_table':
+      push(data.title); pushArr(data.columns);
+      rows(data.rows).forEach((r) => { push(r?.label); pushArr(r?.cells); });
+      break;
+    case 'mind_map':
+      push(data.central); push(data.instructions);
+      rows(data.nodes).forEach((n) => push(n?.label));
+      rows(data.distractors).forEach((n) => push(n?.label));
+      break;
+    case 'chart':
+      push(data.title); push(data.caption); push(data.y_label);
+      pushArr(data.x_labels);
+      rows(data.series).forEach((s) => push(s?.name));
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+// When a facilitator widget is attached it already renders its content, so the
+// bot's prose restatement of that content is redundant. Strip any whole line
+// that duplicates a widget string (question, option, card side, step, table
+// cell, node label, …). For multiple_choice also drop a short trailing
+// answer-prompt ("What's your answer?"). Degrades to the original text if
+// nothing matches — only exact whole-line matches are removed, so genuine prose
+// that merely mentions a word survives.
+function stripRedundantWidgetText(text, facilitator) {
+  const widget = facilitator?.widget;
+  const data = facilitator?.data;
+  if (!text || !widget || !data) return text;
+
+  const dupNorms = new Set(widgetEchoStrings(widget, data).map(normalizeLine).filter(Boolean));
+  if (dupNorms.size === 0) return text;
 
   const kept = text.split('\n').filter((line) => {
     const norm = normalizeLine(line);
     if (!norm) return true;                 // keep blanks; collapsed below
-    if (norm === qNorm) return false;       // the duplicated question
-    if (optNorms.has(norm)) return false;   // a duplicated option
-    // a short trailing answer-prompt line, e.g. "What's your answer? 😊"
-    if (norm.length <= 40 && /\banswer\b/.test(norm) && line.includes('?')) return false;
+    if (dupNorms.has(norm)) return false;   // a duplicated widget string
+    // multiple_choice: a short trailing answer-prompt, e.g. "What's your answer? 😊"
+    if (widget === 'multiple_choice' && norm.length <= 40 && /\banswer\b/.test(norm) && line.includes('?')) return false;
     return true;
   });
 
@@ -306,9 +347,9 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
   const hasAttachedFiles = isUser && attachedFiles.length > 0;
   const hasAttachedImages = isUser && attachedImages.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
-  // Drop the prose MCQ once its interactive widget is attached (see helper above).
-  const displayText = (!isUser && message.facilitator?.widget === 'multiple_choice')
-    ? stripRedundantMcqText(text, message.facilitator)
+  // Drop prose that duplicates the attached widget's content (see helper above).
+  const displayText = (!isUser && message.facilitator?.widget)
+    ? stripRedundantWidgetText(text, message.facilitator)
     : text;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
