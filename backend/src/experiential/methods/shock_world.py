@@ -20,8 +20,13 @@ handler. Runtime handlers (reached via POST /experiential/method/shock-world/…
   grade  — final effort-to-learn + goal scoring, professor-weighted
 """
 import json
+import logging
+import time
 
 from src.experiential.methods.base import method
+from src.agentic.agent_runner import _is_transient_error
+
+logger = logging.getLogger(__name__)
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 GROUND_CACHE_TTL = 86400          # re-ground a country once a day
@@ -30,6 +35,32 @@ TURN_MAX_TOKENS = 700             # the streamed Socratic reply is short
 CONTROL_MAX_TOKENS = 700          # judge + author the next question
 GRADE_MAX_TOKENS = 900
 MAX_FOLLOWUPS_PER_QUESTION = 2    # after this, the tutor must move on (anti-drag)
+
+# Transient Anthropic failures (overloaded 529 / rate-limit 429 / 5xx / dropped
+# connection) are retried with backoff before we surface anything — the same
+# hardening the 1:1 chat path got in agent_runner. Without it, a momentary
+# overload on any of a turn's two Sonnet calls drops the stream, which the client
+# shows as "the tutor is unavailable".
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 1.0
+# In-character line shown only if the tutor's reply can't be reached after retries.
+_BUSY_REPLY = (
+    "I lost my train of thought for a second — the tutor is in high demand right "
+    "now. Give me a moment, then tell me your reasoning again."
+)
+
+
+def _create_with_retry(ctx, **kwargs):
+    """ctx.client.messages.create, retried on transient API failures with backoff."""
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            return ctx.client.messages.create(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            if _is_transient_error(e) and attempt < _MAX_ATTEMPTS - 1:
+                logger.warning("shock-world create retry %d/%d: %s", attempt + 1, _MAX_ATTEMPTS, e)
+                time.sleep(_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                continue
+            raise
 
 
 # ── Generation ────────────────────────────────────────────────────────────────
@@ -181,7 +212,8 @@ def ground(payload, ctx):
         user += f"\n\nCourse material (ground strictly in this):\n{course[:8000]}"
     user += "\n\nReturn ONLY the JSON grounding object."
 
-    msg = ctx.client.messages.create(
+    msg = _create_with_retry(
+        ctx,
         model=ctx.model,
         max_tokens=GROUND_MAX_TOKENS,
         system=_build_ground_system(course_only),
@@ -394,17 +426,37 @@ def turn(payload, ctx):
         user_parts.append(hist)
     user_msg = "\n".join(user_parts)
 
-    # 1) Stream the conversational reply the student sees.
+    # 1) Stream the conversational reply the student sees. Retry transient API
+    # failures — but only before any token has streamed, since we can't cleanly
+    # resume a half-sent reply. If it still fails, stream a friendly in-character
+    # line instead of dropping the connection (which shows as "tutor unavailable").
     reply_text = ""
-    with ctx.client.messages.stream(
-        model=ctx.model,
-        max_tokens=TURN_MAX_TOKENS,
-        system=_build_turn_system(payload, course_context),
-        messages=[{"role": "user", "content": user_msg}],
-    ) as stream:
-        for chunk in stream.text_stream:
-            reply_text += chunk
-            yield {"type": "token", "data": chunk}
+    turn_system = _build_turn_system(payload, course_context)
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            with ctx.client.messages.stream(
+                model=ctx.model,
+                max_tokens=TURN_MAX_TOKENS,
+                system=turn_system,
+                messages=[{"role": "user", "content": user_msg}],
+            ) as stream:
+                for chunk in stream.text_stream:
+                    reply_text += chunk
+                    yield {"type": "token", "data": chunk}
+            break
+        except Exception as e:  # noqa: BLE001
+            can_retry = _is_transient_error(e) and not reply_text and attempt < _MAX_ATTEMPTS - 1
+            logger.warning(
+                "shock-world turn stream failed (attempt %d/%d, retry=%s): %s",
+                attempt + 1, _MAX_ATTEMPTS, can_retry, e,
+            )
+            if can_retry:
+                time.sleep(_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                continue
+            if not reply_text:
+                reply_text = _BUSY_REPLY
+                yield {"type": "token", "data": reply_text}
+            break
 
     # 2) Hidden control: judge the exchange, track goal progress, author the next question.
     control = {
@@ -417,7 +469,8 @@ def turn(payload, ctx):
             f"Student's why: {why or '(nothing)'}\n"
             f"Tutor's reply: {reply_text}\n\nReturn ONLY the control JSON."
         )
-        cmsg = ctx.client.messages.create(
+        cmsg = _create_with_retry(
+            ctx,
             model=ctx.model,
             max_tokens=CONTROL_MAX_TOKENS,
             system=_build_control_system(payload, course_context),
@@ -491,7 +544,8 @@ def grade(payload, ctx):
         user += f"\n\nTranscript of the exchanges:\n{json.dumps(transcript)[:10000]}"
     user += "\n\nReturn ONLY the scoring JSON."
 
-    msg = ctx.client.messages.create(
+    msg = _create_with_retry(
+        ctx,
         model=ctx.model,
         max_tokens=GRADE_MAX_TOKENS,
         system=_build_grade_system(payload),
