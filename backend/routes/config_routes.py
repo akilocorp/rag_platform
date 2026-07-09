@@ -296,6 +296,7 @@ Answer:"""
             "group_duration": group_duration,
             "bots": bots_list,
             "web_access": bool(config_data.get('web_access', True)),
+            "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
             "facilitator": normalize_facilitator(config_data.get('facilitator')),
