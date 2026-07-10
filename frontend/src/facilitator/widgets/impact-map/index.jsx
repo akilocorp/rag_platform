@@ -14,6 +14,12 @@ const ATLAS_URL = '/geo/world-110m.geojson';
 // viewBox is lon/lat space directly: x = lon + 180 (0..360), y = 90 - lat (0..180).
 const VW = 360;
 const VH = 180;
+// Zoom/pan: the SVG viewBox is driven from state. Aspect is locked 2:1 (w = 2h),
+// so we only track {x, y, w}. MIN_W caps how far you can zoom in (360/MIN_W ×).
+const FULL_VIEW = { x: 0, y: 0, w: VW };
+const MIN_W = 18;          // ~20× max zoom
+const ZOOM_STEP = 1.5;     // per +/− button press
+const FIT_PAD = 1.6;       // padding factor when zoom-fitting a country
 
 const ROLE_COLOR = {
   trigger: '#FA6C43',
@@ -59,11 +65,38 @@ function pathFor(geometry) {
   return d;
 }
 
+// Projected-space bounding box of a Polygon/MultiPolygon (same x=lon+180, y=90-lat).
+function bboxFor(geometry) {
+  if (!geometry) return null;
+  const polys = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+  if (!Array.isArray(polys)) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const poly of polys) for (const ring of poly) for (const [lon, lat] of ring) {
+    const x = lon + 180, y = 90 - lat;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
+// Snap a candidate {x, y, w} to the legal range: w within [MIN_W, VW], aspect
+// locked (h = w/2), and pan clamped so the map can't be dragged off-canvas.
+function clampView(v) {
+  const w = Math.min(VW, Math.max(MIN_W, v.w));
+  const h = w / 2;
+  const x = Math.min(VW - w, Math.max(0, v.x));
+  const y = Math.min(VH - h, Math.max(0, v.y));
+  return { x, y, w };
+}
+
 function Renderer({ data, onSubmit, disabled }) {
   const regions = Array.isArray(data?.regions) ? data.regions : [];
   const [features, setFeatures] = useState(null); // null=loading, []=failed/empty
   const [hover, setHover] = useState(null);        // { name, role, note, x, y }
+  const [view, setView] = useState(FULL_VIEW);     // { x, y, w } — SVG viewBox
+  const [selected, setSelected] = useState(null);  // region we zoomed into
   const wrapRef = useRef(null);
+  const dragRef = useRef(null);                    // active pan gesture, or null
 
   useEffect(() => {
     let alive = true;
@@ -110,8 +143,51 @@ function Renderer({ data, onSubmit, disabled }) {
     });
   };
 
-  const clickCountry = (region) => {
-    if (disabled || !region || region.role === 'neutral' || !onSubmit) return;
+  const isZoomed = view.w < VW - 0.5;
+
+  // Zoom in/out around the current center by a fixed step.
+  const zoomBy = (factor) => setView((v) => {
+    const cx = v.x + v.w / 2, cy = v.y + v.w / 4; // h = w/2 → half-h = w/4
+    const w = Math.min(VW, Math.max(MIN_W, v.w * factor));
+    return clampView({ x: cx - w / 2, y: cy - w / 4, w });
+  });
+  const resetView = () => { setView(FULL_VIEW); setSelected(null); };
+
+  // Frame a single country: fit its bbox (with padding) into the 2:1 viewBox.
+  const zoomToFeature = (feat) => {
+    const bb = bboxFor(feat?.geometry);
+    if (!bb) return;
+    const bw = bb.maxX - bb.minX, bh = bb.maxY - bb.minY;
+    const w = Math.min(VW, Math.max(MIN_W, Math.max(bw, bh * 2) * FIT_PAD));
+    const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
+    setView(clampView({ x: cx - w / 2, y: cy - w / 4, w }));
+  };
+
+  // Drag-to-pan. Convert pixel deltas to viewBox units via the SVG's on-screen width.
+  const startPan = (e) => {
+    if (e.button !== 0) return;
+    const pxW = wrapRef.current?.clientWidth || 1;
+    dragRef.current = { sx: e.clientX, sy: e.clientY, view, pxW, moved: false };
+  };
+  const movePan = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+    const perPx = d.view.w / d.pxW; // viewBox units per screen pixel
+    setView(clampView({ x: d.view.x - dx * perPx, y: d.view.y - dy * perPx, w: d.view.w }));
+  };
+  const endPan = () => { if (dragRef.current) dragRef.current = null; };
+
+  const clickCountry = (feat, region) => {
+    if (dragRef.current?.moved) return; // this was a pan, not a click
+    if (disabled || !region || region.role === 'neutral') return;
+    zoomToFeature(feat);
+    setSelected(region);
+  };
+
+  const askAbout = (region) => {
+    if (disabled || !region || !onSubmit) return;
     onSubmit(`Tell me more about ${region.country}'s role in this scenario.`);
   };
 
@@ -136,7 +212,14 @@ function Renderer({ data, onSubmit, disabled }) {
             ))}
           </div>
         ) : (
-          <svg viewBox={`0 0 ${VW} ${VH}`} className="block h-auto w-full" onMouseLeave={() => setHover(null)}>
+          <svg
+            viewBox={`${view.x} ${view.y} ${view.w} ${view.w / 2}`}
+            className={`block h-auto w-full select-none ${isZoomed ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            onMouseDown={startPan}
+            onMouseMove={movePan}
+            onMouseUp={endPan}
+            onMouseLeave={() => { endPan(); setHover(null); }}
+          >
             {features.map((feat, i) => {
               const iso = String(feat?.properties?.iso || '').toUpperCase();
               const region = byIso[iso];
@@ -148,14 +231,35 @@ function Renderer({ data, onSubmit, disabled }) {
                   fill={fillFor(region)}
                   fillOpacity={opacityFor(region)}
                   stroke="#FFFFFF"
-                  strokeWidth={0.3}
+                  strokeWidth={(0.3 * view.w) / VW}
                   className={`fac-im-country ${interactive ? 'fac-im-hit' : ''}`}
                   onMouseMove={(e) => showTip(e, feat, region)}
-                  onClick={() => clickCountry(region)}
+                  onClick={() => clickCountry(feat, region)}
                 />
               );
             })}
           </svg>
+        )}
+
+        {/* zoom controls */}
+        {features && features.length > 0 && (
+          <div className="animate-chip-in absolute right-2 top-2 z-10 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white/90 shadow-sm backdrop-blur">
+            <button
+              type="button" aria-label="Zoom in" onClick={() => zoomBy(1 / ZOOM_STEP)}
+              disabled={view.w <= MIN_W + 0.5}
+              className="h-7 w-7 text-base leading-none text-gray-600 transition hover:bg-gray-100 active:scale-90 disabled:opacity-30"
+            >+</button>
+            <button
+              type="button" aria-label="Zoom out" onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={!isZoomed}
+              className="h-7 w-7 border-t border-gray-200 text-base leading-none text-gray-600 transition hover:bg-gray-100 active:scale-90 disabled:opacity-30"
+            >−</button>
+            <button
+              type="button" aria-label="Reset view" onClick={resetView}
+              disabled={!isZoomed}
+              className="h-7 w-7 border-t border-gray-200 text-xs leading-none text-gray-600 transition hover:bg-gray-100 active:scale-90 disabled:opacity-30"
+            >⟲</button>
+          </div>
         )}
 
         {hover && (
@@ -169,11 +273,23 @@ function Renderer({ data, onSubmit, disabled }) {
             </div>
             {hover.note && <p className="mt-0.5 text-gray-500">{hover.note}</p>}
             {hover.role && hover.role !== 'neutral' && !disabled && (
-              <p className="mt-0.5 text-[10px] font-medium text-[#FA6C43]">Click to ask more</p>
+              <p className="mt-0.5 text-[10px] font-medium text-[#FA6C43]">Click to zoom in</p>
             )}
           </div>
         )}
       </div>
+
+      {/* selection bar — appears after clicking (zooming into) a country */}
+      {selected && !disabled && (
+        <div className="animate-chip-in mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: ROLE_COLOR[selected.role] }} />
+          <span className="text-xs font-semibold text-[#222]">{selected.country}</span>
+          <button
+            type="button" onClick={() => askAbout(selected)}
+            className="ml-auto rounded-full bg-[#FA6C43] px-2.5 py-1 text-[11px] font-medium text-white transition hover:brightness-95 active:scale-95"
+          >Ask about {selected.country}</button>
+        </div>
+      )}
 
       {/* legend */}
       {rolesShown.length > 0 && (
