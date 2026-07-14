@@ -1,3 +1,6 @@
+# @language Python
+# @updated 2026-07-14
+# @changed Anti-stall hint ladder + analogy mode in the tutor prompt + help-asks flagged (help_request) so they don't spend the reply budget but still count in grading.
 """
 Pedagogy: Shock World — goal-driven Socratic shock immersion.
 
@@ -382,6 +385,16 @@ def _build_turn_system(payload, course_context=''):
         if opts:
             lines.append("Options: " + " | ".join(str(o) for o in opts))
 
+    analogy = (payload.get('analogy') or '').strip()
+    if analogy:
+        lines.append(
+            f"\nANALOGY MODE: this student asked to learn through an analogy — they're into: {analogy}. "
+            f"Explain each idea by drawing an intuitive parallel to {analogy}, then ALWAYS tie the parallel back to "
+            "the actual economic mechanism. The economics stays central, precise, and unchanged — the analogy is a "
+            "bridge sprinkled in to make it click, never a replacement for the substance or the country's specifics. "
+            "Keep it light: one apt comparison per point, not a laboured metaphor."
+        )
+
     lines.append("\nHOW TO REACT — read the student's REASONING, never just their letter:")
     lines.append("- Their 'why' is what matters; the multiple-choice pick is only a way in. If the reasoning is stronger "
                  "than the option they clicked, say so and go with the reasoning — a misclick is NEVER 'wrong'.")
@@ -395,9 +408,13 @@ def _build_turn_system(payload, course_context=''):
                  "the dual-exposure insight; never push them off it toward a single 'right' option.")
     lines.append("- LOW-EFFORT / GAMING (one word, random, a 'why' that plainly doesn't engage the question) → call it out "
                  "plainly and don't advance: 'that's not really an explanation — walk me through why.'")
-    lines.append("- WHEN STUCK, climb a hint ladder, don't circle: prompt for a bit more → then ONE targeted hint → then "
-                 "GIVE them the answer and consolidate ('here's the mechanism — you basically had it'). Re-ask any one "
-                 "point at most once, then resolve it yourself and move on.")
+    lines.append("- WHEN STUCK or ASKED FOR HELP ('I can't remember', 'help me understand') — a genuine request, NOT "
+                 "gaming — climb a hint ladder, don't circle: FIRST time, give ONE short, targeted hint and invite another "
+                 "try; do NOT dump the full answer yet. Only if they're still stuck, GIVE the answer concisely and "
+                 "consolidate ('here's the mechanism — you basically had it'). Re-ask any one point at most once.")
+    lines.append("- END every reply with a concrete NEXT MOVE: either exactly ONE clear question the student can answer, "
+                 "OR — if you've just resolved/handed them the answer — a one-line handoff to the next step ('let's take "
+                 "the next step'). NEVER end with an explanation and no next move — that leaves the student stranded.")
     lines.append(f"- DON'T BELABOUR: at most {MAX_FOLLOWUPS_PER_QUESTION} nudges on any single point, then accept it or "
                  "resolve it and move on. Never grind, never loop.")
     lines.append("- Scale scaffolding to the learner: more warmth and affirmation for a novice who's unsure, less for "
@@ -438,6 +455,7 @@ def _build_control_system(payload, course_context=''):
     lines.append('  "advance": true|false,   // true when this point is settled and it is time to move on')
     lines.append('  "goal_reached": true|false,   // true only when the student has demonstrated the END GOAL')
     lines.append('  "newly_demonstrated": ["<keyIdea id the student just demonstrated>", ...],   // [] if none')
+    lines.append('  "help_request": true|false,   // true if the student asked for help / said they can\'t remember instead of attempting — this exchange will NOT spend the reply budget')
     lines.append('  "effort_signals": { "explained_why": bool, "revised_after_nudge": bool, "worked_through_contradiction": bool, "low_effort": bool },')
     lines.append('  "next_question": { "text": "<the NEXT intuitive multiple-choice question>", "options": ["A","B","C"], "targets": "<keyIdea id it probes>" } | null')
     lines.append('}')
@@ -457,6 +475,11 @@ def _build_control_system(payload, course_context=''):
                      "generic textbook mechanism WITHOUT this country's transmission twist is NOT reaching the goal. The "
                      "goal lands only when the reasoning covers the ideas that matter AND the country's specific wrinkle.")
         lines.append("- Never advance or credit a key idea on a 'gaming' answer.")
+        lines.append("- STUCK / 'help me' / 'I can't remember' is NOT gaming — it's a genuine request. Set help_request=true "
+                     "for it (as opposed to an attempt that's merely wrong). If the tutor's reply gave or consolidated the "
+                     "answer for the student (the top of the hint ladder), the point is SETTLED: set advance=true and "
+                     "author the next_question (unless the goal is reached or budget is spent). NEVER leave advance=false on "
+                     "a point the tutor just resolved — that strands the student with nothing to answer.")
     lines.append("- next_question: provide one ONLY when advance=true AND goal_reached=false AND budget remains. It must "
                  "target the next key idea the student has NOT yet demonstrated — NEVER re-target a key idea already marked "
                  "demonstrated — be intuitive and multiple-choice (2–4 short options), and be grounded in "
@@ -544,7 +567,8 @@ def turn(payload, ctx):
     # 2) Hidden control: judge the exchange, track goal progress, author the next question.
     control = {
         "verdict": "partial", "advance": False, "goal_reached": False,
-        "newly_demonstrated": [], "effort_signals": dict(_DEFAULT_SIGNALS), "next_question": None,
+        "newly_demonstrated": [], "help_request": False,
+        "effort_signals": dict(_DEFAULT_SIGNALS), "next_question": None,
     }
     try:
         control_user = (
@@ -568,6 +592,7 @@ def turn(payload, ctx):
                 "advance": bool(parsed.get('advance', False)),
                 "goal_reached": bool(parsed.get('goal_reached', False)),
                 "newly_demonstrated": [str(x) for x in nd] if isinstance(nd, list) else [],
+                "help_request": bool(parsed.get('help_request', False)),
                 "effort_signals": {k: bool(sig.get(k, _DEFAULT_SIGNALS[k])) for k in _DEFAULT_SIGNALS},
                 "next_question": _coerce_question(parsed.get('next_question')),
             }
@@ -596,6 +621,9 @@ def _build_grade_system(payload):
         "simulation — NOT whether their first answers were correct. Reward genuinely explaining the 'why', "
         "revising after a nudge, working through a contradiction, and reaching the end goal (especially in few "
         "replies). Coasting, random picks, and gaming earn little. The warm-up gate does NOT count.",
+        "The tally's help_requests count is asking for help / a hint ('I can't remember'). Honest help-seeking "
+        "after a real attempt is legitimate learning — do not punish it. Only treat it as low effort when the "
+        "student repeatedly asks for the answer without ever attempting the reasoning themselves.",
     ]
     if end_goal:
         lines.append(f"\nThe end goal was: {end_goal}")

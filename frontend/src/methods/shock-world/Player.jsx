@@ -1,3 +1,6 @@
+// @language JavaScript (React)
+// @updated 2026-07-14
+// @changed Analogy opt-in before country pick + help-asks no longer spend the reply budget (still graded).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
@@ -145,7 +148,8 @@ function AnswerMorph({ options, pick, why, setWhy, busy, onPick, onChangeAnswer,
 }
 
 // Empty tally, accumulated across adaptive exchanges (the warm-up gate is excluded).
-const EMPTY_TALLY = { exchanges: 0, goal_reached: false, demonstrated_count: 0, key_ideas_total: 0, explained_why: 0, revised_after_nudge: 0, worked_through_contradiction: 0, low_effort: 0 };
+// help_requests are counted for grading but NOT charged against the reply budget.
+const EMPTY_TALLY = { exchanges: 0, goal_reached: false, demonstrated_count: 0, key_ideas_total: 0, explained_why: 0, revised_after_nudge: 0, worked_through_contradiction: 0, low_effort: 0, help_requests: 0 };
 
 export default function Runner({ config, configId, templateId, onReset, onBack, isAuthenticated, onSessionSaved, onOpenMobileSidebar }) {
   const keyIdeas = useMemo(() => (Array.isArray(config.keyIdeas) ? config.keyIdeas : []), [config]);
@@ -153,6 +157,9 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
 
   const [phase, setPhase] = useState('country-pick'); // country-pick | grounding | gate | rounds | grading | done
   const [country, setCountry] = useState(config.countries?.[0] || '');
+  // Optional learning analogy the student opts into before starting (blank = none).
+  // Woven into the tutor's explanations without displacing the economics.
+  const [analogy, setAnalogy] = useState('');
   const [grounding, setGrounding] = useState(null);
   const [feed, setFeed] = useState([]);
   const [mode, setMode] = useState('mc'); // mc | followup — within gate/adaptive
@@ -243,6 +250,7 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
       config_id: configId,
       phase: isGate ? 'gate' : 'round',
       endGoal: config.endGoal || '',
+      analogy: analogy.trim(),
       keyIdeas: keyIdeas.map((k) => ({ id: k.id, label: k.label })),
       demonstrated: Array.from(demonstratedRef.current),
       exchangesUsed: exchangesRef.current,
@@ -272,12 +280,20 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
     const nextQ = control?.next_question || null;
 
     // Accumulate effort + budget for scoring — but NOT the warm-up gate.
+    // A help-ask ("I can't remember / help me") is tracked for grading but does
+    // NOT spend a reply from the budget, so asking for help is never penalized
+    // by running the student out of exchanges.
     if (!isGate) {
       const t = tallyRef.current;
       const s = control?.effort_signals || {};
-      t.exchanges += 1;
-      exchangesRef.current += 1;
-      setExchanges(exchangesRef.current);
+      const isHelp = !!control?.help_request;
+      if (isHelp) {
+        t.help_requests += 1;
+      } else {
+        t.exchanges += 1;
+        exchangesRef.current += 1;
+        setExchanges(exchangesRef.current);
+      }
       if (s.explained_why) t.explained_why += 1;
       if (s.revised_after_nudge) t.revised_after_nudge += 1;
       if (s.worked_through_contradiction) t.worked_through_contradiction += 1;
@@ -427,10 +443,19 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
           <select
             value={country}
             onChange={(e) => setCountry(e.target.value)}
-            className="w-full mb-3 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
+            className="w-full mb-4 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
           >
             {(config.countries || []).map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
+          <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Want an analogy to make it click? <span className="font-normal text-gray-400">(optional)</span></label>
+          <input
+            type="text"
+            value={analogy}
+            onChange={(e) => setAnalogy(e.target.value)}
+            placeholder="e.g. rock climbing, swimming, cooking — leave blank for none"
+            className="w-full mb-1.5 p-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
+          />
+          <p className="text-xs text-gray-500 mb-4">Tell us something you're into and the tutor will explain each case through it — the economics stays exactly the same, just made intuitive. Leave it blank to keep the plain explanation.</p>
           <button type="button" onClick={startLab} className="inline-flex items-center gap-2 bg-[#FA6C43] hover:bg-[#e85a30] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
             Enter the shock world
           </button>
