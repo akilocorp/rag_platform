@@ -19,6 +19,7 @@ handler. Runtime handlers (reached via POST /experiential/method/shock-world/…
            the NEXT question, or end when the goal is reached / budget spent)
   grade  — final effort-to-learn + goal scoring, professor-weighted
 """
+import hashlib
 import json
 import logging
 import time
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 GROUND_CACHE_TTL = 86400          # re-ground a country once a day
-GROUND_MAX_TOKENS = 900
+GROUND_MAX_TOKENS = 1200          # room for country-specific key ideas
 TURN_MAX_TOKENS = 700             # the streamed Socratic reply is short
 CONTROL_MAX_TOKENS = 700          # judge + author the next question
 GRADE_MAX_TOKENS = 900
@@ -163,12 +164,22 @@ def _normalize(cfg, method_params):
 def _build_ground_system(course_only):
     lines = [
         "You ground a 'shock world' scenario to a specific country. Given the country, the shock template, "
-        "and either current real-world context or course material, produce a concise JSON object:",
+        "the lab's END GOAL and generic key ideas, and either current real-world context or course material, "
+        "produce a concise JSON object:",
         '{ "country": "<name>",',
         '  "conditions": "<2-3 sentences on the country\'s current, relevant economic conditions>",',
         '  "shock": "<the specific shock as it lands in THIS country, 1-2 sentences, present tense>",',
-        '  "shock_first_hit": "<the first, most direct thing the shock hits — one sentence>" }',
-        "Keep it concrete and vivid — the student is about to be dropped into this world.",
+        '  "shock_first_hit": "<the first, most direct thing the shock hits — one sentence>",',
+        '  "structure": "<1-2 sentences: the structural features of THIS country (trade profile, sector mix, '
+        'policy regime, exposures) that change how the shock transmits here>",',
+        '  "transmission_twist": "<what a student MISSES if they only run the textbook mechanism — the '
+        'country-specific wrinkle, e.g. an oil exporter that imports refined product has dual exposure>",',
+        '  "country_key_ideas": [   // 1-3 items that INSTANTIATE the generic key ideas for THIS country',
+        '    { "id": "<kebab-id>", "label": "<the country-specific insight to test>",',
+        '      "evidence": "<what it looks like when a student has genuinely demonstrated it here>" } ] }',
+        "The country_key_ideas must be consistent with (never contradict) the lab's END GOAL and generic key "
+        "ideas — they make those principles concrete for this country, adding the structural twist. Keep it "
+        "concrete and vivid — the student is about to be dropped into this world.",
     ]
     if course_only:
         lines.append(
@@ -191,21 +202,36 @@ def ground(payload, ctx):
     scenario = config.get('scenario') or {}
     brief = scenario.get('brief', '')
     shock_kind = scenario.get('shockKind', '')
+    end_goal = (config.get('endGoal') or '').strip()
+    key_ideas = config.get('keyIdeas') if isinstance(config.get('keyIdeas'), list) else []
 
-    cache_key = f"{base_id}::{country.lower()}"
+    # Retuned goals must re-ground: fold the end goal into the cache key.
+    goal_hash = hashlib.sha1(end_goal.encode('utf-8')).hexdigest()[:8]
+    cache_key = f"{base_id}::{country.lower()}::{goal_hash}"
     cached = ctx.cache_get('shock_groundings', cache_key, GROUND_CACHE_TTL)
     if cached:
         return {"grounding": cached, "cached": True}
 
+    # Widen the query to surface structural / transmission material, not just headline macro.
+    query = f"{country} economic structure trade profile {shock_kind} transmission {brief[:120]}"
     web = ""
     course = ""
     if course_only:
         if config_id:
-            course = ctx.retrieve_kb(config_id, f"{brief[:160]} {country}")
+            course = ctx.retrieve_kb(config_id, query)
     else:
-        web = ctx.tavily_search(f"{country} current macroeconomic conditions {shock_kind} {brief[:120]}")
+        web = ctx.tavily_search(query)
 
     user = f"Country: {country}\nShock template: {shock_kind}\nScenario template: {brief}"
+    if end_goal:
+        user += f"\n\nLab END GOAL (align country ideas to this):\n{end_goal}"
+    if key_ideas:
+        ideas_txt = "\n".join(
+            f"- {k.get('label')}" + (f": {k.get('evidence')}" if k.get('evidence') else "")
+            for k in key_ideas if isinstance(k, dict)
+        )
+        if ideas_txt:
+            user += f"\n\nGeneric key ideas to instantiate for this country:\n{ideas_txt}"
     if web:
         user += f"\n\nCurrent real-world context:\n{web[:8000]}"
     if course:
@@ -224,6 +250,25 @@ def ground(payload, ctx):
     grounding.setdefault('conditions', '')
     grounding.setdefault('shock', shock_kind or 'a sudden economic shock')
     grounding.setdefault('shock_first_hit', '')
+    grounding.setdefault('structure', '')
+    grounding.setdefault('transmission_twist', '')
+
+    # Normalize country_key_ideas → clean list, each stamped country_specific, capped at 3.
+    cki = []
+    for k in (grounding.get('country_key_ideas') or [])[:3]:
+        if not isinstance(k, dict):
+            continue
+        label = (k.get('label') or '').strip()
+        if not label:
+            continue
+        cki.append({
+            "id": (k.get('id') or '').strip() or f"country-{len(cki) + 1}",
+            "label": label,
+            "evidence": (k.get('evidence') or '').strip(),
+            "country_specific": True,
+        })
+    grounding['country_key_ideas'] = cki
+
     ctx.cache_set('shock_groundings', cache_key, grounding)
     return {"grounding": grounding, "cached": False, "grounded": bool(web)}
 
@@ -268,17 +313,35 @@ def _history_block(history):
 def _goal_block(payload):
     end_goal = (payload.get('endGoal') or '').strip()
     key_ideas = payload.get('keyIdeas') or []
+    scenario = payload.get('scenario') or {}
+    country_ideas = scenario.get('country_key_ideas') or []
+    structure = (scenario.get('structure') or '').strip()
+    twist = (scenario.get('transmission_twist') or '').strip()
     demonstrated = set(payload.get('demonstrated') or [])
     lines = []
     if end_goal:
         lines.append(f"END GOAL (guide the student here): {end_goal}")
-    if key_ideas:
-        lines.append("Key ideas that together mean the goal is reached ([x] = the student has already shown it, skip those):")
+    if structure or twist:
+        lines.append("This country is not generic — steer with its specifics:")
+        if structure:
+            lines.append(f"  Structure: {structure}")
+        if twist:
+            lines.append(f"  Transmission twist (a textbook-only answer MISSES this): {twist}")
+    if key_ideas or country_ideas:
+        lines.append("Key ideas that together mean the goal is reached ([x] = already shown, skip those; ★ = "
+                     "country-specific, the goal is NOT reached until these are demonstrated too):")
         for k in key_ideas:
             kid = k.get('id')
             mark = 'x' if kid in demonstrated else ' '
             ev = (k.get('evidence') or '').strip()
             lines.append(f"  [{mark}] {k.get('label')}" + (f" — {ev}" if ev else ""))
+        for k in country_ideas:
+            if not isinstance(k, dict):
+                continue
+            kid = k.get('id')
+            mark = 'x' if kid in demonstrated else ' '
+            ev = (k.get('evidence') or '').strip()
+            lines.append(f"  [{mark}] ★ {k.get('label')}" + (f" — {ev}" if ev else ""))
     return "\n".join(lines)
 
 
@@ -319,15 +382,27 @@ def _build_turn_system(payload, course_context=''):
         if opts:
             lines.append("Options: " + " | ".join(str(o) for o in opts))
 
-    lines.append("\nHOW TO REACT to the student's pick and their 'why':")
-    lines.append("- SOUND reasoning → affirm briefly, sharpen the mechanism, and you're ready to move on.")
-    lines.append("- WRONG → do NOT correct them. Take their answer's logic at face value and follow it — ask what "
-                 "MUST follow if they were right — until the contradiction surfaces and they self-correct. Give a "
-                 "concrete hint only if they ask or are clearly stuck.")
-    lines.append("- LOW-EFFORT / GAMING (one word, random, a 'why' that doesn't match their pick) → call it out plainly "
-                 "and don't advance: 'that's not really an explanation — walk me through why.'")
-    lines.append(f"- DON'T BELABOUR: after at most {MAX_FOLLOWUPS_PER_QUESTION} nudges on one point, if they're roughly "
-                 "there, accept it and move on; if not, give a one-line clarification and move on. Never grind.")
+    lines.append("\nHOW TO REACT — read the student's REASONING, never just their letter:")
+    lines.append("- Their 'why' is what matters; the multiple-choice pick is only a way in. If the reasoning is stronger "
+                 "than the option they clicked, say so and go with the reasoning — a misclick is NEVER 'wrong'.")
+    lines.append("- OPEN every reply by naming what is CORRECT in their answer, in their own words — start from what they got right.")
+    lines.append("- If they've shown the idea — even a more advanced version than the question expected — credit it plainly "
+                 "and MOVE ON. Don't make them restate it your way.")
+    lines.append("- Only if a REAL gap remains, ask ONE focusing question about that specific gap — a question that opens "
+                 "their thinking, not one that herds them toward a predetermined answer.")
+    lines.append("- 'It's ambiguous' / 'it depends' / 'net neutral' is a WINNING answer when the economics is genuinely "
+                 "two-sided (e.g. an oil exporter that imports refined product — net exposure really is unclear). Credit "
+                 "the dual-exposure insight; never push them off it toward a single 'right' option.")
+    lines.append("- LOW-EFFORT / GAMING (one word, random, a 'why' that plainly doesn't engage the question) → call it out "
+                 "plainly and don't advance: 'that's not really an explanation — walk me through why.'")
+    lines.append("- WHEN STUCK, climb a hint ladder, don't circle: prompt for a bit more → then ONE targeted hint → then "
+                 "GIVE them the answer and consolidate ('here's the mechanism — you basically had it'). Re-ask any one "
+                 "point at most once, then resolve it yourself and move on.")
+    lines.append(f"- DON'T BELABOUR: at most {MAX_FOLLOWUPS_PER_QUESTION} nudges on any single point, then accept it or "
+                 "resolve it and move on. Never grind, never loop.")
+    lines.append("- Scale scaffolding to the learner: more warmth and affirmation for a novice who's unsure, less for "
+                 "someone clearly cruising. Skip rhetorical 'interesting claim, but…' framing — it reads as condescending; "
+                 "just engage with what they said.")
     if phase == 'gate':
         lines.append("\nThis is a WARM-UP about the shock itself — it does not count against the budget and is never "
                      "penalized. Just check intuitively that the student grasps what the shock is and what it hits first.")
@@ -372,12 +447,20 @@ def _build_control_system(payload, course_context=''):
                      "Keep goal_reached=false and newly_demonstrated=[] here.")
         lines.append("- When you advance, author the FIRST real question in next_question, targeting the most direct key idea.")
     else:
-        lines.append("- Mark newly_demonstrated with any key idea the student's reasoning just genuinely showed (not guessed).")
-        lines.append("- Set goal_reached=true only when the END GOAL is genuinely demonstrated (the key ideas that matter are covered).")
+        lines.append("- Judge the student's REASONING (their 'why'), NOT which option they clicked. Mark newly_demonstrated "
+                     "with any key idea their reasoning genuinely shows, regardless of the letter picked — a misclick with "
+                     "sound reasoning still earns the idea. Never require the 'right' option to credit an idea.")
+        lines.append("- A valid 'it's ambiguous / net-neutral / it depends' answer SATISFIES the relevant key idea when the "
+                     "economics is genuinely two-sided — treat it as demonstrating that idea, not as a wrong turn.")
+        lines.append("- Do NOT gate advance or goal_reached on the exact option.")
+        lines.append("- Set goal_reached=true ONLY when the ★ country-specific ideas are ALSO demonstrated — running the "
+                     "generic textbook mechanism WITHOUT this country's transmission twist is NOT reaching the goal. The "
+                     "goal lands only when the reasoning covers the ideas that matter AND the country's specific wrinkle.")
         lines.append("- Never advance or credit a key idea on a 'gaming' answer.")
     lines.append("- next_question: provide one ONLY when advance=true AND goal_reached=false AND budget remains. It must "
-                 "target the next key idea the student has NOT yet demonstrated, be intuitive and multiple-choice (2–4 short "
-                 f"options), and be grounded in {country}'s situation. Otherwise next_question=null.")
+                 "target the next key idea the student has NOT yet demonstrated — NEVER re-target a key idea already marked "
+                 "demonstrated — be intuitive and multiple-choice (2–4 short options), and be grounded in "
+                 f"{country}'s situation. Otherwise next_question=null.")
     lines.append("- If budget is exhausted or the goal is reached, set next_question=null.")
     if course_only:
         lines.append("- COURSE-ONLY: keep the question within concepts from the course material.")

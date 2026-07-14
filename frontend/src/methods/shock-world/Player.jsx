@@ -182,7 +182,14 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
   const appendFeed = (block) => setFeed((f) => [...f, block]);
 
   const scenarioForTurn = grounding
-    ? { country: grounding.country, conditions: grounding.conditions, shock: grounding.shock }
+    ? {
+        country: grounding.country,
+        conditions: grounding.conditions,
+        shock: grounding.shock,
+        structure: grounding.structure,
+        transmission_twist: grounding.transmission_twist,
+        country_key_ideas: grounding.country_key_ideas,
+      }
     : { country };
 
   // ── Start: pick a country → ground the scenario → warm-up gate ──────────────
@@ -312,10 +319,13 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
   const finishLab = async () => {
     setPhase('grading');
     const t = tallyRef.current;
-    // Goal is reached if the control said so, or every key idea was demonstrated.
-    if (keyIdeas.length > 0 && demonstratedRef.current.size >= keyIdeas.length) t.goal_reached = true;
+    // Goal is reached if the control said so, or every key idea — generic AND
+    // country-specific (★) — was demonstrated.
+    const countryIdeas = Array.isArray(grounding?.country_key_ideas) ? grounding.country_key_ideas : [];
+    const totalIdeas = keyIdeas.length + countryIdeas.length;
+    if (totalIdeas > 0 && demonstratedRef.current.size >= totalIdeas) t.goal_reached = true;
     t.demonstrated_count = demonstratedRef.current.size;
-    t.key_ideas_total = keyIdeas.length;
+    t.key_ideas_total = totalIdeas;
 
     let result = null;
     try {
