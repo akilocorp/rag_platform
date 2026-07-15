@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-07-15
+ * @changed   Hide the composer once a lab finishes (debrief); scroll the debrief to the top of the viewport so it's the focus.
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -539,6 +544,7 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   const unproductiveRef = useRef(0);
   const lastActionRef = useRef(Date.now());
   const feedEndRef = useRef(null);
+  const debriefRef = useRef(null);
 
   // Saved-session lifecycle: created on the first answer, updated as the run
   // progresses, finalized on synthesis. sessionIdRef holds the row id once made.
@@ -579,7 +585,14 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   const updateFeed = (k, patch) => setFeed((f) => f.map((b) => (b._k === k ? { ...b, ...patch } : b)));
 
   // Auto-scroll on feed growth.
-  useEffect(() => { feedEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [feed.length, synthesisOpen, scores]);
+  useEffect(() => { feedEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [feed.length, synthesisOpen]);
+
+  // When the lab finishes, bring the debrief's TOP into view (not the bottom
+  // sentinel) so the whole card heads the viewport as the screen's focus — the
+  // composer is gone by now, so nothing competes for the space below it.
+  useEffect(() => {
+    if (scores) debriefRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [scores]);
 
   // ── Idle coach timer ──
   useEffect(() => {
@@ -1155,7 +1168,10 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
         </button>
       }
       stickyHeader={<StickyHeader layers={layers} unlockedLayerIds={revealedIds} gates={gatesForHeader} />}
-      footer={footer}
+      // Once the lab is done the composer is a dead no-op (onComposerSend bails on
+      // `scores`), so drop it entirely — <main> is flex-1 and expands to fill the
+      // freed space, leaving the debrief as the focus of the screen.
+      footer={scores ? null : footer}
     >
       {/* Brief */}
       <Card accent className="p-5">
@@ -1188,8 +1204,12 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
         />
       )}
 
-      {/* Debrief */}
-      {scores && <DebriefCard scores={scores} onReset={onReset} />}
+      {/* Debrief — wrapped so the finish-scroll can bring its top into view. */}
+      {scores && (
+        <div ref={debriefRef}>
+          <DebriefCard scores={scores} onReset={onReset} />
+        </div>
+      )}
 
       <div ref={feedEndRef} />
     </ColumnShell>
