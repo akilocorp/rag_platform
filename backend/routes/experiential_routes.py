@@ -1,6 +1,6 @@
 # @language Python
 # @updated 2026-07-15
-# @changed Digest now emits per-topic scope contracts (establishes/holds_fixed/rigor/excludes); generator must keep every question answerable from the lecture's actual claims.
+# @changed Raise digest token cap to 4000 (700 truncated the scope-card JSON → zero topics) + cap topics to ~12 per file.
 """
 Experiential lab — live Claude Sonnet endpoints.
 
@@ -284,7 +284,10 @@ def _extract_files_text(files, max_chars=12000, texts=None):
 
 
 DIGEST_MODEL = 'claude-haiku-4-5-20251001'   # cheap; per-file summarization
-DIGEST_MAX_TOKENS = 700
+# The scope-card schema is heavy (establishes/holds_fixed/rigor/excludes per
+# topic), so 700 tokens truncated the JSON mid-object → zero topics parsed. A
+# multi-topic lecture needs real headroom; the prompt also caps topic count.
+DIGEST_MAX_TOKENS = 4000
 _DIGEST_INPUT_CAP = 40000                     # chars of ONE file fed to the digest model
 
 # The digest also captures each topic's SCOPE CONTRACT — not just its label — so
@@ -304,6 +307,7 @@ _DIGEST_SYSTEM = (
     "e.g. for taxes: 'tax incidence', 'export taxes'; for NX: 'Marshall-Lerner', 'real exchange rate', "
     "'elasticities/magnitudes'>\", ...] }, ... ] }. "
     "Rules: include a topic ONLY if the file actually explains it (not merely mentioned or deferred). "
+    "Limit to the ~12 most important, distinct topics. "
     "'establishes' = only what the file genuinely proves/states; if it gives only the direction of an effect "
     "write '(sign only)' and set rigor to 'signs-only'. Be specific and generous in 'excludes' — name the "
     "adjacent ideas a smart tutor would wrongly wander into."
