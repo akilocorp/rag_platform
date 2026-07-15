@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-07-15
+ * @changed   Hover definitions now send the enclosing sentence for context-aware, single-sense lookups.
+ */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -15,7 +20,7 @@ import DefinitionPopover from '../components/DefinitionPopover';
 import EVIAudioControls from '../components/EVIAudioControls';
 import { getModelDisplayName } from '../utils/modelNames';
 import { loadDefineableSet, wrapDefineableWordsInDom } from '../utils/defineableWords';
-import { lookupDefinition } from '../utils/dictionaryClient';
+import { lookupDefinitionInContext } from '../utils/dictionaryClient';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -399,8 +404,17 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
         top: rect.top, left: rect.left, width: rect.width,
         height: rect.height, bottom: rect.bottom,
       };
+      // Pull the sentence the word sits in from its enclosing block so the
+      // backend can return the one sense that fits this context, not a dump of
+      // every meaning. Capped to a window around the word to keep the prompt small.
+      const block = target.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,div') || target.parentElement;
+      const blockText = (block?.textContent || '').replace(/\s+/g, ' ').trim();
+      const idx = blockText.toLowerCase().indexOf(word.toLowerCase());
+      const sentence = idx >= 0
+        ? blockText.slice(Math.max(0, idx - 250), idx + word.length + 250)
+        : blockText.slice(0, 500);
       setPopover({ word, anchorRect, loading: true, definition: null });
-      lookupDefinition(word).then((def) => {
+      lookupDefinitionInContext(word, sentence).then((def) => {
         setPopover((p) => (p && p.word === word ? { ...p, loading: false, definition: def } : p));
       });
     }, 250);
