@@ -1,3 +1,8 @@
+/**
+ * @language JavaScript (React JSX)
+ * @updated 2026-07-15
+ * @changed Mute "Forgot Password?" link to lighter gray so hierarchy stays on "Keep me logged in"
+ */
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -197,7 +202,7 @@ const LoginPage = () => {
                 />
                 Keep me logged in for 30 days
               </label>
-              <Link to="/forgot-password" className="text-[13px] text-[#222] hover:text-blue-600 font-semibold transition-colors">
+              <Link to="/forgot-password" className="text-[13px] text-gray-400 hover:text-blue-600 font-medium transition-colors">
                 Forgot Password?
               </Link>
             </div>
