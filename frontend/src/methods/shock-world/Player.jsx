@@ -1,6 +1,6 @@
 // @language JavaScript (React)
 // @updated 2026-07-15
-// @changed Show an empty input box while the tutor is loading instead of flashing the MCQ choices back.
+// @changed Forward the per-topic course scope contract into each turn so the tutor's live questions stay within what the lecture establishes.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
@@ -155,6 +155,17 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
   const keyIdeas = useMemo(() => (Array.isArray(config.keyIdeas) ? config.keyIdeas : []), [config]);
   const budget = Math.max(1, config.maxRounds || 6);
 
+  // Per-topic scope contract (what each course topic actually establishes) so the
+  // tutor's live questions can't drift past the lecture. Narrowed to the topics
+  // this lab tests when the generator reported them, else the whole course scope.
+  const courseScope = useMemo(() => {
+    const cts = Array.isArray(config.courseTopics) ? config.courseTopics : [];
+    const cards = cts.flatMap((ct) => (Array.isArray(ct.scope) ? ct.scope : []));
+    const sel = Array.isArray(config.selectedTopics) ? config.selectedTopics.map((s) => String(s).toLowerCase()) : [];
+    const chosen = sel.length ? cards.filter((c) => sel.includes(String(c.topic || '').toLowerCase())) : cards;
+    return chosen.length ? chosen : cards;
+  }, [config]);
+
   const [phase, setPhase] = useState('country-pick'); // country-pick | grounding | gate | rounds | grading | done
   const [country, setCountry] = useState(config.countries?.[0] || '');
   // Optional learning analogy the student opts into before starting (blank = none).
@@ -252,6 +263,7 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
       endGoal: config.endGoal || '',
       analogy: analogy.trim(),
       keyIdeas: keyIdeas.map((k) => ({ id: k.id, label: k.label })),
+      courseScope: config.courseOnly ? courseScope : undefined,
       demonstrated: Array.from(demonstratedRef.current),
       exchangesUsed: exchangesRef.current,
       budget,

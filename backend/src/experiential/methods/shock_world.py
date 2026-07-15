@@ -1,6 +1,6 @@
-# @language  Python
-# @updated   2026-07-15
-# @changed   Standardized the grade rubric to Engagement / Self-correction / Demonstrated understanding / Out-of-the-box.
+# @language Python
+# @updated 2026-07-15
+# @changed Runtime scope contract (_scope_block): tutor + question-writer fenced to what each course topic actually establishes, so live questions can't drift out of scope.
 """
 Pedagogy: Shock World — goal-driven Socratic shock immersion.
 
@@ -374,6 +374,44 @@ def _budget_line(payload):
     return used, budget, left
 
 
+def _scope_block(payload):
+    """Render the per-topic SCOPE CONTRACT the frontend forwards (courseScope).
+
+    Each card fences a topic to what the lecture actually establishes, so the
+    tutor never asks a question that needs an out-of-scope idea, endogenizes an
+    exogenous variable, or demands magnitudes when the lecture gave only signs.
+    """
+    cards = payload.get('courseScope')
+    if not isinstance(cards, list) or not cards:
+        return ''
+    lines = [
+        "SCOPE CONTRACT — every question and nudge you make MUST be ANSWERABLE using ONLY the 'establishes' "
+        "claims below (this is what the course actually teaches):",
+    ]
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        topic = (c.get('topic') or '').strip()
+        if not topic:
+            continue
+        rigor = (c.get('rigor') or '').strip()
+        lines.append(f"- {topic}" + (f"  [rigor: {rigor}]" if rigor else ""))
+        est = c.get('establishes') if isinstance(c.get('establishes'), list) else []
+        hf = c.get('holds_fixed') if isinstance(c.get('holds_fixed'), list) else []
+        ex = c.get('excludes') if isinstance(c.get('excludes'), list) else []
+        if est:
+            lines.append("    establishes: " + "; ".join(str(x) for x in est))
+        if hf:
+            lines.append("    holds fixed (do NOT endogenize): " + "; ".join(str(x) for x in hf))
+        if ex:
+            lines.append("    OUT OF SCOPE (never ask): " + "; ".join(str(x) for x in ex))
+    lines.append(
+        "Never ask anything requiring an OUT OF SCOPE item, never make the student endogenize a 'holds fixed' "
+        "variable, and when rigor is 'signs-only' ask about the DIRECTION of an effect, never its magnitude."
+    )
+    return "\n".join(lines)
+
+
 def _build_turn_system(payload, course_context=''):
     persona = (payload.get('persona') or '').strip()
     title = (payload.get('labTitle') or 'Shock World').strip()
@@ -439,6 +477,9 @@ def _build_turn_system(payload, course_context=''):
     if course_only:
         lines.append("\nCOURSE-ONLY: reason using ONLY concepts from the course material. If the student's reasoning needs "
                      "something outside it, redirect to a course concept rather than teaching new material.")
+        sb = _scope_block(payload)
+        if sb:
+            lines.append("\n" + sb)
         if course_context:
             lines.append(f"\nCourse material:\n{course_context[:5000]}")
     lines.append("\nReply in 2-4 sentences, in character, conversational — one Socratic move at a time. Address the "
@@ -500,6 +541,9 @@ def _build_control_system(payload, course_context=''):
     lines.append("- If budget is exhausted or the goal is reached, set next_question=null.")
     if course_only:
         lines.append("- COURSE-ONLY: keep the question within concepts from the course material.")
+        sb = _scope_block(payload)
+        if sb:
+            lines.append("\n" + sb)
         if course_context:
             lines.append(f"\nCourse material:\n{course_context[:5000]}")
     return "\n".join(lines)

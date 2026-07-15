@@ -1,6 +1,6 @@
 # @language Python
 # @updated 2026-07-15
-# @changed Per-file map-reduce digest (every file grounded) + per-chapter topic menu the prof re-picks (focus_topics) to steer what the lab tests.
+# @changed Digest now emits per-topic scope contracts (establishes/holds_fixed/rigor/excludes); generator must keep every question answerable from the lecture's actual claims.
 """
 Experiential lab — live Claude Sonnet endpoints.
 
@@ -287,13 +287,26 @@ DIGEST_MODEL = 'claude-haiku-4-5-20251001'   # cheap; per-file summarization
 DIGEST_MAX_TOKENS = 700
 _DIGEST_INPUT_CAP = 40000                     # chars of ONE file fed to the digest model
 
+# The digest also captures each topic's SCOPE CONTRACT — not just its label — so
+# questions can't drift past the depth the lecture actually reaches (e.g. NX given
+# as signs only, T held exogenous, export taxes never covered). A label alone lets
+# the model fill the boundary with correct-but-out-of-scope knowledge.
 _DIGEST_SYSTEM = (
-    "You condense ONE lecture file into a COMPACT digest for building an economics lab. "
-    "Return ONLY JSON: {\"digest\": \"<1-2 sentences per topic/section — the concepts, definitions, and "
-    "models this file ACTUALLY teaches; concise>\", \"topics\": [\"<short label (2-4 words) for each "
-    "distinct concept or model the file genuinely teaches, e.g. 'real interest rates', 'NAIRU', 'the AD "
-    "identity'>\", ...]}. List a topic ONLY if the file actually explains it — not if it is merely mentioned "
-    "in passing or deferred to a later lecture."
+    "You condense ONE lecture file into a COMPACT digest + a SCOPE CONTRACT for building an economics lab "
+    "whose questions must never drift past what THIS file actually establishes. "
+    "Return ONLY JSON: {\"digest\": \"<1-2 sentences per topic/section; concise>\", \"topics\": [ { "
+    "\"topic\": \"<short label, 2-4 words, e.g. 'net exports (NX)'>\", "
+    "\"establishes\": [\"<each specific claim or result the file actually proves/states, at the depth it "
+    "states it, e.g. 'NX = X - M', 'X falls as the exchange rate rises (sign only)'>\", ...], "
+    "\"holds_fixed\": [\"<any variable the file treats as EXOGENOUS/given, e.g. 'T = T-bar (exogenous)', "
+    "'G exogenous'>\", ...], \"rigor\": \"signs-only | comparative-statics | quantitative\", "
+    "\"excludes\": [\"<closely-related idea a student might expect here but this file does NOT establish — "
+    "e.g. for taxes: 'tax incidence', 'export taxes'; for NX: 'Marshall-Lerner', 'real exchange rate', "
+    "'elasticities/magnitudes'>\", ...] }, ... ] }. "
+    "Rules: include a topic ONLY if the file actually explains it (not merely mentioned or deferred). "
+    "'establishes' = only what the file genuinely proves/states; if it gives only the direction of an effect "
+    "write '(sign only)' and set rigor to 'signs-only'. Be specific and generous in 'excludes' — name the "
+    "adjacent ideas a smart tutor would wrongly wander into."
 )
 
 
@@ -306,17 +319,39 @@ def _dedupe_keep_order(xs):
     return out
 
 
+def _coerce_scope_card(t):
+    """Normalize one topic entry into a scope card. Accepts a bare label string
+    (older shape) or the full {topic, establishes, holds_fixed, rigor, excludes}."""
+    def _slist(x):
+        return [str(i).strip() for i in x if str(i).strip()] if isinstance(x, list) else []
+    if isinstance(t, str):
+        label = t.strip()
+        return {"topic": label, "establishes": [], "holds_fixed": [], "rigor": "", "excludes": []} if label else None
+    if not isinstance(t, dict):
+        return None
+    label = (t.get('topic') or '').strip()
+    if not label:
+        return None
+    return {
+        "topic": label,
+        "establishes": _slist(t.get('establishes')),
+        "holds_fixed": _slist(t.get('holds_fixed')),
+        "rigor": (t.get('rigor') or '').strip(),
+        "excludes": _slist(t.get('excludes')),
+    }
+
+
 def _digest_files(client, files, max_chars=12000):
     """Map-reduce grounding for uploaded files.
 
-    Summarize EACH file independently into a compact digest + the list of topics
-    it teaches, then combine. Every file is represented (no first-file-wins
+    Summarize EACH file independently into a compact digest + a per-topic scope
+    contract, then combine. Every file is represented (no first-file-wins
     truncation). Falls back to the raw even-split extractor if the LLM is
     unavailable or a file's digest fails.
 
     Returns (digest_text, course_topics) where course_topics is a per-chapter menu:
-    [{"file": <name>, "topics": [<label>, ...]}, ...] — what the professor can
-    pick from when choosing what the lab should test.
+    [{"file": <name>, "topics": [<label>, ...], "scope": [<card>, ...]}, ...].
+    `topics` (labels) drives the picker UI; `scope` (cards) fences the lab in.
     """
     texts = _raw_texts(files)
     if not texts:
@@ -327,7 +362,7 @@ def _digest_files(client, files, max_chars=12000):
     per_file = max(600, max_chars // len(texts))
     digests, course_topics = [], []
     for name, text in texts:
-        topics = []
+        cards = []
         try:
             msg = client.messages.create(
                 model=DIGEST_MODEL,
@@ -338,13 +373,40 @@ def _digest_files(client, files, max_chars=12000):
             parsed = _extract_json(_text_from_message(msg)) or {}
             digest = (parsed.get('digest') or '').strip()
             digests.append(f"[{name}]\n{(digest or text)[:per_file]}")
-            topics = _dedupe_keep_order([t for t in (parsed.get('topics') or []) if isinstance(t, str)])
+            for t in (parsed.get('topics') or []):
+                card = _coerce_scope_card(t)
+                if card:
+                    cards.append(card)
         except Exception:  # noqa: BLE001 — one bad digest shouldn't fail generation
             logger.exception("generate: digest failed for %s", name)
             digests.append(f"[{name}]\n{text[:per_file]}")
-        course_topics.append({"file": name, "topics": topics})
+        labels = _dedupe_keep_order([c['topic'] for c in cards])
+        course_topics.append({"file": name, "topics": labels, "scope": cards})
 
     return ("\n\n".join(digests))[:max_chars], course_topics
+
+
+def _scope_contract_text(course_topics, focus_topics=None):
+    """Render the per-topic scope contract for the generator: what each topic
+    establishes, what it holds fixed, and what it must NOT wander into. When
+    focus_topics is given, only those topics' cards are shown."""
+    focus = set(t.lower() for t in (focus_topics or []))
+    lines = []
+    for ct in course_topics:
+        cards = [c for c in (ct.get('scope') or []) if not focus or c['topic'].lower() in focus]
+        if not cards:
+            continue
+        lines.append(f"{ct['file']}:")
+        for c in cards:
+            head = f"  - {c['topic']}" + (f"  [rigor: {c['rigor']}]" if c.get('rigor') else "")
+            lines.append(head)
+            if c.get('establishes'):
+                lines.append("      establishes: " + "; ".join(c['establishes']))
+            if c.get('holds_fixed'):
+                lines.append("      holds fixed (do NOT endogenize): " + "; ".join(c['holds_fixed']))
+            if c.get('excludes'):
+                lines.append("      OUT OF SCOPE (never ask): " + "; ".join(c['excludes']))
+    return "\n".join(lines)
 
 
 @experiential_bp.route('/experiential/generate', methods=['POST'])
@@ -407,14 +469,13 @@ def generate_experiential():
     if kb_text:
         user_msg += f"\n\nCourse material — per-file digests (ground the lab in these):\n{kb_text[:12000]}"
     if all_topics:
-        # The lab can only test a few things. Show the menu of topics the course
-        # covers (by chapter); the model picks a coherent subset and REPORTS it so
-        # the professor can re-pick and regenerate. Stay strictly within the menu.
-        menu = "\n".join(
-            f"- {ct['file']}: {', '.join(ct['topics'])}"
-            for ct in course_topics if ct.get('topics')
-        )
-        user_msg += "\n\nTOPIC MENU — the topics your uploaded course covers, by file:\n" + menu
+        # The lab can only test a few things. Show the topic menu WITH each topic's
+        # scope contract (what it establishes, holds fixed, and excludes) so the
+        # model builds only questions ANSWERABLE from the lecture's actual claims —
+        # not adjacent knowledge the lecture never develops. The model picks a
+        # coherent subset and REPORTS it so the professor can re-pick and regenerate.
+        contract = _scope_contract_text(course_topics, focus_topics if focus_topics else None)
+        user_msg += "\n\nTOPIC MENU & SCOPE — the topics your course covers, by file, with each topic's boundary:\n" + contract
         if focus_topics:
             user_msg += (
                 "\n\nThe professor has CHOSEN to test exactly these topics — build the lab's end goal and key "
@@ -426,7 +487,11 @@ def generate_experiential():
                 "and build a focused lab around them."
             )
         user_msg += (
-            "\nUse ONLY concepts from the course material above — do not introduce topics that aren't in it. "
+            "\n\nSCOPE RULE (critical). The end goal, every key idea, and every question the tutor will later "
+            "ask MUST be ANSWERABLE using ONLY the 'establishes' claims above. Never require anything listed as "
+            "OUT OF SCOPE, never endogenize a 'holds fixed' variable, and when a topic's rigor is 'signs-only' "
+            "ask about the DIRECTION of an effect, not its magnitude. If the design prompt wants something the "
+            "lectures don't establish, reframe to what they do. "
             "Then report the topics you built this lab around in a top-level \"_selectedTopics\": "
             "[\"<exact topic label from the menu>\", ...] array."
         )
