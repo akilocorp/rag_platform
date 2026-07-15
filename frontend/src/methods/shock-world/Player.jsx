@@ -1,6 +1,6 @@
 // @language JavaScript (React)
-// @updated 2026-07-14
-// @changed Analogy opt-in before country pick + help-asks no longer spend the reply budget (still graded).
+// @updated 2026-07-15
+// @changed Show an empty input box while the tutor is loading instead of flashing the MCQ choices back.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
@@ -403,7 +403,13 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
     footer = (
       <footer className="border-t border-gray-200 bg-white/95 backdrop-blur px-4 sm:px-6 lg:px-12 xl:px-24 py-3 shrink-0">
         <div className="w-full max-w-3xl mx-auto">
-          {isMc ? (
+          {busy ? (
+            // While the tutor is loading, show a single empty box — never flash the
+            // choices back (pickRef is already cleared, which would un-morph the MCQ).
+            <div className="sw-input-shell">
+              <WhyInput why="" setWhy={() => {}} busy onSend={() => {}} placeholder="" />
+            </div>
+          ) : isMc ? (
             <AnswerMorph
               options={options}
               pick={pickRef.current}
