@@ -1,3 +1,6 @@
+# @language Python
+# @updated 2026-07-15
+# @changed Per-file map-reduce digest (every file grounded) + per-chapter topic menu the prof re-picks (focus_topics) to steer what the lab tests.
 """
 Experiential lab — live Claude Sonnet endpoints.
 
@@ -222,47 +225,126 @@ def list_methods():
     return jsonify({"methods": method_registry.list_methods()})
 
 
-def _extract_files_text(files, max_chars=12000):
-    """Pull plain text from uploaded lecture files for at-creation grounding.
+def _raw_text_from_file(f):
+    """Best-effort text-layer extraction from one uploaded file (no OCR).
 
-    Used when the create wizard sends the professor's files straight to the
-    generator (before a config exists to vector-search). Text layer only — no
-    OCR — so scanned-only PDFs yield nothing here and are grounded later via the
-    editor's vector path. Each loader is best-effort; a missing dep or unreadable
-    file is skipped, never fatal.
+    Returns '' for an empty/unreadable file or an unsupported type — never fatal.
     """
-    parts = []
+    name = (getattr(f, 'filename', '') or '').lower()
+    try:
+        data = f.read()
+        if not data:
+            return ''
+        if name.endswith('.pdf'):
+            import fitz  # PyMuPDF
+            with fitz.open(stream=data, filetype='pdf') as doc:
+                return "\n".join(page.get_text() for page in doc)
+        if name.endswith('.pptx'):
+            import io
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(data))
+            return "\n".join(
+                shape.text_frame.text
+                for slide in prs.slides for shape in slide.shapes
+                if getattr(shape, 'has_text_frame', False)
+            )
+        if name.endswith('.docx'):
+            import io
+            import docx2txt
+            return docx2txt.process(io.BytesIO(data)) or ''
+        if name.endswith(('.txt', '.md')):
+            return data.decode('utf-8', errors='ignore')
+    except Exception:  # noqa: BLE001 — one bad file shouldn't fail generation
+        logger.exception("generate: could not extract text from %s", getattr(f, 'filename', ''))
+    return ''
+
+
+def _raw_texts(files):
+    """[(filename, text)] for every file with a non-empty text layer, in order."""
+    out = []
     for f in files:
+        name = getattr(f, 'filename', 'file') or 'file'
+        t = _raw_text_from_file(f).strip()
+        if t:
+            out.append((name, t))
+    return out
+
+
+def _extract_files_text(files, max_chars=12000, texts=None):
+    """Raw-text fallback used when the digest LLM is unavailable.
+
+    Gives EVERY file an equal slice of the budget so a long first file can't
+    crowd the rest out (the old concat-then-truncate dropped later files whole).
+    """
+    texts = texts if texts is not None else _raw_texts(files)
+    if not texts:
+        return ''
+    per_file = max(500, max_chars // len(texts))
+    return ("\n\n".join(f"[{n}]\n{t[:per_file]}" for n, t in texts))[:max_chars]
+
+
+DIGEST_MODEL = 'claude-haiku-4-5-20251001'   # cheap; per-file summarization
+DIGEST_MAX_TOKENS = 700
+_DIGEST_INPUT_CAP = 40000                     # chars of ONE file fed to the digest model
+
+_DIGEST_SYSTEM = (
+    "You condense ONE lecture file into a COMPACT digest for building an economics lab. "
+    "Return ONLY JSON: {\"digest\": \"<1-2 sentences per topic/section — the concepts, definitions, and "
+    "models this file ACTUALLY teaches; concise>\", \"topics\": [\"<short label (2-4 words) for each "
+    "distinct concept or model the file genuinely teaches, e.g. 'real interest rates', 'NAIRU', 'the AD "
+    "identity'>\", ...]}. List a topic ONLY if the file actually explains it — not if it is merely mentioned "
+    "in passing or deferred to a later lecture."
+)
+
+
+def _dedupe_keep_order(xs):
+    seen, out = set(), []
+    for x in xs:
+        if isinstance(x, str) and x.strip() and x.strip().lower() not in seen:
+            seen.add(x.strip().lower())
+            out.append(x.strip())
+    return out
+
+
+def _digest_files(client, files, max_chars=12000):
+    """Map-reduce grounding for uploaded files.
+
+    Summarize EACH file independently into a compact digest + the list of topics
+    it teaches, then combine. Every file is represented (no first-file-wins
+    truncation). Falls back to the raw even-split extractor if the LLM is
+    unavailable or a file's digest fails.
+
+    Returns (digest_text, course_topics) where course_topics is a per-chapter menu:
+    [{"file": <name>, "topics": [<label>, ...]}, ...] — what the professor can
+    pick from when choosing what the lab should test.
+    """
+    texts = _raw_texts(files)
+    if not texts:
+        return '', []
+    if client is None:
+        return _extract_files_text(files, max_chars, texts=texts), []
+
+    per_file = max(600, max_chars // len(texts))
+    digests, course_topics = [], []
+    for name, text in texts:
+        topics = []
         try:
-            name = (getattr(f, 'filename', '') or '').lower()
-            data = f.read()
-            if not data:
-                continue
-            text = ''
-            if name.endswith('.pdf'):
-                import fitz  # PyMuPDF
-                with fitz.open(stream=data, filetype='pdf') as doc:
-                    text = "\n".join(page.get_text() for page in doc)
-            elif name.endswith('.pptx'):
-                import io
-                from pptx import Presentation
-                prs = Presentation(io.BytesIO(data))
-                text = "\n".join(
-                    shape.text_frame.text
-                    for slide in prs.slides for shape in slide.shapes
-                    if getattr(shape, 'has_text_frame', False)
-                )
-            elif name.endswith('.docx'):
-                import io
-                import docx2txt
-                text = docx2txt.process(io.BytesIO(data)) or ''
-            elif name.endswith(('.txt', '.md')):
-                text = data.decode('utf-8', errors='ignore')
-            if text.strip():
-                parts.append(f"[{getattr(f, 'filename', 'file')}]\n{text.strip()}")
-        except Exception:  # noqa: BLE001 — one bad file shouldn't fail generation
-            logger.exception("generate: could not extract text from %s", getattr(f, 'filename', ''))
-    return ("\n\n".join(parts))[:max_chars]
+            msg = client.messages.create(
+                model=DIGEST_MODEL,
+                max_tokens=DIGEST_MAX_TOKENS,
+                system=_DIGEST_SYSTEM,
+                messages=[{"role": "user", "content": f"File: {name}\n\n{text[:_DIGEST_INPUT_CAP]}\n\nReturn ONLY the JSON."}],
+            )
+            parsed = _extract_json(_text_from_message(msg)) or {}
+            digest = (parsed.get('digest') or '').strip()
+            digests.append(f"[{name}]\n{(digest or text)[:per_file]}")
+            topics = _dedupe_keep_order([t for t in (parsed.get('topics') or []) if isinstance(t, str)])
+        except Exception:  # noqa: BLE001 — one bad digest shouldn't fail generation
+            logger.exception("generate: digest failed for %s", name)
+            digests.append(f"[{name}]\n{text[:per_file]}")
+        course_topics.append({"file": name, "topics": topics})
+
+    return ("\n\n".join(digests))[:max_chars], course_topics
 
 
 @experiential_bp.route('/experiential/generate', methods=['POST'])
@@ -270,6 +352,7 @@ def generate_experiential():
     # Two intake shapes: multipart (create wizard sends the prof's files for
     # at-creation grounding) or JSON (editor regenerate, grounded via the KB).
     uploaded = request.files.getlist('files') if request.files else []
+    focus_topics = []  # professor's chosen subset of course topics to test (regenerate)
     if uploaded:
         prompt = (request.form.get('prompt') or '').strip()
         config_id = request.form.get('config_id') or None
@@ -278,12 +361,18 @@ def generate_experiential():
             method_params = json.loads(request.form.get('method_params') or '{}')
         except (ValueError, TypeError):
             method_params = {}
+        try:
+            focus_topics = json.loads(request.form.get('focus_topics') or '[]')
+        except (ValueError, TypeError):
+            focus_topics = []
     else:
         payload = request.get_json(silent=True) or {}
         prompt = (payload.get('prompt') or '').strip()
         config_id = payload.get('config_id')
         template = (payload.get('template') or 'econ').strip().lower()
         method_params = payload.get('method_params')
+        focus_topics = payload.get('focus_topics')
+    focus_topics = [str(t).strip() for t in focus_topics if str(t).strip()] if isinstance(focus_topics, list) else []
     # Method-owned structured inputs from the professor's ConfigForm (e.g. a
     # shock-world country list / round count). Opaque here — the method's own
     # normalize() reads them; other methods ignore them.
@@ -299,13 +388,48 @@ def generate_experiential():
     m = method_registry.get_method(template)
     system = method_registry.get_system_prompt(template)
     # Ground in the uploaded files (create wizard) or the saved KB (editor).
-    kb_text = _extract_files_text(uploaded) if uploaded else (_retrieve_kb(config_id, prompt) if config_id else "")
+    # Uploads go through a per-file map-reduce digest so EVERY file is represented
+    # (not just the first that fills the budget) and we get a per-chapter topic
+    # menu the professor can pick from.
+    course_topics = []
+    if uploaded:
+        kb_text, course_topics = _digest_files(client, uploaded)
+    elif config_id:
+        kb_text = _retrieve_kb(config_id, prompt)
+    else:
+        kb_text = ""
+
+    all_topics = [t for ct in course_topics for t in ct.get('topics', [])]
 
     user_msg = f"Professor's design prompt:\n{prompt}"
     if method_params:
         user_msg += "\n\nProfessor's structured settings (honour these exactly):\n" + json.dumps(method_params)
     if kb_text:
-        user_msg += f"\n\nRelevant lecture excerpts (ground the lab in these):\n{kb_text[:12000]}"
+        user_msg += f"\n\nCourse material — per-file digests (ground the lab in these):\n{kb_text[:12000]}"
+    if all_topics:
+        # The lab can only test a few things. Show the menu of topics the course
+        # covers (by chapter); the model picks a coherent subset and REPORTS it so
+        # the professor can re-pick and regenerate. Stay strictly within the menu.
+        menu = "\n".join(
+            f"- {ct['file']}: {', '.join(ct['topics'])}"
+            for ct in course_topics if ct.get('topics')
+        )
+        user_msg += "\n\nTOPIC MENU — the topics your uploaded course covers, by file:\n" + menu
+        if focus_topics:
+            user_msg += (
+                "\n\nThe professor has CHOSEN to test exactly these topics — build the lab's end goal and key "
+                "ideas around ONLY these, nothing else:\n" + ", ".join(focus_topics)
+            )
+        else:
+            user_msg += (
+                "\n\nA single lab can't cover everything. CHOOSE a few coherent, important topics from the menu "
+                "and build a focused lab around them."
+            )
+        user_msg += (
+            "\nUse ONLY concepts from the course material above — do not introduce topics that aren't in it. "
+            "Then report the topics you built this lab around in a top-level \"_selectedTopics\": "
+            "[\"<exact topic label from the menu>\", ...] array."
+        )
     user_msg += "\n\nReturn ONLY the JSON config object."
 
     try:
@@ -319,6 +443,12 @@ def generate_experiential():
         cfg = _extract_json(raw)
         if not isinstance(cfg, dict):
             return jsonify({"error": "Could not parse a lab config from the model"}), 502
+        # Which course topics the model built this lab around. Strip before
+        # normalize (it's a report for the UI, not part of the lab config).
+        selected_topics = cfg.pop('_selectedTopics', None)
+        selected_topics = [str(t) for t in selected_topics if str(t).strip()] if isinstance(selected_topics, list) else []
+        if not selected_topics and focus_topics:
+            selected_topics = list(focus_topics)  # honour the professor's explicit pick
         # Each method owns how its config is finalized. A method with its own
         # normalize() stamps its structured params + defaults; methods without
         # one keep the predict-reveal path (which requires `layers`).
@@ -330,7 +460,16 @@ def generate_experiential():
             cfg = _normalize_experiential(cfg)
         # Stamp the pedagogy so the player page mounts the right validator + UI.
         cfg['method'] = method_registry.get_schema(template)
-        return jsonify({"config": cfg, "grounded": bool(kb_text)})
+        # Persist the topic menu + selection so the editor can rehydrate the picker.
+        if course_topics:
+            cfg['courseTopics'] = course_topics
+            cfg['selectedTopics'] = selected_topics
+        return jsonify({
+            "config": cfg,
+            "grounded": bool(kb_text),
+            "courseTopics": course_topics,
+            "selectedTopics": selected_topics,
+        })
     except Exception as e:  # noqa: BLE001
         logger.exception("experiential generate failed")
         return jsonify({"error": f"Generation failed: {e}"}), 502

@@ -1,3 +1,6 @@
+// @language JavaScript (React)
+// @updated 2026-07-15
+// @changed Per-chapter topic picker: show which course topics the lab tests, let the prof re-pick and regenerate (focus_topics).
 import React, { useState, useEffect, useRef } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
@@ -20,6 +23,19 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [grounded, setGrounded] = useState(false);
+  // The per-chapter topic menu from the professor's uploads, and which topics
+  // this lab tests. The professor re-picks and regenerates to steer coverage.
+  const [courseTopics, setCourseTopics] = useState([]); // [{ file, topics: [] }]
+  const [checkedTopics, setCheckedTopics] = useState([]); // topic labels the lab tests
+
+  const toggleTopic = (t) =>
+    setCheckedTopics((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+  const toggleChapter = (topics, allChecked) =>
+    setCheckedTopics((prev) => {
+      const set = new Set(prev);
+      topics.forEach((t) => (allChecked ? set.delete(t) : set.add(t)));
+      return Array.from(set);
+    });
   const [methods, setMethods] = useState(FALLBACK_METHODS);
   const [template, setTemplate] = useState('econ');
   // Method-owned structured inputs (e.g. shock-world's countries / N / course-only).
@@ -67,7 +83,9 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
   const frontendMethod = getMethod(template);
   const ConfigForm = frontendMethod?.ConfigForm || null;
 
-  const handleGenerate = async () => {
+  // focusTopics: when the professor re-picks topics and regenerates, the chosen
+  // subset is sent as focus_topics so the lab is rebuilt around exactly those.
+  const handleGenerate = async (focusTopics = null) => {
     const p = (prompt || '').trim();
     if (!p) { setError('Write a design prompt first.'); return; }
     setGenerating(true);
@@ -78,6 +96,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       // When the create wizard supplies not-yet-saved files, send them multipart
       // so the generator can ground the lab in them; otherwise send JSON (the
       // editor grounds via the saved knowledge base by config_id).
+      const focus = Array.isArray(focusTopics) && focusTopics.length ? focusTopics : null;
       let data;
       if (files && files.length) {
         const fd = new FormData();
@@ -85,6 +104,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
         fd.append('template', template);
         if (configId) fd.append('config_id', configId);
         fd.append('method_params', JSON.stringify(methodParams));
+        if (focus) fd.append('focus_topics', JSON.stringify(focus));
         files.forEach((f) => fd.append('files', f));
         ({ data } = await apiClient.post('/experiential/generate', fd, {
           timeout: 180000, headers: { 'Content-Type': 'multipart/form-data' },
@@ -92,7 +112,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       } else {
         ({ data } = await apiClient.post(
           '/experiential/generate',
-          { prompt: p, template, config_id: configId || undefined, method_params: methodParams },
+          { prompt: p, template, config_id: configId || undefined, method_params: methodParams, focus_topics: focus || undefined },
           { timeout: 180000 },
         ));
       }
@@ -106,6 +126,8 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
         return;
       }
       setGrounded(!!data.grounded);
+      setCourseTopics(Array.isArray(data.courseTopics) ? data.courseTopics : []);
+      setCheckedTopics(Array.isArray(data.selectedTopics) ? data.selectedTopics : []);
       onGenerated(data.config);
     } catch (e) {
       const timedOut = e.code === 'ECONNABORTED' || /timeout/i.test(e.message || '');
@@ -155,7 +177,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
 
       <button
         type="button"
-        onClick={handleGenerate}
+        onClick={() => handleGenerate()}
         disabled={generating}
         className="mt-3 inline-flex items-center gap-2 bg-[#FA6C43] hover:bg-[#e85a30] disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
       >
@@ -165,6 +187,51 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       {error && (
         <div className="mt-3 flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
           <FiAlertTriangle className="mt-0.5 shrink-0" /> <span>{error}</span>
+        </div>
+      )}
+
+      {courseTopics.length > 0 && (
+        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
+          <div className="text-[13px] font-semibold text-gray-700 mb-0.5">What this lab tests — from your course</div>
+          <p className="text-[11px] text-gray-500 mb-2">A lab covers only a few topics. The checked ones are what it tests now — drop or add topics, then regenerate to steer it.</p>
+          {courseTopics.map((ch, ci) => {
+            const chapterTopics = ch.topics || [];
+            const allChecked = chapterTopics.length > 0 && chapterTopics.every((t) => checkedTopics.includes(t));
+            const someChecked = chapterTopics.some((t) => checkedTopics.includes(t));
+            return (
+              <div key={ci} className="mb-2 last:mb-0">
+                <label className="flex items-center gap-2 text-[12px] font-semibold text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="accent-[#FA6C43]"
+                    checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                    disabled={chapterTopics.length === 0}
+                    onChange={() => toggleChapter(chapterTopics, allChecked)}
+                  />
+                  {ch.file}
+                </label>
+                <div className="pl-5 mt-1 flex flex-col gap-0.5">
+                  {chapterTopics.length === 0
+                    ? <span className="text-[11px] text-gray-400 italic">No distinct topics detected</span>
+                    : chapterTopics.map((t, ti) => (
+                      <label key={ti} className="flex items-center gap-2 text-[12px] text-gray-600">
+                        <input type="checkbox" className="accent-[#FA6C43]" checked={checkedTopics.includes(t)} onChange={() => toggleTopic(t)} />
+                        {t}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            disabled={generating || checkedTopics.length === 0}
+            onClick={() => handleGenerate(checkedTopics)}
+            className="mt-1.5 inline-flex items-center gap-2 bg-white border border-[#FA6C43] text-[#FA6C43] hover:bg-[#FFF3EE] disabled:opacity-50 text-sm font-semibold px-3 py-2 rounded-xl transition-colors"
+          >
+            {generating ? <FaSpinner className="animate-spin" /> : <FiZap />} Regenerate with these topics
+          </button>
         </div>
       )}
 
