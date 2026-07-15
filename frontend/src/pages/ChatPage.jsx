@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-07-15
- * @changed   Hover definitions now send the enclosing sentence for context-aware, single-sense lookups.
+ * @changed   Widget prose de-dup now strips lines FULLY composed of widget content (e.g. merged "label — detail" timeline rows), not just exact whole-line matches.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -318,25 +318,47 @@ function widgetEchoStrings(widget, data) {
   return out;
 }
 
+// A prose line is redundant when the attached widget already renders everything
+// it says. Two ways that happens: (1) the line exactly equals one widget string,
+// or (2) the line is a MERGE of several — e.g. a timeline row "1947 — Pakistan
+// created…" splices the widget's `label` ("1947") and `detail` ("Pakistan
+// created…") into one line, matching neither in full. lineIsCoveredByWidget
+// subtracts every widget echo-string (longest first) as a substring; if only
+// connective punctuation survives, the widget already conveys the whole line.
+// Echoes shorter than 3 chars are skipped here (they'd chain to swallow unrelated
+// prose) — exact-match still catches those. Applies to ALL widgets.
+function lineIsCoveredByWidget(norm, echoNorms) {
+  let residue = norm;
+  for (const echo of echoNorms) {
+    if (echo.length < 3) continue;
+    residue = residue.split(echo).join(' ');
+  }
+  return residue.replace(/[^\p{L}\p{N}]+/gu, '') === '';
+}
+
 // When a facilitator widget is attached it already renders its content, so the
-// bot's prose restatement of that content is redundant. Strip any whole line
-// that duplicates a widget string (question, option, card side, step, table
-// cell, node label, …). For multiple_choice also drop a short trailing
+// bot's prose restatement of that content is redundant. Strip any line the
+// widget fully covers (exact match OR a merge of widget strings — see
+// lineIsCoveredByWidget). For multiple_choice also drop a short trailing
 // answer-prompt ("What's your answer?"). Degrades to the original text if
-// nothing matches — only exact whole-line matches are removed, so genuine prose
-// that merely mentions a word survives.
+// nothing matches — a line only vanishes when the widget conveys ALL of it, so
+// genuine prose that merely mentions a widget word survives.
 function stripRedundantWidgetText(text, facilitator) {
   const widget = facilitator?.widget;
   const data = facilitator?.data;
   if (!text || !widget || !data) return text;
 
-  const dupNorms = new Set(widgetEchoStrings(widget, data).map(normalizeLine).filter(Boolean));
-  if (dupNorms.size === 0) return text;
+  const echoNorms = widgetEchoStrings(widget, data).map(normalizeLine).filter(Boolean);
+  if (echoNorms.length === 0) return text;
+  const dupNorms = new Set(echoNorms);
+  // Longest first so multi-word echoes are subtracted before their sub-phrases.
+  const sortedEchoes = [...echoNorms].sort((a, b) => b.length - a.length);
 
   const kept = text.split('\n').filter((line) => {
     const norm = normalizeLine(line);
     if (!norm) return true;                 // keep blanks; collapsed below
-    if (dupNorms.has(norm)) return false;   // a duplicated widget string
+    if (dupNorms.has(norm)) return false;   // an exact duplicate of one widget string
+    if (lineIsCoveredByWidget(norm, sortedEchoes)) return false; // a merge of widget strings
     // multiple_choice: a short trailing answer-prompt, e.g. "What's your answer? 😊"
     if (widget === 'multiple_choice' && norm.length <= 40 && /\banswer\b/.test(norm) && line.includes('?')) return false;
     return true;
