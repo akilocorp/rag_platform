@@ -1,6 +1,6 @@
-# @language Python
-# @updated 2026-07-14
-# @changed Anti-stall hint ladder + analogy mode in the tutor prompt + help-asks flagged (help_request) so they don't spend the reply budget but still count in grading.
+# @language  Python
+# @updated   2026-07-15
+# @changed   Standardized the grade rubric to Engagement / Self-correction / Demonstrated understanding / Out-of-the-box.
 """
 Pedagogy: Shock World — goal-driven Socratic shock immersion.
 
@@ -106,7 +106,7 @@ SCHEMA (fill every field):
     "persona": "<a Socratic tutor who guides toward the goal without handing over answers; follows the student's reasoning; efficient, never belabours a point>",
     "scriptedFallback": "<one fallback line if the AI is unavailable>"
   },
-  "scoring": { "engagementWeight": 35, "revisionWeight": 20, "contradictionWeight": 20, "goalWeight": 25 },
+  "scoring": { "engagementWeight": 35, "selfCorrectionWeight": 20, "understandingWeight": 25, "outOfTheBoxWeight": 20 },
   "gradeRubric": [ "<criterion about genuinely reasoning toward the goal>", "<criterion about revising after a nudge>" ]
 }
 
@@ -141,11 +141,24 @@ def _normalize(cfg, method_params):
 
     cfg['courseOnly'] = bool(mp['courseOnly']) if 'courseOnly' in mp else bool(cfg.get('courseOnly'))
 
+    # Standardized rubric weights, with a one-time migration for pre-standardization
+    # configs: the legacy revision + contradiction weights fold into self_correction and
+    # goal becomes understanding, so old configs keep grading with their intended emphasis.
+    # Legacy keys are dropped afterward so a stale dimension can't leak into the debrief.
     sc = cfg.get('scoring') if isinstance(cfg.get('scoring'), dict) else {}
+    if 'selfCorrectionWeight' not in sc and ('revisionWeight' in sc or 'contradictionWeight' in sc):
+        try:
+            sc['selfCorrectionWeight'] = float(sc.get('revisionWeight', 0)) + float(sc.get('contradictionWeight', 0))
+        except (TypeError, ValueError):
+            pass
+    if 'understandingWeight' not in sc and 'goalWeight' in sc:
+        sc['understandingWeight'] = sc['goalWeight']
     sc.setdefault('engagementWeight', 35)
-    sc.setdefault('revisionWeight', 20)
-    sc.setdefault('contradictionWeight', 20)
-    sc.setdefault('goalWeight', 25)
+    sc.setdefault('selfCorrectionWeight', 20)
+    sc.setdefault('understandingWeight', 25)
+    sc.setdefault('outOfTheBoxWeight', 20)
+    for _legacy in ('revisionWeight', 'contradictionWeight', 'goalWeight'):
+        sc.pop(_legacy, None)
     cfg['scoring'] = sc
 
     analyst = cfg.get('analyst') if isinstance(cfg.get('analyst'), dict) else {}
@@ -604,11 +617,16 @@ def turn(payload, ctx):
 
 # ── grade: effort-to-learn + goal scoring ─────────────────────────────────────
 
+# The standardized grade rubric: four fixed dimensions every Shock World debrief scores
+# against, in display order. Each tuple is (score key ↔ the LLM's `scores` JSON,
+# weight key ↔ the config's `scoring` object, label rendered on the debrief bar).
+# `self_correction` folds the old revision + contradiction bars into one; `out_of_the_box`
+# is a new dimension rewarding original responses that are nonetheless sound.
 _DIMENSIONS = [
-    ("engagement", "engagementWeight", "Genuine engagement — really explaining the 'why', not coasting"),
-    ("revision", "revisionWeight", "Revising and improving after a Socratic nudge"),
-    ("contradiction", "contradictionWeight", "Working through a contradiction to a self-correction"),
-    ("goal", "goalWeight", "Reaching the end goal — demonstrating the target understanding (efficiently)"),
+    ("engagement", "engagementWeight", "Engagement — really explaining the 'why', not coasting"),
+    ("self_correction", "selfCorrectionWeight", "Self-correction — revising after a nudge and working through a contradiction"),
+    ("understanding", "understandingWeight", "Demonstrated understanding — reaching the target insight (efficiently)"),
+    ("out_of_the_box", "outOfTheBoxWeight", "Out of the box responses that make perfect sense"),
 ]
 
 
@@ -618,9 +636,12 @@ def _build_grade_system(payload):
     end_goal = (payload.get('endGoal') or '').strip()
     lines = [
         "You grade a student's EFFORT TO LEARN and whether they reached the goal in a Socratic economics "
-        "simulation — NOT whether their first answers were correct. Reward genuinely explaining the 'why', "
-        "revising after a nudge, working through a contradiction, and reaching the end goal (especially in few "
-        "replies). Coasting, random picks, and gaming earn little. The warm-up gate does NOT count.",
+        "simulation — NOT whether their first answers were correct. Score the four standardized dimensions: "
+        "ENGAGEMENT (genuinely explaining the 'why', not coasting); SELF-CORRECTION (revising after a nudge or "
+        "working through a contradiction to a self-correction); DEMONSTRATED UNDERSTANDING (reaching the target "
+        "insight, especially in few replies); and OUT-OF-THE-BOX (original, unexpected responses that "
+        "nonetheless make perfect sense). Coasting, random picks, and gaming earn little. The warm-up gate does "
+        "NOT count.",
         "The tally's help_requests count is asking for help / a hint ('I can't remember'). Honest help-seeking "
         "after a real attempt is legitimate learning — do not punish it. Only treat it as low effort when the "
         "student repeatedly asks for the answer without ever attempting the reasoning themselves.",
@@ -639,7 +660,7 @@ def _build_grade_system(payload):
         lines.append(f"- {key}: {desc}")
     lines.append(
         "\nRespond with ONLY this JSON object, no prose:\n"
-        '{ "scores": { "engagement": <0-100>, "revision": <0-100>, "contradiction": <0-100>, "goal": <0-100> },\n'
+        '{ "scores": { "engagement": <0-100>, "self_correction": <0-100>, "understanding": <0-100>, "out_of_the_box": <0-100> },\n'
         '  "feedback": "<2-4 sentences of constructive, encouraging feedback for the student>" }'
     )
     return "\n".join(lines)
