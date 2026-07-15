@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-07-15
- * @changed   Widget prose de-dup now strips lines FULLY composed of widget content (e.g. merged "label — detail" timeline rows), not just exact whole-line matches.
+ * @changed   Widget de-dup: drop headings left empty after their body was stripped (fixes orphaned "Question 1" title with no question under it).
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -364,7 +364,24 @@ function stripRedundantWidgetText(text, facilitator) {
     return true;
   });
 
-  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return dropOrphanedHeadings(kept).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// After widget de-dup, a markdown heading can be left with its whole body stripped
+// away — e.g. the widget covered "Question 1"'s prompt + options, so only the bare
+// "## Question 1" title survives. Drop any heading line that has no non-heading
+// content before the next heading or end of text, so no empty titles remain.
+// Headings that still lead real content are untouched.
+function dropOrphanedHeadings(lines) {
+  const isHeading = (line) => /^\s{0,3}#{1,6}\s/.test(line);
+  return lines.filter((line, i) => {
+    if (!isHeading(line)) return true;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (isHeading(lines[j])) break;       // ran into the next heading — this one is empty
+      if (lines[j].trim()) return true;      // found body content — keep the heading
+    }
+    return false;                            // nothing but blanks until the next heading/EOF
+  });
 }
 
 // --- MODERN CHAT MESSAGE COMPONENT ---
