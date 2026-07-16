@@ -1,3 +1,6 @@
+// @language JavaScript (React)
+// @updated 2026-07-16
+// @changed Render n/a breakdown dimensions (null score) as "not applicable" instead of "/0".
 import React from 'react';
 
 // Score breakdown + predictions for a saved run. Shared by the inline session
@@ -15,7 +18,9 @@ export default function SessionReport({ session }) {
               <div key={i} className="border-t border-gray-100 pt-3 first:border-0 first:pt-0">
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-gray-800 text-sm">{b.key}</span>
-                  <span className="text-sm tabular-nums text-gray-600">{b.score}/{b.weight}</span>
+                  <span className="text-sm tabular-nums text-gray-600">
+                    {b.score === null || b.na ? 'not applicable' : `${b.score}/${b.weight}`}
+                  </span>
                 </div>
                 {b.detail && <p className="text-xs text-gray-500 mt-1">{b.detail}</p>}
                 {b.feedback && <p className="text-sm text-gray-700 mt-1.5 italic">{b.feedback}</p>}

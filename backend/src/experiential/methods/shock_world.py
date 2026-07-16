@@ -1,6 +1,6 @@
 # @language Python
-# @updated 2026-07-15
-# @changed Runtime scope contract (_scope_block): tutor + question-writer fenced to what each course topic actually establishes, so live questions can't drift out of scope.
+# @updated 2026-07-16
+# @changed Grading rework: blind independent grader (student words only), professor-set grade floor, out_of_the_box dropped, n/a-aware self_correction, understanding anchored to grader-confirmed key ideas.
 """
 Pedagogy: Shock World — goal-driven Socratic shock immersion.
 
@@ -23,7 +23,6 @@ handler. Runtime handlers (reached via POST /experiential/method/shock-world/…
   grade  — final effort-to-learn + goal scoring, professor-weighted
 """
 import hashlib
-import json
 import logging
 import time
 
@@ -37,7 +36,7 @@ GROUND_CACHE_TTL = 86400          # re-ground a country once a day
 GROUND_MAX_TOKENS = 1200          # room for country-specific key ideas
 TURN_MAX_TOKENS = 700             # the streamed Socratic reply is short
 CONTROL_MAX_TOKENS = 700          # judge + author the next question
-GRADE_MAX_TOKENS = 900
+GRADE_MAX_TOKENS = 1100
 MAX_FOLLOWUPS_PER_QUESTION = 2    # after this, the tutor must move on (anti-drag)
 
 # Transient Anthropic failures (overloaded 529 / rate-limit 429 / 5xx / dropped
@@ -106,7 +105,7 @@ SCHEMA (fill every field):
     "persona": "<a Socratic tutor who guides toward the goal without handing over answers; follows the student's reasoning; efficient, never belabours a point>",
     "scriptedFallback": "<one fallback line if the AI is unavailable>"
   },
-  "scoring": { "engagementWeight": 35, "selfCorrectionWeight": 20, "understandingWeight": 25, "outOfTheBoxWeight": 20 },
+  "scoring": { "engagementWeight": 35, "selfCorrectionWeight": 20, "understandingWeight": 45 },
   "gradeRubric": [ "<criterion about genuinely reasoning toward the goal>", "<criterion about revising after a nudge>" ]
 }
 
@@ -141,9 +140,26 @@ def _normalize(cfg, method_params):
 
     cfg['courseOnly'] = bool(mp['courseOnly']) if 'courseOnly' in mp else bool(cfg.get('courseOnly'))
 
+    # gradeFloor: the minimum grade any completed run maps to (0-99). Every raw
+    # dimension score is mapped into [floor, 100] at grade time. It's a grading
+    # POLICY knob (no LLM ever sees it), set via the method's SettingsForm on the
+    # saved config — so accept it from method_params here, but the primary write
+    # path is the settings panel patching cfg directly. Default 0 = no floor.
+    if 'gradeFloor' in mp:
+        try:
+            cfg['gradeFloor'] = max(0, min(99, int(mp['gradeFloor'])))
+        except (TypeError, ValueError):
+            cfg['gradeFloor'] = 0
+    else:
+        try:
+            cfg['gradeFloor'] = max(0, min(99, int(cfg.get('gradeFloor') or 0)))
+        except (TypeError, ValueError):
+            cfg['gradeFloor'] = 0
+
     # Standardized rubric weights, with a one-time migration for pre-standardization
-    # configs: the legacy revision + contradiction weights fold into self_correction and
-    # goal becomes understanding, so old configs keep grading with their intended emphasis.
+    # configs: the legacy revision + contradiction weights fold into self_correction,
+    # goal becomes understanding, and the removed out_of_the_box weight folds into
+    # understanding too — so old configs keep grading with their intended total emphasis.
     # Legacy keys are dropped afterward so a stale dimension can't leak into the debrief.
     sc = cfg.get('scoring') if isinstance(cfg.get('scoring'), dict) else {}
     if 'selfCorrectionWeight' not in sc and ('revisionWeight' in sc or 'contradictionWeight' in sc):
@@ -153,11 +169,15 @@ def _normalize(cfg, method_params):
             pass
     if 'understandingWeight' not in sc and 'goalWeight' in sc:
         sc['understandingWeight'] = sc['goalWeight']
+    if 'outOfTheBoxWeight' in sc:
+        try:
+            sc['understandingWeight'] = float(sc.get('understandingWeight', 25)) + float(sc.get('outOfTheBoxWeight', 0))
+        except (TypeError, ValueError):
+            pass
     sc.setdefault('engagementWeight', 35)
     sc.setdefault('selfCorrectionWeight', 20)
-    sc.setdefault('understandingWeight', 25)
-    sc.setdefault('outOfTheBoxWeight', 20)
-    for _legacy in ('revisionWeight', 'contradictionWeight', 'goalWeight'):
+    sc.setdefault('understandingWeight', 45)
+    for _legacy in ('revisionWeight', 'contradictionWeight', 'goalWeight', 'outOfTheBoxWeight'):
         sc.pop(_legacy, None)
     cfg['scoring'] = sc
 
@@ -661,17 +681,41 @@ def turn(payload, ctx):
 
 # ── grade: effort-to-learn + goal scoring ─────────────────────────────────────
 
-# The standardized grade rubric: four fixed dimensions every Shock World debrief scores
+# The standardized grade rubric: the fixed dimensions every Shock World debrief scores
 # against, in display order. Each tuple is (score key ↔ the LLM's `scores` JSON,
 # weight key ↔ the config's `scoring` object, label rendered on the debrief bar).
-# `self_correction` folds the old revision + contradiction bars into one; `out_of_the_box`
-# is a new dimension rewarding original responses that are nonetheless sound.
+# `self_correction` folds the old revision + contradiction bars into one and is
+# now n/a-aware (null when the student was never wrong). `out_of_the_box` was
+# removed — its weight migrates into understanding in _normalize.
 _DIMENSIONS = [
     ("engagement", "engagementWeight", "Engagement — really explaining the 'why', not coasting"),
     ("self_correction", "selfCorrectionWeight", "Self-correction — revising after a nudge and working through a contradiction"),
     ("understanding", "understandingWeight", "Demonstrated understanding — reaching the target insight (efficiently)"),
-    ("out_of_the_box", "outOfTheBoxWeight", "Out of the box responses that make perfect sense"),
 ]
+
+
+def _grade_key_ideas_block(payload):
+    """Render the key ideas + evidence criteria so the grader can INDEPENDENTLY
+    re-derive which ones the student demonstrated (never trusting the live tutor's
+    optimistic read). ★ marks country-specific ideas the goal isn't reached without.
+    """
+    key_ideas = payload.get('keyIdeas') if isinstance(payload.get('keyIdeas'), list) else []
+    scenario = payload.get('scenario') or {}
+    country_ideas = scenario.get('country_key_ideas') if isinstance(scenario.get('country_key_ideas'), list) else []
+    if not key_ideas and not country_ideas:
+        return ''
+    lines = ["The KEY IDEAS that together constitute the end goal (judge which the student's OWN reasoning genuinely shows):"]
+    for k in key_ideas:
+        if not isinstance(k, dict):
+            continue
+        ev = (k.get('evidence') or '').strip()
+        lines.append(f"- {k.get('label')}" + (f" — demonstrated when: {ev}" if ev else ""))
+    for k in country_ideas:
+        if not isinstance(k, dict):
+            continue
+        ev = (k.get('evidence') or '').strip()
+        lines.append(f"- ★ {k.get('label')}" + (f" — demonstrated when: {ev}" if ev else ""))
+    return "\n".join(lines)
 
 
 def _build_grade_system(payload):
@@ -679,45 +723,98 @@ def _build_grade_system(payload):
     rubric = payload.get('rubric') or []
     end_goal = (payload.get('endGoal') or '').strip()
     lines = [
-        "You grade a student's EFFORT TO LEARN and whether they reached the goal in a Socratic economics "
-        "simulation — NOT whether their first answers were correct. Score the four standardized dimensions: "
-        "ENGAGEMENT (genuinely explaining the 'why', not coasting); SELF-CORRECTION (revising after a nudge or "
-        "working through a contradiction to a self-correction); DEMONSTRATED UNDERSTANDING (reaching the target "
-        "insight, especially in few replies); and OUT-OF-THE-BOX (original, unexpected responses that "
-        "nonetheless make perfect sense). Coasting, random picks, and gaming earn little. The warm-up gate does "
-        "NOT count.",
-        "The tally's help_requests count is asking for help / a hint ('I can't remember'). Honest help-seeking "
-        "after a real attempt is legitimate learning — do not punish it. Only treat it as low effort when the "
-        "student repeatedly asks for the answer without ever attempting the reasoning themselves.",
+        "You are an INDEPENDENT grader for a Socratic economics simulation. You grade a student's EFFORT TO "
+        "LEARN and whether they reached the goal — NOT whether their first answers were correct. Score these "
+        "dimensions: ENGAGEMENT (genuinely explaining the 'why', not coasting); SELF-CORRECTION (revising after "
+        "a nudge or working through a contradiction); DEMONSTRATED UNDERSTANDING (reaching the target insight, "
+        "especially in few replies). Coasting, random picks, and gaming earn little. The warm-up gate does NOT count.",
+        "IMPORTANT — you are deliberately NOT shown the tutor's replies. The tutor is instructed to open every "
+        "reply by affirming what the student got right, so its warmth is a scripted obligation, not evidence. "
+        "Grade ONLY from the questions posed and the student's own picks and written reasoning ('why'). Judge the "
+        "REASONING, not which option was clicked — a misclick with sound reasoning still earns the idea, and a "
+        "valid 'it's ambiguous / net-neutral / it depends' answer counts when the economics is genuinely two-sided.",
+        "SELF-CORRECTION is NOT-APPLICABLE when the student was never wrong and never needed a nudge — return "
+        "null for it in that case (do NOT score 0, and do NOT score 100). Only score it when there was something "
+        "to correct.",
+        "The help_requests count is the student asking for a hint ('I can't remember'). Honest help-seeking after "
+        "a real attempt is legitimate learning — do not punish it. Only treat it as low effort when the student "
+        "repeatedly asks for the answer without ever attempting the reasoning themselves.",
     ]
     if end_goal:
         lines.append(f"\nThe end goal was: {end_goal}")
     sl = _scenario_line({"scenario": scenario})
     if sl:
         lines.append(f"Scenario: {sl}")
+    kib = _grade_key_ideas_block(payload)
+    if kib:
+        lines.append("\n" + kib)
+        lines.append("Count how many of these key ideas the student's reasoning genuinely demonstrates; that count "
+                     "(especially the ★ ones) drives the understanding score.")
     if rubric:
         lines.append("\nAdditional criteria the professor cares about:")
         for i, r in enumerate(rubric, 1):
             lines.append(f"{i}. {r}")
-    lines.append("\nScore EACH dimension from 0 to 100 based on the tally and transcript:")
+    lines.append("\nScore each applicable dimension from 0 to 100 (self_correction may be null):")
     for key, _, desc in _DIMENSIONS:
         lines.append(f"- {key}: {desc}")
     lines.append(
         "\nRespond with ONLY this JSON object, no prose:\n"
-        '{ "scores": { "engagement": <0-100>, "self_correction": <0-100>, "understanding": <0-100>, "out_of_the_box": <0-100> },\n'
+        '{ "scores": { "engagement": <0-100>, "self_correction": <0-100 or null>, "understanding": <0-100> },\n'
+        '  "ideas_demonstrated": <int, how many key ideas the student genuinely showed>,\n'
         '  "feedback": "<2-4 sentences of constructive, encouraging feedback for the student>" }'
     )
     return "\n".join(lines)
+
+
+def _grade_transcript(transcript):
+    """Render the run as a plain Q → pick → reasoning script for the grader.
+
+    The tutor's replies are deliberately excluded (see _build_grade_system):
+    feeding back its scripted praise would bias the grade upward. We keep the
+    questions posed and the student's own picks + 'why' — the grader judges cold.
+    """
+    lines = []
+    for b in transcript:
+        if not isinstance(b, dict):
+            continue
+        t = b.get('type')
+        if t == 'question':
+            lines.append(f"Q: {(b.get('text') or '').strip()}")
+        elif t == 'student':
+            pick = (b.get('pick') or '').strip()
+            why = (b.get('why') or '').strip()
+            lines.append(f"  Student picked '{pick}' — {why or '(no reasoning written)'}")
+    return "\n".join(lines)
+
+
+def _apply_floor(score, floor):
+    """Map a 0-100 score into the professor's [floor, 100] band, linearly."""
+    return int(round(floor + score * (100 - floor) / 100.0))
 
 
 def grade(payload, ctx):
     weights = payload.get('weights') if isinstance(payload.get('weights'), dict) else {}
     tally = payload.get('tally') or {}
     transcript = payload.get('transcript') or []
+    try:
+        floor = max(0, min(99, int(payload.get('gradeFloor') or 0)))
+    except (TypeError, ValueError):
+        floor = 0
 
-    user = f"Tally of the student's run (warm-up gate excluded):\n{json.dumps(tally)}"
-    if transcript:
-        user += f"\n\nTranscript of the exchanges:\n{json.dumps(transcript)[:10000]}"
+    # Only the OBJECTIVE tally fields reach the grader. The judgment fields
+    # (explained_why / revised_after_nudge / low_effort / demonstrated_count /
+    # goal_reached) were emitted by the control call that read the tutor's reply,
+    # so they're flow-control only and stay out of the grade to keep it blind.
+    objective = {
+        "exchanges": tally.get('exchanges'),
+        "help_requests": tally.get('help_requests'),
+        "key_ideas_total": tally.get('key_ideas_total'),
+    }
+    user = f"The student's run (warm-up gate excluded):\nExchanges spent: {objective['exchanges']}; " \
+           f"help requests: {objective['help_requests']}; total key ideas in this lab: {objective['key_ideas_total']}."
+    script = _grade_transcript(transcript)
+    if script:
+        user += f"\n\nWhat the student was asked and how they answered:\n{script[:10000]}"
     user += "\n\nReturn ONLY the scoring JSON."
 
     msg = _create_with_retry(
@@ -730,25 +827,45 @@ def grade(payload, ctx):
     parsed = ctx.extract_json(ctx.text_from_message(msg)) or {}
     scores = parsed.get('scores') if isinstance(parsed.get('scores'), dict) else {}
 
+    try:
+        total_ideas = max(0, int(objective['key_ideas_total'] or 0))
+    except (TypeError, ValueError):
+        total_ideas = 0
+    try:
+        ideas_shown = max(0, min(total_ideas, int(parsed.get('ideas_demonstrated', 0)))) if total_ideas else 0
+    except (TypeError, ValueError):
+        ideas_shown = 0
+
     breakdown = []
     weighted_sum = 0.0
     weight_total = 0.0
     for key, weight_key, desc in _DIMENSIONS:
+        raw = scores.get(key, 0)
+        # self_correction may be null: nothing to correct → not applicable. It
+        # drops out of the weighted mean entirely, so its weight redistributes
+        # across the scored dimensions rather than dragging the total to 0.
+        if key == 'self_correction' and raw is None:
+            breakdown.append({"key": key, "label": desc, "detail": desc, "score": None, "weight": 0, "na": True})
+            continue
         try:
-            score = max(0, min(100, int(round(float(scores.get(key, 0))))))
+            score = _apply_floor(max(0, min(100, int(round(float(raw))))), floor)
         except (TypeError, ValueError):
-            score = 0
+            score = _apply_floor(0, floor)
         try:
             weight = max(0, float(weights.get(weight_key, 0)))
         except (TypeError, ValueError):
             weight = 0
+        detail = desc
+        if key == 'understanding' and total_ideas:
+            detail = f"{desc} — {ideas_shown}/{total_ideas} key ideas demonstrated"
         # `label` drives the live debrief bars; `detail` is what the shared
         # SessionReport (predict-reveal-shaped) renders — include both.
-        breakdown.append({"key": key, "label": desc, "detail": desc, "score": score, "weight": weight})
+        breakdown.append({"key": key, "label": desc, "detail": detail, "score": score, "weight": weight})
         weighted_sum += score * weight
         weight_total += weight
 
-    total = int(round(weighted_sum / weight_total)) if weight_total > 0 else 0
+    # Empty band (all n/a or zero weights) → the floor is the score, not 0.
+    total = int(round(weighted_sum / weight_total)) if weight_total > 0 else floor
     return {
         "total": total,
         "breakdown": breakdown,

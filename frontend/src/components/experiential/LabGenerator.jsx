@@ -1,6 +1,6 @@
 // @language JavaScript (React)
-// @updated 2026-07-15
-// @changed Per-chapter topic picker: show which course topics the lab tests, let the prof re-pick and regenerate (focus_topics).
+// @updated 2026-07-16
+// @changed Render a method's post-generation SettingsForm (e.g. shock-world grading floor) beneath the finished lab — patches the config without regenerating.
 import React, { useState, useEffect, useRef } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
@@ -82,6 +82,10 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
   // brand-new pedagogy equals its frontend schema id (e.g. 'shock-world').
   const frontendMethod = getMethod(template);
   const ConfigForm = frontendMethod?.ConfigForm || null;
+  // Post-generation settings panel (grading policy etc.), if the GENERATED lab's
+  // method ships one. Keyed off the generated config so it only appears once a
+  // lab exists, and patches that config directly — no regenerate.
+  const SettingsForm = getMethod(generated?.method)?.SettingsForm || null;
 
   // focusTopics: when the professor re-picks topics and regenerates, the chosen
   // subset is sent as focus_topics so the lab is rebuilt around exactly those.
@@ -240,6 +244,13 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       )}
       {generated && !generated.layers && (
         <GenericLabPreview cfg={generated} grounded={grounded} />
+      )}
+
+      {/* Post-generation settings (grading policy etc.), rendered generically when
+          the generated lab's method ships a SettingsForm. Patches the config in
+          place — no regenerate — so tweaking these never re-rolls the lab. */}
+      {generated && SettingsForm && (
+        <SettingsForm config={generated} onChange={(patch) => onGenerated({ ...generated, ...patch })} />
       )}
     </div>
   );

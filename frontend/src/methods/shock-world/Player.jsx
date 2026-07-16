@@ -1,6 +1,6 @@
 // @language JavaScript (React)
-// @updated 2026-07-15
-// @changed Forward the per-topic course scope contract into each turn so the tutor's live questions stay within what the lecture establishes.
+// @updated 2026-07-16
+// @changed Grade payload: send questions (not tutor replies) + keyIdeas + gradeFloor for the blind grader; debrief renders n/a dimensions.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
@@ -355,6 +355,18 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
     t.demonstrated_count = demonstratedRef.current.size;
     t.key_ideas_total = totalIdeas;
 
+    // Grader transcript: the posed questions + the student's own picks/whys,
+    // starting from the first REAL question (warm-up gate excluded). Tutor replies
+    // are deliberately dropped — the tutor is scripted to praise, so feeding its
+    // words to the grader would bias the grade up. Backend re-judges cold.
+    const graded = [];
+    let started = false;
+    for (const b of feedRef.current) {
+      if (b.type === 'question' && !b.gate) started = true;
+      if (!started) continue;
+      if (b.type === 'question' || b.type === 'student') graded.push(b);
+    }
+
     let result = null;
     try {
       const { data } = await apiClient.post(
@@ -363,10 +375,12 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
           labTitle: config.meta?.title || 'Shock World',
           scenario: scenarioForTurn,
           endGoal: config.endGoal || '',
+          keyIdeas,
           weights: config.scoring || {},
+          gradeFloor: Number.isInteger(config.gradeFloor) ? config.gradeFloor : 0,
           rubric: config.gradeRubric || [],
           tally: t,
-          transcript: feedRef.current.filter((b) => b.type === 'student' || b.type === 'tutor').slice(-40),
+          transcript: graded.slice(-60),
         },
         { timeout: 120000 },
       );
@@ -507,16 +521,23 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
             <div className="text-3xl font-bold text-gray-800 mb-4">{score.total}<span className="text-lg text-gray-400"> / 100</span></div>
           )}
           <div className="space-y-2 mb-4">
-            {(score.breakdown || []).map((d) => (
-              <div key={d.key}>
-                <div className="flex justify-between text-xs text-gray-600 mb-0.5">
-                  <span>{d.label}</span><span className="font-semibold">{d.score} · w{d.weight}</span>
+            {(score.breakdown || []).map((d) => {
+              // A null score means the dimension didn't apply this run (e.g. no
+              // self-correction because the student was never wrong) — show it as
+              // n/a rather than a misleading empty bar.
+              const na = d.score === null || d.na;
+              return (
+                <div key={d.key}>
+                  <div className="flex justify-between text-xs text-gray-600 mb-0.5">
+                    <span>{d.label}</span>
+                    <span className="font-semibold">{na ? 'not applicable' : `${d.score} · w${d.weight}`}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                    {!na && <div className="h-full bg-[#FA6C43]" style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }} />}
+                  </div>
                 </div>
-                <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div className="h-full bg-[#FA6C43]" style={{ width: `${Math.max(0, Math.min(100, d.score))}%` }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {score.feedback && <p className="text-sm text-gray-700 leading-relaxed">{score.feedback}</p>}
           <button type="button" onClick={onReset} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#FA6C43] hover:text-[#e85a30]">
