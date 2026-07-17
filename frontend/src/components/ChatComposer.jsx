@@ -1,7 +1,14 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-07-15
+ * @changed   Added MathQuill "insert equation" button + popover to the action row.
+ */
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiPaperclip, FiImage } from 'react-icons/fi';
+import { TbMathFunction } from 'react-icons/tb';
 import VoiceRecordButton from './VoiceRecordButton';
+import MathInputPopover from './MathInputPopover';
 
 // Fallback follow-up prompts (used until the backend returns tailored ones).
 const DEFAULT_QUICK_PROMPTS = [
@@ -66,10 +73,34 @@ const ChatComposer = ({
   const [showQuickPrompts, setShowQuickPrompts] = useState(false);
   const [isFanOpen, setIsFanOpen] = useState(false);
   const [isPulsing, setIsPulsing] = useState(false);
+  // Gates the MathQuill equation popover above the "insert equation" button.
+  const [showMath, setShowMath] = useState(false);
   const dwellTimerRef = useRef(null);
   const pulseTimerRef = useRef(null);
   const closeTimerRef = useRef(null);
   const leaveTimerRef = useRef(null);
+
+  // Splice a MathQuill equation into the message as `$...$` LaTeX at the current
+  // caret (falling back to append), then restore focus + caret just past it. The
+  // `$...$` wrapper is what the KaTeX render pipeline keys on downstream.
+  const insertLatex = (latex) => {
+    const wrapped = `$${latex}$`;
+    const el = inputRef?.current;
+    if (el && typeof el.selectionStart === 'number') {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const next = input.slice(0, start) + wrapped + input.slice(end);
+      setInput(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        const pos = start + wrapped.length;
+        el.setSelectionRange(pos, pos);
+      });
+    } else {
+      setInput((input || '') + wrapped);
+    }
+    setShowMath(false);
+  };
 
   const handleSendHoverEnter = () => {
     if (!hasAiReplied || isLoading) return;
@@ -192,6 +223,21 @@ const ChatComposer = ({
           {showVoice && (
             <VoiceRecordButton onTranscribed={onVoiceTranscribed} disabled={isLoading} />
           )}
+          {/* Insert-equation button + its MathQuill popover. Relative wrapper so
+              the popover anchors to this button's bottom-left. */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setShowMath((v) => !v)}
+              disabled={isLoading}
+              title="Insert equation"
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 hover:bg-gray-100 ${showMath ? 'text-[#FA6C43] bg-gray-100' : 'text-gray-500 hover:text-[#FA6C43]'}`}
+            >
+              <TbMathFunction className="text-base" />
+            </button>
+            {showMath && (
+              <MathInputPopover onInsert={insertLatex} onClose={() => setShowMath(false)} />
+            )}
+          </div>
           {/* Model picker — only on free playground / personal bots */}
           {showModelPicker && (
             <select
