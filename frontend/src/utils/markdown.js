@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (ES module)
  * @updated   2026-07-19
- * @changed   Export looksLikeMath so the inline-math composer shares one $...$ detection rule with the renderer.
+ * @changed   looksLikeMath now accepts a leading numeric coefficient (e.g. "2x") so $2x$ renders instead of printing raw.
  */
 import { marked } from 'marked';
 import katex from 'katex';
@@ -86,9 +86,12 @@ function extractCharts(text) {
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
 // Exported so the inline-math composer (RichMathInput) parses typed $...$ runs
 // with the exact same rule the render pipeline uses — no drift between them.
+// The middle rule allows an optional leading numeric coefficient so a term like
+// "2x" / "3y+1" counts as math; currency stays rejected because the char after
+// the digits is a space or "/" (e.g. "10 and ", "10/M input"), not a letter.
 export const looksLikeMath = (tex) =>
   /[\\^_{}=]/.test(tex) ||
-  /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
+  /^[-+]?\d*\.?\d*[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
   /^[-+]?[\d.,]+$/.test(tex.trim());
 
 // Pull every math segment ($$…$$ / \[…\] as display, \(…\) / $…$ as inline) out
