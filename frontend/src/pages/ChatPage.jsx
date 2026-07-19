@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-15
- * @changed   Widget de-dup: drop headings left empty after their body was stripped (fixes orphaned "Question 1" title with no question under it).
+ * @updated   2026-07-19
+ * @changed   Skip the full-screen init spinner for a brand-new (no chatId) chat so starting fresh doesn't flash a loading screen.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -1575,10 +1575,16 @@ const ChatPage = () => {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  if (isInitializing) return (
+  // Full-screen init spinner only when opening an EXISTING chat (there's history
+  // to fetch). A brand-new chat (no chatId) has nothing to load, so render the
+  // plain page background instead of a spinner — config fills in a moment later
+  // and carries straight into the composer, with no loading-screen flash.
+  if (isInitializing) return chatId ? (
     <div className="h-screen flex items-center justify-center bg-[#F8FAFC] text-[#222] flex-col gap-4">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
     </div>
+  ) : (
+    <div className="h-screen bg-[#F8FAFC]" />
   );
 
   if (!isAuthenticated && config?.is_public && !guestInfo) return (
