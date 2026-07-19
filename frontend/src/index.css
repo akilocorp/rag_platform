@@ -1,3 +1,8 @@
+/*
+ * @language  CSS
+ * @updated   2026-07-19
+ * @changed   Add .rmi-field / .rmi-mathfield styling for inline MathQuill fields in the chat composer.
+ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -765,5 +770,34 @@ a:focus-visible {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Inline math fields inside the chat composer (RichMathInput). Each is a live
+   MathQuill EditableMathField sitting in the prose line; brand-blue token look
+   so it reads as an editable equation, not plain text. */
+.rmi-field {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 2px;
+  /* Reuse the existing chip-in keyframe (tailwind config) for a subtle entry. */
+  animation: chip-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.rmi-mathfield.mq-editable-field {
+  border: 1px solid #CFE0F5;
+  background: #EAF2FB;
+  border-radius: 8px;
+  padding: 1px 6px;
+  color: #2F6FED;
+  box-shadow: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rmi-mathfield.mq-editable-field.mq-focused {
+  border-color: #FA6C43;
+  box-shadow: 0 0 0 2px rgba(250, 108, 67, 0.18);
+}
+/* MathQuill paints its own blue selection/cursor; keep the glyphs on-token. */
+.rmi-mathfield .mq-root-block { color: #2F6FED; }
+@media (prefers-reduced-motion: reduce) {
+  .rmi-field { animation: none !important; }
 }
 

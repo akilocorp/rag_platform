@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (ES module)
  * @updated   2026-07-19
- * @changed   Add renderUserText so inline math ($...$) the user inserts renders in their own bubble (not just AI replies).
+ * @changed   Export looksLikeMath so the inline-math composer shares one $...$ detection rule with the renderer.
  */
 import { marked } from 'marked';
 import katex from 'katex';
@@ -84,7 +84,9 @@ function extractCharts(text) {
 
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
-const looksLikeMath = (tex) =>
+// Exported so the inline-math composer (RichMathInput) parses typed $...$ runs
+// with the exact same rule the render pipeline uses — no drift between them.
+export const looksLikeMath = (tex) =>
   /[\\^_{}=]/.test(tex) ||
   /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
   /^[-+]?[\d.,]+$/.test(tex.trim());
