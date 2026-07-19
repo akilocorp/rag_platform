@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-07-19
- * @changed   New inline-math composer: prose + live MathQuill fields share one contentEditable line, serialized to $...$ on read.
+ * @changed   Empty field self-deletes on Backspace/Delete; Right-arrow/Enter step the caret forward out of a field.
  */
 import React, { useRef, useState, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
@@ -128,6 +128,47 @@ const RichMathInput = forwardRef(function RichMathInput(
     setIsEmpty(present.size === 0 && el.textContent.trim() === '');
     emitChange();
   }, [emitChange]);
+
+  // Drop the caret just outside a field's host span and hand focus back to the
+  // editor. Used when the user steps off a field edge (arrow/Enter) or deletes an
+  // empty one — setStart{After,Before} lands at the element boundary so no stray
+  // landing text node is needed.
+  const moveCaretOutsideField = useCallback((id, side) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const span = el.querySelector(`[data-math-id="${id}"]`);
+    if (!span) return;
+    const sel = window.getSelection();
+    const range = document.createRange();
+    if (side === 'after') range.setStartAfter(span);
+    else range.setStartBefore(span);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    el.focus();
+  }, []);
+
+  // Remove an (empty) field's host span and put the caret where it was, then run
+  // handleInput so React field state, the empty flag, and the emitted value all
+  // reconcile against the now-shorter DOM.
+  const removeField = useCallback((id) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const span = el.querySelector(`[data-math-id="${id}"]`);
+    if (!span) return;
+    const anchor = span.previousSibling;
+    span.remove();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    if (anchor && anchor.nodeType === Node.TEXT_NODE) range.setStart(anchor, anchor.length);
+    else if (anchor) range.setStartAfter(anchor);
+    else range.setStart(el, 0);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    el.focus();
+    handleInput();
+  }, [handleInput]);
 
   // Rebuild the editor DOM from a value string. Only called for EXTERNAL writes
   // (parseValue → text nodes + empty host spans), then seeds field latex state so
@@ -283,15 +324,37 @@ const RichMathInput = forwardRef(function RichMathInput(
           <EditableMathField
             latex={fields[id]}
             onChange={(mf) => updateFieldLatex(id, mf.latex())}
+            // MathQuill edge handlers (dir: R=1, L=-1). moveOutOf fires when an
+            // arrow key is pressed at the field boundary → step the caret out that
+            // side. deleteOutOf fires on Backspace/Delete at the boundary → nuke
+            // the whole field when it's empty, otherwise just exit (non-empty
+            // equations keep editing normally). config.handlers is merged by
+            // react-mathquill, so the onChange edit hook above still fires.
+            config={{
+              handlers: {
+                moveOutOf: (dir) => moveCaretOutsideField(id, dir === 1 ? 'after' : 'before'),
+                deleteOutOf: (dir, mf) => {
+                  if ((mf.latex() || '').trim() === '') removeField(id);
+                  else moveCaretOutsideField(id, dir === 1 ? 'after' : 'before');
+                },
+              },
+            }}
             mathquillDidMount={(mf) => {
               if (pendingFocusRef.current === id) {
                 mf.focus();
                 pendingFocusRef.current = null;
               }
             }}
-            // Keep Enter/Escape inside the equation from bubbling to send.
+            // Enter steps the caret forward out of the equation (never sends);
+            // Escape just stops bubbling so it doesn't reach the composer.
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                moveCaretOutsideField(id, 'after');
+              } else if (e.key === 'Escape') {
+                e.stopPropagation();
+              }
             }}
             className="rmi-mathfield"
           />,
