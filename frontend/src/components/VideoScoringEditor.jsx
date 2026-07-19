@@ -1,6 +1,10 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-07-19
+// @changed   Gate rubric detail (scoring boxes, grading prompt, content checks) behind faculty Advanced mode.
 import React, { useEffect, useState } from 'react';
 import { FaTrash, FaPlus } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import AdvancedReveal from './AdvancedReveal';
 
 /**
  * Assignment-type picker + editable scoring spec for video-analysis configs.
@@ -16,8 +20,10 @@ import apiClient from '../api/apiClient';
  *   assignmentType : string
  *   scoringSpec    : object | null
  *   onChange({ assignment_type, scoring_spec })
+ *   advanced       : boolean — when false (faculty Simple mode) only the
+ *                    assignment-type picker shows; the editable rubric is hidden.
  */
-export default function VideoScoringEditor({ assignmentType, scoringSpec, onChange }) {
+export default function VideoScoringEditor({ assignmentType, scoringSpec, onChange, advanced = true }) {
   const [presets, setPresets] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -99,6 +105,10 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
           return p?.description ? <p className="text-xs text-gray-500 mt-1.5">{p.description}</p> : null;
         })()}
       </div>
+
+      {/* Rubric detail is Advanced-only — Simple mode stops at the preset above. */}
+      <AdvancedReveal show={advanced}>
+      <div className="space-y-6">
 
       {/* Scoring boxes (dimensions) */}
       <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
@@ -183,6 +193,9 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
           {checks.length === 0 && <p className="text-xs text-gray-400">No content checks — scoring relies on the boxes and grading prompt only.</p>}
         </div>
       </div>
+
+      </div>
+      </AdvancedReveal>
     </div>
   );
 }

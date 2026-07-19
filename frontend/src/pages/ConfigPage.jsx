@@ -1,3 +1,6 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-07-19
+// @changed   Gate advanced bot-config fields behind faculty Simple/Advanced mode with animated reveals.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -8,6 +11,9 @@ import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
+import ConfigModeToggle from '../components/ConfigModeToggle';
+import AdvancedReveal from '../components/AdvancedReveal';
+import useConfigMode from '../hooks/useConfigMode';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -123,7 +129,9 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
 const ConfigModal = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
-  
+  // Simple vs Advanced faculty mode — gates the extra config fields below.
+  const { advanced } = useConfigMode();
+
   const aiModels = [
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 flash', desc: 'Fast and accurate' },
@@ -287,12 +295,24 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
   // Visible wizard steps per bot_type. Group chat skips the model picker (lobby
   // AI is fixed); video analysis skips model + knowledge base (no chat model, no RAG).
+  // In Simple mode a standard chat also skips the model picker (step 2) and just
+  // uses the default model, so first-time faculty face fewer choices.
   const stepsFor = (botType) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
     if (botType === 'experiential') return [1, 3]; // name + type + upload course files, then generate the lab (grounded in them)
-    return [1, 2, 3, 4, 5];
+    return advanced ? [1, 2, 3, 4, 5] : [1, 3, 4, 5];
   };
+
+  // Flipping Simple/Advanced can drop the step you're on (e.g. the model step 2
+  // vanishes in Simple mode) — fall back to the nearest earlier valid step.
+  useEffect(() => {
+    const steps = stepsFor(config.bot_type);
+    if (!steps.includes(step)) {
+      setStep([...steps].reverse().find((s) => s < step) || steps[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advanced]);
 
   const handleNext = () => {
     if (validateStep()) {
@@ -418,6 +438,11 @@ const ConfigModal = ({ isOpen, onClose }) => {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col relative min-h-[550px] max-h-[90vh]">
+        {/* Mirror the dashboard mode switch here so faculty can flip Simple/
+            Advanced without leaving the wizard. */}
+        <div className="absolute top-5 left-5 z-10">
+          <ConfigModeToggle />
+        </div>
         <button onClick={onClose} className="absolute top-5 right-5 p-2.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all z-10">
           <FaTimes className="text-xl" />
         </button>
@@ -546,6 +571,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     {config.rag_files?.length ? `, grounded in the ${config.rag_files.length} file${config.rag_files.length > 1 ? 's' : ''} you uploaded` : ''}.
                   </p>
                   <LabGenerator
+                    advanced={advanced}
                     prompt={config.experiential_prompt}
                     onPromptChange={(v) => setConfig((prev) => ({ ...prev, experiential_prompt: v }))}
                     generated={config.experiential_config}
@@ -573,11 +599,13 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   <>
                     <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Define the Rubric</h2>
                     <VideoScoringEditor
+                      advanced={advanced}
                       assignmentType={config.assignment_type}
                       scoringSpec={config.scoring_spec}
                       onChange={({ assignment_type, scoring_spec }) =>
                         setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
                     />
+                    <AdvancedReveal show={advanced}>
                     <div className="mt-4">
                       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                         Class Code <span className="font-normal text-gray-400">(optional - lets students join via invite link)</span>
@@ -593,6 +621,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
                       {classUsageFields}
                     </div>
+                    </AdvancedReveal>
                   </>
                 ) : config.bot_type === 'group_chat' ? (
                   // ==============================
@@ -611,6 +640,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           </label>
                           <input type="range" name="group_size" min="1" max="10" step="1" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
                         </div>
+                        {advanced && (
                         <div>
                           <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
                             <span className="inline-flex items-center gap-1">Chat Duration<InfoTip text="How long the group chat stays open before it automatically ends. Adjustable from 5 to 60 minutes." /></span>
@@ -618,6 +648,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           </label>
                           <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
                         </div>
+                        )}
                       </div>
                     </div>
 
@@ -639,19 +670,22 @@ const ConfigModal = ({ isOpen, onClose }) => {
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Agent Name</label>
                                 <input type="text" value={bot.name} onChange={(e) => handleBotChange(index, 'name', e.target.value)} className={`w-full p-2.5 bg-gray-50 border ${errors[`bot_${index}_name`] ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all`} placeholder="e.g., Prof. Smith" />
                               </div>
+                              {advanced && (
                               <div>
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">AI Engine</label>
                                 <select value={bot.model_name} onChange={(e) => handleBotChange(index, 'model_name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all">
                                   {aiModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                 </select>
                               </div>
+                              )}
                             </div>
-                            
+
                             <div className="mb-4">
                               <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">System Prompt / Role</label>
                               <textarea value={bot.prompt} onChange={(e) => handleBotChange(index, 'prompt', e.target.value)} rows="2" className={`w-full p-2.5 bg-gray-50 border ${errors[`bot_${index}_prompt`] ? 'border-red-500' : 'border-gray-200'} rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all resize-none`} placeholder="You are a stern college professor..." />
                             </div>
 
+                            <AdvancedReveal show={advanced}>
                             <div>
                               <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
                                 <span className="inline-flex items-center gap-1">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></span>
@@ -671,13 +705,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
                                 </>
                               )}
                             </div>
+                            </AdvancedReveal>
                           </div>
                         );
                       })}
 
+                      {advanced && (
                       <button onClick={addBot} className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-2xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center">
                         <FaPlus className="mr-2"/> Add Another AI Agent
                       </button>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -723,6 +760,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       {errors.instructions && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.instructions}</p>}
                     </div>
 
+                    {/* Advanced-only controls — hidden in Simple mode, animated in on Advanced. */}
+                    <AdvancedReveal show={advanced}>
                     <div className="pt-4">
                       <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
                       <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
@@ -801,6 +840,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
                       {classUsageFields}
                     </div>
+                    </AdvancedReveal>
 
                   </>
                 )}

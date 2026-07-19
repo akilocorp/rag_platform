@@ -1,8 +1,12 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-07-19
+// @changed   Add Simple/Advanced faculty config-mode toggle to the dashboard navbar.
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes } from 'react-icons/fa';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
+import ConfigModeToggle from '../components/ConfigModeToggle';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
@@ -366,6 +370,10 @@ const ConfigListPage = () => {
           />
         </div>
         <div className="flex items-center space-x-6 lg:space-x-8">
+
+          {/* Faculty Simple/Advanced mode switch — gates how much bot-config
+              detail the create/edit forms expose. */}
+          <ConfigModeToggle className="hidden sm:block" />
 
           {/* Report Bug Button added to Navbar */}
           <button

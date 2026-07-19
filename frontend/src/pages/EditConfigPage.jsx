@@ -1,3 +1,6 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-07-19
+// @changed   Gate advanced bot-config fields behind faculty Simple/Advanced mode with animated reveals.
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -8,10 +11,15 @@ import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
 import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
+import ConfigModeToggle from '../components/ConfigModeToggle';
+import AdvancedReveal from '../components/AdvancedReveal';
+import useConfigMode from '../hooks/useConfigMode';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // Simple vs Advanced faculty mode — gates the extra config fields below.
+  const { advanced } = useConfigMode();
 
   const [config, setConfig] = useState({});
   const [initialDocuments, setInitialDocuments] = useState([]);
@@ -411,7 +419,12 @@ const EditConfigPage = () => {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
-        
+
+        {/* Faculty mode switch, top-right — mirrors the dashboard toggle. */}
+        <div className="flex justify-end mb-4">
+          <ConfigModeToggle />
+        </div>
+
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
             Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : 'AI Assistant'}
@@ -441,7 +454,7 @@ const EditConfigPage = () => {
                 {errors.bot_name && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.bot_name}</p>}
               </div>
 
-              {config.bot_type !== 'group_chat' && config.bot_type !== 'video_analysis' && (
+              {advanced && config.bot_type !== 'group_chat' && config.bot_type !== 'video_analysis' && (
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Model Name</label>
                   <select
@@ -518,12 +531,14 @@ const EditConfigPage = () => {
               <div className="border-t border-gray-100 pt-8 mt-8">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Simulation Lab</h3>
                 <LabGenerator
+                  advanced={advanced}
                   prompt={config.experiential_prompt}
                   onPromptChange={(v) => setConfig(prev => ({ ...prev, experiential_prompt: v }))}
                   generated={config.experiential_config}
                   onGenerated={(cfg) => setConfig(prev => ({ ...prev, experiential_config: cfg }))}
                   configId={config.config_id}
                 />
+                <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
@@ -538,16 +553,19 @@ const EditConfigPage = () => {
                   />
                   {classUsageFields}
                 </div>
+                </AdvancedReveal>
               </div>
             ) : config.bot_type === 'video_analysis' ? (
               <div className="border-t border-gray-100 pt-8 mt-8">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Rubric & Scoring</h3>
                 <VideoScoringEditor
+                  advanced={advanced}
                   assignmentType={config.assignment_type}
                   scoringSpec={config.scoring_spec}
                   onChange={({ assignment_type, scoring_spec }) =>
                     setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
                 />
+                <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
@@ -564,6 +582,7 @@ const EditConfigPage = () => {
                   {classUsageFields}
                 </div>
                 <p className="text-xs text-gray-400 mt-4">Editing weights or prompts applies to new submissions. Use "Rescore" on the dashboard to re-grade existing ones.</p>
+                </AdvancedReveal>
               </div>
             ) : config.bot_type === 'group_chat' ? (
               <div className="border-t border-gray-100 pt-8 mt-8 space-y-6">
@@ -573,10 +592,12 @@ const EditConfigPage = () => {
                     <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Target Size</span><span className="text-[#FA6C43] font-bold">{Number(config.group_size) === 1 ? 'Solo (1 user + AIs)' : config.group_size}</span></label>
                     <input type="range" name="group_size" min="1" max="10" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
+                  {advanced && (
                   <div>
                     <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span className="inline-flex items-center gap-1">Duration<InfoTip text="How long the group chat stays open before it automatically ends. Adjustable from 5 to 60 minutes." /></span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
                     <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
+                  )}
                 </div>
 
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mt-6"><FaRobot className="mr-2 text-[#FA6C43]"/> AI Agents</h3>
@@ -592,17 +613,20 @@ const EditConfigPage = () => {
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Agent Name</label>
                                 <input type="text" value={bot.name} onChange={(e) => handleBotChange(index, 'name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]" />
                             </div>
+                            {advanced && (
                             <div>
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Model</label>
                                 <select value={bot.model_name} onChange={(e) => handleBotChange(index, 'model_name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]">
                                     {withCurrent(bot.model_name).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                 </select>
                             </div>
+                            )}
                         </div>
                         <div className="mb-4">
                             <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">System Prompt</label>
                             <textarea value={bot.prompt} onChange={(e) => handleBotChange(index, 'prompt', e.target.value)} rows="2" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43] resize-none" />
                         </div>
+                        <AdvancedReveal show={advanced}>
                         <div>
                             <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
                                 <span className="inline-flex items-center gap-1">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></span>
@@ -620,10 +644,13 @@ const EditConfigPage = () => {
                               </>
                             )}
                         </div>
+                        </AdvancedReveal>
                     </div>
                    )
                 })}
+                {advanced && (
                 <button type="button" onClick={addBot} className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-2xl hover:text-[#FA6C43] hover:border-[#FA6C43] font-bold text-sm flex justify-center"><FaPlus className="mr-2 mt-0.5"/> Add Agent</button>
+                )}
               </div>
             ) : (
               // Standard AI Settings
@@ -664,6 +691,10 @@ const EditConfigPage = () => {
                   <textarea name="instructions" value={config.instructions || ''} onChange={handleChange} rows="5" className={`w-full px-4 py-3 bg-white border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm outline-none focus:border-[#FA6C43]`} placeholder="Describe how the bot should behave. You can also request JSON / structured output — see the ⓘ tip." />
                   {errors.instructions && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.instructions}</p>}
                 </div>
+
+                {/* Advanced-only controls — hidden in Simple mode, animated in on Advanced. */}
+                <AdvancedReveal show={advanced}>
+                <div className="space-y-8">
 
                 <div>
                   <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
@@ -766,6 +797,8 @@ const EditConfigPage = () => {
                   {classUsageFields}
                 </div>
 
+                </div>
+                </AdvancedReveal>
               </>
             )}
 
