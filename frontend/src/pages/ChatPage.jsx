@@ -1,7 +1,7 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-07-19
- * @changed   Skip the full-screen init spinner for a brand-new (no chatId) chat so starting fresh doesn't flash a loading screen.
+ * @changed   No init spinner on existing-chat redirects; flashcard prose fully suppressed; user bubbles render inserted inline math.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -24,7 +24,7 @@ import { lookupDefinitionInContext } from '../utils/dictionaryClient';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { renderMarkdown } from '../utils/markdown';
+import { renderMarkdown, renderUserText } from '../utils/markdown';
 import { mountCharts } from '../utils/chartMount';
 
 // --- HELPER: Get Token Safely ---
@@ -396,8 +396,12 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
   const hasAttachedImages = isUser && attachedImages.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
   // Drop prose that duplicates the attached widget's content (see helper above).
+  // Flashcards are all-or-nothing: the deck holds every card, so blank the prose
+  // entirely rather than line-by-line — all content lives in the widget, no text.
   const displayText = (!isUser && message.facilitator?.widget)
-    ? stripRedundantWidgetText(text, message.facilitator)
+    ? (message.facilitator.widget === 'flashcard'
+        ? ''
+        : stripRedundantWidgetText(text, message.facilitator))
     : text;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
@@ -414,7 +418,9 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
     if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(displayText);
+    // User bubbles: escape-only (no markdown) BUT render inline math they
+    // inserted via the composer's equation button; AI bubbles: full markdown.
+    el.innerHTML = isUser ? renderUserText(text) : renderMarkdown(displayText);
     if (!isUser) {
       mountCharts(el);
       loadDefineableSet().then((set) => {
@@ -1575,17 +1581,12 @@ const ChatPage = () => {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // Full-screen init spinner only when opening an EXISTING chat (there's history
-  // to fetch). A brand-new chat (no chatId) has nothing to load, so render the
-  // plain page background instead of a spinner — config fills in a moment later
-  // and carries straight into the composer, with no loading-screen flash.
-  if (isInitializing) return chatId ? (
-    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] text-[#222] flex-col gap-4">
-        <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
-    </div>
-  ) : (
-    <div className="h-screen bg-[#F8FAFC]" />
-  );
+  // No loading-screen flash on init — neither a brand-new chat NOR an
+  // existing-chat redirect gets a spinner. Render the plain page background
+  // while config (and, for an existing chat, history) loads in the background;
+  // the render is config-null-safe and messages stream in as they arrive, so
+  // there's nothing to block on. Flows straight into the composer.
+  if (isInitializing) return <div className="h-screen bg-[#F8FAFC]" />;
 
   if (!isAuthenticated && config?.is_public && !guestInfo) return (
     <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">

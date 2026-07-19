@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-19
+# @changed   Raise FACILITATOR_MAX_TOKENS 700→1500 so a large widget (e.g. a 20-card deck) doesn't overflow and get dropped.
 """
 The facilitator post-pass. `run_facilitator` wraps ANY bot's text reply with one
 small Claude call: given the professor's facilitator instruction + the catalog of
@@ -17,7 +20,10 @@ from src.facilitator import registry
 logger = logging.getLogger(__name__)
 
 FACILITATOR_MODEL = os.getenv("FACILITATOR_MODEL", "claude-sonnet-4-6")
-FACILITATOR_MAX_TOKENS = 700
+# Headroom for the largest widget payload (a 20-card flashcard deck of JSON);
+# too low and a big deck's JSON is truncated mid-object, fails to parse, and the
+# whole widget is dropped back to plain text.
+FACILITATOR_MAX_TOKENS = 1500
 _HISTORY_TURNS = 6
 
 

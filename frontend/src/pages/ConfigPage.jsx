@@ -1,6 +1,6 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-19
-// @changed   Gate advanced bot-config fields behind faculty Simple/Advanced mode with animated reveals.
+// @changed   Move the Simple/Advanced switch to the modal footer as a compact S⚬A toggle (was a pill pinned top-left).
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -438,11 +438,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col relative min-h-[550px] max-h-[90vh]">
-        {/* Mirror the dashboard mode switch here so faculty can flip Simple/
-            Advanced without leaving the wizard. */}
-        <div className="absolute top-5 left-5 z-10">
-          <ConfigModeToggle />
-        </div>
         <button onClick={onClose} className="absolute top-5 right-5 p-2.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all z-10">
           <FaTimes className="text-xl" />
         </button>
@@ -896,7 +891,15 @@ const ConfigModal = ({ isOpen, onClose }) => {
             )}
           </div>
 
-          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
+          <div className="relative flex justify-between items-center mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
+            {/* Faculty Simple/Advanced switch, centered at the modal's bottom
+                edge. Overlay is click-through so it never blocks the Back/Next
+                buttons sitting at the row's edges. */}
+            <div className="absolute inset-0 flex items-center justify-center pt-4 pointer-events-none">
+              <div className="pointer-events-auto">
+                <ConfigModeToggle variant="compact" />
+              </div>
+            </div>
             <button onClick={handleBack} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all">{step === 1 ? 'Cancel' : 'Back'}</button>
             <button onClick={handleNext} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm active:scale-[0.98] min-w-[120px] flex justify-center">
               {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === 5 ? 'Publish' : 'Next')}
