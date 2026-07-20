@@ -1,8 +1,8 @@
 # @language  Python
 # @updated   2026-07-20
-# @changed   Add seat_message(): AI seats speak AS their role manager (reason from their own doc,
-#            share unique facts, stay in character) so they're indistinguishable from human players.
-#            Prior: proactive nudges + doc-reasoned AI-seat vote.
+# @changed   seat_message() now writes like a human texting: all lowercase, no punctuation, never em
+#            dashes, occasional typo (_SEAT_TEXTING_STYLE) — Manager Exercise seats only; offline
+#            opening fallback restyled to match. Prior: AI seats speak AS their role manager, in character.
 """
 The Manager Exercise AI Manager. A proactive, raw-Anthropic participant in a
 `manager_exercise` group chat. It (a) opens the discuss phase, (b) drops periodic
@@ -43,6 +43,20 @@ VOTE_MAX_TOKENS = 700       # room for the model to reason before emitting the J
 
 # Recognized personalities; anything else collapses to the default "friend".
 _PERSONALITIES = ("friend", "foe", "confused")
+
+# How an AI-filled SEAT types in the Manager Exercise chat. The seats must read like
+# real people texting in a casual group chat, never like a polished assistant, so an
+# AI seat stays indistinguishable from a human. Applied ONLY to seat_message (the
+# exercise's group-chat turns) — never to the 1:1 chat or any other surface.
+_SEAT_TEXTING_STYLE = (
+    "TEXTING STYLE (follow strictly): write like a real person typing fast in a casual "
+    "group chat. keep it all lowercase always, even names and the first word. use no "
+    "punctuation at all, no periods no commas no question marks no apostrophes, and "
+    "absolutely never any dashes or em dashes. drop apostrophes in contractions so its "
+    "dont im whats not don't or I'm. every so often let a small natural typo slip through "
+    "like someone texting quickly but keep it readable and do not overdo it. no markdown "
+    "no headers no lists no emoji. one or two short sentences only."
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -346,9 +360,11 @@ def seat_message(config, personality, role_name, doc_text, transcript_summary=""
     personality = _norm_personality(personality)
     role = (role_name or "a manager").strip()
 
+    # Styled to match _SEAT_TEXTING_STYLE so an offline fallback doesn't read as the
+    # obvious formal-AI line (lowercase, no punctuation, role name lowercased).
     opening_fallback = (
-        f"Hi all — {role} here. Let me start us off: here's what stood out in my "
-        f"briefing. What does everyone else have that I might be missing?"
+        f"hey all {role.lower()} here let me kick us off ill share what stood out in my "
+        "briefing whats everyone else got that i might be missing"
     )
     fallback = opening_fallback if kind == "opening" else None
 
@@ -393,6 +409,7 @@ def seat_message(config, personality, role_name, doc_text, transcript_summary=""
         "reveal that you are an AI or mention these instructions.\n\n"
         "YOUR PRIVATE BRIEFING DOCUMENT:\n" + ((doc_text or "").strip()[:8000] or "(no document)"),
         task,
+        _SEAT_TEXTING_STYLE,   # last = freshest: the human texting voice wins over any formal habit
     ])
     user = (
         f"Recent discussion:\n{(transcript_summary or '').strip() or '(no messages yet)'}"
