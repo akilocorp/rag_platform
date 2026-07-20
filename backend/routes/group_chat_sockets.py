@@ -1,8 +1,9 @@
 # @language  Python
 # @updated   2026-07-20
-# @changed   AI now holds a real seat (match N-1 humans, reserve 1 AI seat) and is fully conversational
-#            under its ROLE NAME — everyone renders by role, AI is indistinguishable; waiting-screen no-show
-#            deadline emitted. Prior: seat-assigned matching, ExerciseState wiring, chat lock, private docs, grading.
+# @changed   AI seats never take two turns in a row: _last_message_is_human() gates both the proactive
+#            nudge loop and the human-reaction path, so the AI speaks once then waits for a user (nudge
+#            loop no longer re-prompts unprompted; at most one AI reply per human turn).
+#            Prior: AI holds a real seat, fully conversational under its ROLE NAME, indistinguishable from humans.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -223,6 +224,18 @@ def register_socket_events(socketio, app):
         AI voice keeps the room alive (others still react to humans via _ai_seats_react)."""
         return min(state.ai_seats) if state.ai_seats else None
 
+    def _last_message_is_human(room_id):
+        """True iff the most recent message in the room came from a human seat.
+
+        AI seats always post under the participant key "ai:<idx>"; humans post under
+        their uid. This enforces "the AI speaks once, then waits for a human" — no AI
+        seat ever takes two turns in a row without a human message in between.
+        """
+        msgs = get_or_create_context(room_id).messages
+        if not msgs:
+            return False
+        return not str(msgs[-1].get("sender", "")).startswith("ai:")
+
     def _nudge_loop(room_id):
         """Background loop: while the room stays in discuss, the lead AI seat proactively
         contributes IN CHARACTER (volunteers a unique fact or probes fit-vs-qualified).
@@ -240,6 +253,10 @@ def register_socket_events(socketio, app):
                 lead = _lead_ai_seat(st)
                 if lead is None:
                     return
+                # Speak only when a human spoke most recently — the AI never posts a
+                # second unprompted turn; it waits for the user before contributing again.
+                if not _last_message_is_human(st.room_id):
+                    continue
                 me_config = st.config
                 personality = (me_config.get("ai_personality") or "friend")
                 summary = get_or_create_context(room_id).summary_for_nudge()
@@ -275,6 +292,10 @@ def register_socket_events(socketio, app):
                 st = ex_state.get_exercise(room_id)
                 if st is None or st.phase() != ex_state.PHASE_DISCUSS:
                     return
+                # One AI reply per human turn: once any seat has spoken, the last
+                # message is no longer human, so we stop and wait for the next user line.
+                if not _last_message_is_human(room_id):
+                    return
                 summary = get_or_create_context(room_id).summary_for_nudge()
                 reply = ai_manager.seat_message(
                     me_config, personality,
@@ -287,6 +308,7 @@ def register_socket_events(socketio, app):
                 if st is None or st.phase() != ex_state.PHASE_DISCUSS:
                     return
                 _emit_seat_turn(st, idx, f"ai:{idx}", reply)
+                return   # spoke once — wait for the user before any AI replies again
 
     def _run_grading(room_id, me_config):
         """Background: run the LLM-judge grader, then hand results to ExerciseState.set_grades.
