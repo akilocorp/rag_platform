@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-07-20
-# @changed   Add Manager-Exercise helpers: append_manager_message (AI Manager / role-named turns) + transcript_for_grading / summary_for_nudge.
+# @changed   Store optional sender_role/sender_seat on messages so the Manager Exercise renders
+#            everyone (human + AI) by role name and hides which seats are AI. Prior: append_manager_message + grading/nudge helpers.
 from datetime import datetime
 from typing import List, Dict, Optional
 from flask import current_app
@@ -29,8 +30,16 @@ class ConversationContext:
         except Exception as e:
             current_app.logger.error(f"Failed to load group chat history for {self.room_id}: {e}")
 
-    def add_message(self, sender: str, text: str):
-        """Add message to in-memory history and persist to MongoDB."""
+    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None):
+        """Add message to in-memory history and persist to MongoDB.
+
+        `sender` is the attribution key (uid, or "ai:<idx>" for an AI seat) — kept
+        stable for the grader. For the Manager Exercise we also stamp an optional
+        `sender_role` (the seat's role name, shown to clients instead of the raw
+        uid/AI key) and `sender_seat` (used client-side to mark a viewer's OWN
+        messages without ever revealing which seats are AI). Both default to None
+        so the plain group-chat path stores exactly as before.
+        """
         timestamp = datetime.now().isoformat()
 
         message = {
@@ -40,6 +49,10 @@ class ConversationContext:
             "timestamp": timestamp,
             "turn": len(self.messages) + 1
         }
+        if sender_role is not None:
+            message["sender_role"] = sender_role
+        if sender_seat is not None:
+            message["sender_seat"] = sender_seat
 
         # Sliding window — trim oldest in memory if over limit
         if len(self.messages) >= self.MAX_MESSAGES_PER_ROOM:
@@ -91,14 +104,15 @@ class ConversationContext:
     # exactly like a human's and replay/grade uniformly. These thin wrappers keep
     # the sockets layer from reaching into ConversationContext internals.
 
-    def append_manager_message(self, sender_label: str, text: str):
-        """Persist + record an AI Manager / role-named turn into the room transcript.
+    def append_manager_message(self, sender_key: str, text: str, sender_role: str = None, sender_seat: int = None):
+        """Persist + record an AI-seat turn into the room transcript.
 
-        Identical to add_message but named for intent: the caller passes a display
-        label (the AI seat's role_name, or "AI Manager" for the facilitator) so the
-        transcript reads naturally and the grader can attribute the contribution.
+        `sender_key` is the grader attribution key ("ai:<idx>"); `sender_role` is
+        the seat's role name shown to clients (so the AI is indistinguishable from a
+        human manager) and `sender_seat` its index. Thin wrapper over add_message so
+        the sockets layer doesn't reach into ConversationContext internals.
         """
-        self.add_message(sender_label, text)
+        self.add_message(sender_key, text, sender_role=sender_role, sender_seat=sender_seat)
 
     def transcript_for_grading(self) -> List[Dict]:
         """Flat [{sender, text}, ...] transcript for the LLM-judge grader.

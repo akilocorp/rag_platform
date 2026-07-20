@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-07-20
-# @changed   Accept/validate/persist the manager_exercise sub-object (POST create); add manager_exercise bot_type; sync group_size==num_managers; validate+normalize grading_weights.
+# @changed   manager_exercise num_managers is now TOTAL seats (>= 2): N-1 students + 1 AI. Prior: accept/validate/persist
+#            the sub-object (POST create), add bot_type, sync group_size==num_managers, validate+normalize grading_weights.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -134,13 +135,14 @@ def validate_manager_exercise(source, target):
     if not isinstance(raw, dict):
         return jsonify({"error": "manager_exercise config is required for this bot type"}), 400
 
-    # num_managers (N): the number of student seats. Must be a positive int.
+    # num_managers (N): TOTAL manager seats. One seat is always the AI, so N seats =
+    # (N-1) students + 1 AI. Must be an int >= 2 (at least one student + the AI).
     try:
         num_managers = int(raw.get('num_managers'))
     except (ValueError, TypeError):
         return jsonify({"error": "manager_exercise.num_managers must be an integer"}), 400
-    if num_managers < 1:
-        return jsonify({"error": "manager_exercise.num_managers must be >= 1"}), 400
+    if num_managers < 2:
+        return jsonify({"error": "manager_exercise.num_managers must be >= 2 (N-1 students + 1 AI)"}), 400
 
     # Phase durations (minutes) — floats allowed, must be strictly positive.
     def _positive_minutes(field):

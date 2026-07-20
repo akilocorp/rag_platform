@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-20
-// @changed   Mirror ConfigPage manager_exercise authoring: round-trip the sub-object, per-manager doc upload/replace, candidate roster + correct-pick, advanced personality + grading weights.
+// @changed   Manager Exercise: label N seats = (N−1) students + 1 hidden AI (min 2), matching ConfigPage.
+//            Prior: mirror ConfigPage authoring — round-trip sub-object, per-manager doc upload/replace, correct-pick, advanced.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -118,7 +119,7 @@ const EditConfigPage = () => {
             try { me = JSON.parse(me); } catch (e) { me = null; }
         }
         me = (me && typeof me === 'object') ? me : {};
-        const num = Math.max(1, Math.min(10, parseInt(me.num_managers, 10) || 3));
+        const num = Math.max(2, Math.min(10, parseInt(me.num_managers, 10) || 3));
         const managers = Array.isArray(me.managers) ? me.managers.map(m => ({
             role_name: m?.role_name || '',
             doc_file_id: m?.doc_file_id || '',
@@ -873,10 +874,14 @@ const EditConfigPage = () => {
                       <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
                       <div className="mb-5">
                         <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                          <span className="inline-flex items-center gap-1">Number of Managers<InfoTip text="How many named managerial roles (= student seats). Each gets a private document. Empty seats auto-fill with AI managers after the no-show timeout." /></span>
-                          <span className="text-[#FA6C43] font-bold">{me.num_managers} {me.num_managers === 1 ? 'Manager' : 'Managers'}</span>
+                          <span className="inline-flex items-center gap-1">Total Manager Seats<InfoTip text="Total named managerial roles in the room. One seat is ALWAYS a hidden AI manager, so N seats = (N−1) students + 1 AI. Each seat gets its own private document. If students no-show, their seats also fill with AI after the timeout." /></span>
+                          <span className="text-[#FA6C43] font-bold">{me.num_managers} seats</span>
                         </label>
-                        <input type="range" min="1" max="10" step="1" value={me.num_managers || 1} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        <input type="range" min="2" max="10" step="1" value={me.num_managers || 2} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        {/* Explicit student/AI split so faculty aren't surprised that N ≠ student count. */}
+                        <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                          = <span className="text-[#222]">{Math.max(1, (me.num_managers || 2) - 1)} student{(me.num_managers || 2) - 1 === 1 ? '' : 's'}</span> + <span className="text-[#222]">1 AI manager</span> <span className="text-gray-400">(the AI is hidden from students)</span>
+                        </p>
                       </div>
                       <div className="grid grid-cols-2 gap-6">
                         <div>

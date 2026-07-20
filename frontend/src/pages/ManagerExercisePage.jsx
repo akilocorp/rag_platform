@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-20  @changed Initial student-facing Manager Exercise page: waiting → memorize → discuss → decide → grading phases with server-deadline countdowns and animated transitions. */
+/* @language JSX  @updated 2026-07-20  @changed Everyone renders by ROLE NAME (own messages keyed by seat, not uid) so AI seats are indistinguishable; waiting-screen auto-start countdown; roster shows no AI markers. Prior: waiting → memorize → discuss → decide → grading phases with server-deadline countdowns. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -93,7 +93,6 @@ const ManagerExercisePage = () => {
   // ---- exercise snapshot (from `exercise_state`) ----
   const [numManagers, setNumManagers] = useState(0);
   const [seatedRoles, setSeatedRoles] = useState([]);   // ordered by seat index
-  const [aiSeats, setAiSeats] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [yourSeatIndex, setYourSeatIndex] = useState(null);
   const [yourRoleName, setYourRoleName] = useState(null);
@@ -173,10 +172,14 @@ const ManagerExercisePage = () => {
       clockSkewRef.current = s.server_now_ts - (Date.now() / 1000);
     }
     if (s.phase) setPhase(s.phase);
-    setDeadlineTs(typeof s.phase_deadline_ts === 'number' ? s.phase_deadline_ts : null);
+    // During waiting there's no phase timer — fall back to the no-show/auto-start
+    // deadline so the waiting countdown keeps running.
+    const dl = typeof s.phase_deadline_ts === 'number'
+      ? s.phase_deadline_ts
+      : (typeof s.no_show_deadline_ts === 'number' ? s.no_show_deadline_ts : null);
+    setDeadlineTs(dl);
     if (typeof s.num_managers === 'number') setNumManagers(s.num_managers);
     if (Array.isArray(s.seated_roles)) setSeatedRoles(s.seated_roles);
-    if (Array.isArray(s.ai_seats)) setAiSeats(s.ai_seats);
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.your_seat_index !== undefined) setYourSeatIndex(s.your_seat_index);
     if (s.your_role_name !== undefined) setYourRoleName(s.your_role_name);
@@ -217,9 +220,14 @@ const ManagerExercisePage = () => {
           socket.emit('join_queue', { uid: userIdRef.current, config_id: configId });
         });
 
-        // Still waiting for seats to fill.
+        // Still waiting for seats to fill. The no-show deadline drives the waiting
+        // countdown; correct for clock skew so all queued clients agree on it.
         socket.on('queued', (data) => {
           setQueuePosition(data.position ?? null);
+          if (typeof data.server_now_ts === 'number') {
+            clockSkewRef.current = data.server_now_ts - (Date.now() / 1000);
+          }
+          if (typeof data.no_show_deadline_ts === 'number') setDeadlineTs(data.no_show_deadline_ts);
           if (phaseRef.current === 'loading') setPhase('waiting');
         });
 
@@ -263,11 +271,11 @@ const ManagerExercisePage = () => {
         // Reused group-chat transport for transcript replay + live messages.
         socket.on('chat_history', (data) => {
           if (data.messages) {
-            setMessages(data.messages.map((m) => ({ sender: m.sender, text: m.text })));
+            setMessages(data.messages.map((m) => ({ sender: m.sender, sender_seat: m.sender_seat, text: m.text })));
           }
         });
         socket.on('message', (data) => {
-          setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
+          setMessages((prev) => [...prev, { sender: data.sender, sender_seat: data.sender_seat, text: data.text }]);
         });
 
         // Live vote progress (no per-voter pick leaked).
@@ -392,11 +400,11 @@ const ManagerExercisePage = () => {
     </div>
   );
 
-  // Roster of seated roles (who's in the room).
+  // Roster of seated roles (who's in the room). Every seat renders identically —
+  // AI seats are intentionally indistinguishable from human managers.
   const RoleRoster = () => (
     <div className="flex flex-wrap items-center justify-center gap-2">
       {seatedRoles.map((role, i) => {
-        const isAi = aiSeats.includes(i);
         const isYou = i === yourSeatIndex;
         return (
           <span
@@ -404,13 +412,11 @@ const ManagerExercisePage = () => {
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-sm transition-transform hover:-translate-y-0.5 animate-in fade-in slide-in-from-bottom-1 ${
               isYou
                 ? 'border-[#FA6C43] bg-[#FA6C43] text-white'
-                : isAi
-                ? 'border-indigo-200 bg-indigo-50 text-indigo-600'
                 : 'border-gray-200 bg-white text-gray-600'
             }`}
             style={{ animationDelay: `${i * 60}ms` }}
           >
-            {isAi ? <FaBrain className="text-[10px]" /> : <FaUserTie className="text-[10px]" />}
+            <FaUserTie className="text-[10px]" />
             {role || `Seat ${i + 1}`}{isYou ? ' (you)' : ''}
           </span>
         );
@@ -463,11 +469,12 @@ const ManagerExercisePage = () => {
             <div className="text-xs font-semibold text-gray-500">Position in queue: {queuePosition}</div>
           )}
 
-          {/* No-show auto-fill countdown (deadline is the waiting-phase no_show deadline). */}
+          {/* Auto-start countdown (the no-show deadline). Neutral wording — never
+              reveal that empty seats are filled by AI. */}
           {secsLeft != null && (
             <div className="text-center animate-in fade-in duration-300">
               <p className="text-[11px] uppercase tracking-widest text-gray-400 font-bold mb-1">
-                Empty seats auto-filled by AI in
+                Session begins in
               </p>
               <p className="text-2xl font-extrabold tabular-nums text-[#FA6C43]">{fmtClock(secsLeft)}</p>
             </div>
@@ -856,7 +863,9 @@ const ManagerExercisePage = () => {
           )}
 
           {messages.map((msg, i) => {
-            const isMe = msg.sender === userIdRef.current;
+            // Own messages are identified by SEAT (not uid), so the client never needs
+            // to know which participants are AI — everyone shows by role name.
+            const isMe = msg.sender_seat != null && msg.sender_seat === yourSeatIndex;
             const isSystem = msg.sender === 'System';
             if (isSystem) {
               return (

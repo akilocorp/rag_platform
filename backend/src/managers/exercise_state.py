@@ -220,7 +220,10 @@ class ExerciseState:
                     for c in self.candidates
                 ],
                 "seated_roles": self._seated_roles(),
-                "ai_seats": list(self.ai_seats),
+                # No-show deadline drives the waiting-screen countdown. AI seats are
+                # deliberately NOT exposed — clients must not be able to tell which
+                # seats are AI (they render identically to human managers).
+                "no_show_deadline_ts": self.no_show_deadline_ts,
                 "you_voted_individual": uid in self.individual_votes,
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
@@ -575,14 +578,14 @@ class ExerciseState:
 
         self._broadcast_phase()
 
+        # Enrich only HUMAN grades for the client payload. AI-seat grades stay in
+        # Mongo (self.grades) but are never broadcast — shipping an "ai:<idx>" key
+        # would reveal which participant was the AI.
         enriched = {}
         for uid, g in self.grades.items():
+            if uid.startswith("ai:"):
+                continue
             seat = self.seat_of(uid)
-            if seat is None and uid.startswith("ai:"):
-                try:
-                    seat = int(uid.split(":", 1)[1])
-                except (ValueError, IndexError):
-                    seat = None
             enriched[uid] = {
                 **g,
                 "role_name": self.role_name_for_seat(seat) or "",

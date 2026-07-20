@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-20
-# @changed   Add deterministic seat assignment, force_form_room (no-show AI fill),
-#            get_seat_assignment, and get_config_id for the manager_exercise flow.
+# @changed   Reserve AI seat(s) via ai_fill_to (room forms on N-1 humans, last seat is AI);
+#            add get_ai_seats. Plus prior: seat assignment, force_form_room, get_seat_assignment, get_config_id.
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -40,16 +40,22 @@ class MatchManager:
         group_size: int,
         *,
         seat_assign: bool = False,
+        ai_fill_to: Optional[int] = None,
     ) -> Tuple[Optional[str], Optional[List[str]]]:
         """
         Add uid to the waiting queue for config_id.
 
         Args:
             seat_assign: manager_exercise flow only. When True and a room forms,
-                a deterministic seat map (uid -> index, by match order) plus an
-                empty ai_seats list are stashed on the room record so the sockets
-                agent can read them via get_seat_assignment(). Defaults False so
-                the plain group-chat path (3 positional args) is untouched.
+                a deterministic seat map (uid -> index, by match order) is stashed
+                on the room record so the sockets agent can read it via
+                get_seat_assignment(). Defaults False so the plain group-chat path
+                (3 positional args) is untouched.
+            ai_fill_to: manager_exercise flow only. Total number of manager seats
+                (>= group_size). When set, the trailing seats [group_size, ai_fill_to)
+                are reserved as AI seats — so the exercise always includes at least
+                one AI manager and a room forms as soon as `group_size` HUMANS queue
+                (i.e. N-1 humans for an N-seat exercise). Read back via get_ai_seats().
 
         Returns:
             (room_id, [matched_uids])  if a full group formed, else (None, None).
@@ -76,7 +82,12 @@ class MatchManager:
             if seat_assign:
                 # Deterministic: seat index = position in match order.
                 room["seat_assignment"] = {u: i for i, u in enumerate(matched_uids)}
-                room["ai_seats"] = []  # all seats human when the queue fills naturally
+                # Trailing seats [group_size, ai_fill_to) are AI (>= 1 reserved seat).
+                room["ai_seats"] = (
+                    list(range(group_size, ai_fill_to))
+                    if ai_fill_to and ai_fill_to > group_size
+                    else []
+                )
             self.active_rooms[room_id] = room
             for u in matched_uids:
                 self.user_to_room[u] = room_id
@@ -150,6 +161,14 @@ class MatchManager:
         the match order captured when the room formed.
         """
         return dict(self.active_rooms.get(room_id, {}).get("seat_assignment", {}))
+
+    def get_ai_seats(self, room_id: str) -> List[int]:
+        """
+        Return the reserved AI-seat indices for a formed room (empty list if the
+        room is unknown or all-human). Set at formation via join_queue(ai_fill_to=)
+        or force_form_room's no-show padding.
+        """
+        return list(self.active_rooms.get(room_id, {}).get("ai_seats", []))
 
     def force_form_room(
         self,
