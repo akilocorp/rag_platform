@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import {
@@ -11,8 +12,10 @@ import {
   FiMoreHorizontal,
   FiDownload,
   FiTrash2,
+  FiEdit2,
   FiFolder,
   FiBarChart2,
+  FiHome,
 } from 'react-icons/fi';
 import { RiRobot2Line } from 'react-icons/ri';
 import { FaSpinner } from 'react-icons/fa';
@@ -77,16 +80,34 @@ export const ChatSidebar = ({
   onFetchUrl,
   isFetchingUrl = false,
   onDeleteSession = () => {},
+  onRenameSession = () => {},
+  // Session list customization (experiential labs reuse this list)
+  sessionTo = null,            // (session) => path; defaults to the chat route
+  hideSessionMenu = false,     // hide the download/delete dropdown
+  sessionsLabel = 'Recent Chats',
   // Credits (UI placeholder for now)
   credits = { used: 240, total: 500 },
 }) => {
+  const linkForSession = sessionTo || ((session) => `/chat/${configId}/${session.session_id}`);
   const { chatId: activeChatId } = useParams();
   const navigate = useNavigate();
   const [openDropdown, setOpenDropdown] = useState(null);
+  // Viewport coords for the fixed chat menu, captured once on open so it
+  // escapes the sidebar's backdrop-blur + overflow clipping without a portal.
+  const [menuPos, setMenuPos] = useState(null);
   const [removingChatIds, setRemovingChatIds] = useState(() => new Set());
+  // DOM node beside the "Files" header that FilesPanel portals its + control into.
+  const [filesAddSlot, setFilesAddSlot] = useState(null);
+  // Rename modal: the session being renamed + the draft title.
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
 
   useEffect(() => {
-    const handleClickOutside = () => setOpenDropdown(null);
+    const handleClickOutside = () => {
+      setOpenDropdown(null);
+      setMenuPos(null);
+    };
     if (openDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
@@ -165,6 +186,33 @@ export const ChatSidebar = ({
     }, 220);
   };
 
+  const openRename = (session) => {
+    setRenameTarget(session);
+    setRenameValue(session.title || '');
+    setOpenDropdown(null);
+    setMenuPos(null);
+  };
+
+  const closeRename = () => {
+    setRenameTarget(null);
+    setRenameValue('');
+    setRenameSaving(false);
+  };
+
+  const handleRenameSubmit = async () => {
+    const title = renameValue.trim();
+    if (!renameTarget || !title || renameSaving) return;
+    setRenameSaving(true);
+    try {
+      await apiClient.patch(`/chat/${configId}/${renameTarget.session_id}/title`, { title });
+      onRenameSession(renameTarget.session_id, title);
+      closeRename();
+    } catch (error) {
+      console.error('Error renaming chat:', error);
+      setRenameSaving(false);
+    }
+  };
+
   const goConfigList = () => navigate('/config_list');
 
   const handleLogoClick = (e) => {
@@ -184,7 +232,11 @@ export const ChatSidebar = ({
     Math.min(100, Math.round(((credits?.used ?? 0) / Math.max(1, credits?.total ?? 1)) * 100)),
   );
 
+  const menuSession =
+    openDropdown && sessions.find((s) => s.session_id === openDropdown);
+
   return (
+    <>
     <aside
       className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm w-72 ${
         isCollapsed ? 'md:w-20' : 'md:w-[30%]'
@@ -208,16 +260,20 @@ export const ChatSidebar = ({
           <Link
             to="/config_list"
             onClick={handleLogoClick}
-            className={`flex items-center justify-center hover:opacity-90 transition-opacity shrink-0 ${
+            className={`group relative flex items-center justify-center shrink-0 ${
               isCollapsed ? 'w-full' : ''
             }`}
             title="ACTR Labs — Agent list"
           >
+            {/* Logo cross-fades to a Home icon on hover (links to the agent list) */}
             <img
               src={logo}
               alt="ACTR Labs"
-              className={`w-auto object-contain ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
+              className={`w-auto object-contain transition-opacity duration-300 ease-out group-hover:opacity-0 ${isCollapsed ? 'h-8 max-w-[2.5rem]' : 'h-10'}`}
             />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+              <FiHome className={`text-[#FA6C43] ${isCollapsed ? 'w-7 h-7' : 'w-8 h-8'}`} />
+            </span>
           </Link>
           <button
             type="button"
@@ -293,7 +349,7 @@ export const ChatSidebar = ({
                     }`}
                   />
                   <FiClock className="mr-1.5 w-3.5 h-3.5 text-gray-500" />
-                  Recent Chats
+                  {sessionsLabel}
                 </span>
                 <span className="text-[11px] text-gray-400 tabular-nums">
                   {sessions.length}
@@ -340,7 +396,7 @@ export const ChatSidebar = ({
                         ) : (
                           <>
                             <Link
-                              to={`/chat/${configId}/${session.session_id}`}
+                              to={linkForSession(session)}
                               onClick={() => onClose && onClose()}
                               className={`flex items-center px-4 pr-9 py-3 rounded-xl transition-all ${
                                 activeChatId === session.session_id
@@ -372,47 +428,40 @@ export const ChatSidebar = ({
                             </Link>
 
                             {/* Three-dot menu */}
+                            {!hideSessionMenu && (
                             <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
                               <button
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  setOpenDropdown(
-                                    openDropdown === session.session_id ? null : session.session_id,
+                                  if (openDropdown === session.session_id) {
+                                    setOpenDropdown(null);
+                                    setMenuPos(null);
+                                    return;
+                                  }
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  // Clamp so the w-44 (176px) menu stays fully
+                                  // on-screen; flip above the button if there
+                                  // isn't room below it.
+                                  const MENU_W = 176;
+                                  const MENU_H = 132;
+                                  const right = Math.min(
+                                    Math.max(8, window.innerWidth - rect.right),
+                                    window.innerWidth - MENU_W - 8
                                   );
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const top = spaceBelow < MENU_H + 12
+                                    ? Math.max(8, rect.top - 6 - MENU_H)
+                                    : rect.bottom + 6;
+                                  setMenuPos({ top, right });
+                                  setOpenDropdown(session.session_id);
                                 }}
                                 className="p-1 rounded-full hover:bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors"
                               >
                                 <FiMoreHorizontal className="w-4 h-4" />
                               </button>
-
-                              {openDropdown === session.session_id && (
-                                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[60]">
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      handleDownloadChat(session.session_id, session.title);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
-                                  >
-                                    <FiDownload className="w-4 h-4 flex-shrink-0" />
-                                    <span>Download Chat</span>
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      handleDeleteChat(session.session_id);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
-                                  >
-                                    <FiTrash2 className="w-4 h-4 flex-shrink-0" />
-                                    <span>Delete Chat</span>
-                                  </button>
-                                </div>
-                              )}
                             </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -421,13 +470,17 @@ export const ChatSidebar = ({
                     })
                   ) : (
                     <div className="text-center p-4">
-                      <p className="text-gray-500 text-sm">No recent conversations</p>
-                      <Link
-                        to={`/chat/${configId}`}
-                        className="text-[#2D6CDF] text-xs hover:underline mt-1 inline-block"
-                      >
-                        Start a new chat
-                      </Link>
+                      <p className="text-gray-500 text-sm">
+                        {sessionTo ? 'No finished sessions yet' : 'No recent conversations'}
+                      </p>
+                      {!sessionTo && (
+                        <Link
+                          to={`/chat/${configId}`}
+                          className="text-[#2D6CDF] text-xs hover:underline mt-1 inline-block"
+                        >
+                          Start a new chat
+                        </Link>
+                      )}
                     </div>
                   )}
                     </div>
@@ -438,11 +491,11 @@ export const ChatSidebar = ({
 
             {/* === Files accordion === */}
             <div className="mb-2">
-              <button
-                onClick={() => switchTab('files')}
-                className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200"
-              >
-                <span className="flex items-center text-[13px] font-semibold text-[#222]">
+              <div className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200">
+                <button
+                  onClick={() => switchTab('files')}
+                  className="flex items-center text-[13px] font-semibold text-[#222] flex-1 min-w-0"
+                >
                   <FiChevronDown
                     className={`mr-1.5 w-3.5 h-3.5 text-gray-500 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
                       activeTab === 'files' ? 'rotate-0' : '-rotate-90'
@@ -450,8 +503,10 @@ export const ChatSidebar = ({
                   />
                   <FiFolder className="mr-1.5 w-3.5 h-3.5 text-gray-500" />
                   Files
-                </span>
-              </button>
+                </button>
+                {/* FilesPanel portals its + add control here when the section is open */}
+                <div ref={setFilesAddSlot} className="flex-shrink-0" />
+              </div>
 
               <div
                 className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
@@ -482,6 +537,7 @@ export const ChatSidebar = ({
                       onToggleFile={onToggleFile}
                       onFetchUrl={onFetchUrl}
                       isFetchingUrl={isFetchingUrl}
+                      addControlSlot={activeTab === 'files' ? filesAddSlot : null}
                     />
                   </div>
                 </div>
@@ -554,6 +610,100 @@ export const ChatSidebar = ({
         </div>
       </div>
     </aside>
+
+    {/* Chat actions menu — portaled to <body> so no ancestor's backdrop-blur,
+        transform or overflow can clip it; positioned via fixed viewport coords. */}
+    {menuSession && menuPos && createPortal(
+      <div
+        className="fixed w-44 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-[120] animate-chip-in origin-top-right"
+        style={{ top: menuPos.top, right: menuPos.right }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openRename(menuSession);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiEdit2 className="w-4 h-4 flex-shrink-0" />
+          <span>Rename Chat</span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDownloadChat(menuSession.session_id, menuSession.title);
+            setOpenDropdown(null);
+            setMenuPos(null);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:text-[#FA6C43] hover:bg-[#F0F6FB] transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiDownload className="w-4 h-4 flex-shrink-0" />
+          <span>Download Chat</span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDeleteChat(menuSession.session_id);
+            setOpenDropdown(null);
+            setMenuPos(null);
+          }}
+          className="w-full px-3 py-2 text-left text-sm text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center space-x-3 rounded-md"
+        >
+          <FiTrash2 className="w-4 h-4 flex-shrink-0" />
+          <span>Delete Chat</span>
+        </button>
+      </div>,
+      document.body
+    )}
+
+    {/* Rename modal — portaled + centered. */}
+    {renameTarget && createPortal(
+      <div
+        className="fixed inset-0 z-[130] flex items-center justify-center px-4 bg-black/40 animate-in fade-in duration-150"
+        onClick={closeRename}
+      >
+        <div
+          className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 animate-chip-in origin-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-base font-semibold text-[#222] mb-3">Rename chat</h3>
+          <input
+            autoFocus
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameSubmit();
+              if (e.key === 'Escape') closeRename();
+            }}
+            maxLength={120}
+            placeholder="Chat name"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/40 focus:border-[#FA6C43] transition-shadow"
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              onClick={closeRename}
+              className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRenameSubmit}
+              disabled={!renameValue.trim() || renameSaving}
+              className="px-4 py-2 text-sm font-semibold text-white bg-[#FA6C43] hover:bg-[#e85a30] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+            >
+              {renameSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   );
 };
 

@@ -2,23 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
-
-const KEY_COMPONENTS = [
-  { id: 'pain',             label: 'The Pain' },
-  { id: 'solution',         label: 'The Solution' },
-  { id: 'customer',         label: 'The Customer' },
-  { id: 'competition',      label: 'The Competition' },
-  { id: 'deal',             label: 'The Deal' },
-  { id: 'team',             label: 'The Team' },
-  { id: 'summary_sentence', label: 'Summary Sentence' },
-];
-const COMPOSITES = [
-  { key: 'confidence', label: 'Confidence' },
-  { key: 'competence', label: 'Competence' },
-  { key: 'passion',    label: 'Passion' },
-];
+import VideoNav from '../components/VideoNav';
 
 const C = (v) => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
+
+// Collect the union of prof-defined boxes / content checks across all attempts,
+// preserving first-seen order. Dimensions are consistent within a config, but a
+// union keeps the table stable even if a config was edited between attempts.
+const collectByOrder = (detailMap, pick) => {
+  const seen = new Map();
+  Object.values(detailMap || {}).forEach((d) => {
+    (pick(d) || []).forEach((item) => {
+      if (item?.id && !seen.has(item.id)) seen.set(item.id, item);
+    });
+  });
+  return [...seen.values()];
+};
 const fmt = (v) => v != null ? (v / 10).toFixed(1) : '—';
 const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
 
@@ -33,6 +32,8 @@ function StatusChip({ status }) {
 }
 
 function CompareTable({ submissions, detailMap }) {
+  const dimList = collectByOrder(detailMap, (d) => d?.scores?.dimensions);
+  const checkList = collectByOrder(detailMap, (d) => d?.scores?.content_checks);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[400px] border-collapse">
@@ -66,13 +67,13 @@ function CompareTable({ submissions, detailMap }) {
             })}
           </tr>
 
-          {/* PCCP composites */}
-          {COMPOSITES.map((dim) => (
-            <tr key={dim.key} className="border-t border-gray-50">
-              <td className="text-xs font-semibold text-gray-600 py-2.5 pr-4">{dim.label}</td>
+          {/* Prof-defined scoring boxes */}
+          {dimList.map((dim) => (
+            <tr key={dim.id} className="border-t border-gray-50">
+              <td className="text-xs font-semibold text-gray-600 py-2.5 pr-4">{dim.name || dim.id}</td>
               {submissions.map((s) => {
                 const d = detailMap[s.submission_id];
-                const val = d?.scores?.pccp_eval?.[dim.key]?.score ?? d?.scores?.scores?.[dim.key]?.value;
+                const val = (d?.scores?.dimensions || []).find((x) => x.id === dim.id)?.score;
                 return (
                   <td key={s.submission_id} className="px-3 py-2.5">
                     {s.status === 'scored' && val != null ? (
@@ -89,15 +90,17 @@ function CompareTable({ submissions, detailMap }) {
             </tr>
           ))}
 
-          {/* Key components */}
-          <tr className="border-t-2 border-gray-200">
-            <td colSpan={submissions.length + 1} className="text-[11px] font-bold uppercase tracking-wider text-gray-400 pt-4 pb-2">
-              Key Components
-            </td>
-          </tr>
-          {KEY_COMPONENTS.map((kc) => (
+          {/* Content checks */}
+          {checkList.length > 0 && (
+            <tr className="border-t-2 border-gray-200">
+              <td colSpan={submissions.length + 1} className="text-[11px] font-bold uppercase tracking-wider text-gray-400 pt-4 pb-2">
+                Content Checks
+              </td>
+            </tr>
+          )}
+          {checkList.map((kc) => (
             <tr key={kc.id} className="border-t border-gray-50">
-              <td className="text-xs font-semibold text-gray-600 py-2 pr-4">{kc.label}</td>
+              <td className="text-xs font-semibold text-gray-600 py-2 pr-4">{kc.label || kc.id}</td>
               {submissions.map((s) => {
                 const d = detailMap[s.submission_id];
                 const check = (d?.scores?.content_checks || []).find((c) => c.id === kc.id);
@@ -175,18 +178,22 @@ export default function VideoComparePage() {
   const subs = historyData?.submissions || [];
 
   if (subs.length === 0) return wrap(
-    <div className="bg-white rounded-2xl p-8 text-center">
-      <FaFilm className="text-3xl text-gray-300 mx-auto mb-4" />
-      <h2 className="font-bold text-lg text-[#222]">No submissions yet</h2>
-      <button onClick={() => navigate(`/video-upload/${configId}`)}
-        className="mt-4 px-5 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm">
-        Upload your first attempt
-      </button>
-    </div>
+    <>
+      <VideoNav className="mb-4" />
+      <div className="bg-white rounded-2xl p-8 text-center">
+        <FaFilm className="text-3xl text-gray-300 mx-auto mb-4" />
+        <h2 className="font-bold text-lg text-[#222]">No submissions yet</h2>
+        <button onClick={() => navigate(`/video-upload/${configId}`)}
+          className="mt-4 px-5 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm">
+          Upload your first attempt
+        </button>
+      </div>
+    </>
   );
 
   return wrap(
     <>
+      <VideoNav className="mb-4" />
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-[#222]">Your Attempts</h1>
         <p className="text-sm text-gray-500">{configName} · {subs.length}/15 submissions</p>

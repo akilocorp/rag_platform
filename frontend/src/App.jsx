@@ -27,6 +27,9 @@ import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
 import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
+import ExperientialPage from './pages/ExperientialPage';
+import ExperientialSessionPage from './pages/ExperientialSessionPage';
+import ExperientialDashboardPage from './pages/ExperientialDashboardPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -34,6 +37,12 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ProfessorRoute from './components/ProfessorRoute';
 import PublicChatRoute from './components/PublicChatRoute';
 import PageTransition from './components/PageTransition';
+import { isLoggedIn, dashboardPath } from './utils/auth';
+
+// Root: send logged-in users straight to their dashboard, everyone else to the landing page.
+function RootRedirect() {
+  return <Navigate to={isLoggedIn() ? dashboardPath() : '/home'} replace />;
+}
 function useIsMobile() {
   const detect = () => {
     if (typeof window === 'undefined') return false;
@@ -69,8 +78,8 @@ function App() {
         <PageTransition>
         <Routes>
 
-          {/* Redirect root domain to the Home page */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
+          {/* Root: dashboard if logged in, otherwise the Home page */}
+          <Route path="/" element={<RootRedirect />} />
 
           {/* Public Static Pages */}
           <Route path="/home" element={<HomePage />} />
@@ -98,12 +107,19 @@ function App() {
           <Route path="/video-results/:submissionId" element={<VideoResultsPage />} />
           <Route path="/video/compare/:configId" element={<VideoComparePage />} />
 
+          {/* Experiential simulation labs — scripted, no auth needed (no LLM/data calls) */}
+          {/* The standalone index is gone; labs are reached from the dashboard. */}
+          <Route path="/experiential" element={<Navigate to="/config_list" replace />} />
+          <Route path="/experiential/c/:configId" element={<ExperientialPage />} />
+          <Route path="/experiential/:templateId" element={<ExperientialPage />} />
+
           {/* Join link — public, redirects to register/login with class code */}
           <Route path="/join/:classCode" element={<JoinPage />} />
 
           {/* Student dashboard — requires login */}
           <Route element={<ProtectedRoute />}>
             <Route path="/student-dashboard" element={<StudentDashboardPage />} />
+            <Route path="/experiential/session/:sessionId" element={<ExperientialSessionPage />} />
           </Route>
 
           {/* Protected Routes - Professor only */}
@@ -113,6 +129,7 @@ function App() {
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />
             <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
+            <Route path="/experiential-dashboard/:configId" element={<ExperientialDashboardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

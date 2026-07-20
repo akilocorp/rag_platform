@@ -434,6 +434,8 @@ def rescore(sub_id):
             spec["composite_weights"] = stored["composite_weights"]
         if stored.get("feedback_prompt_template"):
             spec["feedback_prompt_template"] = stored["feedback_prompt_template"]
+        if stored.get("dimensions"):
+            spec["dimensions"] = stored["dimensions"]
         if stored.get("content_checks"):
             spec["content_checks"] = stored["content_checks"]
         if stored.get("target_duration_sec"):
@@ -465,16 +467,9 @@ def list_submissions(config_id):
     out = []
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "scores": 1, "overall": 1, "pccp_eval": 1})
-        display_scores = None
-        if score:
-            pccp = score.get("pccp_eval") or {}
-            raw  = score.get("scores") or {}
-            display_scores = {
-                dim: {"value": (pccp.get(dim) or {}).get("score") if (pccp.get(dim) or {}).get("score") is not None
-                               else (raw.get(dim) or {}).get("value")}
-                for dim in ("confidence", "competence", "passion")
-            }
+                                            {"_id": 0, "dimensions": 1, "overall": 1})
+        dims = [{"id": d.get("id"), "name": d.get("name"), "score": d.get("score")}
+                for d in ((score or {}).get("dimensions") or [])]
         out.append({
             "id": str(s["_id"]),
             "name": s.get("submitter_name"),
@@ -482,7 +477,7 @@ def list_submissions(config_id):
             "status": s.get("status"),
             "created_at": s.get("created_at"),
             "overall": (score or {}).get("overall"),
-            "scores": display_scores,
+            "dimensions": dims,
         })
     return jsonify({"submissions": out})
 
@@ -495,130 +490,90 @@ def dashboard(config_id):
     db = current_app.config['MONGO_DB']
     scores = list(db['video_scores'].find({"config_id": config_id}))
 
-    dims = ("confidence", "competence", "passion")
-    buckets = {d: {"excellent": 0, "strong": 0, "developing": 0, "weak": 0} for d in dims}
-    sums = {d: [] for d in dims}
+    # ---- Per-dimension aggregation (dynamic; dimensions are prof-defined) ----
+    dim_order, dim_name, dim_vals, dim_dist = [], {}, {}, {}
     weakness_tally = {}
-
     for s in scores:
-        sc = s.get("scores") or {}
         lowest = None
-        for d in dims:
-            v = (sc.get(d) or {}).get("value")
+        for d in (s.get("dimensions") or []):
+            did = d.get("id")
+            if not did:
+                continue
+            if did not in dim_name:
+                dim_order.append(did)
+                dim_name[did] = d.get("name") or did
+                dim_vals[did] = []
+                dim_dist[did] = {"excellent": 0, "strong": 0, "developing": 0, "weak": 0}
+            v = d.get("score")
             if v is None:
                 continue
-            sums[d].append(v)
+            dim_vals[did].append(v)
             if v >= 80:
-                buckets[d]["excellent"] += 1
+                dim_dist[did]["excellent"] += 1
             elif v >= 65:
-                buckets[d]["strong"] += 1
+                dim_dist[did]["strong"] += 1
             elif v >= 50:
-                buckets[d]["developing"] += 1
+                dim_dist[did]["developing"] += 1
             else:
-                buckets[d]["weak"] += 1
+                dim_dist[did]["weak"] += 1
             if lowest is None or v < lowest[1]:
-                lowest = (d, v)
+                lowest = (did, v)
         if lowest:
             weakness_tally[lowest[0]] = weakness_tally.get(lowest[0], 0) + 1
 
-    averages = {d: (round(sum(sums[d]) / len(sums[d]), 1) if sums[d] else None) for d in dims}
+    dimensions_out = [{
+        "id": did,
+        "name": dim_name[did],
+        "average": round(sum(dim_vals[did]) / len(dim_vals[did]), 1) if dim_vals[did] else None,
+        "distribution": dim_dist[did],
+    } for did in dim_order]
+    weak_id = max(weakness_tally, key=weakness_tally.get) if weakness_tally else None
+
     overall_vals = [s.get("overall") for s in scores if s.get("overall") is not None]
 
-    # ---- Class-level analytics (Yoodli-style, aggregated) ----
-    tone_counts = {}
-    metric_issues = {}   # label -> weighted count (bad=2, warn=1)
-    word_freq = {}       # weak/filler word -> students using it
-    filler_pcts, wpms, weak_pcts = [], [], []
+    # ---- Content-check averages (dynamic; from content_checks on each doc) ----
+    chk_order, chk_label, chk_vals = [], {}, {}
+    for s in scores:
+        for chk in (s.get("content_checks") or []):
+            cid = chk.get("id")
+            if not cid:
+                continue
+            if cid not in chk_label:
+                chk_order.append(cid)
+                chk_label[cid] = chk.get("label") or cid
+                chk_vals[cid] = []
+            v = chk.get("score")
+            if v is not None:
+                chk_vals[cid].append(v)
+    component_averages = [{
+        "id": cid,
+        "label": chk_label[cid],
+        "average": round(sum(chk_vals[cid]) / len(chk_vals[cid]), 1) if chk_vals[cid] else None,
+    } for cid in chk_order]
 
-    # (category, metric_key, friendly label) — the metrics we surface as common growth areas
-    ISSUE_METRICS = [
-        ("word_choice", "filler_words", "Filler words"),
-        ("word_choice", "weak_words", "Weak words"),
-        ("word_choice", "hedging", "Hedging"),
-        ("word_choice", "sentence_starters", "Repetitive openers"),
-        ("delivery", "pace", "Pacing"),
-        ("delivery", "pauses", "Long pauses"),
-        ("delivery", "pitch_variation", "Monotone delivery"),
-        ("delivery", "energy", "Low energy"),
-        ("presence", "facial_expressivity", "Flat expression"),
-        ("presence", "composure", "Composure"),
-    ]
-
+    # ---- Lightweight class analytics (what the slim transcript analytics provides) ----
+    filler_pcts, wpms = [], []
     for s in scores:
         an = s.get("analytics") or {}
-        for t in (s.get("tone_tags") or []):
-            if t.get("active"):
-                tone_counts[t["label"]] = tone_counts.get(t["label"], 0) + 1
-        wc = an.get("word_choice") or {}
-        dl = an.get("delivery") or {}
-        if wc.get("filler_words", {}).get("pct") is not None:
-            filler_pcts.append(wc["filler_words"]["pct"])
-        if wc.get("weak_words", {}).get("pct") is not None:
-            weak_pcts.append(wc["weak_words"]["pct"])
-        if dl.get("pace", {}).get("wpm"):
-            wpms.append(dl["pace"]["wpm"])
-        for cat, key, label in ISSUE_METRICS:
-            st = ((an.get(cat) or {}).get(key) or {}).get("status")
-            if st == "bad":
-                metric_issues[label] = metric_issues.get(label, 0) + 2
-            elif st == "warn":
-                metric_issues[label] = metric_issues.get(label, 0) + 1
-        seen = set()
-        for inst in (wc.get("weak_words", {}).get("instances", []) + wc.get("filler_words", {}).get("instances", [])):
-            w = inst.get("word")
-            if w and w not in seen:
-                seen.add(w)
-                word_freq[w] = word_freq.get(w, 0) + 1
+        fp = ((an.get("word_choice") or {}).get("filler_words") or {}).get("pct")
+        if fp is not None:
+            filler_pcts.append(fp)
+        w = ((an.get("delivery") or {}).get("pace") or {}).get("wpm")
+        if w:
+            wpms.append(w)
 
     def _avg(xs):
         return round(sum(xs) / len(xs), 1) if xs else None
 
-    top_growth = sorted(metric_issues.items(), key=lambda kv: -kv[1])[:5]
-    top_words = sorted(word_freq.items(), key=lambda kv: -kv[1])[:8]
-    tone_dist = sorted(tone_counts.items(), key=lambda kv: -kv[1])
-
-    # ---- Key component averages (from content_checks on each score doc) ----
-    COMPONENT_IDS = ["gambit", "pain", "solution", "customer", "competition", "deal", "team", "summary_sentence"]
-    comp_sums = {cid: [] for cid in COMPONENT_IDS}
-    for s in scores:
-        for chk in (s.get("content_checks") or []):
-            cid = chk.get("id")
-            v = chk.get("score")
-            if cid in comp_sums and v is not None:
-                comp_sums[cid].append(v)
-    component_averages = {
-        cid: (round(sum(vals) / len(vals), 1) if vals else None)
-        for cid, vals in comp_sums.items()
-    }
-
-    # ---- PCCP eval averages (LLM-graded delivery) ----
-    pccp_sums = {"competence": [], "confidence": [], "passion": []}
-    for s in scores:
-        for dim, d in (s.get("pccp_eval") or {}).items():
-            v = d.get("score") if isinstance(d, dict) else None
-            if dim in pccp_sums and v is not None:
-                pccp_sums[dim].append(v)
-    pccp_averages = {
-        dim: (round(sum(vals) / len(vals), 1) if vals else None)
-        for dim, vals in pccp_sums.items()
-    }
-
     return jsonify({
         "total_submissions": len(scores),
         "avg_overall": round(sum(overall_vals) / len(overall_vals), 1) if overall_vals else None,
-        "averages": averages,
-        "pccp_averages": pccp_averages,
-        "distributions": buckets,
-        "common_weakness_dimension": (max(weakness_tally, key=weakness_tally.get) if weakness_tally else None),
-        "weakness_tally": weakness_tally,
+        "dimensions": dimensions_out,
+        "common_weakness_dimension": (dim_name.get(weak_id) if weak_id else None),
         "component_averages": component_averages,
         "class_analytics": {
             "avg_filler_pct": _avg(filler_pcts),
-            "avg_weak_pct": _avg(weak_pcts),
             "avg_wpm": _avg(wpms),
-            "tone_distribution": [{"label": k, "count": v} for k, v in tone_dist],
-            "common_growth_areas": [{"label": k, "weight": v} for k, v in top_growth],
-            "common_words": [{"word": k, "students": v} for k, v in top_words],
         },
     })
 

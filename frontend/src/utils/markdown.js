@@ -9,17 +9,88 @@ const M_OPEN = '\uE000';
 const M_CLOSE = '\uE001';
 const C_OPEN = '\uE002';
 const C_CLOSE = '\uE003';
+const V_OPEN = '\uE004';
+const V_CLOSE = '\uE005';
+
+// Normalize an inline ```chart spec to the canonical chart widget's data shape.
+// Two modes:
+//  \u2022 static data \u2014 {x|x_labels, series:[{name, values|points}], unit}; the widget
+//    uses {x_labels, series:[{name, points}], y_label}. `unit` used to be appended
+//    to every y-axis tick ("52.4value"); we carry it to the single y_label axis
+//    title so a real unit like "%" still reads without smearing onto every row.
+//  \u2022 function graph \u2014 {x_range, params, functions} passes straight through; the
+//    widget evaluates the expressions and renders draggable parameter sliders.
+function toChartWidgetData(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+
+  // Function-graph mode: hand the widget the parametric fields verbatim.
+  if (Array.isArray(spec.functions) && spec.functions.length && Array.isArray(spec.x_range)) {
+    const data = { type: 'line', x_range: spec.x_range, functions: spec.functions };
+    if (Array.isArray(spec.params)) data.params = spec.params;
+    if (spec.samples) data.samples = spec.samples;
+    if (spec.title) data.title = String(spec.title);
+    const yl = spec.y_label || spec.unit;
+    if (yl) data.y_label = String(yl);
+    if (spec.caption) data.caption = String(spec.caption);
+    return data;
+  }
+
+  const rawSeries = Array.isArray(spec.series) ? spec.series : [];
+  const series = rawSeries
+    .map((s) => {
+      const pts = s && (Array.isArray(s.points) ? s.points : s.values);
+      return { name: s && s.name != null ? String(s.name) : '', points: Array.isArray(pts) ? pts : [] };
+    })
+    .filter((s) => s.points.length);
+  if (!series.length) return null;
+
+  const xRaw = Array.isArray(spec.x_labels) ? spec.x_labels : (Array.isArray(spec.x) ? spec.x : []);
+  const data = {
+    type: spec.type === 'bar' ? 'bar' : 'line',
+    x_labels: xRaw.map((l) => String(l)),
+    series,
+  };
+  if (spec.title) data.title = String(spec.title);
+  const yl = spec.y_label || spec.unit;
+  if (yl) data.y_label = String(yl);
+  if (spec.caption) data.caption = String(spec.caption);
+  return data;
+}
+
+// Pull ```chart fenced blocks out before anything else and stash each as base64
+// widget data. ChatPage mounts these into the live, interactive chart widget
+// after innerHTML is set. A malformed spec falls back to a normal code block.
+function extractCharts(text) {
+  const charts = [];
+  const out = text.replace(/```chart\s*\n([\s\S]*?)```/g, (whole, body) => {
+    try {
+      const spec = JSON.parse(body.trim());
+      const data = toChartWidgetData(spec);
+      if (!data) return whole; // unusable spec \u2192 leave as a code block
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+      charts.push(encoded);
+      return `\n\n${V_OPEN}${charts.length - 1}${V_CLOSE}\n\n`;
+    } catch {
+      return whole;
+    }
+  });
+  return { text: out, charts };
+}
 
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
 const looksLikeMath = (tex) =>
-  /[\\^_{}=]/.test(tex) || /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim());
+  /[\\^_{}=]/.test(tex) ||
+  /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
+  /^[-+]?[\d.,]+$/.test(tex.trim());
 
 // Render AI markdown to HTML. Math segments are pulled out BEFORE marked runs
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
 // with KaTeX, so no DOM-wide auto-render pass is needed afterwards.
 export function renderMarkdown(raw) {
-  const text = raw || '';
+  // Pull ```chart blocks out first so marked never sees them as code. The chart
+  // placeholders are mounted into live, interactive widgets by ChatPage.
+  const { text, charts } = extractCharts(raw || '');
   const math = [];
   const stash = (tex, display) => {
     math.push({ tex, display });
@@ -76,5 +147,9 @@ export function renderMarkdown(raw) {
       return tex;
     }
   });
+  // Drop chart placeholders back in for ChatPage to mount as live widgets
+  // (unwrap any <p> marked put around the bare sentinel).
+  html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'),
+    (_, n) => (charts[+n] ? `<div class="chart-embed" data-chart="${charts[+n]}"></div>` : ''));
   return html;
 }

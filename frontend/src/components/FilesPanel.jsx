@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FiUpload,
   FiChevronRight,
@@ -9,21 +10,17 @@ import {
   FiFolder,
   FiX,
 } from 'react-icons/fi';
+import { RiFileList3Line } from 'react-icons/ri';
 import {
-  FaFolder,
   FaFilePdf,
   FaFilePowerpoint,
   FaFileWord,
   FaFileAlt,
   FaFileCode,
-  FaLink,
 } from 'react-icons/fa';
 
 const BRAND_ORANGE = '#FA6C43';
 const BRAND_ORANGE_DEEP = '#E55B34';
-const BRAND_BLUE = '#2D6CDF';
-const BRAND_BLUE_SOFT = '#5B7CAF';
-const SOFT_BG = '#F0F6FB';
 
 const formatSize = (bytes) => {
   if (!bytes && bytes !== 0) return '';
@@ -37,35 +34,45 @@ const extOf = (filename = '') => {
   return i >= 0 ? filename.slice(i + 1).toLowerCase() : '';
 };
 
-const TYPE_ICON = {
-  pdf:  { Icon: FaFilePdf,        color: BRAND_BLUE },
-  pptx: { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
-  ppt:  { Icon: FaFilePowerpoint, color: BRAND_ORANGE },
-  docx: { Icon: FaFileWord,       color: BRAND_BLUE },
-  doc:  { Icon: FaFileWord,       color: BRAND_BLUE },
-  txt:  { Icon: FaFileAlt,        color: BRAND_BLUE_SOFT },
-  md:   { Icon: FaFileCode,       color: BRAND_BLUE_SOFT },
+// Glyph varies by extension; color is always BRAND_ORANGE so the panel
+// keeps its monotone treatment while making file types scannable.
+const TYPE_GLYPH = {
+  pdf:  FaFilePdf,
+  pptx: FaFilePowerpoint,
+  ppt:  FaFilePowerpoint,
+  docx: FaFileWord,
+  doc:  FaFileWord,
+  txt:  FaFileAlt,
+  md:   FaFileCode,
 };
 
-const TypeIcon = ({ ext }) => {
-  const meta = TYPE_ICON[ext] || { Icon: FaFileAlt, color: BRAND_BLUE_SOFT };
-  const Icon = meta.Icon;
+const FileBadge = ({ ext }) => {
+  const Glyph = TYPE_GLYPH[ext] || RiFileList3Line;
   return (
-    <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-      <Icon className="w-7 h-7" style={{ color: meta.color }} />
+    <div
+      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+      style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+    >
+      <Glyph className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
     </div>
   );
 };
 
 const FolderBadge = () => (
-  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-    <FaFolder className="w-7 h-7" style={{ color: BRAND_BLUE }} />
+  <div
+    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+  >
+    <FiFolder className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
   </div>
 );
 
 const UrlBadge = () => (
-  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
-    <FaLink className="w-6 h-6" style={{ color: BRAND_ORANGE }} />
+  <div
+    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+    style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+  >
+    <FiLink className="w-5 h-5" style={{ color: BRAND_ORANGE }} />
   </div>
 );
 
@@ -174,6 +181,10 @@ const FilesPanel = ({
   canSelect = false,
   selectedFileIds = [],
   onToggleFile,
+  // When provided (a DOM node), the add (+) control is portaled into this
+  // slot — e.g. the SideBar "Files" accordion header — instead of rendering
+  // in this panel's own breadcrumb row. All add state/handlers stay here.
+  addControlSlot = null,
 }) => {
   const view = useMemo(() => resolveView(currentPath, accessibleConfigs), [currentPath, accessibleConfigs]);
 
@@ -262,6 +273,62 @@ const FilesPanel = ({
 
   const goToVirtual = (key) => onSetPath?.(key);
 
+  // The add (+) control: pill button + dropdown menu. Rendered inline in the
+  // breadcrumb row by default, or portaled into `addControlSlot` (the SideBar
+  // "Files" header) when that slot is provided.
+  const addControlNode = canUpload ? (
+    <div className="relative flex-shrink-0">
+      <button
+        onClick={(e) => { e.stopPropagation(); setAddMenuOpen((v) => !v); }}
+        className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm transition-colors"
+        style={{ backgroundColor: addMenuOpen ? '#9CA3AF' : BRAND_ORANGE }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#6B7280' : BRAND_ORANGE_DEEP)}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#9CA3AF' : BRAND_ORANGE)}
+        title="Add files, folder, or link"
+      >
+        <FiPlus
+          className={`w-3.5 h-3.5 transition-transform duration-200 ease-out ${addMenuOpen ? 'rotate-45' : ''}`}
+        />
+      </button>
+      {addMenuOpen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50"
+        >
+          <button
+            onClick={() => {
+              setAddMenuOpen(false);
+              fileInputRef.current?.click();
+            }}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiUpload className="w-3.5 h-3.5 text-gray-500" />
+            Add files
+          </button>
+          <button
+            onClick={() => openAddMode('folder')}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiFolder className="w-3.5 h-3.5 text-gray-500" />
+            Add folder
+          </button>
+          <button
+            onClick={() => openAddMode('url')}
+            className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
+          >
+            <FiLink className="w-3.5 h-3.5 text-gray-500" />
+            Add link
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const hasBreadcrumbs = view.breadcrumbs.length > 1;
+  // Inline header is needed when there are breadcrumbs to show, or when the
+  // add control isn't being portaled elsewhere (standalone usage).
+  const showInlineHeader = hasBreadcrumbs || (!addControlSlot && canUpload);
+
   // ---- render ----
   return (
     <div className="flex flex-col gap-3 pr-1">
@@ -274,76 +341,34 @@ const FilesPanel = ({
         onChange={handlePicked}
         accept=".pdf,.txt,.md,.docx,.pptx"
       />
-      {/* Breadcrumb header + Add pill */}
-      <div className={`flex items-center gap-2 ${view.breadcrumbs.length > 1 ? 'justify-between' : 'justify-end'}`}>
-        {view.breadcrumbs.length > 1 && (
-          <div className="flex items-center gap-1 flex-1 min-w-0 text-[12px] text-gray-500">
-            {view.breadcrumbs.map((c, i) => {
-              const isLast = i === view.breadcrumbs.length - 1;
-              return (
-                <React.Fragment key={`${c.path}-${i}`}>
-                  {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
-                  <button
-                    onClick={() => onSetPath?.(c.path)}
-                    className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
-                    style={isLast ? {} : undefined}
-                    title={c.label}
-                  >
-                    {c.label}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
-        )}
-        {canUpload && (
-          <div className="relative flex-shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); setAddMenuOpen((v) => !v); }}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm transition-colors"
-              style={{ backgroundColor: addMenuOpen ? '#9CA3AF' : BRAND_ORANGE }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#6B7280' : BRAND_ORANGE_DEEP)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = addMenuOpen ? '#9CA3AF' : BRAND_ORANGE)}
-              title="Add files, folder, or link"
-            >
-              <FiPlus
-                className={`w-3.5 h-3.5 transition-transform duration-200 ease-out ${addMenuOpen ? 'rotate-45' : ''}`}
-              />
-            </button>
-            {addMenuOpen && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-50"
-              >
-                <button
-                  onClick={() => {
-                    setAddMenuOpen(false);
-                    fileInputRef.current?.click();
-                  }}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiUpload className="w-3.5 h-3.5 text-gray-500" />
-                  Add files
-                </button>
-                <button
-                  onClick={() => openAddMode('folder')}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiFolder className="w-3.5 h-3.5 text-gray-500" />
-                  Add folder
-                </button>
-                <button
-                  onClick={() => openAddMode('url')}
-                  className="w-full px-3 py-2 text-left text-xs text-[#222] hover:bg-[#F0F6FB] flex items-center gap-2 transition-colors"
-                >
-                  <FiLink className="w-3.5 h-3.5 text-gray-500" />
-                  Add link
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Breadcrumb header + Add pill (pill portals to SideBar header when slotted) */}
+      {showInlineHeader && (
+        <div className={`flex items-center gap-2 ${hasBreadcrumbs ? 'justify-between' : 'justify-end'}`}>
+          {hasBreadcrumbs && (
+            <div className="flex items-center gap-1 flex-1 min-w-0 pl-3 text-[12px] text-gray-500">
+              {view.breadcrumbs.map((c, i) => {
+                const isLast = i === view.breadcrumbs.length - 1;
+                return (
+                  <React.Fragment key={`${c.path}-${i}`}>
+                    {i > 0 && <FiChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+                    <button
+                      onClick={() => onSetPath?.(c.path)}
+                      className={`truncate hover:text-[${BRAND_ORANGE}] transition-colors ${isLast ? 'text-[#222] font-semibold' : ''}`}
+                      style={isLast ? {} : undefined}
+                      title={c.label}
+                    >
+                      {c.label}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          )}
+          {!addControlSlot && addControlNode}
+        </div>
+      )}
+
+      {addControlSlot && addControlNode && createPortal(addControlNode, addControlSlot)}
 
       {/* Add panel */}
       {canUpload && addPanelOpen && (
@@ -423,16 +448,21 @@ const FilesPanel = ({
               <button
                 key={row.key}
                 onClick={() => goToVirtual(row.key)}
-                className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all text-left w-full"
+                className="group flex items-center gap-3 px-3 py-3 rounded-2xl text-left w-full transition-all hover:-translate-y-px"
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E5E7EB',
+                  color: '#1F1F1F',
+                }}
               >
                 <FolderBadge />
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[13px] font-medium">{row.label}</p>
+                  <p className="truncate text-[13px] font-semibold">{row.label}</p>
                   {row.meta && (
-                    <p className="truncate text-[10px] text-gray-500 mt-0.5">{row.meta}</p>
+                    <p className="truncate text-[10px] mt-0.5" style={{ color: '#6B7280' }}>{row.meta}</p>
                   )}
                 </div>
-                <FiChevronRight className="w-4 h-4 text-gray-400" />
+                <FiChevronRight className="w-4 h-4" style={{ color: '#9CA3AF' }} />
               </button>
             ))}
 
@@ -455,16 +485,23 @@ const FilesPanel = ({
                   isRemoving ? 'opacity-0 max-h-0 -translate-x-2 overflow-hidden' : 'opacity-100 max-h-32'
                 }`}
               >
-                <div className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 text-sm text-[#222] transition-all">
+                <div
+                  className="group relative flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px"
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    color: '#1F1F1F',
+                  }}
+                >
                   <button
                     onClick={() => onSetPath?.(nextPath)}
                     disabled={isRemoving}
                     className="flex-1 flex items-center gap-3 text-left min-w-0"
                   >
                     <FolderBadge />
-                    <span className="flex-1 truncate text-[13px] font-medium">{folderLeaf(path)}</span>
+                    <span className="flex-1 truncate text-[13px] font-semibold">{folderLeaf(path)}</span>
                   </button>
-                  <FiChevronRight className="w-4 h-4 text-gray-400 transition-opacity group-hover:opacity-0" />
+                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0" style={{ color: '#9CA3AF' }} />
                   {canUpload && (
                     <button
                       onClick={(e) => handleDeleteFolder(e, path)}
@@ -508,23 +545,38 @@ const FilesPanel = ({
                 <div
                   onClick={clickable ? () => onToggleFile(f._id) : undefined}
                   title={isPending ? pendingLabel : undefined}
-                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm text-[#222] transition-all ${
+                  className={`group flex items-center gap-3 px-3 py-3 rounded-2xl transition-all hover:-translate-y-px ${
                     clickable ? 'cursor-pointer' : ''
-                  } ${isPending ? 'opacity-60' : ''} ${
+                  } ${isPending ? 'opacity-70' : ''}`}
+                  style={
                     isSelected
-                      ? 'bg-[#F9D0C4]/30'
-                      : 'bg-white border-gray-100 hover:border-gray-200'
-                  }`}
-                  style={isSelected ? { borderColor: `${BRAND_ORANGE}66` } : undefined}
+                      ? {
+                          backgroundColor: 'rgba(250, 108, 67, 0.10)',
+                          border: `1px solid ${BRAND_ORANGE}`,
+                          color: BRAND_ORANGE,
+                        }
+                      : {
+                          backgroundColor: '#FFFFFF',
+                          border: '1px solid #E5E7EB',
+                          color: '#1F1F1F',
+                        }
+                  }
                 >
                   {isPending
-                    ? <FiLoader className="w-8 h-8 p-2 animate-spin flex-shrink-0" style={{ color: BRAND_ORANGE }} />
+                    ? (
+                      <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: 'rgba(250, 108, 67, 0.12)' }}
+                      >
+                        <FiLoader className="w-5 h-5 animate-spin" style={{ color: BRAND_ORANGE }} />
+                      </div>
+                    )
                     : f.is_url
                       ? <UrlBadge />
-                      : <TypeIcon ext={ext} />}
+                      : <FileBadge ext={ext} />}
 
                   <div className="flex-1 min-w-0">
-                    <p className={`truncate text-[13px] ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
+                    <p className={`truncate text-[13px] font-bold ${isPending ? 'animate-pulse' : ''}`}>{f.filename}</p>
                     {isPending ? (
                       <div className="mt-0.5" title={pendingLabel}>
                         <div className="flex items-center gap-1.5 text-[10px]" style={{ color: BRAND_ORANGE }}>
@@ -537,15 +589,16 @@ const FilesPanel = ({
                         </div>
                         {(isOcr || isIngesting) && (
                           <div className="flex items-center gap-1 mt-1.5 max-w-[120px]">
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: BRAND_ORANGE, opacity: isOcr ? 1 : 1 }} />
-                            <span className="flex-1 h-px" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : '#D1D5DB' }} />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: BRAND_ORANGE }} />
+                            <span className="flex-1 h-px" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.3)' }} />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isIngesting ? BRAND_ORANGE : 'rgba(250, 108, 67, 0.3)' }} />
                           </div>
                         )}
                       </div>
                     ) : (
                       <p
-                        className="truncate text-[10px] text-gray-500 mt-0.5"
+                        className="truncate text-[10px] mt-0.5"
+                        style={{ color: isSelected ? 'rgba(250, 108, 67, 0.75)' : '#6B7280' }}
                         title={f.is_url ? (f.source_url || '') : ''}
                       >
                         {f.is_url ? (f.source_url || 'URL') : formatSize(f.size_bytes)}

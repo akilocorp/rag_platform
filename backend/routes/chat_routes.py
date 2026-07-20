@@ -13,7 +13,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, message_to_dict
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, message_to_dict
 from bson import ObjectId
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
@@ -21,6 +21,7 @@ from langchain_anthropic import ChatAnthropic
 
 from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
+from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
 from models.user import User
 
@@ -405,6 +406,31 @@ def get_config_sessions(config_id):
         return jsonify({"message": "An internal server error occurred."}), 500
 
 
+@chat_bp.route('/chat/<string:config_id>/<string:chat_id>/title', methods=['PATCH'])
+@jwt_required()
+def rename_chat(config_id, chat_id):
+    """Rename a chat session's title. Ownership-checked, mirrors delete_chat."""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json(silent=True) or {}
+        title = (data.get('title') or '').strip()
+        if not title:
+            return jsonify({"message": "Title is required"}), 400
+        title = title[:120]  # keep titles sane
+
+        db = current_app.config['MONGO_DB']
+        result = db["chat_session_metadata"].update_one(
+            {"session_id": chat_id, "config_id": config_id, "user_id": user_id},
+            {"$set": {"title": title}},
+        )
+        if result.matched_count == 0:
+            return jsonify({"message": "Not found"}), 404
+        return jsonify({"message": "Renamed", "title": title}), 200
+    except Exception as e:
+        logger.error(f"Error renaming chat {chat_id}: {e}", exc_info=True)
+        return jsonify({"message": "An internal server error occurred."}), 500
+
+
 @chat_bp.route('/chat/<string:config_id>/<string:chat_id>', methods=['DELETE'])
 @jwt_required()
 def delete_chat(config_id, chat_id):
@@ -628,6 +654,95 @@ def _parse_image_blocks(images):
     return blocks
 
 
+# Supported inline image types (shared by both the Anthropic-native block
+# builder above and the LangChain image_url builder below).
+_SUPPORTED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+
+def _image_url_blocks(images):
+    """Convert the frontend dataUrl list to LangChain multimodal `image_url`
+    content blocks. This provider-agnostic shape is accepted by ChatOpenAI,
+    ChatAnthropic and ChatGoogleGenerativeAI, so the legacy chain can hand the
+    same blocks to any vision-capable model."""
+    blocks = []
+    for img in (images or []):
+        data_url = img.get('dataUrl', '')
+        if not data_url.startswith('data:'):
+            continue
+        try:
+            header, _b64 = data_url.split(',', 1)
+            media_type = header.split(':')[1].split(';')[0]
+        except Exception:
+            continue
+        if media_type not in _SUPPORTED_IMAGE_TYPES:
+            continue
+        blocks.append({"type": "image_url", "image_url": {"url": data_url}})
+    return blocks
+
+
+def _model_supports_vision(model_name):
+    """Whether a model can accept image input. Vision is model-specific, not
+    just provider-specific (gpt-4o sees images, gpt-3.5-turbo does not), so we
+    match on known families and default to False for anything unrecognized —
+    unknown models get a "can't see the image" note instead of an API error."""
+    m = (model_name or "").lower()
+    if m.startswith("claude") or m.startswith("gemini"):
+        return True
+    if m.startswith("qwen") and "-vl" in m:  # Qwen-VL vision variants only
+        return True
+    if m.startswith("gpt-3.5"):
+        return False
+    if (m.startswith("gpt-4o") or m.startswith("chatgpt-4o")
+            or m.startswith("gpt-4.1") or m.startswith("gpt-5")
+            or m.startswith("gpt-4-turbo") or m.startswith("gpt-4-vision")
+            or m.startswith("o1") or m.startswith("o3") or m.startswith("o4")):
+        return True
+    return False
+
+
+def _facilitator_enabled(config_doc):
+    """True when this bot's config turns the facilitator on."""
+    fac_cfg = config_doc.get("facilitator")
+    return bool(isinstance(fac_cfg, dict) and fac_cfg.get("enabled"))
+
+
+def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
+    """Run the facilitator post-pass for this turn; returns a {widget, data}
+    block or None. Never raises — degrades to None on any failure."""
+    fac_cfg = config_doc.get("facilitator")
+    if not (isinstance(fac_cfg, dict) and fac_cfg.get("enabled")):
+        return None
+    try:
+        history = list(history_messages or [])
+        if user_input:
+            history = history + [{"role": "user", "content": user_input}]
+        return run_facilitator(reply_text, history=history, facilitator_cfg=fac_cfg)
+    except Exception:
+        logger.exception("facilitator stage failed")
+        return None
+
+
+def _attach_facilitator_to_last_ai(chat_id, block):
+    """Attach a facilitator block to `additional_kwargs` of the most recently
+    stored AI message for this session (used by the legacy path, where the AI
+    message is persisted implicitly by RunnableWithMessageHistory)."""
+    try:
+        coll = current_app.config['MONGO_DB']['chat_histories']
+        doc = coll.find_one({"SessionId": chat_id}, sort=[("_id", -1)])
+        if not doc:
+            return
+        history = doc.get("History")
+        parsed = json.loads(history) if isinstance(history, str) else history
+        if not isinstance(parsed, dict) or parsed.get("type") != "ai":
+            return
+        data = parsed.setdefault("data", {})
+        ak = data.get("additional_kwargs")
+        data["additional_kwargs"] = {**(ak if isinstance(ak, dict) else {}), "facilitator": block}
+        coll.update_one({"_id": doc["_id"]}, {"$set": {"History": json.dumps(parsed)}})
+    except Exception:
+        logger.exception("attach facilitator (legacy) failed")
+
+
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
@@ -697,6 +812,24 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                         logger.error("usage consume (agentic) failed: %s", e)
                 yield json.dumps(done_payload) + "\n"
 
+        # Facilitator post-pass — wrap the reply with an interactive UI widget
+        # (e.g. multiple choice or a chart) when the bot's config enables it.
+        # Best-effort; a failure never affects the turn. Emit a `pending` signal
+        # first so the UI can show a "building…" skeleton during the extra call,
+        # then always emit a result (widget or null) so the skeleton clears.
+        facilitator_block = None
+        if (final_stop_reason != "error" and accumulated_text.strip()
+                and _facilitator_enabled(config_doc)):
+            yield json.dumps({"type": "facilitator_pending"}) + "\n"
+            facilitator_block = _facilitator_stage(
+                config_doc, accumulated_text, history_messages, user_input,
+            )
+            yield json.dumps({
+                "type": "facilitator",
+                "widget": facilitator_block["widget"] if facilitator_block else None,
+                "data": facilitator_block["data"] if facilitator_block else None,
+            }) + "\n"
+
         # Persist this turn. User message first, then AI message with the
         # full trace so frontend replay can re-render the tool pills.
         # Skip on error — don't write a user-visible error string as if it
@@ -706,9 +839,14 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 if attached_files:
                     history_obj.pending_attached_files = attached_files
                 history_obj.add_user_message(user_input)
+                extra_kwargs = {}
+                if full_trace:
+                    extra_kwargs["tool_trace"] = full_trace
+                if facilitator_block:
+                    extra_kwargs["facilitator"] = facilitator_block
                 ai_msg = AIMessage(
                     content=accumulated_text,
-                    additional_kwargs={"tool_trace": full_trace} if full_trace else {},
+                    additional_kwargs=extra_kwargs,
                 )
                 history_obj.add_message(ai_msg)
             except Exception as e:
@@ -748,6 +886,7 @@ def chat(config_id, chat_id):
             "is_public": 1, "user_id": 1,
             "web_access": 1, "bot_name": 1, "instructions": 1,
             "class_code": 1, "usage_pool": 1, "is_playground": 1, "is_personal": 1,
+            "facilitator": 1,
         }
     )
 
@@ -881,6 +1020,11 @@ def chat(config_id, chat_id):
 
             # -- STEP B: PREPARE LLM --
             context_text = "\n\n".join(d.page_content for d in docs)
+
+            # Multimodal: did the user attach image(s), and can this model see them?
+            image_blocks = _image_url_blocks(images) if images else []
+            supports_vision = _model_supports_vision(config_doc.get("model_name"))
+
             base_instruction = config_doc.get("prompt_template", "Answer based on context.")
             # Escape any {var} in user prompt that isn't our template vars (context, history, question)
             base_instruction = _escape_prompt_variables(base_instruction)
@@ -894,6 +1038,16 @@ def chat(config_id, chat_id):
             Context:
             {{context}}
             """ + _escape_prompt_variables(FORMATTING_GUIDE)
+
+            # Image attached but this model can't see it: tell the model so it
+            # answers honestly instead of erroring or pretending. (No braces in
+            # this note, so appending after escaping is safe.)
+            if image_blocks and not supports_vision:
+                system_message += (
+                    "\n\n[Note: The user attached an image, but this model cannot "
+                    "view images. Politely tell them you can't see it and ask them "
+                    "to describe it.]"
+                )
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_message),
@@ -983,6 +1137,76 @@ def chat(config_id, chat_id):
                 else:
                     llm = primary_llm
 
+            # -- STEP B2: MULTIMODAL TURN --
+            # If the user attached image(s) and the model can see them, bypass
+            # RunnableWithMessageHistory and stream the model directly with a
+            # multimodal HumanMessage. This keeps the base64 image out of the
+            # persisted history (we save text-only below), mirroring how the
+            # agentic path treats images as current-turn-only.
+            if image_blocks and supports_vision:
+                history_obj = get_session_history(
+                    session_id=chat_id,
+                    user_id=user_id_for_history,
+                    config_id=config_id,
+                    user_input=user_input,
+                    qualtrics_id=qualtrics_id,
+                    student_label=student_label,
+                    student_email=student_email,
+                    marketing_opt_in=marketing_opt_in,
+                )
+
+                # Rebuild the system text from the RAW prompt template — the
+                # {{ }}-escaped `system_message` above is only correct once a
+                # ChatPromptTemplate unescapes it, which we don't use here.
+                raw_instruction = config_doc.get("prompt_template", "Answer based on context.")
+                system_text = (
+                    f"{raw_instruction}\n\n"
+                    "Use the provided Context (retrieved documents) and the "
+                    "Conversation History to answer.\n"
+                    "If the user asks about previous messages, look at the History.\n\n"
+                    f"Context:\n{context_text}\n" + FORMATTING_GUIDE
+                )
+
+                messages = [SystemMessage(content=system_text)]
+                messages.extend(history_obj.messages)  # prior turns (text only)
+                messages.append(HumanMessage(
+                    content=[{"type": "text", "text": user_input}] + image_blocks
+                ))
+
+                got_any = False
+                full_text = ""
+                for chunk in llm.stream(messages):
+                    piece = getattr(chunk, "content", "")
+                    # Some providers stream content as a list of blocks.
+                    if isinstance(piece, list):
+                        piece = "".join(
+                            b.get("text", "") for b in piece if isinstance(b, dict)
+                        )
+                    if piece:
+                        got_any = True
+                        full_text += piece
+                        yield json.dumps({"type": "token", "data": piece}) + "\n"
+
+                # Persist text-only user message + AI reply. The image is NOT
+                # saved (current-turn-only), so it won't survive a reload.
+                if got_any:
+                    try:
+                        if attached_files:
+                            history_obj.pending_attached_files = attached_files
+                        history_obj.add_user_message(user_input)
+                        history_obj.add_ai_message(full_text)
+                    except Exception as e:
+                        logger.error(f"Failed to persist multimodal turn: {e}", exc_info=True)
+
+                done_payload = {"type": "done"}
+                if identity is not None and got_any:
+                    try:
+                        done_payload["usage"] = usage_limits.consume(identity, 1)
+                    except Exception as e:
+                        logger.error("usage consume (multimodal) failed: %s", e)
+                yield json.dumps(done_payload) + "\n"
+                return
+
             # -- STEP C: STREAMING INFERENCE --
             chain = prompt | llm | StrOutputParser()
             
@@ -1009,12 +1233,14 @@ def chat(config_id, chat_id):
             )
 
             got_any = False
+            accumulated_text = ""
             for chunk in chain_with_history.stream(
                 {"question": user_input, "context": context_text},
                 config={"configurable": {"session_id": chat_id}}
             ):
                 if chunk:
                     got_any = True
+                    accumulated_text += chunk
                 yield json.dumps({"type": "token", "data": chunk}) + "\n"
 
             # Charge one message only if the turn actually produced output.
@@ -1025,6 +1251,25 @@ def chat(config_id, chat_id):
                 except Exception as e:
                     logger.error("usage consume (legacy) failed: %s", e)
             yield json.dumps(done_payload) + "\n"
+
+            # Facilitator post-pass — wrap the reply with an interactive UI widget
+            # when the bot's config enables it. The AI message was persisted
+            # implicitly above, so attach the block to that stored message. Emit a
+            # `pending` signal first so the UI can show a "building…" skeleton,
+            # then always emit a result (widget or null) so the skeleton clears.
+            if got_any and accumulated_text.strip() and _facilitator_enabled(config_doc):
+                yield json.dumps({"type": "facilitator_pending"}) + "\n"
+                facilitator_block = _facilitator_stage(
+                    config_doc, accumulated_text,
+                    [{"role": "user", "content": user_input}], None,
+                )
+                yield json.dumps({
+                    "type": "facilitator",
+                    "widget": facilitator_block["widget"] if facilitator_block else None,
+                    "data": facilitator_block["data"] if facilitator_block else None,
+                }) + "\n"
+                if facilitator_block:
+                    _attach_facilitator_to_last_ai(chat_id, facilitator_block)
 
         except Exception as e:
             logger.error(f"Stream Error: {e}")

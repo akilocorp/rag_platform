@@ -14,6 +14,10 @@ COPY . .
 ARG API_URL
 ENV VITE_API_URL=${API_URL}
 
+# Node sizes its default heap from host RAM; on the small EC2 boxes that lands
+# at ~488 MB, just under what this bundle needs to build.
+ENV NODE_OPTIONS=--max-old-space-size=1536
+
 # Build the production-ready static files
 RUN npm run build
 

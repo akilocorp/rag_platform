@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/apiClient';
+import { clearRememberMe } from '../utils/auth';
 import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
@@ -29,6 +30,7 @@ const UserInfo = () => {
       await apiClient.post('/auth/logout');
       localStorage.removeItem('jwtToken');
       localStorage.removeItem('refreshToken');
+      clearRememberMe();
       navigate('/login');
     } catch (error) {
       console.error('Error during logout:', error);

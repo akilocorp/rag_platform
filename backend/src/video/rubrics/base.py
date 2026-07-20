@@ -61,6 +61,41 @@ DEFAULT_SUBMETRIC_WEIGHTS: Dict[str, Dict[str, float]] = {
 
 DEFAULT_COMPOSITE_WEIGHTS = {"confidence": 0.34, "competence": 0.33, "passion": 0.33}
 
+# Customizable scoring "boxes". Each dimension renders as a card with a score
+# out of 10 + a one-paragraph rationale. Professors rename/redefine/add/remove
+# these per config; the scoring agent reads whichever signals (delivery report
+# and/or transcript) are relevant to each definition. Names/definitions are the
+# only knobs — there is no per-source picker by design.
+DEFAULT_DIMENSIONS = [
+    {
+        "id": "confidence",
+        "name": "Confidence",
+        "definition": (
+            "How assured and composed the speaker appears and sounds — steady gaze and head "
+            "position, grounded posture, controlled and purposeful gestures, and a steady voice "
+            "free of nervous fidgeting, shakiness, or excessive filler."
+        ),
+    },
+    {
+        "id": "competence",
+        "name": "Competence",
+        "definition": (
+            "How credible, in-command, and well-prepared the speaker comes across — organized, "
+            "clear delivery, controlled pacing, purposeful movement, and a transcript that "
+            "communicates the idea knowledgeably and without confusion."
+        ),
+    },
+    {
+        "id": "passion",
+        "name": "Passion",
+        "definition": (
+            "How energized, animated, and genuinely enthusiastic the delivery is — expressive "
+            "gestures and face, vocal energy and pitch/intensity variation, and momentum that "
+            "conveys conviction without tipping into frantic or performative."
+        ),
+    },
+]
+
 DEFAULT_FEEDBACK_PROMPT = (
     "You are an expert presentation coach evaluating a spoken video presentation. "
     "Using the transcript and the delivery signals provided, write concise, encouraging "
@@ -76,6 +111,7 @@ def default_scoring_spec() -> Dict[str, Any]:
         "composite_weights": dict(DEFAULT_COMPOSITE_WEIGHTS),
         "submetric_weights": copy.deepcopy(DEFAULT_SUBMETRIC_WEIGHTS),
         "feedback_prompt_template": DEFAULT_FEEDBACK_PROMPT,
+        "dimensions": copy.deepcopy(DEFAULT_DIMENSIONS),
         "content_checks": [],
         "target_duration_sec": 60,
     }

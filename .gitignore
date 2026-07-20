@@ -30,6 +30,10 @@ instance/
 node_modules
 dist
 dist-ssr
+.vite/
+
+# Runtime upload dump (Telegram bot) — not source
+.telegram_uploads/
 
 # ===================================================================
 # Editor & IDE specific files

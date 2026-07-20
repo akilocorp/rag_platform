@@ -376,6 +376,73 @@
     100% { background-position: -200% 0; }
   }
 
+  /* Facilitator widgets — entrance + chart draw-on + pending shimmer */
+  .fac-enter { animation: fac-enter 0.32s ease-out both; }
+  @keyframes fac-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .fac-chart-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: fac-draw 0.9s ease-out forwards;
+  }
+  @keyframes fac-draw { to { stroke-dashoffset: 0; } }
+
+  .fac-chart-dot { opacity: 0; animation: fac-fade-in 0.3s ease-out forwards; }
+  @keyframes fac-fade-in { to { opacity: 1; } }
+
+  .fac-chart-bar {
+    transform: scaleY(0);
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: fac-grow 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes fac-grow { to { transform: scaleY(1); } }
+
+  /* flashcard — 3D flip. The button sets the perspective; the inner layer
+     rotates; each face is back-face-hidden so only one shows at a time. */
+  .fac-flip { perspective: 900px; }
+  .fac-flip-inner {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .fac-flip-inner.is-flipped { transform: rotateY(180deg); }
+  .fac-flip-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .fac-flip-back { transform: rotateY(180deg); }
+
+  /* mind_map — thread fade-in on create, gentle tile/handle affordances */
+  .fac-thread { animation: fac-fade-in 0.25s ease-out both; }
+  .fac-mm-tile { transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.12s ease; }
+  .fac-mm-tile:hover { box-shadow: 0 2px 10px rgba(250, 108, 67, 0.18); }
+  .fac-mm-handle { transition: background-color 0.15s ease, transform 0.15s ease; }
+  .fac-mm-handle:hover { transform: scale(1.18); }
+  .fac-mm-badge { animation: dictionary-pop-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  /* impact_map — subtle country hover lift; highlighted countries get a pointer */
+  .fac-im-country { transition: fill-opacity 0.15s ease; }
+  .fac-im-hit { cursor: pointer; }
+  .fac-im-hit:hover { fill-opacity: 1; }
+
+  .fac-pending-bar {
+    background: linear-gradient(90deg, #eef2f6 25%, #e2e8f0 37%, #eef2f6 63%);
+    background-size: 400% 100%;
+    animation: fac-pending 1.4s ease infinite;
+  }
+  @keyframes fac-pending {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+
   .input-field {
     @apply w-full px-4 py-3 pl-10 text-white bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent;
   }
@@ -548,3 +615,155 @@ a:focus-visible {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── macro101 morphing MCQ input (shock-world) ──────────────────────────────
+   The options render as full-width buttons; picking one collapses the others
+   and morphs the chosen button into a "Why?" field. All motion is CSS. */
+.sw-morph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sw-row {
+  overflow: hidden;
+  max-height: 240px;
+  transition:
+    max-height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease,
+    margin 0.3s ease,
+    transform 0.3s ease;
+}
+/* An unpicked option, once a sibling is chosen: collapse it out of the way. */
+.sw-row.is-hidden {
+  max-height: 0;
+  opacity: 0;
+  margin-top: -0.5rem;   /* absorb the flex gap as it vanishes */
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+.sw-option-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+  animation: sw-opt-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sw-option-btn:hover:not(:disabled) {
+  border-color: #FA6C43;
+  color: #FA6C43;
+  box-shadow: 0 4px 14px rgba(250, 108, 67, 0.14);
+}
+.sw-option-btn:active:not(:disabled) { transform: scale(0.99); }
+.sw-option-btn:disabled { opacity: 0.6; cursor: default; }
+/* Gentle stagger so the option stack cascades in. */
+.sw-morph .sw-row:nth-child(1) .sw-option-btn { animation-delay: 0.00s; }
+.sw-morph .sw-row:nth-child(2) .sw-option-btn { animation-delay: 0.05s; }
+.sw-morph .sw-row:nth-child(3) .sw-option-btn { animation-delay: 0.10s; }
+.sw-morph .sw-row:nth-child(4) .sw-option-btn { animation-delay: 0.15s; }
+.sw-morph .sw-row:nth-child(5) .sw-option-btn { animation-delay: 0.20s; }
+.sw-morph .sw-row:nth-child(6) .sw-option-btn { animation-delay: 0.25s; }
+
+/* The chosen option, now an input box. */
+.sw-input-shell {
+  border: 1.5px solid #FA6C43;
+  border-radius: 16px;
+  background: #fff;
+  padding: 0.6rem 0.7rem 0.55rem;
+  box-shadow: 0 8px 26px rgba(250, 108, 67, 0.18);
+  transform-origin: top center;
+  animation: sw-morph-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sw-shell-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  animation: sw-fade-up 0.32s ease both;
+  animation-delay: 0.1s;
+}
+.sw-chip {
+  min-width: 0;
+  flex: 1;
+  background: rgba(250, 108, 67, 0.1);
+  color: #b8452a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0.35rem 0.7rem;
+  border-radius: 12px;
+}
+.sw-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+.sw-back:hover:not(:disabled) { color: #FA6C43; }
+.sw-back:disabled { opacity: 0.5; cursor: default; }
+.sw-shell-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: sw-fade-up 0.34s ease both;
+  animation-delay: 0.16s;
+}
+.sw-why {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #222;
+  font-size: 1rem;
+  padding: 0.35rem 0.25rem;
+}
+.sw-why::placeholder { color: #9ca3af; }
+.sw-send {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #FA6C43;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(250, 108, 67, 0.45);
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+.sw-send:hover:not(:disabled) { opacity: 0.9; }
+.sw-send:active:not(:disabled) { transform: scale(0.95); }
+.sw-send:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+@keyframes sw-opt-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sw-morph-in {
+  from { opacity: 0.3; transform: scaleY(0.62) translateY(-4px); }
+  to   { opacity: 1;   transform: scaleY(1) translateY(0); }
+}
+@keyframes sw-fade-up {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sw-row, .sw-option-btn, .sw-input-shell, .sw-shell-top, .sw-shell-bottom {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

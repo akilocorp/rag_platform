@@ -55,6 +55,16 @@ jobs:
             fi
           }
 
+          # The frontend bundle needs ~1.5 GB to build; these instances have
+          # little RAM, so back it with swap or the build gets OOM-killed.
+          if ! sudo swapon --show | grep -q /swapfile; then
+            sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+            grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+          fi
+
           cd ~/rag_platform
 
           # backend/.env is managed manually on the server — do NOT regenerate
@@ -85,7 +95,7 @@ jobs:
             - name: Upload repository to Prod EC2
               uses: appleboy/scp-action@v0.1.7
               with:
-                host: ec2-18-119-159-35.us-east-2.compute.amazonaws.com
+                host: ec2-3-149-253-54.us-east-2.compute.amazonaws.com
                 username: ${{ secrets.EC2_USER }}
                 key: ${{ secrets.EC2_SSH_KEY }}
                 source: "."
@@ -95,7 +105,7 @@ jobs:
             - name: Deploy on Prod EC2 (remote build)
               uses: appleboy/ssh-action@v1.0.3
               with:
-                host: ec2-18-119-159-35.us-east-2.compute.amazonaws.com
+                host: ec2-3-149-253-54.us-east-2.compute.amazonaws.com
                 username: ${{ secrets.EC2_USER }}
                 key: ${{ secrets.EC2_SSH_KEY }}
                 command_timeout: 60m
@@ -123,13 +133,24 @@ jobs:
                     fi
                   }
         
+                  # The frontend bundle needs ~1.5 GB to build; these instances
+                  # have little RAM, so back it with swap or the build gets
+                  # OOM-killed.
+                  if ! sudo swapon --show | grep -q /swapfile; then
+                    sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+                    sudo chmod 600 /swapfile
+                    sudo mkswap /swapfile
+                    sudo swapon /swapfile
+                    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+                  fi
+
                   cd ~/rag_platform
 
                   # backend/.env is managed manually on the server — do NOT regenerate
                   # it from CI secrets. The SCP upload above never ships a .env (it's
                   # gitignored), so the existing server env file is left untouched.
 
-                  export FRONTEND_API_URL="http://ec2-18-119-159-35.us-east-2.compute.amazonaws.com:5000/api"
+                  export FRONTEND_API_URL="http://ec2-3-149-253-54.us-east-2.compute.amazonaws.com:5000/api"
                   COMPOSE_FILE="docker-compose.remote.prod.yml"
         
                   echo "Using compose file: $COMPOSE_FILE"

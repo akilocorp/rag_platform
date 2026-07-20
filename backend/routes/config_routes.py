@@ -9,6 +9,7 @@ from src.utils.vector_stores.store_vector_stores import process_files_and_create
 from models.config import Config
 from models.user import User
 from src.usage import limits as usage_limits
+from src.facilitator.config import normalize_config as normalize_facilitator
 
 import re
 import json
@@ -295,8 +296,10 @@ Answer:"""
             "group_duration": group_duration,
             "bots": bots_list,
             "web_access": bool(config_data.get('web_access', True)),
+            "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
+            "facilitator": normalize_facilitator(config_data.get('facilitator')),
         }
 
         # Video-analysis configs carry an assignment type + an editable scoring spec.
@@ -310,6 +313,26 @@ Answer:"""
                 scoring_spec = video_registry.get_default_spec(assignment_type)
             config_document['assignment_type'] = assignment_type
             config_document['scoring_spec'] = scoring_spec
+
+        # Experiential labs: either a built-in template id, or a prof prompt +
+        # an AI-generated lab config (validated client-side before save).
+        if bot_type == 'experiential':
+            template_id = (config_data.get('experiential_template_id') or '').strip()
+            exp_prompt = (config_data.get('experiential_prompt') or '').strip()
+            exp_config = config_data.get('experiential_config')
+            if isinstance(exp_config, str):
+                try:
+                    exp_config = json.loads(exp_config)
+                except json.JSONDecodeError:
+                    exp_config = None
+            # A generated lab is valid if it carries a pedagogy stamp (`method`,
+            # e.g. shock-world) or the legacy predict-reveal `layers` shape.
+            if not template_id and not (isinstance(exp_config, dict) and (exp_config.get('method') or exp_config.get('layers'))):
+                return jsonify({"error": "Experiential labs require either a template id or a generated lab config"}), 400
+            config_document['experiential_template_id'] = template_id
+            config_document['experiential_prompt'] = exp_prompt
+            if isinstance(exp_config, dict):
+                config_document['experiential_config'] = exp_config
 
         # Class rollout — any bot type may carry a class_code + usage tier/pool.
         err = validate_class_usage(config_data, config_document)
@@ -433,7 +456,7 @@ def get_config_by_class(class_code):
         from models.config import Config as mongo_collection
         doc = mongo_collection.get_collection().find_one(
             {"class_code": class_code.strip().lower()},
-            {"bot_name": 1, "assignment_type": 1}
+            {"bot_name": 1, "assignment_type": 1, "bot_type": 1}
         )
         if not doc:
             return jsonify({"error": "Class code not found"}), 404
@@ -441,6 +464,7 @@ def get_config_by_class(class_code):
             "config_id": str(doc["_id"]),
             "bot_name": doc.get("bot_name", "Assignment"),
             "assignment_type": doc.get("assignment_type", ""),
+            "bot_type": doc.get("bot_type", "chat"),
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)

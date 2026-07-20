@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-15
+# @changed   Register define_bp for the context-aware dictionary endpoint.
 # v2026-05-20
 import os
 import logging
@@ -32,6 +35,8 @@ from routes.student_routes import student_bp
 from routes.analysis_routes import analysis_bp
 from routes.video_routes import video_bp
 from routes.calibrate_routes import calibrate_bp
+from routes.experiential_routes import experiential_bp
+from routes.define_routes import define_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -101,6 +106,8 @@ def create_app():
     app.register_blueprint(analysis_bp, url_prefix='/api')
     app.register_blueprint(video_bp, url_prefix='/api')
     app.register_blueprint(calibrate_bp)
+    app.register_blueprint(experiential_bp, url_prefix='/api')
+    app.register_blueprint(define_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 

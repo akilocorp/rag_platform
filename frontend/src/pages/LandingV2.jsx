@@ -259,13 +259,14 @@ const TESTIMONIAL_PANELS = [
   {
     id: 'teachers',
     title: 'Teachers',
-    name: 'Dr. Marcus Webb',
-    role: 'Lecturer in Economics',
-    university: 'Tufts University',
+    name: 'T. Bradford Bitterly',
+    role: 'Assistant Professor',
+    university: 'HKUST',
     quote:
-      'I wanted my 300-person lecture to feel like a seminar. ACTRLabs gave every student a teaching assistant who knows my reading list as well as I do.',
+      'ACTRLabs lets me design custom activities that give my students more individualized feedback than I could offer alone. For research, I can build interactive studies that were previously unfeasible, and chat logs export straight to Qualtrics.',
     videoSrc: '/testimonials/teachers.mp4',
     posterSrc: '/testimonials/teachers.jpg',
+    avatarSrc: '/testimonials/bitterly.jpg',
     bg: '#F4ECD8',
     accent: '#A8832D',
   },
@@ -333,6 +334,15 @@ const LandingV2 = () => {
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureGridRef = useRef(null);
+
+  // Tailor the document title for this route. index.html holds the
+  // default/shared head; this gives the v2 landing its own title without
+  // pulling in a per-route head library.
+  useEffect(() => {
+    const prev = document.title;
+    document.title = 'ACTRLabs — AI Tutors & Chatbots That Redefine Learning';
+    return () => { document.title = prev; };
+  }, []);
 
   // Audience accordion state. The 7s interval restarts whenever
   // `activePanel` changes — clicking a collapsed pane resets the timer
@@ -1534,7 +1544,7 @@ const LandingV2 = () => {
                             }}
                           >
                             <img
-                              src={p.posterSrc}
+                              src={p.avatarSrc || p.posterSrc}
                               alt=""
                               aria-hidden
                               draggable={false}
@@ -1717,11 +1727,11 @@ const LandingV2 = () => {
       {/* === FOOTER === */}
       <footer
         className="px-6 lg:px-12 py-8 text-sm relative z-10"
-        style={{ backgroundColor: '#FAFAF7', color: '#888', fontFamily: FONT_BODY }}
+        style={{ backgroundColor: '#1f1f1f', color: '#B8B8B8', fontFamily: FONT_BODY }}
       >
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto">
           <span>&copy; 2026 ACTRLabs</span>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-5" style={{ color: '#EDEDED' }}>
             <Link to="/about" className="hover:opacity-80">About</Link>
             <a href="mailto:hello@actrlab.com" className="hover:opacity-80">Contact</a>
             <Link to="/login" className="hover:opacity-80">Sign in</Link>

@@ -9,6 +9,7 @@ branch. Step 6 teaches the frontend to render the new event types.
 """
 import logging
 import os
+import time
 from typing import Any, Dict, Iterator, List
 
 from src.agentic.constants import (
@@ -20,6 +21,44 @@ from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
+
+# Transient API failures (overloaded / rate-limited / 5xx / dropped
+# connection) are retried with exponential backoff before we surface
+# anything to the user. Overloaded (HTTP 529) in particular means
+# Anthropic's servers are momentarily busy and the request should just be
+# retried.
+STREAM_MAX_ATTEMPTS = 3
+STREAM_BACKOFF_BASE_SECONDS = 1.0
+
+# User-facing copy when retries are exhausted — never leak raw exception dicts.
+BUSY_MESSAGE = (
+    "⚠️ The assistant is experiencing high demand right now. "
+    "Please try again in a moment."
+)
+GENERIC_ERROR_MESSAGE = (
+    "⚠️ Something went wrong reaching the assistant. "
+    "Please try again in a moment."
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True when an Anthropic stream failure is worth retrying.
+
+    Covers overloaded (529), rate limits (429), 5xx, and connection drops.
+    We inspect status_code and the message text rather than importing the
+    SDK's exception classes so this stays robust across SDK versions.
+    """
+    status = getattr(exc, "status_code", None)
+    if status in (429, 500, 502, 503, 504, 529):
+        return True
+    text = str(exc).lower()
+    return (
+        "overloaded" in text
+        or "rate limit" in text
+        or "timeout" in text
+        or "timed out" in text
+        or "connection" in text
+    )
 
 # Shared by the legacy LangChain path in chat_routes.py so every model
 # (GPT/Gemini/Qwen/non-agentic Claude) formats replies the same way.
@@ -51,6 +90,43 @@ FORMATTING_GUIDE = (
     "- Use Markdown tables when comparing items across attributes.\n"
     "- Do not use emojis. The design is minimal and typographic — "
     "emphasis comes from structure and bold, not icons."
+)
+
+
+# Always available — the frontend renders ```chart blocks to inline SVG. Models
+# only draw a chart when the context calls for it, so this is safe to include.
+CHART_GUIDE = (
+    "\n\nWhen a line or bar chart would make a quantitative point clearer "
+    "(a path over time, or a comparison across categories), you may render one "
+    "inline by emitting a fenced code block tagged `chart` whose body is a JSON "
+    "object, for example:\n"
+    "```chart\n"
+    '{"type":"line","title":"Real GDP (% deviation from baseline)",'
+    '"x":["Q1","Q2","Q3","Q4"],"series":[{"name":"Baseline",'
+    '"values":[-0.6,-1.2,-1.6,-1.8]}],"unit":"%"}\n'
+    "```\n"
+    "Rules: `type` is \"line\" or \"bar\"; `x` is the array of time/category "
+    "labels; `series` is one or more {name, values} with values aligned to `x`; "
+    "`unit` is optional. Keep to 4 series or fewer. Use numbers grounded in the "
+    "discussion or the knowledge base — never invent false precision. Use a "
+    "Markdown table for exact figures and a chart for shape/trend.\n\n"
+    "For a MATH function whose shape depends on parameters — where letting the "
+    "reader drag a coefficient and watch the curve change would aid "
+    "understanding (e.g. exponential bases, a line's slope/intercept, a "
+    "parabola's coefficients, sine amplitude/frequency) — use the same `chart` "
+    "block in its function form instead:\n"
+    "```chart\n"
+    '{"type":"line","title":"Exponential growth: y = b^x",'
+    '"x_range":[-2,4],"params":[{"name":"b","min":1.1,"max":4,"default":2,"step":0.1}],'
+    '"functions":[{"name":"y","expr":"b^x"}],"y_label":"y"}\n'
+    "```\n"
+    "Rules for the function form: `x_range` is [min,max]; `params` is a list of "
+    "sliders {name,min,max,default,step} the user can drag; `functions` is one "
+    "or more {name, expr} where `expr` is an explicit y = f(x) written in terms "
+    "of x and the param names. Use standard operators (+ - * / ^) and functions "
+    "(sin, cos, tan, exp, log, ln, sqrt, abs). Only explicit y = f(x) is "
+    "supported — no implicit relations like x^2+y^2=9. Prefer this whenever a "
+    "parameter is the point of the explanation."
 )
 
 
@@ -100,11 +176,20 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             "\n\nYou have access to these tools:\n"
             + "\n".join(tool_lines)
             + "\n\nCite sources inline by index, like [1] or [2], using the "
-            "numbers shown in tool results. After your answer, list the "
-            "sources used."
+            "numbers shown in tool results. Do NOT print your own list of "
+            "sources at the end — the interface displays the sources used "
+            "as clickable chips below your answer."
         )
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}"
+    # When the facilitator is enabled it owns charts (rendered as an interactive
+    # widget after the reply), so drop the inline ```chart guidance — otherwise
+    # the bot draws one chart AND the facilitator draws another. The chart guide
+    # covers both data charts and interactive function graphs (with sliders).
+    fac = config.get('facilitator')
+    facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
+    chart_guide = '' if facilitator_on else CHART_GUIDE
+
+    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{chart_guide}"
 
 
 def _to_dict(block) -> Dict[str, Any]:
@@ -215,17 +300,37 @@ def stream_agentic_response(
         if tools_param:
             kwargs["tools"] = tools_param
 
-        try:
-            with client.messages.stream(**kwargs) as stream:
-                for chunk in stream.text_stream:
-                    if chunk:
-                        yield {"type": "token", "data": chunk}
-                final_message = stream.get_final_message()
-        except Exception as e:
-            logger.error("Anthropic stream failed (round %d): %s", round_idx, e, exc_info=True)
-            yield {"type": "token", "data": f"\n\n[Connection error: {e}]"}
-            yield {"type": "done", "stop_reason": "error", "assistant_blocks": full_trace}
-            return
+        final_message = None
+        for attempt in range(STREAM_MAX_ATTEMPTS):
+            yielded_any = False
+            try:
+                with client.messages.stream(**kwargs) as stream:
+                    for chunk in stream.text_stream:
+                        if chunk:
+                            yielded_any = True
+                            yield {"type": "token", "data": chunk}
+                    final_message = stream.get_final_message()
+                break
+            except Exception as e:
+                last_attempt = attempt == STREAM_MAX_ATTEMPTS - 1
+                # Once tokens have streamed to the user we can't cleanly retry
+                # (we'd duplicate partial output), so only retry a transient
+                # failure that hit before any text was emitted.
+                retryable = _is_transient_error(e) and not yielded_any and not last_attempt
+                logger.error(
+                    "Anthropic stream failed (round %d, attempt %d/%d, retry=%s): %s",
+                    round_idx, attempt + 1, STREAM_MAX_ATTEMPTS, retryable, e,
+                    exc_info=True,
+                )
+                if retryable:
+                    time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                    continue
+                friendly = BUSY_MESSAGE if _is_transient_error(e) else GENERIC_ERROR_MESSAGE
+                # Space it off from any partial text already streamed.
+                prefix = "\n\n" if yielded_any else ""
+                yield {"type": "token", "data": prefix + friendly}
+                yield {"type": "done", "stop_reason": "error", "assistant_blocks": full_trace}
+                return
 
         assistant_blocks = [_to_dict(b) for b in final_message.content]
         full_trace.extend(assistant_blocks)

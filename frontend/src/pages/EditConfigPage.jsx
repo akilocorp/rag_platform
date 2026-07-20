@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
+import LabGenerator from '../components/experiential/LabGenerator';
+import InfoTip from '../components/InfoTip';
+import InstructionsInfoTip from '../components/InstructionsInfoTip';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -17,10 +20,16 @@ const EditConfigPage = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [errors, setErrors] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [promptMode, setPromptMode] = useState('instructions');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
+
+  // Qualtrics embed code generator
+  const [showQualtricsModal, setShowQualtricsModal] = useState(false);
+  const [qualtricsHtml, setQualtricsHtml] = useState('');
+  const [qualtricsLoading, setQualtricsLoading] = useState(false);
+  const [qualtricsError, setQualtricsError] = useState('');
+  const [qualtricsCopied, setQualtricsCopied] = useState(false);
   
   // HeyGen State
   const [heygenAvatars, setHeygenAvatars] = useState([]);
@@ -76,18 +85,35 @@ const EditConfigPage = () => {
         }
     }
 
+    // Unified instructions panel: legacy bots created with "Advanced Template"
+    // stored their raw system prompt in prompt_template with instructions empty.
+    // Pull that text into the single instructions field so editing doesn't
+    // silently drop their prompt. Strip the standard scaffold marker if present
+    // (mirrors backend agent_runner scrubbing).
+    let resolvedInstructions = configFromState.instructions || '';
+    if (!resolvedInstructions.trim() && configFromState.prompt_template) {
+        const tmpl = configFromState.prompt_template;
+        const marker = 'Follow these specific instructions:';
+        const idx = tmpl.indexOf(marker);
+        resolvedInstructions = idx !== -1 ? tmpl.slice(idx + marker.length).trim() : tmpl.trim();
+    }
+
     setConfig({
         ...configFromState,
+        instructions: resolvedInstructions,
         bots: parsedBots,
         group_size: configFromState.group_size || 2,
         group_duration: configFromState.group_duration || 10,
         web_access: configFromState.web_access !== undefined ? configFromState.web_access : true,
+        qualtrics_enabled: !!configFromState.qualtrics_enabled,
         audio_enabled: !!configFromState.audio_enabled,
-        hume_config_id: configFromState.hume_config_id || ''
+        hume_config_id: configFromState.hume_config_id || '',
+        facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
+            ? { enabled: false, instruction: '', allowedWidgets: null, presets: [], ...configFromState.facilitator }
+            : { enabled: false, instruction: '', allowedWidgets: null, presets: [] }
     });
     
     setInitialDocuments(configFromState.documents || []);
-    setPromptMode(configFromState.prompt_template ? 'template' : 'instructions');
   }, [location.state, navigate]);
 
   // Fetch HeyGen Avatars if needed
@@ -134,6 +160,54 @@ const EditConfigPage = () => {
     setConfig(prev => ({ ...prev, [name]: val }));
   };
 
+  // Builds the ready-to-paste Qualtrics HTML block: the parent snippet
+  // (fetched from /qualtrics-parent-snippet.js, config baked in) inlined
+  // above a single <iframe>. Paste the whole thing into a Text/Graphic
+  // question's HTML view — no separate "Add JavaScript" step needed.
+  const openQualtricsModal = async () => {
+    const id = config.config_id || config._id;
+    if (!id) return;
+    setShowQualtricsModal(true);
+    setQualtricsLoading(true);
+    setQualtricsError('');
+    setQualtricsCopied(false);
+    try {
+      const res = await fetch('/qualtrics-parent-snippet.js');
+      if (!res.ok) throw new Error('Could not load snippet template');
+      const origin = window.location.origin;
+      const snippet = (await res.text())
+        .replaceAll('__CONFIG_ID__', id)
+        .replaceAll('__EMBED_ORIGIN__', origin);
+
+      const html = [
+        '<script>',
+        snippet,
+        '</script>',
+        '<iframe',
+        `  src="${origin}/chat/${id}?qualtricsId=\${e://Field/ResponseID}"`,
+        '  width="100%" height="650" style="border:none" frameborder="0"',
+        '  allow="clipboard-read; clipboard-write; microphone">',
+        '</iframe>'
+      ].join('\n');
+
+      setQualtricsHtml(html);
+    } catch (err) {
+      setQualtricsError('Failed to generate embed code. Please try again.');
+    } finally {
+      setQualtricsLoading(false);
+    }
+  };
+
+  const copyQualtricsHtml = async () => {
+    try {
+      await navigator.clipboard.writeText(qualtricsHtml);
+      setQualtricsCopied(true);
+      setTimeout(() => setQualtricsCopied(false), 2000);
+    } catch (err) {
+      setQualtricsError('Copy failed — select the text and copy manually.');
+    }
+  };
+
   // --- Group Chat Bot Handlers ---
   const handleBotChange = (index, field, value) => {
     const updatedBots = [...config.bots];
@@ -176,10 +250,6 @@ const EditConfigPage = () => {
     setNewFiles(prev => prev.filter(file => file.name !== fileName));
   };
 
-  const handlePromptModeChange = (mode) => {
-    setPromptMode(mode);
-  };
-
   // --- Submit Handler ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -194,9 +264,10 @@ const EditConfigPage = () => {
         });
     } else if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
+    } else if (config.bot_type === 'experiential') {
+        if (!(config.experiential_config && config.experiential_config.method)) newErrors.form = 'Generate the lab from your prompt before saving.';
     } else {
-        if (promptMode === 'instructions' && !config.instructions?.trim()) newErrors.instructions = 'Required';
-        if (promptMode === 'template' && !config.prompt_template?.trim()) newErrors.prompt_template = 'Required';
+        if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }
 
     if (config.bot_type === 'avatar' && !config.heygen_avatar_id) {
@@ -228,21 +299,33 @@ const EditConfigPage = () => {
       } else if (configToSubmit.bot_type === 'video_analysis') {
           configToSubmit.instructions = `Video analysis assignment: ${configToSubmit.assignment_type}`;
           configToSubmit.prompt_template = "";
+      } else if (configToSubmit.bot_type === 'experiential') {
+          configToSubmit.instructions = `Experiential lab: ${configToSubmit.experiential_config?.meta?.title || 'custom'}`;
+          configToSubmit.prompt_template = "";
       } else {
-          if (promptMode === 'instructions') configToSubmit.prompt_template = '';
-          else configToSubmit.instructions = '';
+          // Unified instructions panel — always send instructions; backend wraps it.
+          configToSubmit.prompt_template = '';
       }
 
-      // scoring_spec is an object — serialize it (the generic loop would coerce to "[object Object]").
+      // scoring_spec / experiential_config are objects — serialize them
+      // (the generic loop would coerce to "[object Object]").
       const scoringSpec = configToSubmit.scoring_spec;
+      const experientialConfig = configToSubmit.experiential_config;
+      const facilitator = configToSubmit.facilitator;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator') {
           formData.append(key, value);
         }
       });
       if (scoringSpec && typeof scoringSpec === 'object') {
         formData.append('scoring_spec', JSON.stringify(scoringSpec));
+      }
+      if (experientialConfig && typeof experientialConfig === 'object') {
+        formData.append('experiential_config', JSON.stringify(experientialConfig));
+      }
+      if (facilitator && typeof facilitator === 'object') {
+        formData.append('facilitator', JSON.stringify(facilitator));
       }
       
       // Append bots safely
@@ -260,6 +343,7 @@ const EditConfigPage = () => {
 
       if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
       else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${config.config_id}`);
+      else if (config.bot_type === 'experiential') navigate(`/experiential/c/${config.config_id}`);
       else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
       
     } catch (error) {
@@ -430,7 +514,32 @@ const EditConfigPage = () => {
             </div>
 
             {/* CONDITIONAL LOGIC: Video Analysis vs Group Chat vs Standard */}
-            {config.bot_type === 'video_analysis' ? (
+            {config.bot_type === 'experiential' ? (
+              <div className="border-t border-gray-100 pt-8 mt-8">
+                <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Simulation Lab</h3>
+                <LabGenerator
+                  prompt={config.experiential_prompt}
+                  onPromptChange={(v) => setConfig(prev => ({ ...prev, experiential_prompt: v }))}
+                  generated={config.experiential_config}
+                  onGenerated={(cfg) => setConfig(prev => ({ ...prev, experiential_config: cfg }))}
+                  configId={config.config_id}
+                />
+                <div className="mt-4">
+                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                    Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={(config.class_code || '').toUpperCase()}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
+                    maxLength={20}
+                    placeholder="e.g. MACRO101"
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                  />
+                  {classUsageFields}
+                </div>
+              </div>
+            ) : config.bot_type === 'video_analysis' ? (
               <div className="border-t border-gray-100 pt-8 mt-8">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-5"><FaListAlt className="mr-2 text-[#FA6C43]"/> Rubric & Scoring</h3>
                 <VideoScoringEditor
@@ -445,10 +554,10 @@ const EditConfigPage = () => {
                   </label>
                   <input
                     type="text"
-                    value={config.class_code || ''}
-                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                    value={(config.class_code || '').toUpperCase()}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
                     maxLength={20}
-                    placeholder="e.g. actr101"
+                    placeholder="e.g. ACTR101"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
@@ -465,7 +574,7 @@ const EditConfigPage = () => {
                     <input type="range" name="group_size" min="1" max="10" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
                   <div>
-                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Duration</span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
+                    <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span className="inline-flex items-center gap-1">Duration<InfoTip text="How long the group chat stays open before it automatically ends. Adjustable from 5 to 60 minutes." /></span><span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span></label>
                     <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
                   </div>
                 </div>
@@ -496,10 +605,20 @@ const EditConfigPage = () => {
                         </div>
                         <div>
                             <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
-                                <span>Temperature</span>
-                                {noTemp ? <span>Auto-managed</span> : <span className="text-[#FA6C43] font-bold">{bot.temperature}</span>}
+                                <span className="inline-flex items-center gap-1">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></span>
+                                {noTemp && <span className="text-gray-400 font-normal normal-case">Auto-managed</span>}
                             </label>
-                            {!noTemp && <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />}
+                            {!noTemp && (
+                              <>
+                                <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                                <div className="flex justify-between text-[10px] font-medium text-gray-400 mt-1.5 normal-case tracking-normal">
+                                  <span>Precise</span>
+                                  <span>Balanced</span>
+                                  <span>Conversational</span>
+                                  <span>Creative</span>
+                                </div>
+                              </>
+                            )}
                         </div>
                     </div>
                    )
@@ -523,7 +642,6 @@ const EditConfigPage = () => {
                             type="button"
                             onClick={() => {
                               setConfig(prev => ({ ...prev, instructions: t.instructions, temperature: t.temperature }));
-                              handlePromptModeChange('instructions');
                               setShowTemplates(false);
                             }}
                             className="text-left p-3 rounded-xl border-2 border-gray-200 hover:border-[#FA6C43] hover:bg-[#F9D0C4]/20 bg-white transition-all"
@@ -539,22 +657,22 @@ const EditConfigPage = () => {
                     )}
                   </div>
 
-                  <div className="flex space-x-3 w-fit">
-                    <button type="button" onClick={() => handlePromptModeChange('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Simple Instructions</button>
-                    <button type="button" onClick={() => handlePromptModeChange('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] text-white font-bold' : 'bg-white text-gray-600'}`}>Advanced Template</button>
-                  </div>
-
-                  <textarea name={promptMode === 'instructions' ? 'instructions' : 'prompt_template'} value={promptMode === 'instructions' ? config.instructions || '' : config.prompt_template || ''} onChange={handleChange} rows="5" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#FA6C43]" placeholder="Instructions..." />
+                  <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700">
+                    Instructions
+                    <InstructionsInfoTip />
+                  </label>
+                  <textarea name="instructions" value={config.instructions || ''} onChange={handleChange} rows="5" className={`w-full px-4 py-3 bg-white border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm outline-none focus:border-[#FA6C43]`} placeholder="Describe how the bot should behave. You can also request JSON / structured output — see the ⓘ tip." />
+                  {errors.instructions && <p className="mt-1.5 text-xs font-medium text-red-500">{errors.instructions}</p>}
                 </div>
 
-                <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Temperature ({config.temperature || 0.7})</label>
-                    <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-3">Response Timeout ({config.response_timeout || 3}s)</label>
-                    <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout || 3} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                <div>
+                  <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
+                  <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature || 0.7} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                  <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
+                    <span>Precise</span>
+                    <span>Balanced</span>
+                    <span>Conversational</span>
+                    <span>Creative</span>
                   </div>
                 </div>
 
@@ -571,6 +689,66 @@ const EditConfigPage = () => {
                   </div>
                 </div>
 
+                {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
+                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Facilitator (interactive UI)</label>
+                      <p className="text-xs text-gray-500 font-medium">After each reply, offer the user structured UI — e.g. multiple-choice options — instead of only text.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={!!config.facilitator?.enabled}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
+                  </div>
+                  {config.facilitator?.enabled && (
+                    <div className="mt-4">
+                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                      <textarea
+                        rows={3}
+                        value={config.facilitator?.instruction || ''}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                        placeholder="e.g. Whenever the reply asks the user to choose between options or a next step, present it as multiple choice. Keep options short (2–4)."
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart, flashcards, timeline, comparison table, mind map, impact map. More coming soon.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Qualtrics embedding */}
+                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Qualtrics embedding</label>
+                      <p className="text-xs text-gray-500 font-medium">Turn on to embed this assistant in a Qualtrics survey via iframe.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input type="checkbox" name="qualtrics_enabled" className="sr-only peer" checked={!!config.qualtrics_enabled} onChange={handleChange} />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
+                  </div>
+                  {config.qualtrics_enabled && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <button
+                        type="button"
+                        onClick={openQualtricsModal}
+                        className="inline-flex items-center gap-2 py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-gray-900 hover:bg-gray-700 transition-colors"
+                      >
+                        <FaCode className="text-xs" /> Create Session — Get Embed HTML
+                      </button>
+                      <p className="text-[11px] text-gray-400 mt-2">
+                        Generates one script+iframe HTML block. Paste it into a Qualtrics Text/Graphic question's HTML view — no separate JavaScript step needed.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Class rollout — optional class code + shared message pool */}
                 <div className="border-t border-gray-100 pt-8 mt-8">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
@@ -578,10 +756,10 @@ const EditConfigPage = () => {
                   </label>
                   <input
                     type="text"
-                    value={config.class_code || ''}
-                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                    value={(config.class_code || '').toUpperCase()}
+                    onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
                     maxLength={20}
-                    placeholder="e.g. actr101"
+                    placeholder="e.g. ACTR101"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
@@ -659,6 +837,47 @@ const EditConfigPage = () => {
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setShowConfirmModal(false)} className="py-3 px-5 rounded-xl font-bold border-2 border-gray-200">Cancel</button>
               <button type="button" onClick={confirmDelete} className="py-3 px-5 rounded-xl font-bold text-white bg-red-600">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showQualtricsModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full mx-4 max-h-[85vh] flex flex-col">
+            <h3 className="text-xl font-bold mb-1">Qualtrics Embed Code</h3>
+            <p className="text-gray-500 text-sm mb-5">
+              In Survey Flow → Embedded Data, add fields <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">transcript</code>,{' '}
+              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">chat_status</code>
+              {' '}(and <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">condition</code> if you use conditions). Then add a Text/Graphic question and paste this HTML into its HTML view.
+            </p>
+
+            {qualtricsLoading ? (
+              <div className="flex items-center justify-center py-16 text-gray-400">
+                <FaSpinner className="animate-spin" />
+                <span className="ml-2 text-sm font-medium">Generating…</span>
+              </div>
+            ) : qualtricsError ? (
+              <p className="text-sm text-red-600 mb-4">{qualtricsError}</p>
+            ) : (
+              <textarea
+                readOnly
+                value={qualtricsHtml}
+                onClick={(e) => e.target.select()}
+                className="flex-1 min-h-[260px] w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 resize-none focus:outline-none"
+              />
+            )}
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button type="button" onClick={() => setShowQualtricsModal(false)} className="py-3 px-5 rounded-xl font-bold border-2 border-gray-200">Close</button>
+              <button
+                type="button"
+                onClick={copyQualtricsHtml}
+                disabled={qualtricsLoading || !!qualtricsError}
+                className="py-3 px-5 rounded-xl font-bold text-white bg-[#FA6C43] disabled:opacity-60 flex items-center gap-2"
+              >
+                {qualtricsCopied ? <><FaCheck className="text-xs" /> Copied</> : <><FaCopy className="text-xs" /> Copy HTML</>}
+              </button>
             </div>
           </div>
         </div>

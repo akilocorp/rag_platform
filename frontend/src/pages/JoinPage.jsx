@@ -21,13 +21,25 @@ export default function JoinPage() {
       .finally(() => setLoading(false));
   }, [classCode]);
 
-  // Auto-enroll logged-in users
+  // Where an enrolled student should land, by bot_type. Chat/experiential/group
+  // drop straight into the bot; video keeps the assignment dashboard.
+  const studentRouteFor = (cfg) => {
+    switch (cfg?.bot_type) {
+      case 'experiential':   return `/experiential/c/${cfg.config_id}`;
+      case 'group_chat':     return `/group-chat/${cfg.config_id}`;
+      case 'video_analysis': return '/student-dashboard';
+      default:               return `/chat/${cfg.config_id}`;
+    }
+  };
+
+  // Auto-enroll logged-in users, then route them into the bot.
   useEffect(() => {
     if (!config || !isLoggedIn) return;
     setEnrolling(true);
+    const dest = studentRouteFor(config);
     apiClient.post('/student/enroll', { class_code: classCode })
-      .then(() => navigate('/student-dashboard'))
-      .catch(() => navigate('/student-dashboard'));
+      .then(() => navigate(dest))
+      .catch(() => navigate(dest));
   }, [config, isLoggedIn, classCode, navigate]);
 
   const wrap = inner => (

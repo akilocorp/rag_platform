@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
+import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
+import InfoTip from '../components/InfoTip';
+import InstructionsInfoTip from '../components/InstructionsInfoTip';
 
 const FileUpload = ({ onFileChange, initialFiles }) => {
   const [files, setFiles] = useState(initialFiles || []);
@@ -120,7 +123,6 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
 const ConfigModal = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
-  const [promptMode, setPromptMode] = useState('instructions');
   
   const aiModels = [
     { id: 'deepseek-chat', name: 'Deepseek Chat' },
@@ -139,6 +141,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     bot_name: '',
     associated_course: '',
     bot_type: 'chat',
+    experiential_template_id: '',
+    experiential_prompt: '',
+    experiential_config: null,
     heygen_avatar_id: '',
     model_name: 'claude-sonnet-4-6',
     instructions: '',
@@ -150,6 +155,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     web_access: true,
     audio_enabled: false,
     hume_config_id: '',
+    facilitator: { enabled: false, instruction: '', allowedWidgets: null, presets: [] },
     bot_avatar: 'robot',
     introduction: '',
     // Video Analysis Specifics
@@ -189,7 +195,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
       temperature: template.temperature,
       introduction: prev.introduction.trim() ? prev.introduction : template.introduction,
     }));
-    setPromptMode('instructions');
     setSelectedTemplateId(template.id);
   };
 
@@ -258,6 +263,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 1 && (!config.bot_name || !config.bot_name.trim())) {
       newErrors.bot_name = 'Name is required';
     }
+    if (step === 3 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.method)) {
+      newErrors.experiential_config = 'Generate the lab before saving';
+    }
     if (step === 4) {
       if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
@@ -267,11 +275,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
         });
       } else {
-        if (promptMode === 'instructions' && !config.instructions.trim()) {
+        if (!config.instructions.trim()) {
           newErrors.instructions = 'Instructions are required';
-        }
-        if (promptMode === 'template' && !config.prompt_template.trim()) {
-          newErrors.prompt_template = 'Prompt template is required';
         }
       }
     }
@@ -285,6 +290,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const stepsFor = (botType) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
+    if (botType === 'experiential') return [1, 3]; // name + type + upload course files, then generate the lab (grounded in them)
     return [1, 2, 3, 4, 5];
   };
 
@@ -349,15 +355,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
       // Dummy instruction satisfies the backend's instructions-or-template check.
       configToSend.instructions = `Video analysis assignment: ${configToSend.assignment_type}`;
       delete configToSend.prompt_template;
-    } else {
-      // Standard Chat / Avatar Chat logic
+    } else if (configToSend.bot_type === 'experiential') {
+      // Lab driven by the prof's prompt + AI-generated config (grounded in the KB).
       configToSend.bots = [];
-      
-      if (promptMode === 'instructions') {
-        delete configToSend.prompt_template;
-      } else {
-        delete configToSend.instructions;
-      }
+      configToSend.instructions = `Experiential lab: ${configToSend.experiential_config?.meta?.title || 'custom'}`;
+      delete configToSend.prompt_template;
+    } else {
+      // Standard Chat / Avatar Chat — single unified instructions panel.
+      // Always send `instructions`; the backend wraps it into the system prompt.
+      configToSend.bots = [];
+      delete configToSend.prompt_template;
     }
     // --------------------------------------------------------------
 
@@ -383,6 +390,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
         navigate(`/group-chat/${newConfigId}`);
       } else if (configToSend.bot_type === 'video_analysis') {
         navigate(`/video-dashboard/${newConfigId}`);
+      } else if (configToSend.bot_type === 'experiential') {
+        navigate(`/experiential/c/${newConfigId}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -401,43 +410,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  // Class rollout usage tier + roster size. Renders only once a class_code is
-  // set; the shared pool = messages/student × students.
-  const _selectedTier = usageTiers.find(t => t.id === config.usage_tier);
-  const _computedPool = _selectedTier && config.student_count
-    ? _selectedTier.messages_per_student * Number(config.student_count) : null;
-  const classUsageFields = config.class_code ? (
-    <div className="grid grid-cols-2 gap-4 mt-3">
-      <div>
-        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Usage tier</label>
-        <select
-          value={config.usage_tier}
-          onChange={e => setConfig(prev => ({ ...prev, usage_tier: e.target.value }))}
-          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
-        >
-          <option value="">Select a tier…</option>
-          {usageTiers.map(t => (
-            <option key={t.id} value={t.id}>{t.name} ({t.messages_per_student}/student)</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Number of students</label>
-        <input
-          type="number" min="1"
-          value={config.student_count}
-          onChange={e => setConfig(prev => ({ ...prev, student_count: e.target.value }))}
-          placeholder="e.g. 40"
-          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
-        />
-      </div>
-      {_computedPool != null && (
-        <p className="col-span-2 text-[12px] text-gray-500">
-          Shared class pool: <span className="font-bold text-[#FA6C43]">{_computedPool.toLocaleString()}</span> messages
-        </p>
-      )}
-    </div>
-  ) : null;
+  // Usage tier + roster size (the shared class pool) is an edit-only feature —
+  // it lives in EditConfigPage, not in the create flow. Kept null here so the
+  // {classUsageFields} render spots below show nothing while creating a bot.
+  const classUsageFields = null;
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -513,8 +489,23 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="font-bold text-[#222] text-sm">Video Analysis</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Upload & Score</p>
                     </label>
+
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'experiential' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="experiential" checked={config.bot_type === 'experiential'} onChange={handleChange} className="hidden" />
+                      <FaFlask className={`text-2xl mb-2 ${config.bot_type === 'experiential' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Experiential Lab</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Scripted Simulation</p>
+                    </label>
                   </div>
                 </div>
+
+                {config.bot_type === 'experiential' && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Course materials</label>
+                    <p className="text-[11px] text-gray-400 mb-3">Upload the lecture files the lab should be built from — the next step generates the lab <span className="font-medium">grounded in them</span>.</p>
+                    <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
+                  </div>
+                )}
 
                 {config.bot_type === 'group_chat' && (
                   <div className="pt-2 border-t border-gray-100">
@@ -544,13 +535,32 @@ const ConfigModal = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* STEP 3: Knowledge Base */}
+            {/* STEP 3: Knowledge Base — or, for experiential labs, generate the
+                lab grounded in the files uploaded on the previous step. */}
             {step === 3 && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
-                <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Upload Knowledge Base</h2>
-                <p className="text-center text-sm text-gray-500 mb-4">{config.bot_type === 'group_chat' ? 'These files will be shared across the entire group chat and all AI agents.' : 'Provide documents for the AI to study.'}</p>
-                <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
-              </div>
+              config.bot_type === 'experiential' ? (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Generate the Lab</h2>
+                  <p className="text-center text-sm text-gray-500 mb-4">
+                    Claude builds the lab from your design prompt
+                    {config.rag_files?.length ? `, grounded in the ${config.rag_files.length} file${config.rag_files.length > 1 ? 's' : ''} you uploaded` : ''}.
+                  </p>
+                  <LabGenerator
+                    prompt={config.experiential_prompt}
+                    onPromptChange={(v) => setConfig((prev) => ({ ...prev, experiential_prompt: v }))}
+                    generated={config.experiential_config}
+                    onGenerated={(cfg) => setConfig((prev) => ({ ...prev, experiential_config: cfg }))}
+                    files={config.rag_files}
+                  />
+                  {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
+                </div>
+              ) : (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Upload Knowledge Base</h2>
+                  <p className="text-center text-sm text-gray-500 mb-4">{config.bot_type === 'group_chat' ? 'These files will be shared across the entire group chat and all AI agents.' : 'Provide documents for the AI to study.'}</p>
+                  <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
+                </div>
+              )
             )}
 
             {/* STEP 4: AI Behavior OR Group Configuration */}
@@ -574,10 +584,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </label>
                       <input
                         type="text"
-                        value={config.class_code}
-                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                        value={(config.class_code || '').toUpperCase()}
+                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
                         maxLength={20}
-                        placeholder="e.g. actr101"
+                        placeholder="e.g. ACTR101"
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
@@ -603,7 +613,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         </div>
                         <div>
                           <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                            <span>Chat Duration</span>
+                            <span className="inline-flex items-center gap-1">Chat Duration<InfoTip text="How long the group chat stays open before it automatically ends. Adjustable from 5 to 60 minutes." /></span>
                             <span className="text-[#FA6C43] font-bold">{config.group_duration} Mins</span>
                           </label>
                           <input type="range" name="group_duration" min="5" max="60" step="5" value={config.group_duration} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
@@ -644,13 +654,21 @@ const ConfigModal = ({ isOpen, onClose }) => {
 
                             <div>
                               <label className="flex justify-between text-[11px] font-bold text-gray-500 uppercase mb-2">
-                                <span>Creativity / Temperature</span>
-                                {noTemp ? <span className="text-gray-400 font-normal normal-case">Auto-managed</span> : <span className="text-[#FA6C43] font-bold">{bot.temperature}</span>}
+                                <span className="inline-flex items-center gap-1">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></span>
+                                {noTemp && <span className="text-gray-400 font-normal normal-case">Auto-managed</span>}
                               </label>
                               {noTemp ? (
                                 <div className="w-full h-2 bg-gray-100 rounded-lg overflow-hidden"><div className="w-full h-full bg-gray-300 opacity-50" style={{background: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #ccc 10px, #ccc 20px)'}}></div></div>
                               ) : (
-                                <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                                <>
+                                  <input type="range" min="0" max="1" step="0.1" value={bot.temperature} onChange={(e) => handleBotChange(index, 'temperature', parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                                  <div className="flex justify-between text-[10px] font-medium text-gray-400 mt-1.5 normal-case tracking-normal">
+                                    <span>Precise</span>
+                                    <span>Balanced</span>
+                                    <span>Conversational</span>
+                                    <span>Creative</span>
+                                  </div>
+                                </>
                               )}
                             </div>
                           </div>
@@ -674,7 +692,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-[13px] font-semibold text-gray-700">Start from a template <span className="font-normal text-gray-400">(optional)</span></p>
                         {selectedTemplateId && (
-                          <button type="button" onClick={() => setSelectedTemplateId(null)} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
+                          <button type="button" onClick={() => { setSelectedTemplateId(null); setConfig(prev => ({ ...prev, instructions: '' })); setErrors(prev => ({ ...prev, instructions: null })); }} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-3">
@@ -696,27 +714,23 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="flex space-x-3 w-fit mb-4">
-                        <button type="button" onClick={() => setPromptMode('instructions')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'instructions' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Simple Instructions</button>
-                        <button type="button" onClick={() => setPromptMode('template')} className={`px-5 py-2 text-sm rounded-lg transition-all border ${promptMode === 'template' ? 'bg-[#FA6C43] border-[#FA6C43] text-white font-bold' : 'bg-white border-gray-300 text-gray-600'}`}>Advanced Template</button>
-                      </div>
+                    <div>
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">
+                        Instructions
+                        <InstructionsInfoTip />
+                      </label>
+                      <textarea name="instructions" value={config.instructions} onChange={handleChange} rows="5" className={`w-full p-3 border ${errors.instructions ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm focus:border-[#FA6C43] outline-none`} placeholder='Describe how the bot should behave. You can also request JSON / structured output — see the ⓘ tip.'/>
+                      {errors.instructions && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.instructions}</p>}
                     </div>
 
-                    {promptMode === 'instructions' ? (
-                      <div><textarea name="instructions" value={config.instructions} onChange={handleChange} rows="4" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" placeholder='Instructions...'/></div>
-                    ) : (
-                      <div><textarea name="prompt_template" value={config.prompt_template} onChange={handleChange} rows="4" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none" placeholder="Template..."/></div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-8 pt-4">
-                      <div>
-                        <label className="block text-[13px] font-semibold text-gray-700 mb-3">Temperature ({config.temperature})</label>
-                        <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
-                      </div>
-                      <div>
-                        <label className="block text-[13px] font-semibold text-gray-700 mb-3">Timeout ({config.response_timeout}s)</label>
-                        <input type="range" name="response_timeout" min="1" max="10" step="1" value={config.response_timeout} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                    <div className="pt-4">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">Response style<InfoTip text="Controls how much the bot varies its wording. Lower (Precise) = consistent, predictable answers; higher (Creative) = more varied phrasing. It affects tone and word choice, not the facts the bot knows. Default 0.7 — around 'Conversational.'" /></label>
+                      <input type="range" name="temperature" min="0" max="1" step="0.1" value={config.temperature} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
+                      <div className="flex justify-between text-xs font-medium text-gray-400 mt-2">
+                        <span>Precise</span>
+                        <span>Balanced</span>
+                        <span>Conversational</span>
+                        <span>Creative</span>
                       </div>
                     </div>
 
@@ -739,6 +753,38 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </label>
                     </div>
 
+                    {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center justify-between cursor-pointer gap-4">
+                        <div>
+                          <p className="text-[13px] font-semibold text-gray-700">Facilitator (interactive UI)</p>
+                          <p className="text-xs text-gray-500 mt-0.5">After each reply, offer the user structured UI — e.g. multiple-choice options — instead of only text.</p>
+                        </div>
+                        <span className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={!!config.facilitator?.enabled}
+                            onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                          />
+                          <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
+                        </span>
+                      </label>
+                      {config.facilitator?.enabled && (
+                        <div className="mt-3">
+                          <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                          <textarea
+                            rows={3}
+                            value={config.facilitator?.instruction || ''}
+                            onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                            placeholder="e.g. Whenever the reply asks the user to choose between options or a next step, present it as multiple choice. Keep options short (2–4)."
+                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart, flashcards, timeline, comparison table, mind map, impact map. More coming soon.</p>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Class rollout — optional class code + shared message pool */}
                     <div className="pt-4 mt-2 border-t border-gray-100">
                       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
@@ -746,10 +792,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </label>
                       <input
                         type="text"
-                        value={config.class_code}
-                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                        value={(config.class_code || '').toUpperCase()}
+                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
                         maxLength={20}
-                        placeholder="e.g. actr101"
+                        placeholder="e.g. ACTR101"
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>

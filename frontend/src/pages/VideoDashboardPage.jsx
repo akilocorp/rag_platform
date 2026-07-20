@@ -3,20 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaPlus, FaFilePdf } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
-const DIMS = [
-  { key: 'confidence', label: 'Confidence' },
-  { key: 'competence', label: 'Competence' },
-  { key: 'passion', label: 'Passion' },
-];
-const KEY_COMPONENTS = [
-  { id: 'pain',             label: 'The Pain' },
-  { id: 'solution',         label: 'The Solution' },
-  { id: 'customer',         label: 'The Customer' },
-  { id: 'competition',      label: 'The Competition' },
-  { id: 'deal',             label: 'The Deal' },
-  { id: 'team',             label: 'The Team' },
-  { id: 'summary_sentence', label: 'Summary Sentence' },
-];
 const fmt10 = (v) => v != null ? (v / 10).toFixed(1) : '—';
 const BUCKETS = [
   { key: 'excellent', label: 'Excellent', color: '#22c55e' },
@@ -57,7 +43,7 @@ function SidebarItem({ a, selected, onClick }) {
   );
 }
 
-function StudentRow({ sub, configId, onRescored, analysisData }) {
+function StudentRow({ sub, configId, onRescored, analysisData, dimList }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [rescoring, setRescoring] = useState(false);
@@ -82,7 +68,7 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
     } catch (_) { /* ignore */ } finally { setRescoring(false); }
   };
 
-  const sc = sub.scores || {};
+  const rowDims = sub.dimensions || [];
   const displayScore = analysisData ? analysisData.score : sub.overall;
   const fb = detail?.scores?.feedback || {};
 
@@ -96,9 +82,9 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
         </div>
         {!analysisData && (
           <div className="hidden sm:flex gap-3">
-            {DIMS.map((d) => {
-              const v = sc[d.key]?.value;
-              return <span key={d.key} className="text-xs font-bold w-14 text-center" style={{ color: color(v) }}>{v == null ? '—' : Math.round(v)}</span>;
+            {(dimList || []).map((d) => {
+              const v = rowDims.find((x) => x.id === d.id)?.score;
+              return <span key={d.id} className="text-xs font-bold w-14 text-center" style={{ color: color(v) }}>{v == null ? '—' : Math.round(v)}</span>;
             })}
           </div>
         )}
@@ -137,38 +123,13 @@ function StudentRow({ sub, configId, onRescored, analysisData }) {
           ) : (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-4">
-                {DIMS.map((d) => {
-                  const dd = detail.scores?.scores?.[d.key];
-                  return (
-                    <div key={d.key} className="text-xs">
-                      <span className="font-semibold text-gray-600">{d.label}: </span>
-                      <span style={{ color: color(dd?.value) }} className="font-bold">{dd?.value == null ? '—' : Math.round(dd.value)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Competence signals: filler words + awkward gestures */}
-              {(() => {
-                const fillerSm = detail.scores?.scores?.competence?.submetrics?.filler_rate;
-                const fillerInstances = detail.scores?.analytics?.word_choice?.filler_words?.instances || [];
-                const fillerPct = detail.scores?.analytics?.word_choice?.filler_words?.pct;
-                const awkwardSm = detail.scores?.scores?.competence?.submetrics?.awkward_gestures;
-                if (!fillerSm && !awkwardSm) return null;
-                return (
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 border-t border-gray-100">
-                    {fillerSm?.available && fillerSm?.score != null && (
-                      <span className="text-xs">
-                        <span className="font-semibold text-gray-600">Filler words: </span>
-                        <span style={{ color: color(fillerSm.score) }} className="font-bold">{Math.round(fillerSm.score)}/100</span>
-                        {fillerPct != null && <span className="text-gray-400"> · {fillerPct}%{fillerInstances.length > 0 && ` (${fillerInstances.length} detected)`}</span>}
-                      </span>
-                    )}
-                    {awkwardSm && !awkwardSm.available && (
-                      <span className="text-xs text-gray-300 italic">Awkward gestures: not yet measured</span>
-                    )}
+                {(detail.scores?.dimensions || []).map((dd) => (
+                  <div key={dd.id} className="text-xs">
+                    <span className="font-semibold text-gray-600">{dd.name || dd.id}: </span>
+                    <span style={{ color: color(dd?.score) }} className="font-bold">{dd?.score == null ? '—' : Math.round(dd.score)}</span>
                   </div>
-                );
-              })()}
+                ))}
+              </div>
               {fb.summary && <p className="text-sm text-gray-700">{fb.summary}</p>}
               {(fb.improvements || []).length > 0 && (
                 <div>
@@ -301,6 +262,13 @@ export default function VideoDashboardPage() {
     ? Object.fromEntries((activeAnalysis.students || []).map((s) => [s.submission_id, s]))
     : null;
 
+  // Prof-defined scoring boxes + content checks are dynamic — derive the lists
+  // from the dashboard payload rather than a fixed CCP set.
+  const dimList = (dash?.dimensions || []).map((d) => ({ id: d.id, name: d.name }));
+  const componentAverages = dash?.component_averages || [];
+  const gambitAvg = componentAverages.find((c) => c.id === 'gambit');
+  const componentList = componentAverages.filter((c) => c.id !== 'gambit');
+
   if (loading) return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] flex items-center justify-center">
       <FaSpinner className="animate-spin text-3xl text-[#FA6C43]" />
@@ -358,149 +326,99 @@ export default function VideoDashboardPage() {
             {/* Delivery view (no analysis selected) */}
             {!viewId && (
               <>
-                {/* Composite score cards */}
-                <div className="grid sm:grid-cols-3 gap-4">
-                  {DIMS.map((d) => {
-                    const avg = dash?.averages?.[d.key];
-                    const dist = dash?.distributions?.[d.key] || {};
-                    const total = BUCKETS.reduce((s, b) => s + (dist[b.key] || 0), 0) || 1;
-                    return (
-                      <div key={d.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                        <div className="flex items-baseline justify-between mb-3">
-                          <h3 className="font-bold text-[#222]">{d.label}</h3>
-                          <span className="text-2xl font-extrabold" style={{ color: color(avg) }}>{avg == null ? '—' : Math.round(avg)}</span>
-                        </div>
-                        <div className="flex w-full h-2.5 rounded-full overflow-hidden bg-gray-100">
-                          {BUCKETS.map((b) => {
-                            const w = ((dist[b.key] || 0) / total) * 100;
-                            return w > 0 ? <div key={b.key} style={{ width: `${w}%`, background: b.color }} title={`${b.label}: ${dist[b.key]}`} /> : null;
-                          })}
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-                          {BUCKETS.map((b) => (
-                            <span key={b.key} className="text-[10px] text-gray-500 flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full inline-block" style={{ background: b.color }} />{b.label} {dist[b.key] || 0}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* PCCP Delivery averages (LLM-graded) */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">PCCP Delivery (Class Avg)</h2>
-                  <div className="grid grid-cols-3 gap-3">
-                    {DIMS.map(d => {
-                      const v = dash?.pccp_averages?.[d.key];
+                {/* Scoring box class averages + distributions */}
+                {dimList.length > 0 && (
+                  <div className="grid sm:grid-cols-3 gap-4">
+                    {(dash?.dimensions || []).map((d) => {
+                      const avg = d.average;
+                      const dist = d.distribution || {};
+                      const total = BUCKETS.reduce((s, b) => s + (dist[b.key] || 0), 0) || 1;
                       return (
-                        <div key={d.key} className="text-center">
-                          <p className="text-2xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</p>
-                          <p className="text-xs text-gray-500 font-semibold mt-0.5">{d.label}</p>
-                          <div className="mt-1.5 w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
+                        <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                          <div className="flex items-baseline justify-between mb-3">
+                            <h3 className="font-bold text-[#222]">{d.name}</h3>
+                            <span className="text-2xl font-extrabold" style={{ color: color(avg) }}>{avg == null ? '—' : Math.round(avg)}</span>
+                          </div>
+                          <div className="flex w-full h-2.5 rounded-full overflow-hidden bg-gray-100">
+                            {BUCKETS.map((b) => {
+                              const w = ((dist[b.key] || 0) / total) * 100;
+                              return w > 0 ? <div key={b.key} style={{ width: `${w}%`, background: b.color }} title={`${b.label}: ${dist[b.key]}`} /> : null;
+                            })}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                            {BUCKETS.map((b) => (
+                              <span key={b.key} className="text-[10px] text-gray-500 flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full inline-block" style={{ background: b.color }} />{b.label} {dist[b.key] || 0}
+                              </span>
+                            ))}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
+                )}
 
                 {/* Opening Gambit average */}
-                <div className="bg-white rounded-2xl border-2 border-[#4f46e5]/20 shadow-sm p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="font-bold text-[#222]">Opening Gambit / Hook</h2>
-                      <p className="text-xs text-gray-400 mt-0.5">Class average — first 8 seconds</p>
+                {gambitAvg && (
+                  <div className="bg-white rounded-2xl border-2 border-[#4f46e5]/20 shadow-sm p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="font-bold text-[#222]">{gambitAvg.label || 'Opening Gambit / Hook'}</h2>
+                        <p className="text-xs text-gray-400 mt-0.5">Class average — first 8 seconds</p>
+                      </div>
+                      <span className="text-3xl font-extrabold" style={{ color: color(gambitAvg.average) }}>
+                        {fmt10(gambitAvg.average)}
+                      </span>
                     </div>
-                    <span className="text-3xl font-extrabold" style={{ color: color(dash?.component_averages?.gambit) }}>
-                      {fmt10(dash?.component_averages?.gambit)}
-                    </span>
+                    <div className="mt-3 w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${gambitAvg.average || 0}%`, background: color(gambitAvg.average) }} />
+                    </div>
                   </div>
-                  <div className="mt-3 w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${dash?.component_averages?.gambit || 0}%`, background: color(dash?.component_averages?.gambit) }} />
-                  </div>
-                </div>
+                )}
 
-                {/* Key Component cards */}
-                <div>
-                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Key Components (Class Avg)</h2>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    {KEY_COMPONENTS.map(kc => {
-                      const v = dash?.component_averages?.[kc.id];
-                      return (
-                        <div key={kc.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-sm font-bold text-[#222]">{kc.label}</span>
-                            <span className="text-xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</span>
+                {/* Content check cards */}
+                {componentList.length > 0 && (
+                  <div>
+                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Content Checks (Class Avg)</h2>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      {componentList.map((kc) => {
+                        const v = kc.average;
+                        return (
+                          <div key={kc.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-sm font-bold text-[#222]">{kc.label}</span>
+                              <span className="text-xl font-extrabold" style={{ color: color(v) }}>{fmt10(v)}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
+                            </div>
                           </div>
-                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${v || 0}%`, background: color(v) }} />
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {dash?.common_weakness_dimension && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-                    <span className="font-bold">Most common weakness:</span> {DIMS.find(d => d.key === dash.common_weakness_dimension)?.label || dash.common_weakness_dimension} is the lowest dimension for the most students.
+                    <span className="font-bold">Most common weakness:</span> {dash.common_weakness_dimension} is the lowest-scoring box for the most students.
                   </div>
                 )}
 
                 {dash?.class_analytics && dash.total_submissions > 0 && (() => {
                   const ca = dash.class_analytics;
-                  const maxGrowth = Math.max(1, ...(ca.common_growth_areas || []).map(g => g.weight));
                   return (
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                       <h2 className="font-bold text-[#222] mb-4">Class Analytics</h2>
-                      <div className="grid grid-cols-3 gap-3 mb-6">
+                      <div className="grid grid-cols-2 gap-3">
                         {[['Avg pace', ca.avg_wpm != null ? `${ca.avg_wpm} wpm` : '—'],
-                          ['Avg filler', ca.avg_filler_pct != null ? `${ca.avg_filler_pct}%` : '—'],
-                          ['Avg weak words', ca.avg_weak_pct != null ? `${ca.avg_weak_pct}%` : '—']].map(([l, v]) => (
+                          ['Avg filler', ca.avg_filler_pct != null ? `${ca.avg_filler_pct}%` : '—']].map(([l, v]) => (
                           <div key={l} className="bg-[#F0F6FB] rounded-xl p-4 text-center">
                             <p className="text-xl font-extrabold text-[#222]">{v}</p>
                             <p className="text-[11px] text-gray-500 font-semibold mt-0.5">{l}</p>
                           </div>
                         ))}
                       </div>
-                      {(ca.common_growth_areas || []).length > 0 && (
-                        <div className="mb-6">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Most common growth areas</h3>
-                          <div className="space-y-2">
-                            {ca.common_growth_areas.map((g) => (
-                              <div key={g.label} className="flex items-center gap-3">
-                                <span className="text-sm text-gray-700 w-44 shrink-0">{g.label}</span>
-                                <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-[#FA6C43] rounded-full" style={{ width: `${(g.weight / maxGrowth) * 100}%` }} />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {(ca.tone_distribution || []).length > 0 && (
-                        <div className="mb-6">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Tone across the class</h3>
-                          <div className="flex flex-wrap gap-2">
-                            {ca.tone_distribution.map((t) => (
-                              <span key={t.label} className="text-sm bg-[#EEF2FF] text-[#4f46e5] font-semibold px-3 py-1 rounded-full">{t.label} <span className="opacity-60">×{t.count}</span></span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {(ca.common_words || []).length > 0 && (
-                        <div>
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Most common filler / weak words</h3>
-                          <div className="flex flex-wrap gap-2">
-                            {ca.common_words.map((w) => (
-                              <span key={w.word} className="text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-full"><b>{w.word}</b> <span className="text-gray-400">{w.students} student{w.students === 1 ? '' : 's'}</span></span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 })()}
@@ -547,7 +465,7 @@ export default function VideoDashboardPage() {
                 <span className="w-4" />
                 <span className="flex-1">Student</span>
                 {!analysisStudentMap && (
-                  <span className="hidden sm:flex gap-3">{DIMS.map(d => <span key={d.key} className="w-14 text-center">{d.label.slice(0, 4)}</span>)}</span>
+                  <span className="hidden sm:flex gap-3">{dimList.map(d => <span key={d.id} className="w-14 text-center">{(d.name || d.id).slice(0, 4)}</span>)}</span>
                 )}
                 <span className="w-12 text-right">{analysisStudentMap ? 'Score' : 'Overall'}</span>
               </div>
@@ -560,6 +478,7 @@ export default function VideoDashboardPage() {
                   configId={configId}
                   onRescored={loadDash}
                   analysisData={analysisStudentMap ? (analysisStudentMap[s.id] || null) : null}
+                  dimList={dimList}
                 />
               ))}
             </div>

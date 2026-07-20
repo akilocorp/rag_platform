@@ -8,6 +8,7 @@ import json
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from routes.config_routes import validate_class_usage
+from src.facilitator.config import normalize_config as normalize_facilitator
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -108,6 +109,7 @@ def update_existing_config(config_id):
             "response_timeout": int(data.get('response_timeout', 3)),
             "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],
+            "qualtrics_enabled": str(data.get('qualtrics_enabled', 'false')).lower() in ['true', '1'],
             "audio_enabled": str(data.get('audio_enabled', 'false')).lower() in ['true', '1'],
             "hume_config_id": (data.get('hume_config_id') or '').strip(),
             "instructions": data.get('instructions'),
@@ -134,6 +136,30 @@ def update_existing_config(config_id):
                     scoring_spec = None
             if isinstance(scoring_spec, dict) and scoring_spec.get('submetric_weights'):
                 update_data['scoring_spec'] = scoring_spec
+
+        # --- EXPERIENTIAL LAB FIELDS (template id, or prof prompt + generated config) ---
+        experiential_template_id = data.get('experiential_template_id')
+        if experiential_template_id is not None:
+            update_data['experiential_template_id'] = (experiential_template_id or '').strip()
+        experiential_prompt = data.get('experiential_prompt')
+        if experiential_prompt is not None:
+            update_data['experiential_prompt'] = (experiential_prompt or '').strip()
+        experiential_config = data.get('experiential_config')
+        if experiential_config is not None:
+            if isinstance(experiential_config, str):
+                try:
+                    experiential_config = json.loads(experiential_config)
+                except json.JSONDecodeError:
+                    experiential_config = None
+            # Persist a lab that carries a pedagogy stamp (`method`, e.g.
+            # shock-world) or the legacy predict-reveal `layers` shape.
+            if isinstance(experiential_config, dict) and (experiential_config.get('method') or experiential_config.get('layers')):
+                update_data['experiential_config'] = experiential_config
+
+        # --- FACILITATOR BLOCK (structured-UI layer; any bot type) ---
+        facilitator = data.get('facilitator')
+        if facilitator is not None:
+            update_data['facilitator'] = normalize_facilitator(facilitator)
 
         # Class rollout — validate code + usage tier/pool (any bot type).
         # Recomputes usage_pool; the existing class_pool counter is preserved so

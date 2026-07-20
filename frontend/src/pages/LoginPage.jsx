@@ -1,6 +1,12 @@
+/**
+ * @language JavaScript (React JSX)
+ * @updated 2026-07-15
+ * @changed Mute "Forgot Password?" link to lighter gray so hierarchy stays on "Keep me logged in"
+ */
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/apiClient';
+import { setRememberMe } from '../utils/auth';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import logo from '../assets/logo.png';
 import Navbar from './NavBar';
@@ -36,6 +42,7 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMeState] = useState(true);
   const [allowInput, setAllowInput] = useState(false); // Prevent autofill: readonly until first focus
 
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -77,14 +84,16 @@ const LoginPage = () => {
       if (access_token) {
         localStorage.setItem('jwtToken', access_token);
         localStorage.setItem('refreshToken', refresh_token);
+        setRememberMe(rememberMe);
         const userRole = response.data.user?.role || 'professor';
         localStorage.setItem('userRole', userRole);
         localStorage.setItem('isVerified', response.data.user?.is_verified ? 'true' : 'false');
         setErrors({});
         setFormError(null);
         if (userRole === 'student' && classCode) {
-          await apiClient.post('/student/enroll', { class_code: classCode }).catch(() => {});
-          navigate('/student-dashboard', { replace: true });
+          // Route through /join so it enrolls and dispatches into the right bot
+          // by bot_type (chat / experiential / group chat / video dashboard).
+          navigate(`/join/${encodeURIComponent(classCode)}`, { replace: true });
         } else {
           navigate(userRole === 'student' ? '/student-dashboard' : '/config_list', { replace: true });
         }
@@ -183,8 +192,17 @@ const LoginPage = () => {
               {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
             </div>
 
-            <div className="pt-1">
-              <Link to="/forgot-password" className="text-[13px] text-[#222] hover:text-blue-600 font-semibold transition-colors">
+            <div className="pt-1 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-[13px] text-[#222] font-semibold cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMeState(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-[#FA6C43] focus:ring-[#F9D0C4] cursor-pointer"
+                />
+                Keep me logged in for 30 days
+              </label>
+              <Link to="/forgot-password" className="text-[13px] text-gray-400 hover:text-blue-600 font-medium transition-colors">
                 Forgot Password?
               </Link>
             </div>

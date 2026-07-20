@@ -1,23 +1,31 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-07-15
+ * @changed   Widget de-dup: drop headings left empty after their body was stripped (fixes orphaned "Question 1" title with no question under it).
+ */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { FaSpinner, FaPaperPlane, FaExclamationTriangle } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
-import { FiFile, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings } from 'react-icons/fi';
+import { FiFile, FiFileText, FiExternalLink, FiX, FiFolder, FiChevronRight, FiLink, FiMenu, FiSettings, FiUploadCloud } from 'react-icons/fi';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
 import ToolStatusPill from '../components/ToolStatusPill';
+import FacilitatorBlock, { FacilitatorPending } from '../facilitator/FacilitatorBlock';
 import ChatComposer from '../components/ChatComposer';
 import DefinitionPopover from '../components/DefinitionPopover';
 import EVIAudioControls from '../components/EVIAudioControls';
 import { getModelDisplayName } from '../utils/modelNames';
 import { loadDefineableSet, wrapDefineableWordsInDom } from '../utils/defineableWords';
-import { lookupDefinition } from '../utils/dictionaryClient';
+import { lookupDefinitionInContext } from '../utils/dictionaryClient';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { renderMarkdown } from '../utils/markdown';
+import { mountCharts } from '../utils/chartMount';
 
 // --- HELPER: Get Token Safely ---
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
@@ -51,35 +59,333 @@ const safeHostname = (url) => {
   try { return new URL(url).hostname; } catch { return url; }
 };
 
-// Build a deduped list of cited URLs from completed tool calls.
-// - web_fetch: the input URL
-// - web_search: parses "[N] title — url" lines from the result
-const extractSources = (toolCalls) => {
+// Build a deduped list of cited sources from completed tool calls.
+// - web_fetch: the input URL (web source)
+// - web_search: parses "[N] title — url" lines (web source)
+// - search_knowledge_base: parses each passage's "[N] <file> (slide M)" header
+//   into a file source, resolved against `fileIndex` (filename/url -> file doc)
+//   so the chip can open the actual file and show a hover preview.
+const extractSources = (toolCalls, fileIndex) => {
   if (!Array.isArray(toolCalls) || toolCalls.length === 0) return [];
   const seen = new Set();
   const sources = [];
-  const push = (url, title) => {
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    sources.push({ url, title: title || safeHostname(url) });
+  const pushWeb = (url, title) => {
+    if (!url) return;
+    const key = `w:${url}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sources.push({ kind: 'web', key, url, title: title || safeHostname(url) });
+  };
+  const pushFile = (name) => {
+    const clean = (name || '').trim();
+    if (!clean || clean === 'unknown') return;
+    const key = `f:${clean}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const doc = fileIndex ? fileIndex.get(clean) : null;
+    sources.push({
+      kind: 'file',
+      key,
+      title: clean,
+      filename: clean,
+      fileId: doc?._id || null,
+      isUrl: !!doc?.is_url,
+      sourceUrl: doc?.source_url || null,
+      resolved: !!doc,
+    });
   };
   for (const tc of toolCalls) {
     if (!tc || tc.is_error) continue;
     if (tc.name === 'web_fetch') {
-      push(tc.input?.url, null);
+      pushWeb(tc.input?.url, null);
     } else if (tc.name === 'web_search' && typeof tc.result === 'string') {
       const re = /\[(\d+)\]\s+(.+?)\s+—\s+(https?:\/\/\S+)/g;
       let m;
       while ((m = re.exec(tc.result)) !== null) {
-        push(m[3], m[2]);
+        pushWeb(m[3], m[2]);
+      }
+    } else if (tc.name === 'search_knowledge_base' && typeof tc.result === 'string') {
+      for (const block of tc.result.split(/\n\n+/)) {
+        const first = block.split('\n', 1)[0];
+        const m = first.match(/^\s*\[(\d+)\]\s+(.+?)(?:\s+\(slide\s+\d+\))?\s*$/);
+        if (m) pushFile(m[2]);
       }
     }
   }
   return sources;
 };
 
+const isPreviewableInIframe = (name) =>
+  /\.(pdf|txt|md|csv|json|png|jpe?g|gif|webp|svg)$/i.test(name || '');
+
+// Floating preview card for a file source, portaled to body and positioned
+// near the chip (above, flipping below if there's no room). Purely visual —
+// pointer-events are disabled so it never steals the hover.
+const SourcePreview = ({ anchor, url, loading, filename }) => {
+  const ref = useRef(null);
+  const [style, setStyle] = useState({ opacity: 0, top: 0, left: 0 });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !anchor) return;
+    const margin = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const vw = window.innerWidth;
+    let top = anchor.top + window.scrollY - h - margin;
+    if (anchor.top - h - margin < 0) top = anchor.bottom + window.scrollY + margin;
+    let left = anchor.left + window.scrollX + anchor.width / 2 - w / 2;
+    const maxLeft = vw + window.scrollX - w - margin;
+    const minLeft = window.scrollX + margin;
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+    setStyle({ top, left, opacity: 1 });
+  }, [anchor, url, loading]);
+
+  const previewable = isPreviewableInIframe(filename);
+  const src = url && /\.pdf$/i.test(filename) ? `${url}#toolbar=0&navpanes=0&view=FitH` : url;
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="pointer-events-none rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
+      style={{ position: 'absolute', width: 340, zIndex: 70, transition: 'opacity 120ms ease-out', ...style }}
+    >
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-[#F0F6FB]">
+        <FiFileText className="w-3.5 h-3.5 text-[#FA6C43] flex-shrink-0" />
+        <span className="text-[11px] font-semibold text-[#222] truncate">{filename}</span>
+      </div>
+      <div className="h-[420px] bg-gray-50 flex items-center justify-center">
+        {loading || !url ? (
+          <span className="text-[11px] text-gray-400 flex items-center gap-2">
+            <FaSpinner className="animate-spin" /> Loading preview…
+          </span>
+        ) : previewable ? (
+          <iframe title={filename} src={src} className="w-full h-full border-0" />
+        ) : (
+          <div className="text-center px-4">
+            <FiFileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-[11px] text-gray-500">No inline preview for this file type.</p>
+            <p className="text-[11px] text-gray-400 mt-1">Click to open it in a new tab.</p>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
+// A single file source chip: opens the file in a new tab on click and shows
+// a hover preview. Lazily resolves an inline (viewable) URL on first hover.
+const FileSourceChip = ({ source, index }) => {
+  const ref = useRef(null);
+  const [hover, setHover] = useState(false);
+  const [anchor, setAnchor] = useState(null);
+  const [viewUrl, setViewUrl] = useState(source.isUrl ? source.sourceUrl : null);
+  const [loadingUrl, setLoadingUrl] = useState(false);
+  const requestedRef = useRef(false);
+
+  const clickable = source.resolved && (source.isUrl ? !!source.sourceUrl : !!source.fileId);
+
+  const resolveUrl = useCallback(async () => {
+    if (viewUrl || requestedRef.current) return viewUrl;
+    if (source.isUrl) return source.sourceUrl;
+    if (!source.fileId) return null;
+    requestedRef.current = true;
+    setLoadingUrl(true);
+    try {
+      const res = await apiClient.get(`/files/${source.fileId}/download`, {
+        params: { disposition: 'inline' },
+      });
+      const u = res.data?.url || null;
+      setViewUrl(u);
+      return u;
+    } catch {
+      return null;
+    } finally {
+      setLoadingUrl(false);
+    }
+  }, [source.isUrl, source.sourceUrl, source.fileId, viewUrl]);
+
+  const openFile = async () => {
+    const u = source.isUrl ? source.sourceUrl : await resolveUrl();
+    if (u) window.open(u, '_blank', 'noopener,noreferrer');
+  };
+
+  const onEnter = () => {
+    if (ref.current) setAnchor(ref.current.getBoundingClientRect());
+    setHover(true);
+    resolveUrl();
+  };
+
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        onClick={clickable ? openFile : undefined}
+        onMouseEnter={clickable ? onEnter : undefined}
+        onMouseLeave={() => setHover(false)}
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] text-[11px] text-[#222] transition-colors max-w-[300px] ${
+          clickable ? 'hover:bg-[#F9D0C4]/40 hover:text-[#FA6C43] cursor-pointer' : 'cursor-default'
+        }`}
+        title={clickable ? `Open ${source.filename}` : source.filename}
+      >
+        <span className="text-[#FA6C43] font-semibold">[{index}]</span>
+        <FiFileText className="w-3 h-3 flex-shrink-0 opacity-70" />
+        <span className="truncate">{source.title}</span>
+        {clickable && <FiExternalLink className="w-3 h-3 flex-shrink-0 opacity-50" />}
+      </button>
+      {hover && clickable && anchor && (
+        <SourcePreview anchor={anchor} url={viewUrl} loading={loadingUrl} filename={source.filename} />
+      )}
+    </>
+  );
+};
+
+// Renders a source chip — a link for web sources, a FileSourceChip for files.
+const SourceChip = ({ source, index }) => {
+  if (source.kind === 'file') {
+    return <FileSourceChip source={source} index={index} />;
+  }
+  return (
+    <a
+      href={source.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
+      title={source.title ? `${source.title} — ${source.url}` : source.url}
+    >
+      <span className="text-[#FA6C43] font-semibold">[{index}]</span>
+      <span className="truncate">{source.title}</span>
+    </a>
+  );
+};
+
+// Normalize a line for loose comparison: drop markdown emphasis, any leading
+// list/option marker (A), 1., -, *), surrounding whitespace and trailing
+// punctuation/emoji, then lowercase. So prose "A) Berlin" and a widget option
+// "Berlin" collapse to the same key.
+const normalizeLine = (s) =>
+  (s || '')
+    .replace(/[*_`~]/g, '')
+    .replace(/^\s*(?:[-*+]|\(?[A-Za-z0-9]{1,2}[.)])\s+/, '')
+    .trim()
+    .replace(/[^\p{L}\p{N}]+$/u, '')
+    .toLowerCase();
+
+// The strings a widget already renders on screen — used to strip the bot's prose
+// restatement of the same content. Each case mirrors that widget's data shape.
+function widgetEchoStrings(widget, data) {
+  if (!data) return [];
+  const out = [];
+  const push = (v) => { if (typeof v === 'string' && v.trim()) out.push(v); };
+  const pushArr = (a) => { if (Array.isArray(a)) a.forEach(push); };
+  const rows = (a) => (Array.isArray(a) ? a : []);
+
+  switch (widget) {
+    case 'multiple_choice':
+      push(data.question); pushArr(data.options);
+      break;
+    case 'flashcard':
+      push(data.title);
+      rows(data.cards).forEach((c) => { push(c?.front); push(c?.back); });
+      break;
+    case 'timeline':
+      push(data.title);
+      rows(data.steps).forEach((s) => { push(s?.label); push(s?.detail); });
+      break;
+    case 'comparison_table':
+      push(data.title); pushArr(data.columns);
+      rows(data.rows).forEach((r) => { push(r?.label); pushArr(r?.cells); });
+      break;
+    case 'mind_map':
+      push(data.central); push(data.instructions);
+      rows(data.nodes).forEach((n) => push(n?.label));
+      rows(data.distractors).forEach((n) => push(n?.label));
+      break;
+    case 'chart':
+      push(data.title); push(data.caption); push(data.y_label);
+      pushArr(data.x_labels);
+      rows(data.series).forEach((s) => push(s?.name));
+      break;
+    case 'impact_map':
+      push(data.title); push(data.scenario); push(data.caption);
+      rows(data.regions).forEach((r) => { push(r?.country); push(r?.note); });
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+// A prose line is redundant when the attached widget already renders everything
+// it says. Two ways that happens: (1) the line exactly equals one widget string,
+// or (2) the line is a MERGE of several — e.g. a timeline row "1947 — Pakistan
+// created…" splices the widget's `label` ("1947") and `detail` ("Pakistan
+// created…") into one line, matching neither in full. lineIsCoveredByWidget
+// subtracts every widget echo-string (longest first) as a substring; if only
+// connective punctuation survives, the widget already conveys the whole line.
+// Echoes shorter than 3 chars are skipped here (they'd chain to swallow unrelated
+// prose) — exact-match still catches those. Applies to ALL widgets.
+function lineIsCoveredByWidget(norm, echoNorms) {
+  let residue = norm;
+  for (const echo of echoNorms) {
+    if (echo.length < 3) continue;
+    residue = residue.split(echo).join(' ');
+  }
+  return residue.replace(/[^\p{L}\p{N}]+/gu, '') === '';
+}
+
+// When a facilitator widget is attached it already renders its content, so the
+// bot's prose restatement of that content is redundant. Strip any line the
+// widget fully covers (exact match OR a merge of widget strings — see
+// lineIsCoveredByWidget). For multiple_choice also drop a short trailing
+// answer-prompt ("What's your answer?"). Degrades to the original text if
+// nothing matches — a line only vanishes when the widget conveys ALL of it, so
+// genuine prose that merely mentions a widget word survives.
+function stripRedundantWidgetText(text, facilitator) {
+  const widget = facilitator?.widget;
+  const data = facilitator?.data;
+  if (!text || !widget || !data) return text;
+
+  const echoNorms = widgetEchoStrings(widget, data).map(normalizeLine).filter(Boolean);
+  if (echoNorms.length === 0) return text;
+  const dupNorms = new Set(echoNorms);
+  // Longest first so multi-word echoes are subtracted before their sub-phrases.
+  const sortedEchoes = [...echoNorms].sort((a, b) => b.length - a.length);
+
+  const kept = text.split('\n').filter((line) => {
+    const norm = normalizeLine(line);
+    if (!norm) return true;                 // keep blanks; collapsed below
+    if (dupNorms.has(norm)) return false;   // an exact duplicate of one widget string
+    if (lineIsCoveredByWidget(norm, sortedEchoes)) return false; // a merge of widget strings
+    // multiple_choice: a short trailing answer-prompt, e.g. "What's your answer? 😊"
+    if (widget === 'multiple_choice' && norm.length <= 40 && /\banswer\b/.test(norm) && line.includes('?')) return false;
+    return true;
+  });
+
+  return dropOrphanedHeadings(kept).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// After widget de-dup, a markdown heading can be left with its whole body stripped
+// away — e.g. the widget covered "Question 1"'s prompt + options, so only the bare
+// "## Question 1" title survives. Drop any heading line that has no non-heading
+// content before the next heading or end of text, so no empty titles remain.
+// Headings that still lead real content are untouched.
+function dropOrphanedHeadings(lines) {
+  const isHeading = (line) => /^\s{0,3}#{1,6}\s/.test(line);
+  return lines.filter((line, i) => {
+    if (!isHeading(line)) return true;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (isHeading(lines[j])) break;       // ran into the next heading — this one is empty
+      if (lines[j].trim()) return true;      // found body content — keep the heading
+    }
+    return false;                            // nothing but blanks until the next heading/EOF
+  });
+}
+
 // --- MODERN CHAT MESSAGE COMPONENT ---
-const ChatMessage = React.memo(({ message, botAvatarId }) => {
+const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
   const attachedFiles = message.attachedFiles || [];
@@ -89,9 +395,13 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   const hasAttachedFiles = isUser && attachedFiles.length > 0;
   const hasAttachedImages = isUser && attachedImages.length > 0;
   const showThinking = !isUser && isTyping && !text && !hasToolCalls;
+  // Drop prose that duplicates the attached widget's content (see helper above).
+  const displayText = (!isUser && message.facilitator?.widget)
+    ? stripRedundantWidgetText(text, message.facilitator)
+    : text;
   const BotIcon = !isUser ? getBotAvatarIconComponent(botAvatarId) : null;
   const mdRef = useRef(null);
-  const sources = !isUser ? extractSources(toolCalls) : [];
+  const sources = !isUser ? extractSources(toolCalls, fileIndex) : [];
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const hasThinking = !isUser && (hasToolCalls || sources.length > 0);
 
@@ -104,8 +414,9 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
     if (showThinking) return;
     const el = mdRef.current;
     if (!el) return;
-    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(text);
+    el.innerHTML = isUser ? (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') : renderMarkdown(displayText);
     if (!isUser) {
+      mountCharts(el);
       loadDefineableSet().then((set) => {
         // Bail if message text changed underneath us between yield points.
         if (mdRef.current === el) {
@@ -113,7 +424,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         }
       });
     }
-  }, [text, showThinking, isUser]);
+  }, [displayText, showThinking, isUser]);
 
   // React synthetic mouseover/mouseout bubble up from the .defineable spans
   // through the markdown root. Using JSX handlers (not addEventListener)
@@ -132,8 +443,17 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
         top: rect.top, left: rect.left, width: rect.width,
         height: rect.height, bottom: rect.bottom,
       };
+      // Pull the sentence the word sits in from its enclosing block so the
+      // backend can return the one sense that fits this context, not a dump of
+      // every meaning. Capped to a window around the word to keep the prompt small.
+      const block = target.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,div') || target.parentElement;
+      const blockText = (block?.textContent || '').replace(/\s+/g, ' ').trim();
+      const idx = blockText.toLowerCase().indexOf(word.toLowerCase());
+      const sentence = idx >= 0
+        ? blockText.slice(Math.max(0, idx - 250), idx + word.length + 250)
+        : blockText.slice(0, 500);
       setPopover({ word, anchorRect, loading: true, definition: null });
-      lookupDefinition(word).then((def) => {
+      lookupDefinitionInContext(word, sentence).then((def) => {
         setPopover((p) => (p && p.word === word ? { ...p, loading: false, definition: def } : p));
       });
     }, 250);
@@ -166,8 +486,8 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
   return (
     <div className={`flex gap-4 ${isUser ? 'justify-end animate-send-fly-in' : 'justify-start animate-in fade-in slide-in-from-bottom-2 duration-300'}`}>
       {!isUser && BotIcon && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
-          <BotIcon className="text-[#FA6C43] text-sm" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mt-1" style={{ color: '#1F1F1F' }}>
+          <BotIcon className="text-sm" />
         </div>
       )}
 
@@ -238,17 +558,7 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
                       <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Sources</p>
                       <div className="flex flex-wrap gap-1.5">
                         {sources.map((s, i) => (
-                          <a
-                            key={s.url}
-                            href={s.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#F0F6FB] hover:bg-[#F9D0C4]/40 text-[11px] text-[#222] hover:text-[#FA6C43] transition-colors max-w-[300px]"
-                            title={s.title ? `${s.title} — ${s.url}` : s.url}
-                          >
-                            <span className="text-[#FA6C43] font-semibold">[{i + 1}]</span>
-                            <span className="truncate">{s.title}</span>
-                          </a>
+                          <SourceChip key={s.key} source={s} index={i + 1} />
                         ))}
                       </div>
                     </div>
@@ -269,6 +579,18 @@ const ChatMessage = React.memo(({ message, botAvatarId }) => {
                 isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
               }`}
             />
+          )}
+
+          {!isUser && message.facilitator && (
+            <FacilitatorBlock
+              block={message.facilitator}
+              onSubmit={(value) => onFacilitatorSubmit?.(value)}
+              disabled={!isLast}
+            />
+          )}
+
+          {!isUser && message.facilitatorPending && !message.facilitator && (
+            <FacilitatorPending />
           )}
       </div>
 
@@ -346,12 +668,18 @@ const ChatPage = () => {
   const [filesLoading, setFilesLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [sessionUploads, setSessionUploads] = useState([]);
   // Files explicitly selected for chat context (from My Files or current bot's folder)
   const [selectedFileIds, setSelectedFileIds] = useState([]);
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [pendingImages, setPendingImages] = useState([]);
   const libraryLoadedRef = useRef(false);
+  // All of this bot's files, fetched once, used only to resolve knowledge-base
+  // source citations (filename -> file doc) into clickable/previewable chips.
+  // Independent of the sidebar's folder navigation (libraryFiles), so a chip
+  // stays live regardless of where the user has browsed.
+  const [kbResolverFiles, setKbResolverFiles] = useState([]);
 
   // Usage limits: warn banner (approaching cap) + block modal (cap reached)
   const [usageWarn, setUsageWarn] = useState(null);   // { remaining } | null
@@ -378,6 +706,14 @@ const ChatPage = () => {
     return { kind: 'me', configId: null, folderPath: parts.join('/'), canSelect: true };
   }, [currentPath, configId]);
 
+  // The "Bot Files" tree only surfaces the bot whose chat is currently open, so
+  // a user browsing one bot's files doesn't see files shared with other bots.
+  // "My Files" (the shared personal library) is unaffected.
+  const botFilesConfigs = useMemo(
+    () => accessibleConfigs.filter((c) => c._id === configId),
+    [accessibleConfigs, configId]
+  );
+
   // Personal config settings panel (students)
   const [showSettings, setShowSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ bot_name: '', model_name: '', instructions: '' });
@@ -396,6 +732,33 @@ const ChatPage = () => {
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
+
+  // Fetch the bot's full file list once (config-scoped, all folders) for source
+  // citation resolution. Best-effort: failures just leave KB chips non-clickable.
+  useEffect(() => {
+    if (!isAuthenticated || !configId) { setKbResolverFiles([]); return; }
+    let cancelled = false;
+    apiClient.get(`/files?config_id=${configId}`)
+      .then((res) => { if (!cancelled) setKbResolverFiles(res.data?.files || []); })
+      .catch(() => { if (!cancelled) setKbResolverFiles([]); });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, configId]);
+
+  // Map a knowledge-base citation (filename or ingested URL) to its file doc.
+  // Personal/selected files (libraryFiles, sessionUploads) override the shared
+  // bot set on name collisions — they're the more specific chat context.
+  const fileIndex = useMemo(() => {
+    const map = new Map();
+    const add = (f) => {
+      if (!f) return;
+      if (f.filename) map.set(f.filename, f);
+      if (f.source_url) map.set(f.source_url, f);
+    };
+    kbResolverFiles.forEach(add);
+    libraryFiles.forEach(add);
+    sessionUploads.forEach(add);
+    return map;
+  }, [kbResolverFiles, libraryFiles, sessionUploads]);
 
   const [guestInfo, setGuestInfo] = useState(() => {
     try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
@@ -636,6 +999,61 @@ const ChatPage = () => {
     }
   }, [fileScope]);
 
+  useEffect(() => {
+    const ALLOWED = ['pdf', 'txt', 'md', 'docx', 'pptx'];
+    let depth = 0;
+    const hasFiles = (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types) return false;
+      return Array.from(types).includes('Files');
+    };
+    const onEnter = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth += 1;
+      if (depth === 1) setIsDragging(true);
+    };
+    const onOver = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onLeave = (e) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setIsDragging(false);
+    };
+    const onDrop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (!files.length) return;
+      const accepted = [];
+      const rejected = [];
+      files.forEach((f) => {
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        if (ALLOWED.includes(ext)) accepted.push(f);
+        else rejected.push(f.name);
+      });
+      if (rejected.length) {
+        setUploadError(`Unsupported file type: ${rejected.join(', ')}. Allowed: ${ALLOWED.join(', ')}.`);
+      }
+      if (accepted.length) uploadFiles(accepted);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [uploadFiles]);
+
   const uploadUrl = useCallback(async (url) => {
     if (!url || !url.trim()) return;
     const folderPath = fileScope.folderPath || '';
@@ -792,11 +1210,13 @@ const ChatPage = () => {
         setMessages(historyData.map(msg => {
           const trace = msg.data?.additional_kwargs?.tool_trace;
           const attached = msg.data?.additional_kwargs?.attached_files;
+          const facilitator = msg.data?.additional_kwargs?.facilitator;
           return {
             sender: msg.type === 'human' ? 'user' : 'ai',
             text: msg.data.content,
             tool_calls: trace ? extractToolCallsFromTrace(trace) : [],
             attachedFiles: Array.isArray(attached) ? attached : [],
+            facilitator: facilitator && facilitator.widget ? facilitator : undefined,
           };
         }));
       } catch (e) { console.error("History load failed", e); }
@@ -947,6 +1367,31 @@ const ChatPage = () => {
                       ? { ...tc, result: data.content, is_error: !!data.is_error }
                       : tc
                   ),
+                };
+                return newMsgs;
+              });
+            } else if (data.type === 'facilitator_pending') {
+              // The facilitator post-pass is running (an extra model call).
+              // Show a "building…" skeleton until the result arrives.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: true };
+                return newMsgs;
+              });
+            } else if (data.type === 'facilitator') {
+              // Result of the post-pass. `widget` is null when no widget fits —
+              // in that case just clear the skeleton and render nothing.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = {
+                  ...newMsgs[lastIdx],
+                  isTyping: false,
+                  facilitatorPending: false,
+                  facilitator: data.widget ? { widget: data.widget, data: data.data } : undefined,
                 };
                 return newMsgs;
               });
@@ -1131,13 +1576,13 @@ const ChatPage = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   if (isInitializing) return (
-    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] flex-col gap-4">
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] text-[#222] flex-col gap-4">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
     </div>
   );
 
   if (!isAuthenticated && config?.is_public && !guestInfo) return (
-    <div className="h-screen flex items-center justify-center bg-[#F0F6FB] px-4">
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
         <p className="text-sm text-gray-500 mb-6">Enter your info to get started.</p>
@@ -1201,7 +1646,21 @@ const ChatPage = () => {
   })();
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="flex h-[100dvh] overflow-hidden bg-[#F8FAFC] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      {isDragging && (
+        <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center px-4 animate-chip-in">
+          <div className="absolute inset-3 sm:inset-5 rounded-3xl border-2 border-dashed border-[#FA6C43] bg-[#FA6C43]/8 backdrop-blur-[2px]" />
+          <div className="relative bg-white shadow-xl rounded-2xl px-7 py-6 flex flex-col items-center gap-3 border border-[#F9D0C4]">
+            <div className="p-3 rounded-full bg-[#F9D0C4]/50 text-[#FA6C43] animate-bounce">
+              <FiUploadCloud className="w-7 h-7" />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-[#222] text-base">Drop to attach</p>
+              <p className="text-xs text-gray-500 mt-0.5">PDF · TXT · MD · DOCX · PPTX</p>
+            </div>
+          </div>
+        </div>
+      )}
       {usageBlock && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
@@ -1266,7 +1725,7 @@ const ChatPage = () => {
               onSetTab={setSidebarTab}
               currentPath={currentPath}
               onSetPath={setCurrentPath}
-              accessibleConfigs={accessibleConfigs}
+              accessibleConfigs={botFilesConfigs}
               libraryFiles={libraryFiles}
               libraryFolders={libraryFolders}
               filesLoading={filesLoading}
@@ -1282,6 +1741,7 @@ const ChatPage = () => {
               selectedFileIds={selectedFileIds}
               onToggleFile={toggleFileSelection}
               onDeleteSession={(id) => setSessions(prev => prev.filter(s => s.session_id !== id))}
+              onRenameSession={(id, title) => setSessions(prev => prev.map(s => s.session_id === id ? { ...s, title } : s))}
           />
       )}
 
@@ -1303,7 +1763,7 @@ const ChatPage = () => {
                   const HeaderIcon = getBotAvatarIconComponent(config?.bot_avatar);
                   if (!HeaderIcon) return null;
                   return (
-                <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]">
+                <div className="p-2 rounded-lg bg-gray-100" style={{ color: '#1F1F1F' }}>
                     <HeaderIcon className="text-xl" />
                 </div>
                   );
@@ -1465,8 +1925,8 @@ const ChatPage = () => {
                                   const EmptyIcon = getBotAvatarIconComponent(config?.bot_avatar);
                                   if (!EmptyIcon) return null;
                                   return (
-                                <div className="w-20 h-20 bg-[#F9D0C4]/40 rounded-3xl flex items-center justify-center mb-6">
-                                    <EmptyIcon className="text-5xl text-[#FA6C43]" />
+                                <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6" style={{ color: '#1F1F1F' }}>
+                                    <EmptyIcon className="text-5xl" />
                                 </div>
                                   );
                                 })()}
@@ -1475,7 +1935,14 @@ const ChatPage = () => {
                             </div>
                         )}
                         {messages.map((msg, i) => (
-                          <ChatMessage key={i} message={msg} botAvatarId={config?.bot_avatar} />
+                          <ChatMessage
+                            key={i}
+                            message={msg}
+                            botAvatarId={config?.bot_avatar}
+                            fileIndex={fileIndex}
+                            isLast={i === messages.length - 1}
+                            onFacilitatorSubmit={handleSendWithAnimation}
+                          />
                         ))}
                         <div ref={messagesEndRef} />
                      </div>
