@@ -190,7 +190,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       discuss_minutes: 15,
       correct_candidate: '',
       candidates: [],                 // { name, blurb } roster shared across all managers
-      managers: [],                   // { role_name, doc_file_id, doc_text }; length must == num_managers
+      managers: Array.from({ length: 3 }, () => ({ role_name: '', doc_file_id: '', doc_text: '' })), // length must == num_managers; seeded so cards render before the slider is touched
       ai_personality: 'friend',       // friend (default) | foe | confused
       grading_weights: { communication: 0.34, individual: 0.33, collective: 0.33 },
       no_show_timeout_seconds: 300
