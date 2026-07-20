@@ -1,10 +1,11 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-19
-// @changed   Move the Simple/Advanced switch to the modal footer as a compact S⚬A toggle (was a pill pinned top-left).
+// @updated   2026-07-20
+// @changed   Manager Exercise: state clearly that N seats = (N−1) students + 1 hidden AI (min 2 seats).
+//            Prior: bot_type + sequential per-manager doc wizard, candidates + correct-pick marking, advanced authoring.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -178,7 +179,22 @@ const ConfigModal = ({ isOpen, onClose }) => {
     group_duration: 15,
     bots: [
       { name: 'Assistant', prompt: '', model_name: 'claude-sonnet-4-6', temperature: 0.7 }
-    ]
+    ],
+    // Manager Exercise Specifics — hidden-profile decision game. Serialized as a
+    // nested JSON sub-object on submit (mirrors bots/scoring_spec). num_managers
+    // drives group_size (invariant, enforced again server-side). managers[] is
+    // filled in one at a time via the sequential upload wizard in step 4.
+    manager_exercise: {
+      num_managers: 3,
+      memorize_minutes: 5,
+      discuss_minutes: 15,
+      correct_candidate: '',
+      candidates: [],                 // { name, blurb } roster shared across all managers
+      managers: [],                   // { role_name, doc_file_id, doc_text }; length must == num_managers
+      ai_personality: 'friend',       // friend (default) | foe | confused
+      grading_weights: { communication: 0.34, individual: 0.33, collective: 0.33 },
+      no_show_timeout_seconds: 300
+    }
   });
   
   const [isLoading, setIsLoading] = useState(false);
@@ -234,6 +250,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
           next.model_name = 'claude-sonnet-4-6';
         }
       }
+      // Manager exercise reasons/grades on Claude; pin the model + sync group_size
+      // to num_managers so the invariant holds even before submit.
+      if (name === 'bot_type' && val === 'manager_exercise') {
+        next.model_name = 'claude-sonnet-4-6';
+        next.group_size = next.manager_exercise.num_managers;
+      }
       return next;
     });
     if (errors[name]) setErrors(prev => ({ ...prev, [name]: null }));
@@ -261,6 +283,136 @@ const ConfigModal = ({ isOpen, onClose }) => {
     }
   };
 
+  // ---- Manager Exercise authoring state + helpers -----------------------------
+  // The sequential upload wizard walks Manager 1..N. `mgrUploading` guards the
+  // active POST so faculty can't double-submit a doc; `mgrUploadError` surfaces a
+  // per-step failure inline. A hidden file input drives the picker per seat.
+  const [mgrUploading, setMgrUploading] = useState(false);
+  const [mgrUploadError, setMgrUploadError] = useState('');
+  const mgrFileInputRef = useRef(null);
+
+  // Patch a single field on the manager_exercise sub-object.
+  const setMgr = (field, value) => {
+    setConfig(prev => ({ ...prev, manager_exercise: { ...prev.manager_exercise, [field]: value } }));
+  };
+
+  // Resize the managers[] array to match num_managers. Growing appends empty
+  // seats (to be filled by the wizard); shrinking trims from the tail. group_size
+  // tracks num_managers so the two never drift before submit.
+  const handleNumManagersChange = (n) => {
+    const count = Math.max(1, Math.min(10, parseInt(n, 10) || 1));
+    setConfig(prev => {
+      const managers = [...prev.manager_exercise.managers];
+      while (managers.length < count) managers.push({ role_name: '', doc_file_id: '', doc_text: '' });
+      managers.length = count;
+      return {
+        ...prev,
+        group_size: count,
+        manager_exercise: { ...prev.manager_exercise, num_managers: count, managers }
+      };
+    });
+  };
+
+  // Upload + parse ONE manager's private document. Calls the faculty-only
+  // /api/files/manager-doc endpoint, which extracts plaintext and best-effort
+  // parses the role name from the doc header ("To:" / "Role:" / "Position:").
+  // The parsed role_name lands in an editable field for faculty confirmation.
+  const handleManagerDocUpload = async (index, file) => {
+    if (!file) return;
+    setMgrUploading(true);
+    setMgrUploadError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const token = localStorage.getItem('jwtToken');
+      const res = await apiClient.post('/files/manager-doc', fd, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+      });
+      const { role_name = '', doc_text = '', file_id = '' } = res.data || {};
+      setConfig(prev => {
+        const managers = [...prev.manager_exercise.managers];
+        managers[index] = { role_name, doc_file_id: file_id, doc_text };
+        return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
+      });
+    } catch (err) {
+      const d = err.response?.data;
+      setMgrUploadError((d && (d.error || d.message)) || err.message || 'Upload failed');
+    } finally {
+      setMgrUploading(false);
+    }
+  };
+
+  // Edit the faculty-confirmable role name on an already-uploaded manager seat.
+  const setManagerRoleName = (index, roleName) => {
+    setConfig(prev => {
+      const managers = [...prev.manager_exercise.managers];
+      managers[index] = { ...managers[index], role_name: roleName };
+      return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
+    });
+  };
+
+  // Add / edit / remove a candidate on the shared roster (used for voting). If
+  // the removed candidate was marked correct, clear the ground-truth marking too.
+  const addCandidate = () => setMgr('candidates', [...config.manager_exercise.candidates, { name: '', blurb: '' }]);
+  const setCandidate = (index, field, value) => {
+    const candidates = [...config.manager_exercise.candidates];
+    candidates[index] = { ...candidates[index], [field]: value };
+    setMgr('candidates', candidates);
+  };
+  const removeCandidate = (index) => {
+    const removed = config.manager_exercise.candidates[index];
+    const candidates = config.manager_exercise.candidates.filter((_, i) => i !== index);
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        candidates,
+        correct_candidate: removed?.name === prev.manager_exercise.correct_candidate ? '' : prev.manager_exercise.correct_candidate
+      }
+    }));
+  };
+
+  // Auto-extract candidate names mentioned across every uploaded manager doc.
+  // Heuristic: scan doc_text for a "Candidates:" block or capitalized two-word
+  // proper-name lines, dedupe, and merge into the roster (skips names already
+  // present). Purely a convenience seed — faculty still edit the result.
+  const autoExtractCandidates = () => {
+    const found = new Set(config.manager_exercise.candidates.map(c => (c.name || '').trim().toLowerCase()).filter(Boolean));
+    const additions = [];
+    config.manager_exercise.managers.forEach(m => {
+      const text = m.doc_text || '';
+      // Prefer an explicit "Candidates:" / "Applicants:" list if the doc has one.
+      const listMatch = text.match(/(?:candidates?|applicants?)\s*:\s*([\s\S]{0,400})/i);
+      const scope = listMatch ? listMatch[1] : text;
+      const nameRe = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/g;
+      let hit;
+      while ((hit = nameRe.exec(scope)) !== null) {
+        const name = hit[1].trim();
+        const key = name.toLowerCase();
+        if (!found.has(key)) { found.add(key); additions.push({ name, blurb: '' }); }
+        if (additions.length >= 12) break; // cap the seed so we don't flood the roster
+      }
+    });
+    if (additions.length) setMgr('candidates', [...config.manager_exercise.candidates, ...additions]);
+  };
+
+  // Normalize the three grading weights so they sum to 1.0 after a slider moves.
+  // Keeps the just-moved key at its chosen value and rescales the other two by
+  // their prior ratio (falls back to equal split if the remainder was zero).
+  const setGradingWeight = (key, value) => {
+    const v = Math.max(0, Math.min(1, parseFloat(value)));
+    const w = { ...config.manager_exercise.grading_weights };
+    const others = Object.keys(w).filter(k => k !== key);
+    const remainder = 1 - v;
+    const otherSum = others.reduce((s, k) => s + (w[k] || 0), 0);
+    const next = { ...w, [key]: v };
+    others.forEach(k => {
+      next[k] = otherSum > 0 ? remainder * ((w[k] || 0) / otherSum) : remainder / others.length;
+    });
+    setMgr('grading_weights', next);
+  };
+  // ---------------------------------------------------------------------------
+
   const handleFileChange = (files) => {
     setConfig(prev => ({ ...prev, rag_files: files }));
     setFileUploadKey(Date.now());
@@ -282,6 +434,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
           if (!bot.name.trim()) newErrors[`bot_${idx}_name`] = 'Required';
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
         });
+      } else if (config.bot_type === 'manager_exercise') {
+        // Every seat needs an uploaded doc; the roster needs candidates; and the
+        // ground-truth best-fit pick must be marked (and be a real candidate).
+        const me = config.manager_exercise;
+        const filled = me.managers.filter(m => (m.doc_text || '').trim()).length;
+        if (filled < me.num_managers) newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+        else if (me.candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
+        else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
       } else {
         if (!config.instructions.trim()) {
           newErrors.instructions = 'Instructions are required';
@@ -301,6 +461,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
     if (botType === 'experiential') return [1, 3]; // name + type + upload course files, then generate the lab (grounded in them)
+    // Manager exercise: name → authoring (step 4) → final polish. No model
+    // picker (fixed Claude) and no shared KB (private docs are per-manager).
+    if (botType === 'manager_exercise') return [1, 4, 5];
     return advanced ? [1, 2, 3, 4, 5] : [1, 3, 4, 5];
   };
 
@@ -380,6 +543,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
       configToSend.bots = [];
       configToSend.instructions = `Experiential lab: ${configToSend.experiential_config?.meta?.title || 'custom'}`;
       delete configToSend.prompt_template;
+    } else if (configToSend.bot_type === 'manager_exercise') {
+      // Hidden-profile group game. Serialize the sub-object as JSON (like bots /
+      // scoring_spec) and force group_size == num_managers (the matcher invariant;
+      // backend re-enforces it). Doc plaintext travels inside manager_exercise —
+      // no rag_files round-trip. Dummy instruction satisfies the backend check.
+      configToSend.group_size = configToSend.manager_exercise.num_managers;
+      configToSend.manager_exercise = JSON.stringify(configToSend.manager_exercise);
+      configToSend.bots = [];
+      configToSend.instructions = 'Manager Exercise: hidden-profile candidate placement.';
+      delete configToSend.prompt_template;
     } else {
       // Standard Chat / Avatar Chat — single unified instructions panel.
       // Always send `instructions`; the backend wraps it into the system prompt.
@@ -412,6 +585,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
         navigate(`/video-dashboard/${newConfigId}`);
       } else if (configToSend.bot_type === 'experiential') {
         navigate(`/experiential/c/${newConfigId}`);
+      } else if (configToSend.bot_type === 'manager_exercise') {
+        navigate(`/manager-exercise/${newConfigId}`);
       } else {
         navigate(`/chat/${newConfigId}`);
       }
@@ -515,6 +690,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <FaFlask className={`text-2xl mb-2 ${config.bot_type === 'experiential' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Experiential Lab</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Scripted Simulation</p>
+                    </label>
+
+                    {/* Manager Exercise — hidden-profile decision game (group bot_type). */}
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all active:scale-[0.98] ${config.bot_type === 'manager_exercise' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 bg-white'}`}>
+                      <input type="radio" name="bot_type" value="manager_exercise" checked={config.bot_type === 'manager_exercise'} onChange={handleChange} className="hidden" />
+                      <FaUserTie className={`text-2xl mb-2 transition-colors ${config.bot_type === 'manager_exercise' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
+                      <p className="font-bold text-[#222] text-sm">Manager Exercise</p>
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">Hidden-Profile Game</p>
                     </label>
                   </div>
                 </div>
@@ -711,6 +894,180 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </button>
                       )}
                     </div>
+                  </>
+                ) : config.bot_type === 'manager_exercise' ? (
+                  // ==============================
+                  // MANAGER EXERCISE — hidden-profile authoring
+                  // ==============================
+                  <>
+                    <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Design the Manager Exercise</h2>
+
+                    {/* Group + timing rules: N managers (== student seats) and the
+                        two phase durations. num_managers drives group_size. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
+                      <div className="mb-5">
+                        <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                          <span className="inline-flex items-center gap-1">Total Manager Seats<InfoTip text="Total named managerial roles in the room. One seat is ALWAYS a hidden AI manager, so N seats = (N−1) students + 1 AI. Each seat gets its own private document. If students no-show, their seats also fill with AI after the timeout." /></span>
+                          <span className="text-[#FA6C43] font-bold">{config.manager_exercise.num_managers} seats</span>
+                        </label>
+                        <input type="range" min="2" max="10" step="1" value={config.manager_exercise.num_managers} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        {/* Explicit student/AI split so faculty aren't surprised that N ≠ student count. */}
+                        <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                          = <span className="text-[#222]">{Math.max(1, config.manager_exercise.num_managers - 1)} student{config.manager_exercise.num_managers - 1 === 1 ? '' : 's'}</span> + <span className="text-[#222]">1 AI manager</span> <span className="text-gray-400">(the AI is hidden from students)</span>
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
+                          <input type="number" min="0.5" step="0.5" value={config.manager_exercise.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
+                          <input type="number" min="0.5" step="0.5" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sequential per-manager document wizard. Renders Manager 1..N
+                        as cards; each card either shows an Upload button (empty) or,
+                        once parsed, the auto-detected role_name in an EDITABLE field
+                        plus a collapsible plaintext preview for confirmation. */}
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                    <p className="text-[11px] text-gray-400 mb-3">Upload one private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
+                    <div className="space-y-3 mb-6">
+                      {config.manager_exercise.managers.map((mgr, idx) => {
+                        const uploaded = !!(mgr.doc_text || '').trim();
+                        return (
+                          <div key={idx} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
+                                {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
+                                Manager {idx + 1}
+                              </span>
+                              {uploaded && (
+                                <button type="button" onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors">Replace</button>
+                              )}
+                            </div>
+
+                            {uploaded ? (
+                              <div className="space-y-3 animate-in fade-in duration-300">
+                                {/* Editable auto-detected role — faculty confirms/overrides. */}
+                                <div>
+                                  <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Role Name <span className="normal-case font-normal text-gray-400">(auto-detected, editable)</span></label>
+                                  <input type="text" value={mgr.role_name} onChange={(e) => setManagerRoleName(idx, e.target.value)} placeholder="e.g. Marketing Manager" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                                </div>
+                                {/* Collapsible parsed-doc preview for a sanity check. */}
+                                <details className="group">
+                                  <summary className="cursor-pointer text-[11px] font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors select-none">Preview parsed document</summary>
+                                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 custom-scrollbar">{mgr.doc_text}</pre>
+                                </details>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={mgrUploading}
+                                onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
+                                className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
+                                {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* One shared hidden input; the target seat index is stashed on
+                          its dataset by whichever card triggered the picker. */}
+                      <input
+                        type="file"
+                        ref={mgrFileInputRef}
+                        className="hidden"
+                        accept=".txt,.pdf,.md,.docx,.pptx"
+                        onChange={(e) => {
+                          const idx = parseInt(e.target.dataset.index || '0', 10);
+                          handleManagerDocUpload(idx, e.target.files?.[0]);
+                          e.target.value = ''; // allow re-picking the same file
+                        }}
+                      />
+                      {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
+                    </div>
+
+                    {/* Candidate roster + ground-truth marking. Candidates may be
+                        auto-seeded from the uploaded docs or entered by hand; the
+                        correct best-FIT pick is chosen from this list. */}
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidates</h3>
+                      <button type="button" onClick={autoExtractCandidates} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors active:scale-95">Auto-extract from docs</button>
+                    </div>
+                    <div className="space-y-2 mb-3">
+                      {config.manager_exercise.candidates.map((cand, idx) => (
+                        <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                          <input type="text" value={cand.name} onChange={(e) => setCandidate(idx, 'name', e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <input type="text" value={cand.blurb} onChange={(e) => setCandidate(idx, 'blurb', e.target.value)} placeholder="One-line blurb (optional)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={addCandidate} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center active:scale-[0.99]">
+                      <FaPlus className="mr-2" /> Add Candidate
+                    </button>
+
+                    {/* Ground-truth: which candidate is the best FIT (not necessarily
+                        most-qualified). Drives individual/collective grade correctness. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-2">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Correct best-fit candidate<InfoTip text="The ground-truth answer used for grading. Best FIT for the role — which is not always the most-qualified applicant." /></label>
+                      <select
+                        value={config.manager_exercise.correct_candidate}
+                        onChange={(e) => setMgr('correct_candidate', e.target.value)}
+                        className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                      >
+                        <option value="">— select a candidate —</option>
+                        {config.manager_exercise.candidates.filter(c => (c.name || '').trim()).map((c, i) => (
+                          <option key={i} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Advanced authoring — AI personality + grading weights. */}
+                    <AdvancedReveal show={advanced}>
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">AI Manager personality<InfoTip text="How the AI Manager behaves during discussion. Friend = supportive facilitator; Foe = contrarian/adversarial; Confused = muddled, misremembers facts." /></label>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[
+                          { id: 'friend', label: 'Friend', desc: 'Supportive' },
+                          { id: 'foe', label: 'Foe', desc: 'Contrarian' },
+                          { id: 'confused', label: 'Confused', desc: 'Muddled' }
+                        ].map(p => (
+                          <label key={p.id} className={`cursor-pointer p-3 border-2 rounded-xl text-center transition-all active:scale-[0.97] ${config.manager_exercise.ai_personality === p.id ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 bg-white'}`}>
+                            <input type="radio" name="ai_personality" value={p.id} checked={config.manager_exercise.ai_personality === p.id} onChange={() => setMgr('ai_personality', p.id)} className="hidden" />
+                            <p className="font-bold text-[#222] text-sm">{p.label}</p>
+                            <p className="text-[10px] text-gray-500 font-medium mt-0.5">{p.desc}</p>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-gray-100">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-1">Grading weights<InfoTip text="How the three grade components combine. Sliders auto-normalize so the three weights always sum to 100%." /></label>
+                      <p className="text-[11px] text-gray-400 mb-4">Auto-normalized to 100%.</p>
+                      {[
+                        { key: 'communication', label: 'Communication quality' },
+                        { key: 'individual', label: 'Individual decision' },
+                        { key: 'collective', label: 'Collective decision' }
+                      ].map(gw => (
+                        <div key={gw.key} className="mb-4">
+                          <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                            <span>{gw.label}</span>
+                            <span className="text-[#FA6C43] font-bold">{Math.round((config.manager_exercise.grading_weights[gw.key] || 0) * 100)}%</span>
+                          </label>
+                          <input type="range" min="0" max="1" step="0.01" value={config.manager_exercise.grading_weights[gw.key] || 0} onChange={(e) => setGradingWeight(gw.key, e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        </div>
+                      ))}
+                    </div>
+                    </AdvancedReveal>
                   </>
                 ) : (
                   // ==============================

@@ -1,3 +1,4 @@
+/* @language JSX  @updated 2026-07-20  @changed Added the /manager-exercise/:configId student route + import. */
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -18,6 +19,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
+import ManagerExercisePage from './pages/ManagerExercisePage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
@@ -95,6 +97,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/group-chat/:configId" element={<GroupChatPage />}/>
+          {/* Manager Exercise — student-facing hidden-profile decision game (public, like group chat) */}
+          <Route path="/manager-exercise/:configId" element={<ManagerExercisePage />}/>
 
           {/* Chat Routes (Handled by PublicChatRoute to determine if auth is needed) */}
           <Route element={<PublicChatRoute />}>

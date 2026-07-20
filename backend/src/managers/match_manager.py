@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-07-20
+# @changed   Reserve AI seat(s) via ai_fill_to (room forms on N-1 humans, last seat is AI);
+#            add get_ai_seats. Plus prior: seat assignment, force_form_room, get_seat_assignment, get_config_id.
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -29,9 +33,29 @@ class MatchManager:
     # QUEUE MANAGEMENT
     # ------------------------------------------------------------------
 
-    def join_queue(self, config_id: str, uid: str, group_size: int) -> Tuple[Optional[str], Optional[List[str]]]:
+    def join_queue(
+        self,
+        config_id: str,
+        uid: str,
+        group_size: int,
+        *,
+        seat_assign: bool = False,
+        ai_fill_to: Optional[int] = None,
+    ) -> Tuple[Optional[str], Optional[List[str]]]:
         """
         Add uid to the waiting queue for config_id.
+
+        Args:
+            seat_assign: manager_exercise flow only. When True and a room forms,
+                a deterministic seat map (uid -> index, by match order) is stashed
+                on the room record so the sockets agent can read it via
+                get_seat_assignment(). Defaults False so the plain group-chat path
+                (3 positional args) is untouched.
+            ai_fill_to: manager_exercise flow only. Total number of manager seats
+                (>= group_size). When set, the trailing seats [group_size, ai_fill_to)
+                are reserved as AI seats — so the exercise always includes at least
+                one AI manager and a room forms as soon as `group_size` HUMANS queue
+                (i.e. N-1 humans for an N-seat exercise). Read back via get_ai_seats().
 
         Returns:
             (room_id, [matched_uids])  if a full group formed, else (None, None).
@@ -50,11 +74,21 @@ class MatchManager:
             self.queues[config_id] = queue[group_size:]  # leave remainder waiting
 
             room_id = f"{config_id}_{uuid4().hex[:8]}"
-            self.active_rooms[room_id] = {
+            room = {
                 "members": list(matched_uids),
                 "config_id": config_id,
                 "created_at": datetime.now()
             }
+            if seat_assign:
+                # Deterministic: seat index = position in match order.
+                room["seat_assignment"] = {u: i for i, u in enumerate(matched_uids)}
+                # Trailing seats [group_size, ai_fill_to) are AI (>= 1 reserved seat).
+                room["ai_seats"] = (
+                    list(range(group_size, ai_fill_to))
+                    if ai_fill_to and ai_fill_to > group_size
+                    else []
+                )
+            self.active_rooms[room_id] = room
             for u in matched_uids:
                 self.user_to_room[u] = room_id
                 self.user_to_queue.pop(u, None)
@@ -113,6 +147,80 @@ class MatchManager:
 
     def get_room_members(self, room_id: str) -> List[str]:
         return self.active_rooms.get(room_id, {}).get("members", [])
+
+    # ------------------------------------------------------------------
+    # MANAGER-EXERCISE SEAT ASSIGNMENT
+    #   New logic branches only for the manager_exercise flow. The plain
+    #   queue/room path above is intentionally left unchanged.
+    # ------------------------------------------------------------------
+
+    def get_seat_assignment(self, room_id: str) -> Dict[str, int]:
+        """
+        Return the uid -> seat-index map for a formed room (empty dict if the
+        room is unknown or was created without seat assignment). Seat order is
+        the match order captured when the room formed.
+        """
+        return dict(self.active_rooms.get(room_id, {}).get("seat_assignment", {}))
+
+    def get_ai_seats(self, room_id: str) -> List[int]:
+        """
+        Return the reserved AI-seat indices for a formed room (empty list if the
+        room is unknown or all-human). Set at formation via join_queue(ai_fill_to=)
+        or force_form_room's no-show padding.
+        """
+        return list(self.active_rooms.get(room_id, {}).get("ai_seats", []))
+
+    def force_form_room(
+        self,
+        config_id: str,
+        group_size: int,
+        *,
+        fill_with_ai: bool = True,
+    ) -> Tuple[str, List[str], List[int]]:
+        """
+        No-show path for the manager_exercise flow.
+
+        Take whatever humans are currently queued for config_id (0..group_size),
+        form a room NOW, and pad the remaining seats with AI managers. Humans
+        keep their match-order seat indices (0..k-1); the trailing seats
+        (k..group_size-1) become AI seats when fill_with_ai is True.
+
+        Returns:
+            (room_id, human_uids, ai_seat_indices)
+        """
+        queue = self.queues.get(config_id, [])
+        human_uids = queue[:group_size]
+        # Remove exactly those humans from the queue; leave any overflow waiting.
+        self.queues[config_id] = queue[len(human_uids):]
+
+        seat_assignment = {u: i for i, u in enumerate(human_uids)}
+        ai_seat_indices: List[int] = (
+            list(range(len(human_uids), group_size)) if fill_with_ai else []
+        )
+
+        room_id = f"{config_id}_{uuid4().hex[:8]}"
+        self.active_rooms[room_id] = {
+            "members": list(human_uids),
+            "config_id": config_id,
+            "created_at": datetime.now(),
+            "seat_assignment": seat_assignment,
+            "ai_seats": ai_seat_indices,
+        }
+        for u in human_uids:
+            self.user_to_room[u] = room_id
+            self.user_to_queue.pop(u, None)
+
+        return room_id, human_uids, ai_seat_indices
+
+    def get_config_id(self, room_id: str) -> str:
+        """
+        Convenience: config_id for a room_id. Reads the room record when present,
+        else falls back to parsing the room_id (`"{config_id}_{8hex}"`).
+        """
+        room = self.active_rooms.get(room_id)
+        if room and room.get("config_id"):
+            return room["config_id"]
+        return room_id.rsplit("_", 1)[0]
 
 
 # Global singleton
