@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-20
-// @changed   Manager Exercise upload discoverability (mirror ConfigPage): blocked Next scrolls to + pulses the
-//            first empty seat card; in-place "done/total uploaded" chip. Prior: N seats = (N−1) students + 1 hidden AI.
+// @changed   Manager Exercise upload (mirror ConfigPage): restrict to Word (.docx) + PDF only and make each
+//            manager card a drag-and-drop target (drop bypasses `accept`, so validate on drop).
+//            Prior: blocked Next scrolls to + pulses the first empty seat card; "done/total uploaded" chip.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -289,6 +290,8 @@ const EditConfigPage = () => {
   // Blocked Next → scroll to + pulse the first seat still missing a doc (the `n`
   // bump re-fires the effect on repeat clicks). Mirrors ConfigPage.
   const [mgrHighlight, setMgrHighlight] = useState({ idx: null, n: 0 });
+  // Which manager seat is currently being dragged over, so only that card lights up.
+  const [mgrDragIdx, setMgrDragIdx] = useState(null);
   useEffect(() => {
     if (mgrHighlight.idx == null) return;
     document.getElementById(`mgr-card-${mgrHighlight.idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -347,6 +350,26 @@ const EditConfigPage = () => {
     } finally {
       setMgrUploading(false);
     }
+  };
+
+  // Manager briefs are restricted to Word (.docx) and PDF. The picker enforces this
+  // via `accept`, but drag-and-drop bypasses that filter, so validate by extension.
+  const isAllowedManagerDoc = (file) =>
+    !!file && ['pdf', 'docx'].includes((file.name.split('.').pop() || '').toLowerCase());
+
+  // Drop a file onto an empty manager card → type-check, then route through the same
+  // upload/parse path as the picker. Rejects bad types inline via `mgrUploadError`.
+  const handleManagerDocDrop = (index, e) => {
+    e.preventDefault();
+    setMgrDragIdx(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!isAllowedManagerDoc(file)) {
+      setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
+      return;
+    }
+    setMgrUploadError('');
+    handleManagerDocUpload(index, file);
   };
 
   // Edit the faculty-confirmable role name on an already-uploaded manager seat.
@@ -929,7 +952,7 @@ const EditConfigPage = () => {
                         </div>
                       );
                     })()}
-                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
+                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order — Word (.docx) or PDF only. Drag a file onto a card or click to browse. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
                     <div className="space-y-3 mb-6">
                       {managers.map((mgr, idx) => {
                         const uploaded = !!(mgr.doc_text || '').trim();
@@ -959,14 +982,21 @@ const EditConfigPage = () => {
                                 </details>
                               </div>
                             ) : (
+                              // Empty seat = click-to-browse button that doubles as a drop
+                              // zone. Dragging over lifts + tints the card; the drop is
+                              // type-validated in handleManagerDocDrop before uploading.
                               <button
                                 type="button"
                                 disabled={mgrUploading}
                                 onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
-                                className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                                onDragEnter={(e) => { e.preventDefault(); setMgrDragIdx(idx); }}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDragLeave={(e) => { e.preventDefault(); setMgrDragIdx(null); }}
+                                onDrop={(e) => handleManagerDocDrop(idx, e)}
+                                className={`w-full py-4 border-2 border-dashed rounded-xl transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed ${mgrDragIdx === idx ? 'border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43] scale-[1.01]' : 'border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'}`}
                               >
                                 {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
-                                {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
+                                {mgrUploading ? 'Uploading & parsing…' : mgrDragIdx === idx ? 'Drop to upload' : `Upload Manager ${idx + 1}'s document — or drop it here`}
                               </button>
                             )}
                           </div>
@@ -978,11 +1008,16 @@ const EditConfigPage = () => {
                         type="file"
                         ref={mgrFileInputRef}
                         className="hidden"
-                        accept=".txt,.pdf,.md,.docx,.pptx"
+                        accept=".pdf,.docx"
                         onChange={(e) => {
                           const idx = parseInt(e.target.dataset.index || '0', 10);
-                          handleManagerDocUpload(idx, e.target.files?.[0]);
+                          const file = e.target.files?.[0];
                           e.target.value = ''; // allow re-picking the same file
+                          if (file && !isAllowedManagerDoc(file)) {
+                            setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
+                            return;
+                          }
+                          if (file) { setMgrUploadError(''); handleManagerDocUpload(idx, file); }
                         }}
                       />
                       {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
