@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-20
-// @changed   Manager Exercise upload discoverability: blocked Next scrolls to + pulses the first empty
-//            seat card; in-place "done/total uploaded" chip. Prior: N seats = (N−1) students + 1 hidden AI.
+// @changed   Manager Exercise wizard split into 5 steps (name → Roles & Timing → Manager Documents →
+//            Candidates & Grading → publish) so uploads get their own step, not piled with time settings.
+//            Prior: upload discoverability (scroll+pulse+chip); N seats = (N−1) students + 1 hidden AI.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -429,6 +430,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 3 && config.bot_type === 'experiential' && !(config.experiential_config && config.experiential_config.method)) {
       newErrors.experiential_config = 'Generate the lab before saving';
     }
+    // Manager Exercise step 3 = documents: every seat needs an uploaded brief.
+    if (step === 3 && config.bot_type === 'manager_exercise') {
+      const me = config.manager_exercise;
+      const filled = me.managers.filter(m => (m.doc_text || '').trim()).length;
+      if (filled < me.num_managers) {
+        newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+        const firstEmpty = me.managers.findIndex(m => !(m.doc_text || '').trim());
+        if (firstEmpty >= 0) setMgrHighlight(h => ({ idx: firstEmpty, n: h.n + 1 }));
+      }
+    }
     if (step === 4) {
       if (config.bot_type === 'video_analysis') {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
@@ -438,17 +449,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
           if (!bot.prompt.trim()) newErrors[`bot_${idx}_prompt`] = 'Required';
         });
       } else if (config.bot_type === 'manager_exercise') {
-        // Every seat needs an uploaded doc; the roster needs candidates; and the
-        // ground-truth best-fit pick must be marked (and be a real candidate).
+        // Step 4 = candidates & grading: need a roster (>=2) + a marked correct pick.
+        // (Documents are gated on step 3.)
         const me = config.manager_exercise;
-        const filled = me.managers.filter(m => (m.doc_text || '').trim()).length;
-        if (filled < me.num_managers) {
-          newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
-          // Guide faculty straight to the first seat still missing a document.
-          const firstEmpty = me.managers.findIndex(m => !(m.doc_text || '').trim());
-          if (firstEmpty >= 0) setMgrHighlight(h => ({ idx: firstEmpty, n: h.n + 1 }));
-        }
-        else if (me.candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
+        if (me.candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
         else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
       } else {
         if (!config.instructions.trim()) {
@@ -469,9 +473,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (botType === 'group_chat') return [1, 3, 4, 5];
     if (botType === 'video_analysis') return [1, 4, 5];
     if (botType === 'experiential') return [1, 3]; // name + type + upload course files, then generate the lab (grounded in them)
-    // Manager exercise: name → authoring (step 4) → final polish. No model
-    // picker (fixed Claude) and no shared KB (private docs are per-manager).
-    if (botType === 'manager_exercise') return [1, 4, 5];
+    // Manager exercise (fixed Claude, per-manager private docs) reuses the slots:
+    //   1 name → 2 Roles & Timing → 3 Manager Documents → 4 Candidates & Grading → 5 polish.
+    if (botType === 'manager_exercise') return [1, 2, 3, 4, 5];
     return advanced ? [1, 2, 3, 4, 5] : [1, 3, 4, 5];
   };
 
@@ -741,19 +745,53 @@ const ConfigModal = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* STEP 2: Pick Base Model (Skipped visually for groups to avoid confusion, but kept for logic) */}
+            {/* STEP 2: Base Model — OR, for the Manager Exercise, Roles & Timing
+                (the exercise pins Claude, so it reuses this slot for seats + timers). */}
             {step === 2 && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
-                <h2 className="text-2xl font-bold text-center text-[#222] mb-6">{config.bot_type === 'group_chat' ? 'Select Default Lobby AI' : 'Pick the Base AI Model'}</h2>
-                <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-                  {aiModels.map(model => (
-                    <div key={model.id} onClick={() => setConfig(prev => ({...prev, model_name: model.id}))} className={`cursor-pointer p-4 border-2 rounded-xl transition-all ${config.model_name === model.id ? 'border-[#FA6C43] bg-[#F9D0C4]/10 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
-                      <h3 className="font-bold text-[#222]">{model.name}</h3>
-                      {model.desc && <p className="text-sm text-gray-500 font-medium mt-1">{model.desc}</p>}
+              config.bot_type === 'manager_exercise' ? (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Roles &amp; Timing</h2>
+                  {/* Total seats (N) + the two phase durations. num_managers drives group_size. */}
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
+                    <div className="mb-5">
+                      <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                        <span className="inline-flex items-center gap-1">Total Manager Seats<InfoTip text="Total named managerial roles in the room. One seat is ALWAYS a hidden AI manager, so N seats = (N−1) students + 1 AI. Each seat gets its own private document. If students no-show, their seats also fill with AI after the timeout." /></span>
+                        <span className="text-[#FA6C43] font-bold">{config.manager_exercise.num_managers} seats</span>
+                      </label>
+                      <input type="range" min="2" max="10" step="1" value={config.manager_exercise.num_managers} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                      {/* Explicit student/AI split so faculty aren't surprised that N ≠ student count. */}
+                      <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                        = <span className="text-[#222]">{Math.max(1, config.manager_exercise.num_managers - 1)} student{config.manager_exercise.num_managers - 1 === 1 ? '' : 's'}</span> + <span className="text-[#222]">1 AI manager</span> <span className="text-gray-400">(the AI is hidden from students)</span>
+                      </p>
                     </div>
-                  ))}
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
+                        <input type="number" min="0.5" step="0.5" value={config.manager_exercise.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                        <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
+                        <input type="number" min="0.5" step="0.5" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                        <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-6">{config.bot_type === 'group_chat' ? 'Select Default Lobby AI' : 'Pick the Base AI Model'}</h2>
+                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                    {aiModels.map(model => (
+                      <div key={model.id} onClick={() => setConfig(prev => ({...prev, model_name: model.id}))} className={`cursor-pointer p-4 border-2 rounded-xl transition-all ${config.model_name === model.id ? 'border-[#FA6C43] bg-[#F9D0C4]/10 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                        <h3 className="font-bold text-[#222]">{model.name}</h3>
+                        {model.desc && <p className="text-sm text-gray-500 font-medium mt-1">{model.desc}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
             )}
 
             {/* STEP 3: Knowledge Base — or, for experiential labs, generate the
@@ -775,6 +813,88 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     files={config.rag_files}
                   />
                   {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
+                </div>
+              ) : config.bot_type === 'manager_exercise' ? (
+                // Manager Exercise: the per-manager private-document upload, on its own step.
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                  <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Manager Documents</h2>
+                  <p className="text-center text-sm text-gray-500 mb-4">One private brief per manager — each seat sees a different slice of the candidates, which is the whole point of the exercise.</p>
+
+                  {/* Sequential per-manager document wizard. Renders Manager 1..N as
+                      cards; each card either shows an Upload button (empty) or, once
+                      parsed, the auto-detected role_name in an EDITABLE field plus a
+                      collapsible plaintext preview for confirmation. */}
+                  {(() => {
+                    const done = config.manager_exercise.managers.filter(m => (m.doc_text || '').trim()).length;
+                    const total = config.manager_exercise.num_managers;
+                    return (
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                        {/* In-place progress so the upload state is obvious at a glance. */}
+                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${done >= total ? 'bg-[#FA6C43]/10 text-[#FA6C43]' : 'bg-gray-100 text-gray-500'}`}>
+                          {done}/{total} uploaded
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  <p className="text-[11px] text-gray-400 mb-3">Upload in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
+                  <div className="space-y-3">
+                    {config.manager_exercise.managers.map((mgr, idx) => {
+                      const uploaded = !!(mgr.doc_text || '').trim();
+                      return (
+                        <div key={idx} id={`mgr-card-${idx}`} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${mgrHighlight.idx === idx ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/50 ring-offset-2 animate-pulse' : uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
+                              {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
+                              Manager {idx + 1}
+                            </span>
+                            {uploaded && (
+                              <button type="button" onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors">Replace</button>
+                            )}
+                          </div>
+
+                          {uploaded ? (
+                            <div className="space-y-3 animate-in fade-in duration-300">
+                              {/* Editable auto-detected role — faculty confirms/overrides. */}
+                              <div>
+                                <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Role Name <span className="normal-case font-normal text-gray-400">(auto-detected, editable)</span></label>
+                                <input type="text" value={mgr.role_name} onChange={(e) => setManagerRoleName(idx, e.target.value)} placeholder="e.g. Marketing Manager" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                              </div>
+                              {/* Collapsible parsed-doc preview for a sanity check. */}
+                              <details className="group">
+                                <summary className="cursor-pointer text-[11px] font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors select-none">Preview parsed document</summary>
+                                <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 custom-scrollbar">{mgr.doc_text}</pre>
+                              </details>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={mgrUploading}
+                              onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
+                              className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
+                              {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* One shared hidden input; the target seat index is stashed on
+                        its dataset by whichever card triggered the picker. */}
+                    <input
+                      type="file"
+                      ref={mgrFileInputRef}
+                      className="hidden"
+                      accept=".txt,.pdf,.md,.docx,.pptx"
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.dataset.index || '0', 10);
+                        handleManagerDocUpload(idx, e.target.files?.[0]);
+                        e.target.value = ''; // allow re-picking the same file
+                      }}
+                    />
+                    {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
@@ -918,112 +1038,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   // MANAGER EXERCISE — hidden-profile authoring
                   // ==============================
                   <>
-                    <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Design the Manager Exercise</h2>
-
-                    {/* Group + timing rules: N managers (== student seats) and the
-                        two phase durations. num_managers drives group_size. */}
-                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
-                      <div className="mb-5">
-                        <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                          <span className="inline-flex items-center gap-1">Total Manager Seats<InfoTip text="Total named managerial roles in the room. One seat is ALWAYS a hidden AI manager, so N seats = (N−1) students + 1 AI. Each seat gets its own private document. If students no-show, their seats also fill with AI after the timeout." /></span>
-                          <span className="text-[#FA6C43] font-bold">{config.manager_exercise.num_managers} seats</span>
-                        </label>
-                        <input type="range" min="2" max="10" step="1" value={config.manager_exercise.num_managers} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
-                        {/* Explicit student/AI split so faculty aren't surprised that N ≠ student count. */}
-                        <p className="mt-2 text-[11px] font-semibold text-gray-500">
-                          = <span className="text-[#222]">{Math.max(1, config.manager_exercise.num_managers - 1)} student{config.manager_exercise.num_managers - 1 === 1 ? '' : 's'}</span> + <span className="text-[#222]">1 AI manager</span> <span className="text-gray-400">(the AI is hidden from students)</span>
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={config.manager_exercise.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                          <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                          <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Sequential per-manager document wizard. Renders Manager 1..N
-                        as cards; each card either shows an Upload button (empty) or,
-                        once parsed, the auto-detected role_name in an EDITABLE field
-                        plus a collapsible plaintext preview for confirmation. */}
-                    {(() => {
-                      const done = config.manager_exercise.managers.filter(m => (m.doc_text || '').trim()).length;
-                      const total = config.manager_exercise.num_managers;
-                      return (
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
-                          {/* In-place progress so the upload state is obvious without scrolling up to the error. */}
-                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${done >= total ? 'bg-[#FA6C43]/10 text-[#FA6C43]' : 'bg-gray-100 text-gray-500'}`}>
-                            {done}/{total} uploaded
-                          </span>
-                        </div>
-                      );
-                    })()}
-                    <p className="text-[11px] text-gray-400 mb-3">Upload one private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
-                    <div className="space-y-3 mb-6">
-                      {config.manager_exercise.managers.map((mgr, idx) => {
-                        const uploaded = !!(mgr.doc_text || '').trim();
-                        return (
-                          <div key={idx} id={`mgr-card-${idx}`} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${mgrHighlight.idx === idx ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/50 ring-offset-2 animate-pulse' : uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
-                                {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
-                                Manager {idx + 1}
-                              </span>
-                              {uploaded && (
-                                <button type="button" onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors">Replace</button>
-                              )}
-                            </div>
-
-                            {uploaded ? (
-                              <div className="space-y-3 animate-in fade-in duration-300">
-                                {/* Editable auto-detected role — faculty confirms/overrides. */}
-                                <div>
-                                  <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Role Name <span className="normal-case font-normal text-gray-400">(auto-detected, editable)</span></label>
-                                  <input type="text" value={mgr.role_name} onChange={(e) => setManagerRoleName(idx, e.target.value)} placeholder="e.g. Marketing Manager" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
-                                </div>
-                                {/* Collapsible parsed-doc preview for a sanity check. */}
-                                <details className="group">
-                                  <summary className="cursor-pointer text-[11px] font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors select-none">Preview parsed document</summary>
-                                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 custom-scrollbar">{mgr.doc_text}</pre>
-                                </details>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={mgrUploading}
-                                onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
-                                className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
-                                {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {/* One shared hidden input; the target seat index is stashed on
-                          its dataset by whichever card triggered the picker. */}
-                      <input
-                        type="file"
-                        ref={mgrFileInputRef}
-                        className="hidden"
-                        accept=".txt,.pdf,.md,.docx,.pptx"
-                        onChange={(e) => {
-                          const idx = parseInt(e.target.dataset.index || '0', 10);
-                          handleManagerDocUpload(idx, e.target.files?.[0]);
-                          e.target.value = ''; // allow re-picking the same file
-                        }}
-                      />
-                      {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
-                    </div>
+                    <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Candidates &amp; Grading</h2>
 
                     {/* Candidate roster + ground-truth marking. Candidates may be
                         auto-seeded from the uploaded docs or entered by hand; the
