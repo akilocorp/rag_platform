@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-20  @changed Memorize phase renders the briefing as side-by-side candidate cards (parsed from doc_text; hover lifts + orange-accents each card; stacks on phones; falls back to raw text for non-list docs). Prior: everyone renders by ROLE NAME so AI seats are indistinguishable; waiting-screen auto-start countdown; roster shows no AI markers. */
+/* @language JSX  @updated 2026-07-20  @changed Memorize phase renders the briefing as side-by-side candidate cards (parsed from doc_text; hover lifts + orange-accents each card; min-h-[340px] for taller presence; stacks on phones; falls back to raw text for non-list docs). Prior: everyone renders by ROLE NAME so AI seats are indistinguishable; waiting-screen auto-start countdown; roster shows no AI markers. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -104,7 +104,7 @@ const parseBriefingCandidates = (text) => {
 const CandidateBriefingCard = ({ candidate, index }) => (
   <div
     style={{ animationDelay: `${index * 80}ms` }}
-    className="group flex-1 min-w-0 rounded-2xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 hover:-translate-y-1 hover:scale-[1.02] hover:border-[#FA6C43] hover:shadow-lg"
+    className="group flex-1 min-w-0 min-h-[340px] rounded-2xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 hover:-translate-y-1 hover:scale-[1.02] hover:border-[#FA6C43] hover:shadow-lg"
   >
     <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
       <span className="flex-shrink-0 w-8 h-8 rounded-full bg-[#FA6C43]/10 text-[#C2410C] flex items-center justify-center transition-colors group-hover:bg-[#FA6C43] group-hover:text-white">
