@@ -923,12 +923,12 @@ const EditConfigPage = () => {
                       <div className="grid grid-cols-2 gap-6">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <input type="number" min="0" step="any" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                           <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                           <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
                         </div>
                       </div>
