@@ -32,6 +32,7 @@ const directStudentLink = (config) => {
   switch (config.bot_type) {
     case 'experiential':   return `${origin}/experiential/c/${config.config_id}`;
     case 'group_chat':     return `${origin}/group-chat/${config.config_id}`;
+    case 'manager_exercise': return `${origin}/manager-exercise/${config.config_id}`;
     case 'video_analysis': return `${origin}/video-upload/${config.config_id}`;
     default:               return `${origin}/chat/${config.config_id}`;
   }

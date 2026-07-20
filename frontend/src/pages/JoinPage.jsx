@@ -27,6 +27,7 @@ export default function JoinPage() {
     switch (cfg?.bot_type) {
       case 'experiential':   return `/experiential/c/${cfg.config_id}`;
       case 'group_chat':     return `/group-chat/${cfg.config_id}`;
+      case 'manager_exercise': return `/manager-exercise/${cfg.config_id}`;
       case 'video_analysis': return '/student-dashboard';
       default:               return `/chat/${cfg.config_id}`;
     }
