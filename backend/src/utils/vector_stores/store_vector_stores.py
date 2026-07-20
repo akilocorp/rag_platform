@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-20
+# @changed   Add extract_plaintext(): text-only loader-path extraction for per-manager Manager Exercise docs (no vector ingestion).
 import os
 import shutil
 import base64
@@ -244,6 +247,44 @@ def get_document_loader(file_path):
             file_extension, file_path, sorted(loader_map.keys()),
         )
         return None
+def extract_plaintext(file_path):
+    """Extract plain text from an uploaded document via the shared loader path.
+
+    Reuses get_document_loader (txt/md/docx/pdf/pptx), loads all pages, and
+    joins their page_content with blank-line separators — no chunking, no
+    embedding, no vector write. This is the text-only path used by the
+    Manager Exercise, whose per-manager private docs are served verbatim from
+    `doc_text` on the config (they must NOT enter the shared vector store,
+    which filters by config/room and cannot isolate a doc to one seat).
+
+    Returns the joined text (may be "" for image-only PDFs with no text layer),
+    or None if the file type is unsupported / the loader crashes. Caller decides
+    how to treat None vs "".
+    """
+    loader = get_document_loader(file_path)
+    if not loader:
+        logger.error("extract_plaintext: no loader for file | path=%s", file_path)
+        return None
+    try:
+        pages = loader.load()
+    except Exception as e:
+        logger.error(
+            "extract_plaintext: loader.load() crashed | path=%s loader=%s err=%s",
+            file_path, type(loader).__name__, e,
+            exc_info=True,
+        )
+        return None
+    # Join page_content across pages/slides; strip trailing whitespace per page
+    # so the header regex in the role parser sees clean leading lines.
+    parts = [(p.page_content or "").strip() for p in pages]
+    text = "\n\n".join(part for part in parts if part)
+    logger.info(
+        "extract_plaintext OK | path=%s pages=%d chars=%d",
+        file_path, len(pages), len(text),
+    )
+    return text
+
+
 def handle_cleanup_error(func, path, exc_info):
     """
     Error handler for shutil.rmtree. Logs errors instead of raising them.

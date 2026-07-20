@@ -1,11 +1,11 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-19
-// @changed   Gate advanced bot-config fields behind faculty Simple/Advanced mode with animated reveals.
-import React, { useEffect, useState } from 'react';
+// @updated   2026-07-20
+// @changed   Mirror ConfigPage manager_exercise authoring: round-trip the sub-object, per-manager doc upload/replace, candidate roster + correct-pick, advanced personality + grading weights.
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -106,11 +106,53 @@ const EditConfigPage = () => {
         resolvedInstructions = idx !== -1 ? tmpl.slice(idx + marker.length).trim() : tmpl.trim();
     }
 
+    // Manager exercise: the sub-object may arrive as a nested dict or a JSON
+    // string (like bots/scoring_spec). Parse defensively and backfill every field
+    // with a default so a partially-authored config still round-trips and the
+    // controlled inputs below never read undefined. managers[] length is snapped
+    // to num_managers so the seat cards stay in sync even if the stored doc drifted.
+    let resolvedManagerExercise = null;
+    if (configFromState.bot_type === 'manager_exercise') {
+        let me = configFromState.manager_exercise;
+        if (typeof me === 'string') {
+            try { me = JSON.parse(me); } catch (e) { me = null; }
+        }
+        me = (me && typeof me === 'object') ? me : {};
+        const num = Math.max(1, Math.min(10, parseInt(me.num_managers, 10) || 3));
+        const managers = Array.isArray(me.managers) ? me.managers.map(m => ({
+            role_name: m?.role_name || '',
+            doc_file_id: m?.doc_file_id || '',
+            doc_text: m?.doc_text || ''
+        })) : [];
+        while (managers.length < num) managers.push({ role_name: '', doc_file_id: '', doc_text: '' });
+        managers.length = num;
+        const gw = (me.grading_weights && typeof me.grading_weights === 'object') ? me.grading_weights : {};
+        resolvedManagerExercise = {
+            num_managers: num,
+            memorize_minutes: typeof me.memorize_minutes === 'number' ? me.memorize_minutes : 5,
+            discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 15,
+            correct_candidate: me.correct_candidate || '',
+            candidates: Array.isArray(me.candidates)
+                ? me.candidates.map(c => ({ name: c?.name || '', blurb: c?.blurb || '' }))
+                : [],
+            managers,
+            ai_personality: ['friend', 'foe', 'confused'].includes(me.ai_personality) ? me.ai_personality : 'friend',
+            grading_weights: {
+                communication: typeof gw.communication === 'number' ? gw.communication : 0.34,
+                individual: typeof gw.individual === 'number' ? gw.individual : 0.33,
+                collective: typeof gw.collective === 'number' ? gw.collective : 0.33
+            },
+            no_show_timeout_seconds: typeof me.no_show_timeout_seconds === 'number' ? me.no_show_timeout_seconds : 300
+        };
+    }
+
     setConfig({
         ...configFromState,
         instructions: resolvedInstructions,
         bots: parsedBots,
-        group_size: configFromState.group_size || 2,
+        ...(resolvedManagerExercise ? { manager_exercise: resolvedManagerExercise } : {}),
+        // Keep the matcher invariant (group_size == num_managers) even before save.
+        group_size: resolvedManagerExercise ? resolvedManagerExercise.num_managers : (configFromState.group_size || 2),
         group_duration: configFromState.group_duration || 10,
         web_access: configFromState.web_access !== undefined ? configFromState.web_access : true,
         qualtrics_enabled: !!configFromState.qualtrics_enabled,
@@ -236,6 +278,137 @@ const EditConfigPage = () => {
     }
   };
 
+  // ---- Manager Exercise authoring state + helpers -----------------------------
+  // Mirrors ConfigPage. `mgrUploading` guards the active per-seat POST so faculty
+  // can't double-submit a doc; `mgrUploadError` surfaces a per-step failure inline.
+  // One shared hidden file input drives the picker for whichever seat was clicked.
+  const [mgrUploading, setMgrUploading] = useState(false);
+  const [mgrUploadError, setMgrUploadError] = useState('');
+  const mgrFileInputRef = useRef(null);
+
+  // Patch a single field on the manager_exercise sub-object.
+  const setMgr = (field, value) => {
+    setConfig(prev => ({ ...prev, manager_exercise: { ...(prev.manager_exercise || {}), [field]: value } }));
+  };
+
+  // Resize managers[] to match num_managers. Growing appends empty seats (filled
+  // by the wizard); shrinking trims from the tail. group_size tracks num_managers
+  // so the matcher invariant holds even before save.
+  const handleNumManagersChange = (n) => {
+    const count = Math.max(1, Math.min(10, parseInt(n, 10) || 1));
+    setConfig(prev => {
+      const managers = [...(prev.manager_exercise?.managers || [])];
+      while (managers.length < count) managers.push({ role_name: '', doc_file_id: '', doc_text: '' });
+      managers.length = count;
+      return {
+        ...prev,
+        group_size: count,
+        manager_exercise: { ...prev.manager_exercise, num_managers: count, managers }
+      };
+    });
+  };
+
+  // Upload + parse ONE manager's private document via the faculty-only
+  // /api/files/manager-doc endpoint, which extracts plaintext and best-effort
+  // parses the role name from the doc header. Also serves the "Replace" action
+  // for an already-filled seat (same endpoint, overwrites the seat in place).
+  const handleManagerDocUpload = async (index, file) => {
+    if (!file) return;
+    setMgrUploading(true);
+    setMgrUploadError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (config.config_id) fd.append('config_id', config.config_id);
+      const token = localStorage.getItem('jwtToken');
+      const res = await apiClient.post('/files/manager-doc', fd, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+      });
+      const { role_name = '', doc_text = '', file_id = '' } = res.data || {};
+      setConfig(prev => {
+        const managers = [...(prev.manager_exercise?.managers || [])];
+        managers[index] = { role_name, doc_file_id: file_id, doc_text };
+        return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
+      });
+    } catch (err) {
+      const d = err.response?.data;
+      setMgrUploadError((d && (d.error || d.message)) || err.message || 'Upload failed');
+    } finally {
+      setMgrUploading(false);
+    }
+  };
+
+  // Edit the faculty-confirmable role name on an already-uploaded manager seat.
+  const setManagerRoleName = (index, roleName) => {
+    setConfig(prev => {
+      const managers = [...(prev.manager_exercise?.managers || [])];
+      managers[index] = { ...managers[index], role_name: roleName };
+      return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
+    });
+  };
+
+  // Add / edit / remove a candidate on the shared roster (used for voting). If
+  // the removed candidate was the marked ground truth, clear the marking too.
+  const addCandidate = () => setMgr('candidates', [...(config.manager_exercise?.candidates || []), { name: '', blurb: '' }]);
+  const setCandidate = (index, field, value) => {
+    const candidates = [...(config.manager_exercise?.candidates || [])];
+    candidates[index] = { ...candidates[index], [field]: value };
+    setMgr('candidates', candidates);
+  };
+  const removeCandidate = (index) => {
+    const removed = config.manager_exercise?.candidates?.[index];
+    const candidates = (config.manager_exercise?.candidates || []).filter((_, i) => i !== index);
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        candidates,
+        correct_candidate: removed?.name === prev.manager_exercise?.correct_candidate ? '' : prev.manager_exercise?.correct_candidate
+      }
+    }));
+  };
+
+  // Auto-seed candidate names mentioned across every uploaded manager doc.
+  // Heuristic: prefer an explicit "Candidates:"/"Applicants:" block, else scan
+  // for capitalized two/three-word proper-name lines; dedupe against the roster.
+  // Convenience only — faculty still edit the result.
+  const autoExtractCandidates = () => {
+    const roster = config.manager_exercise?.candidates || [];
+    const found = new Set(roster.map(c => (c.name || '').trim().toLowerCase()).filter(Boolean));
+    const additions = [];
+    (config.manager_exercise?.managers || []).forEach(m => {
+      const text = m.doc_text || '';
+      const listMatch = text.match(/(?:candidates?|applicants?)\s*:\s*([\s\S]{0,400})/i);
+      const scope = listMatch ? listMatch[1] : text;
+      const nameRe = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/g;
+      let hit;
+      while ((hit = nameRe.exec(scope)) !== null) {
+        const name = hit[1].trim();
+        const key = name.toLowerCase();
+        if (!found.has(key)) { found.add(key); additions.push({ name, blurb: '' }); }
+        if (additions.length >= 12) break; // cap the seed so we don't flood the roster
+      }
+    });
+    if (additions.length) setMgr('candidates', [...roster, ...additions]);
+  };
+
+  // Normalize the three grading weights so they sum to 1.0 after a slider moves.
+  // Keeps the just-moved key at its chosen value and rescales the other two by
+  // their prior ratio (equal split if the remainder was zero).
+  const setGradingWeight = (key, value) => {
+    const v = Math.max(0, Math.min(1, parseFloat(value)));
+    const w = { ...(config.manager_exercise?.grading_weights || {}) };
+    const others = Object.keys(w).filter(k => k !== key);
+    const remainder = 1 - v;
+    const otherSum = others.reduce((s, k) => s + (w[k] || 0), 0);
+    const next = { ...w, [key]: v };
+    others.forEach(k => {
+      next[k] = otherSum > 0 ? remainder * ((w[k] || 0) / otherSum) : remainder / others.length;
+    });
+    setMgr('grading_weights', next);
+  };
+  // ---------------------------------------------------------------------------
+
   // --- File Handlers ---
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -274,6 +447,16 @@ const EditConfigPage = () => {
         if (!config.assignment_type) newErrors.form = 'Please choose an assignment type.';
     } else if (config.bot_type === 'experiential') {
         if (!(config.experiential_config && config.experiential_config.method)) newErrors.form = 'Generate the lab from your prompt before saving.';
+    } else if (config.bot_type === 'manager_exercise') {
+        // Every seat needs an uploaded doc; the roster needs >=2 candidates; and
+        // the ground-truth best-fit pick must be a marked, real candidate.
+        const me = config.manager_exercise || {};
+        const managers = me.managers || [];
+        const candidates = me.candidates || [];
+        const filled = managers.filter(m => (m.doc_text || '').trim()).length;
+        if (filled < (me.num_managers || 0)) newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+        else if (candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
+        else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
     } else {
         if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }
@@ -310,6 +493,14 @@ const EditConfigPage = () => {
       } else if (configToSubmit.bot_type === 'experiential') {
           configToSubmit.instructions = `Experiential lab: ${configToSubmit.experiential_config?.meta?.title || 'custom'}`;
           configToSubmit.prompt_template = "";
+      } else if (configToSubmit.bot_type === 'manager_exercise') {
+          // Satisfy backend instructions validation; the real spec lives in the
+          // manager_exercise sub-object. Pin the Claude reasoning model and enforce
+          // the matcher invariant group_size == num_managers (backend re-enforces).
+          configToSubmit.instructions = 'Manager Exercise: hidden-profile decision game.';
+          configToSubmit.prompt_template = '';
+          configToSubmit.model_name = 'claude-sonnet-4-6';
+          configToSubmit.group_size = configToSubmit.manager_exercise?.num_managers || configToSubmit.group_size;
       } else {
           // Unified instructions panel — always send instructions; backend wraps it.
           configToSubmit.prompt_template = '';
@@ -320,9 +511,10 @@ const EditConfigPage = () => {
       const scoringSpec = configToSubmit.scoring_spec;
       const experientialConfig = configToSubmit.experiential_config;
       const facilitator = configToSubmit.facilitator;
+      const managerExercise = configToSubmit.manager_exercise;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise') {
           formData.append(key, value);
         }
       });
@@ -334,6 +526,11 @@ const EditConfigPage = () => {
       }
       if (facilitator && typeof facilitator === 'object') {
         formData.append('facilitator', JSON.stringify(facilitator));
+      }
+      // manager_exercise is a nested object — serialize like scoring_spec so the
+      // backend gets JSON (not "[object Object]"). Only for this bot_type.
+      if (configToSubmit.bot_type === 'manager_exercise' && managerExercise && typeof managerExercise === 'object') {
+        formData.append('manager_exercise', JSON.stringify(managerExercise));
       }
       
       // Append bots safely
@@ -352,6 +549,7 @@ const EditConfigPage = () => {
       if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
       else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${config.config_id}`);
       else if (config.bot_type === 'experiential') navigate(`/experiential/c/${config.config_id}`);
+      else if (config.bot_type === 'manager_exercise') navigate(`/manager-exercise/${config.config_id}`);
       else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
       
     } catch (error) {
@@ -427,7 +625,7 @@ const EditConfigPage = () => {
 
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
-            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : 'AI Assistant'}
+            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : config.bot_type === 'manager_exercise' ? 'Manager Exercise' : 'AI Assistant'}
           </h1>
         </div>
 
@@ -652,6 +850,189 @@ const EditConfigPage = () => {
                 <button type="button" onClick={addBot} className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-2xl hover:text-[#FA6C43] hover:border-[#FA6C43] font-bold text-sm flex justify-center"><FaPlus className="mr-2 mt-0.5"/> Add Agent</button>
                 )}
               </div>
+            ) : config.bot_type === 'manager_exercise' ? (
+              // ==============================
+              // MANAGER EXERCISE — hidden-profile authoring (mirrors ConfigPage)
+              // ==============================
+              // `me` is the guaranteed-present sub-object (the init effect backfills
+              // every field for this bot_type). Aliased so the JSX reads cleanly and
+              // stays null-safe even if a partial doc slipped through.
+              (() => {
+                const me = config.manager_exercise || {};
+                const managers = me.managers || [];
+                const candidates = me.candidates || [];
+                const gradingWeights = me.grading_weights || {};
+                return (
+                  <div className="border-t border-gray-100 pt-8 mt-8">
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-1"><FaUserTie className="mr-2 text-[#FA6C43]"/> Manager Exercise</h3>
+                    <p className="text-[11px] text-gray-400 mb-6">Hidden-profile decision game. Edit the roster, per-manager briefs, and grading below.</p>
+
+                    {/* Group + timing rules: N managers (== student seats) plus the two
+                        phase durations. num_managers drives group_size (matcher invariant). */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
+                      <div className="mb-5">
+                        <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                          <span className="inline-flex items-center gap-1">Number of Managers<InfoTip text="How many named managerial roles (= student seats). Each gets a private document. Empty seats auto-fill with AI managers after the no-show timeout." /></span>
+                          <span className="text-[#FA6C43] font-bold">{me.num_managers} {me.num_managers === 1 ? 'Manager' : 'Managers'}</span>
+                        </label>
+                        <input type="range" min="1" max="10" step="1" value={me.num_managers || 1} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
+                          <input type="number" min="0.5" step="0.5" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
+                          <input type="number" min="0.5" step="0.5" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sequential per-manager document wizard. Renders Manager 1..N as
+                        cards; each card either shows an Upload button (empty) or, once
+                        parsed, the auto-detected role_name in an EDITABLE field plus a
+                        collapsible plaintext preview. "Replace" re-runs the upload for a
+                        filled seat, so faculty can swap a brief while editing. */}
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
+                    <div className="space-y-3 mb-6">
+                      {managers.map((mgr, idx) => {
+                        const uploaded = !!(mgr.doc_text || '').trim();
+                        return (
+                          <div key={idx} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
+                                {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
+                                Manager {idx + 1}
+                              </span>
+                              {uploaded && (
+                                <button type="button" onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors active:scale-95">Replace</button>
+                              )}
+                            </div>
+
+                            {uploaded ? (
+                              <div className="space-y-3 animate-in fade-in duration-300">
+                                {/* Editable auto-detected role — faculty confirms/overrides. */}
+                                <div>
+                                  <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Role Name <span className="normal-case font-normal text-gray-400">(auto-detected, editable)</span></label>
+                                  <input type="text" value={mgr.role_name} onChange={(e) => setManagerRoleName(idx, e.target.value)} placeholder="e.g. Marketing Manager" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                                </div>
+                                {/* Collapsible parsed-doc preview for a sanity check. */}
+                                <details className="group">
+                                  <summary className="cursor-pointer text-[11px] font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors select-none">Preview parsed document</summary>
+                                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 custom-scrollbar">{mgr.doc_text}</pre>
+                                </details>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={mgrUploading}
+                                onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
+                                className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
+                                {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* One shared hidden input; the target seat index is stashed on its
+                          dataset by whichever card triggered the picker. */}
+                      <input
+                        type="file"
+                        ref={mgrFileInputRef}
+                        className="hidden"
+                        accept=".txt,.pdf,.md,.docx,.pptx"
+                        onChange={(e) => {
+                          const idx = parseInt(e.target.dataset.index || '0', 10);
+                          handleManagerDocUpload(idx, e.target.files?.[0]);
+                          e.target.value = ''; // allow re-picking the same file
+                        }}
+                      />
+                      {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
+                    </div>
+
+                    {/* Candidate roster + ground-truth marking. Candidates may be
+                        auto-seeded from the uploaded docs or entered by hand; the correct
+                        best-FIT pick is chosen from this list. */}
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidates</h3>
+                      <button type="button" onClick={autoExtractCandidates} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors active:scale-95">Auto-extract from docs</button>
+                    </div>
+                    <div className="space-y-2 mb-3">
+                      {candidates.map((cand, idx) => (
+                        <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                          <input type="text" value={cand.name} onChange={(e) => setCandidate(idx, 'name', e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <input type="text" value={cand.blurb} onChange={(e) => setCandidate(idx, 'blurb', e.target.value)} placeholder="One-line blurb (optional)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={addCandidate} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center active:scale-[0.99]">
+                      <FaPlus className="mr-2" /> Add Candidate
+                    </button>
+
+                    {/* Ground-truth: which candidate is the best FIT (not necessarily the
+                        most-qualified). Drives individual/collective grade correctness. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-2">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Correct best-fit candidate<InfoTip text="The ground-truth answer used for grading. Best FIT for the role — which is not always the most-qualified applicant." /></label>
+                      <select
+                        value={me.correct_candidate || ''}
+                        onChange={(e) => setMgr('correct_candidate', e.target.value)}
+                        className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                      >
+                        <option value="">— select a candidate —</option>
+                        {candidates.filter(c => (c.name || '').trim()).map((c, i) => (
+                          <option key={i} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Advanced authoring — AI personality + grading weights. */}
+                    <AdvancedReveal show={advanced}>
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">AI Manager personality<InfoTip text="How the AI Manager behaves during discussion. Friend = supportive facilitator; Foe = contrarian/adversarial; Confused = muddled, misremembers facts." /></label>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[
+                          { id: 'friend', label: 'Friend', desc: 'Supportive' },
+                          { id: 'foe', label: 'Foe', desc: 'Contrarian' },
+                          { id: 'confused', label: 'Confused', desc: 'Muddled' }
+                        ].map(p => (
+                          <label key={p.id} className={`cursor-pointer p-3 border-2 rounded-xl text-center transition-all active:scale-[0.97] ${me.ai_personality === p.id ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 bg-white'}`}>
+                            <input type="radio" name="ai_personality" value={p.id} checked={me.ai_personality === p.id} onChange={() => setMgr('ai_personality', p.id)} className="hidden" />
+                            <p className="font-bold text-[#222] text-sm">{p.label}</p>
+                            <p className="text-[10px] text-gray-500 font-medium mt-0.5">{p.desc}</p>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-gray-100">
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-1">Grading weights<InfoTip text="How the three grade components combine. Sliders auto-normalize so the three weights always sum to 100%." /></label>
+                      <p className="text-[11px] text-gray-400 mb-4">Auto-normalized to 100%.</p>
+                      {[
+                        { key: 'communication', label: 'Communication quality' },
+                        { key: 'individual', label: 'Individual decision' },
+                        { key: 'collective', label: 'Collective decision' }
+                      ].map(gw => (
+                        <div key={gw.key} className="mb-4">
+                          <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                            <span>{gw.label}</span>
+                            <span className="text-[#FA6C43] font-bold">{Math.round((gradingWeights[gw.key] || 0) * 100)}%</span>
+                          </label>
+                          <input type="range" min="0" max="1" step="0.01" value={gradingWeights[gw.key] || 0} onChange={(e) => setGradingWeight(gw.key, e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        </div>
+                      ))}
+                    </div>
+                    </AdvancedReveal>
+                  </div>
+                );
+              })()
             ) : (
               // Standard AI Settings
               <>

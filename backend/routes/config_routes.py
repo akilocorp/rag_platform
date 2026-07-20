@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-20
+# @changed   Accept/validate/persist the manager_exercise sub-object (POST create); add manager_exercise bot_type; sync group_size==num_managers; validate+normalize grading_weights.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -62,6 +65,176 @@ def validate_class_usage(source, target, current_config_id=None):
         target['student_count'] = student_count
         target['usage_pool'] = int(tier['messages_per_student']) * student_count
     return None
+
+# --- Manager Exercise ---------------------------------------------------------
+# Canonical enum + defaults for the manager_exercise sub-object (contract §1).
+ME_AI_PERSONALITIES = ("friend", "foe", "confused")
+ME_GRADING_KEYS = ("communication", "individual", "collective")
+
+
+def _me_normalize_grading_weights(raw):
+    """Coerce grading_weights into three floats keyed by ME_GRADING_KEYS and
+    normalize them to sum to 1.0.
+
+    Rules (contract §1): missing keys default to equal thirds; any negative
+    weight is a hard error (caller returns 400). If every weight is zero we fall
+    back to equal thirds rather than dividing by zero. Returns
+    (weights_dict, error_message_or_None).
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+    weights = {}
+    for key in ME_GRADING_KEYS:
+        val = raw.get(key)
+        if val is None:
+            # Missing key → equal-thirds placeholder; renormalized below.
+            weights[key] = 1.0 / len(ME_GRADING_KEYS)
+            continue
+        try:
+            fval = float(val)
+        except (ValueError, TypeError):
+            return None, f"grading_weights.{key} must be a number"
+        if fval < 0:
+            return None, f"grading_weights.{key} must be >= 0"
+        weights[key] = fval
+
+    total = sum(weights.values())
+    if total <= 0:
+        # All zero (or absent) → equal thirds.
+        weights = {key: 1.0 / len(ME_GRADING_KEYS) for key in ME_GRADING_KEYS}
+    else:
+        weights = {key: (weights[key] / total) for key in ME_GRADING_KEYS}
+    return weights, None
+
+
+def validate_manager_exercise(source, target):
+    """Validate + normalize the `manager_exercise` sub-object and force the
+    top-level `group_size == num_managers` invariant.
+
+    Mirrors how scoring_spec / experiential_config / facilitator are handled:
+    the value may arrive as a dict or a JSON string. On success, writes the
+    normalized sub-object into `target['manager_exercise']` and overwrites
+    `target['group_size']` with `num_managers`. Returns an error (response,
+    status) tuple on failure, or None on success.
+
+    Contract §1 rules enforced here:
+      - manager_exercise required and must be a dict.
+      - len(managers) == num_managers (>= 1).
+      - correct_candidate must match some candidates[].name.
+      - ai_personality defaults to "friend" if missing/invalid.
+      - grading_weights normalized to sum 1.0; negatives → 400.
+      - doc_text is authoritative; doc_file_id is a reference only.
+    """
+    raw = source.get('manager_exercise')
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            raw = None
+    if not isinstance(raw, dict):
+        return jsonify({"error": "manager_exercise config is required for this bot type"}), 400
+
+    # num_managers (N): the number of student seats. Must be a positive int.
+    try:
+        num_managers = int(raw.get('num_managers'))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.num_managers must be an integer"}), 400
+    if num_managers < 1:
+        return jsonify({"error": "manager_exercise.num_managers must be >= 1"}), 400
+
+    # Phase durations (minutes) — floats allowed, must be strictly positive.
+    def _positive_minutes(field):
+        try:
+            val = float(raw.get(field))
+        except (ValueError, TypeError):
+            return None, f"manager_exercise.{field} must be a number"
+        if val <= 0:
+            return None, f"manager_exercise.{field} must be > 0"
+        return val, None
+
+    memorize_minutes, err = _positive_minutes('memorize_minutes')
+    if err:
+        return jsonify({"error": err}), 400
+    discuss_minutes, err = _positive_minutes('discuss_minutes')
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Candidate roster — normalize to [{name, blurb}] with unique names.
+    raw_candidates = raw.get('candidates')
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        return jsonify({"error": "manager_exercise.candidates must be a non-empty list"}), 400
+    candidates = []
+    seen_names = set()
+    for c in raw_candidates:
+        if not isinstance(c, dict):
+            return jsonify({"error": "each candidate must be an object with a name"}), 400
+        name = (c.get('name') or '').strip()
+        if not name:
+            return jsonify({"error": "each candidate must have a non-empty name"}), 400
+        if name in seen_names:
+            return jsonify({"error": f"duplicate candidate name '{name}'"}), 400
+        seen_names.add(name)
+        blurb = c.get('blurb')
+        candidates.append({"name": name, "blurb": blurb.strip() if isinstance(blurb, str) else ""})
+
+    # Ground-truth best-fit candidate must reference the roster by name.
+    correct_candidate = (raw.get('correct_candidate') or '').strip()
+    if correct_candidate not in seen_names:
+        return jsonify({"error": "manager_exercise.correct_candidate must match a candidate name"}), 400
+
+    # Per-manager private docs — length MUST equal num_managers; index == seat.
+    raw_managers = raw.get('managers')
+    if not isinstance(raw_managers, list):
+        return jsonify({"error": "manager_exercise.managers must be a list"}), 400
+    if len(raw_managers) != num_managers:
+        return jsonify({"error": f"manager_exercise.managers must have exactly {num_managers} entries (one per manager)"}), 400
+    managers = []
+    for i, m in enumerate(raw_managers):
+        if not isinstance(m, dict):
+            return jsonify({"error": f"manager {i} must be an object"}), 400
+        role_name = m.get('role_name')
+        doc_file_id = m.get('doc_file_id')
+        doc_text = m.get('doc_text')
+        managers.append({
+            "role_name": role_name.strip() if isinstance(role_name, str) else "",
+            "doc_file_id": doc_file_id.strip() if isinstance(doc_file_id, str) else "",
+            "doc_text": doc_text if isinstance(doc_text, str) else "",
+        })
+
+    # AI personality — enum with a safe default.
+    ai_personality = raw.get('ai_personality')
+    if ai_personality not in ME_AI_PERSONALITIES:
+        ai_personality = "friend"
+
+    # Grading weights — normalized to sum 1.0; negatives already 400 inside.
+    grading_weights, err = _me_normalize_grading_weights(raw.get('grading_weights'))
+    if err:
+        return jsonify({"error": err}), 400
+
+    # No-show AI-fill timeout (seconds) — positive int, default 300.
+    try:
+        no_show_timeout_seconds = int(raw.get('no_show_timeout_seconds', 300))
+    except (ValueError, TypeError):
+        no_show_timeout_seconds = 300
+    if no_show_timeout_seconds <= 0:
+        no_show_timeout_seconds = 300
+
+    target['manager_exercise'] = {
+        "num_managers": num_managers,
+        "memorize_minutes": memorize_minutes,
+        "discuss_minutes": discuss_minutes,
+        "correct_candidate": correct_candidate,
+        "candidates": candidates,
+        "managers": managers,
+        "ai_personality": ai_personality,
+        "grading_weights": grading_weights,
+        "no_show_timeout_seconds": no_show_timeout_seconds,
+    }
+    # Invariant: top-level group_size is force-set to num_managers (ignore any
+    # mismatching client value).
+    target['group_size'] = num_managers
+    return None
+
 
 @config_bp.route('/config_list', methods=['GET'])
 @jwt_required()
@@ -333,6 +506,13 @@ Answer:"""
             config_document['experiential_prompt'] = exp_prompt
             if isinstance(exp_config, dict):
                 config_document['experiential_config'] = exp_config
+
+        # Manager Exercise — hidden-profile group game. Validates + normalizes the
+        # manager_exercise sub-object and force-sets group_size == num_managers.
+        if bot_type == 'manager_exercise':
+            err = validate_manager_exercise(config_data, config_document)
+            if err:
+                return err
 
         # Class rollout — any bot type may carry a class_code + usage tier/pool.
         err = validate_class_usage(config_data, config_document)

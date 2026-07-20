@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-20
+# @changed   Add Manager-Exercise helpers: append_manager_message (AI Manager / role-named turns) + transcript_for_grading / summary_for_nudge.
 from datetime import datetime
 from typing import List, Dict, Optional
 from flask import current_app
@@ -78,6 +81,43 @@ class ConversationContext:
             context += f"[{msg['turn']}] **{msg['sender']}**: {msg['text']}\n"
 
         return context
+
+    # ------------------------------------------------------------------
+    # Manager-Exercise helpers
+    # ------------------------------------------------------------------
+    # The Manager Exercise reuses this same room transcript (group_chat_messages)
+    # for its discussion. The AI Manager and AI-filled seats speak into the room
+    # under their *role name* (e.g. "Marketing Manager"), so their turns persist
+    # exactly like a human's and replay/grade uniformly. These thin wrappers keep
+    # the sockets layer from reaching into ConversationContext internals.
+
+    def append_manager_message(self, sender_label: str, text: str):
+        """Persist + record an AI Manager / role-named turn into the room transcript.
+
+        Identical to add_message but named for intent: the caller passes a display
+        label (the AI seat's role_name, or "AI Manager" for the facilitator) so the
+        transcript reads naturally and the grader can attribute the contribution.
+        """
+        self.add_message(sender_label, text)
+
+    def transcript_for_grading(self) -> List[Dict]:
+        """Flat [{sender, text}, ...] transcript for the LLM-judge grader.
+
+        The grader keys off the raw `sender` (uid or role label), so we hand back
+        the persisted senders verbatim rather than the display-summarized form.
+        """
+        return [
+            {"sender": m.get("sender", ""), "text": m.get("text", "")}
+            for m in self.messages
+        ]
+
+    def summary_for_nudge(self, num_messages: int = 12) -> str:
+        """Compact recent-discussion summary fed to the AI Manager's nudge calls.
+
+        Thin alias over get_context_summary with a discuss-sized window so the AI
+        Manager sees enough of the room to nudge usefully without blowing tokens.
+        """
+        return self.get_context_summary(num_messages=num_messages)
 
 # ==========================================
 # GLOBAL MANAGER FUNCTIONS
