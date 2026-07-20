@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-20
-// @changed   Manager Exercise: state clearly that N seats = (N−1) students + 1 hidden AI (min 2 seats).
-//            Prior: bot_type + sequential per-manager doc wizard, candidates + correct-pick marking, advanced authoring.
+// @changed   Manager Exercise upload discoverability: blocked Next scrolls to + pulses the first empty
+//            seat card; in-place "done/total uploaded" chip. Prior: N seats = (N−1) students + 1 hidden AI.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -290,6 +290,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const [mgrUploading, setMgrUploading] = useState(false);
   const [mgrUploadError, setMgrUploadError] = useState('');
   const mgrFileInputRef = useRef(null);
+  // When Next is blocked on a missing manager doc, we scroll the first empty seat
+  // card into view + pulse it (the `n` bump re-fires the effect on repeat clicks).
+  const [mgrHighlight, setMgrHighlight] = useState({ idx: null, n: 0 });
 
   // Patch a single field on the manager_exercise sub-object.
   const setMgr = (field, value) => {
@@ -439,7 +442,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
         // ground-truth best-fit pick must be marked (and be a real candidate).
         const me = config.manager_exercise;
         const filled = me.managers.filter(m => (m.doc_text || '').trim()).length;
-        if (filled < me.num_managers) newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+        if (filled < me.num_managers) {
+          newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+          // Guide faculty straight to the first seat still missing a document.
+          const firstEmpty = me.managers.findIndex(m => !(m.doc_text || '').trim());
+          if (firstEmpty >= 0) setMgrHighlight(h => ({ idx: firstEmpty, n: h.n + 1 }));
+        }
         else if (me.candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
         else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
       } else {
@@ -476,6 +484,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [advanced]);
+
+  // Scroll the flagged manager-document card into view + auto-clear the pulse.
+  // Fires when a blocked Next points faculty at the first seat still missing a doc.
+  useEffect(() => {
+    if (mgrHighlight.idx == null) return;
+    document.getElementById(`mgr-card-${mgrHighlight.idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setMgrHighlight((h) => ({ ...h, idx: null })), 1700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mgrHighlight.n]);
 
   const handleNext = () => {
     if (validateStep()) {
@@ -935,13 +953,25 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         as cards; each card either shows an Upload button (empty) or,
                         once parsed, the auto-detected role_name in an EDITABLE field
                         plus a collapsible plaintext preview for confirmation. */}
-                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                    {(() => {
+                      const done = config.manager_exercise.managers.filter(m => (m.doc_text || '').trim()).length;
+                      const total = config.manager_exercise.num_managers;
+                      return (
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                          {/* In-place progress so the upload state is obvious without scrolling up to the error. */}
+                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${done >= total ? 'bg-[#FA6C43]/10 text-[#FA6C43]' : 'bg-gray-100 text-gray-500'}`}>
+                            {done}/{total} uploaded
+                          </span>
+                        </div>
+                      );
+                    })()}
                     <p className="text-[11px] text-gray-400 mb-3">Upload one private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
                     <div className="space-y-3 mb-6">
                       {config.manager_exercise.managers.map((mgr, idx) => {
                         const uploaded = !!(mgr.doc_text || '').trim();
                         return (
-                          <div key={idx} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
+                          <div key={idx} id={`mgr-card-${idx}`} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${mgrHighlight.idx === idx ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/50 ring-offset-2 animate-pulse' : uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
                             <div className="flex items-center justify-between mb-3">
                               <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
                                 {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
