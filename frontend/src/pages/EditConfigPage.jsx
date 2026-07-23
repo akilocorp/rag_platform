@@ -737,6 +737,39 @@ const EditConfigPage = () => {
                   onGenerated={(cfg) => setConfig(prev => ({ ...prev, experiential_config: cfg }))}
                   configId={config.config_id}
                 />
+
+                {/* Facilitator — interactive UI (e.g. charts) layered over the lab's replies */}
+                <div className="mt-6 p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Facilitator (interactive UI)</label>
+                      <p className="text-xs text-gray-500 font-medium">After each reply, offer structured UI — e.g. a chart or multiple-choice — instead of only text.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={!!config.facilitator?.enabled}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
+                  </div>
+                  {config.facilitator?.enabled && (
+                    <div className="mt-4">
+                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                      <textarea
+                        rows={3}
+                        value={config.facilitator?.instruction || ''}
+                        onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                        placeholder="e.g. When the reply describes a quantity changing across periods, show it as a chart of that trajectory."
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart. More coming soon.</p>
+                    </div>
+                  )}
+                </div>
+
                 <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">

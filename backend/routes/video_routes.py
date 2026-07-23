@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-23
+# @changed   Add POST /video/rubric-from-doc — AI class builder from an uploaded rubric document.
 """Video-upload analysis HTTP API.
 
 Reuses existing platform patterns: optional-JWT identity resolution (audio.py),
@@ -90,6 +93,103 @@ def _user_email(user_id):
 @video_bp.route('/video/assignment-types', methods=['GET'])
 def assignment_types():
     return jsonify({"presets": registry.list_presets()})
+
+
+# ---------------------------------------------------------------------------
+# AI class builder — prof drops a rubric/metrics document, we return a
+# pre-filled class (bot_name + introduction + assignment_type + scoring_spec)
+# for the config wizard to review and save.
+# ---------------------------------------------------------------------------
+
+_RUBRIC_DOC_EXT = {'docx', 'pdf', 'txt', 'md'}
+_MAX_RUBRIC_DOC_BYTES = 10 * 1024 * 1024
+
+
+def _rubric_doc_text(file_storage):
+    """Extract plain text from an uploaded rubric document (docx/pdf/txt/md).
+    Returns '' when nothing extractable."""
+    ext = file_storage.filename.rsplit('.', 1)[-1].lower()
+    if ext == 'docx':
+        import io
+        import docx2txt
+        return docx2txt.process(io.BytesIO(file_storage.read())) or ''
+    if ext == 'pdf':
+        import fitz  # pymupdf
+        with fitz.open(stream=file_storage.read(), filetype='pdf') as pdf:
+            return '\n'.join(page.get_text() for page in pdf)
+    return file_storage.read().decode('utf-8', errors='replace')
+
+
+@video_bp.route('/video/rubric-from-doc', methods=['POST'])
+def rubric_from_doc():
+    """Turn an uploaded rubric/metrics document into a ready-to-review class.
+    Claude maps the doc onto the platform's scoring_spec shape (scoring boxes +
+    content checks + grading prompt); unknown weight fields keep preset defaults."""
+    if not _resolve_user_id():
+        return jsonify({"error": "Authentication required"}), 401
+    f = request.files.get('file')
+    if not f or not f.filename or '.' not in f.filename:
+        return jsonify({"error": "A rubric document is required"}), 400
+    if f.filename.rsplit('.', 1)[-1].lower() not in _RUBRIC_DOC_EXT:
+        return jsonify({"error": f"Unsupported file type. Allowed: {', '.join(sorted(_RUBRIC_DOC_EXT))}"}), 400
+
+    try:
+        text = (_rubric_doc_text(f) or '').strip()
+    except Exception:
+        logger.exception("rubric-from-doc: text extraction failed")
+        return jsonify({"error": "Could not read that document"}), 400
+    if len(text.encode('utf-8', errors='ignore')) > _MAX_RUBRIC_DOC_BYTES or not text:
+        return jsonify({"error": "Document is empty or too large"}), 400
+
+    api_key = current_app.config.get('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({"error": "AI class builder is not configured"}), 503
+
+    preset_keys = registry.get_preset_keys()
+    prompt = (
+        "You convert a professor's evaluation rubric document into a video-assignment class "
+        "config. Reply with ONLY a JSON object, no prose, with exactly these keys:\n"
+        '  "bot_name": short class/assignment name (course code + assignment, e.g. "ECON5200 Policy Briefing"),\n'
+        '  "introduction": 1-2 friendly sentences shown to students describing the assignment,\n'
+        f'  "assignment_type": the closest match from {json.dumps(preset_keys)},\n'
+        '  "target_duration_sec": integer target length of the video in seconds (default 90 if unstated),\n'
+        '  "dimensions": 3-8 scoring boxes [{"id": snake_case, "name": short, "definition": one precise '
+        "sentence describing what is measured, folding in the document's point bands}],\n"
+        '  "content_checks": things verifiable from the transcript alone '
+        '[{"id": snake_case, "label": short, "description": what satisfies the check}],\n'
+        '  "feedback_prompt_template": a grading-philosophy system prompt for the evaluator, written '
+        "from the document's scoring rules (strictness, what earns high vs low points).\n"
+        "Delivery-style metrics (confidence, pacing, gestures, posture) belong in dimensions, not "
+        "content_checks. Every metric in the document must land in exactly one of the two lists.\n\n"
+        f"RUBRIC DOCUMENT:\n{text[:24000]}"
+    )
+    try:
+        parsed = _parse_json_va(_llm_va(api_key, prompt, max_tokens=3000))
+    except Exception:
+        logger.exception("rubric-from-doc: LLM parse failed")
+        return jsonify({"error": "AI could not parse that document — try a cleaner rubric"}), 502
+
+    assignment_type = parsed.get('assignment_type')
+    if assignment_type not in preset_keys:
+        assignment_type = preset_keys[0] if preset_keys else ''
+    # Graft the doc-derived fields onto the preset's spec so weight fields the
+    # LLM doesn't produce (composite/submetric weights) keep sane defaults.
+    spec = registry.get_default_spec(assignment_type)
+    spec['dimensions'] = [d for d in (parsed.get('dimensions') or []) if isinstance(d, dict) and d.get('name')]
+    spec['content_checks'] = [c for c in (parsed.get('content_checks') or []) if isinstance(c, dict) and c.get('label')]
+    if parsed.get('feedback_prompt_template'):
+        spec['feedback_prompt_template'] = str(parsed['feedback_prompt_template'])
+    try:
+        spec['target_duration_sec'] = max(15, min(1800, int(parsed.get('target_duration_sec') or 90)))
+    except (TypeError, ValueError):
+        spec['target_duration_sec'] = 90
+
+    return jsonify({
+        "bot_name": str(parsed.get('bot_name') or '').strip(),
+        "introduction": str(parsed.get('introduction') or '').strip(),
+        "assignment_type": assignment_type,
+        "scoring_spec": spec,
+    })
 
 
 # ---------------------------------------------------------------------------

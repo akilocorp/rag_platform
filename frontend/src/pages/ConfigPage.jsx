@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-20
-// @changed   Manager Exercise: state clearly that N seats = (N−1) students + 1 hidden AI (min 2 seats).
-//            Prior: bot_type + sequential per-manager doc wizard, candidates + correct-pick marking, advanced authoring.
+// @updated   2026-07-23
+// @changed   Wire VideoScoringEditor's rubric-doc import (onMeta) to prefill empty bot_name / introduction.
+//            Prior: Manager Exercise seat wording; bot_type + per-manager doc wizard, candidates + correct-pick marking.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -757,6 +757,38 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     files={config.rag_files}
                   />
                   {errors.experiential_config && <p className="text-xs font-medium text-red-500 mt-1.5">{errors.experiential_config}</p>}
+
+                  {/* Facilitator — interactive UI (e.g. charts) layered over the lab's replies */}
+                  <div className="pt-4 mt-2 border-t border-gray-100 text-left">
+                    <label className="flex items-center justify-between cursor-pointer gap-4">
+                      <div>
+                        <p className="text-[13px] font-semibold text-gray-700">Facilitator (interactive UI)</p>
+                        <p className="text-xs text-gray-500 mt-0.5">After each reply, offer structured UI — e.g. a chart or multiple-choice — instead of only text.</p>
+                      </div>
+                      <span className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={!!config.facilitator?.enabled}
+                          onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                        />
+                        <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
+                      </span>
+                    </label>
+                    {config.facilitator?.enabled && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1.5">What should the facilitator do?</label>
+                        <textarea
+                          rows={3}
+                          value={config.facilitator?.instruction || ''}
+                          onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), instruction: e.target.value } }))}
+                          placeholder="e.g. When the reply describes a quantity changing across periods, show it as a chart of that trajectory."
+                          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart. More coming soon.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
@@ -782,6 +814,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       scoringSpec={config.scoring_spec}
                       onChange={({ assignment_type, scoring_spec }) =>
                         setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
+                      // Rubric-doc import: adopt the AI-suggested name/intro only
+                      // where the prof hasn't already typed their own.
+                      onMeta={({ bot_name, introduction }) =>
+                        setConfig(prev => ({
+                          ...prev,
+                          bot_name: prev.bot_name?.trim() ? prev.bot_name : (bot_name || prev.bot_name),
+                          introduction: prev.introduction?.trim() ? prev.introduction : (introduction || prev.introduction),
+                        }))}
                     />
                     <AdvancedReveal show={advanced}>
                     <div className="mt-4">
