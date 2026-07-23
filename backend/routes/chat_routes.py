@@ -1004,14 +1004,13 @@ def chat(config_id, chat_id):
                     ]}
                 )
             else:
-                # Variant A default: config baseline + full user library
-                config_ids = [config_id]
-                if is_authenticated:
-                    config_ids.append(f"user:{user_id_for_history}")
+                # Strict per-bot: only this bot's own config-scoped files. The
+                # f"user:{id}" personal-library bucket is global to the user, so
+                # merging it here leaked one bot's files into every other bot.
                 docs = vector_store.similarity_search(
                     query=user_input,
-                    k=5 if len(config_ids) > 1 else 3,
-                    pre_filter={"config_id": {"$in": config_ids}}
+                    k=3,
+                    pre_filter={"config_id": config_id}
                 )
 
             # Send Sources immediately
