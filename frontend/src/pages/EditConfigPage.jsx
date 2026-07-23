@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-20
-// @changed   Manager Exercise: label N seats = (N−1) students + 1 hidden AI (min 2), matching ConfigPage.
-//            Prior: mirror ConfigPage authoring — round-trip sub-object, per-manager doc upload/replace, correct-pick, advanced.
+// @changed   Manager Exercise upload (mirror ConfigPage): restrict to Word (.docx) + PDF only and make each
+//            manager card a drag-and-drop target (drop bypasses `accept`, so validate on drop).
+//            Prior: blocked Next scrolls to + pulses the first empty seat card; "done/total uploaded" chip.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -286,6 +287,18 @@ const EditConfigPage = () => {
   const [mgrUploading, setMgrUploading] = useState(false);
   const [mgrUploadError, setMgrUploadError] = useState('');
   const mgrFileInputRef = useRef(null);
+  // Blocked Next → scroll to + pulse the first seat still missing a doc (the `n`
+  // bump re-fires the effect on repeat clicks). Mirrors ConfigPage.
+  const [mgrHighlight, setMgrHighlight] = useState({ idx: null, n: 0 });
+  // Which manager seat is currently being dragged over, so only that card lights up.
+  const [mgrDragIdx, setMgrDragIdx] = useState(null);
+  useEffect(() => {
+    if (mgrHighlight.idx == null) return;
+    document.getElementById(`mgr-card-${mgrHighlight.idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setMgrHighlight((h) => ({ ...h, idx: null })), 1700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mgrHighlight.n]);
 
   // Patch a single field on the manager_exercise sub-object.
   const setMgr = (field, value) => {
@@ -337,6 +350,26 @@ const EditConfigPage = () => {
     } finally {
       setMgrUploading(false);
     }
+  };
+
+  // Manager briefs are restricted to Word (.docx) and PDF. The picker enforces this
+  // via `accept`, but drag-and-drop bypasses that filter, so validate by extension.
+  const isAllowedManagerDoc = (file) =>
+    !!file && ['pdf', 'docx'].includes((file.name.split('.').pop() || '').toLowerCase());
+
+  // Drop a file onto an empty manager card → type-check, then route through the same
+  // upload/parse path as the picker. Rejects bad types inline via `mgrUploadError`.
+  const handleManagerDocDrop = (index, e) => {
+    e.preventDefault();
+    setMgrDragIdx(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!isAllowedManagerDoc(file)) {
+      setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
+      return;
+    }
+    setMgrUploadError('');
+    handleManagerDocUpload(index, file);
   };
 
   // Edit the faculty-confirmable role name on an already-uploaded manager seat.
@@ -455,7 +488,11 @@ const EditConfigPage = () => {
         const managers = me.managers || [];
         const candidates = me.candidates || [];
         const filled = managers.filter(m => (m.doc_text || '').trim()).length;
-        if (filled < (me.num_managers || 0)) newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+        if (filled < (me.num_managers || 0)) {
+          newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
+          const firstEmpty = managers.findIndex(m => !(m.doc_text || '').trim());
+          if (firstEmpty >= 0) setMgrHighlight(h => ({ idx: firstEmpty, n: h.n + 1 }));
+        }
         else if (candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
         else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
     } else {
@@ -919,12 +956,12 @@ const EditConfigPage = () => {
                       <div className="grid grid-cols-2 gap-6">
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <input type="number" min="0" step="any" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                           <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
-                          <input type="number" min="0.5" step="0.5" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                          <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                           <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
                         </div>
                       </div>
@@ -935,13 +972,25 @@ const EditConfigPage = () => {
                         parsed, the auto-detected role_name in an EDITABLE field plus a
                         collapsible plaintext preview. "Replace" re-runs the upload for a
                         filled seat, so faculty can swap a brief while editing. */}
-                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
-                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
+                    {(() => {
+                      const done = managers.filter(m => (m.doc_text || '').trim()).length;
+                      const total = me.num_managers || managers.length;
+                      return (
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
+                          {/* In-place progress so the upload state is obvious without scrolling up to the error. */}
+                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${done >= total ? 'bg-[#FA6C43]/10 text-[#FA6C43]' : 'bg-gray-100 text-gray-500'}`}>
+                            {done}/{total} uploaded
+                          </span>
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order — Word (.docx) or PDF only. Drag a file onto a card or click to browse. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
                     <div className="space-y-3 mb-6">
                       {managers.map((mgr, idx) => {
                         const uploaded = !!(mgr.doc_text || '').trim();
                         return (
-                          <div key={idx} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
+                          <div key={idx} id={`mgr-card-${idx}`} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${mgrHighlight.idx === idx ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/50 ring-offset-2 animate-pulse' : uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
                             <div className="flex items-center justify-between mb-3">
                               <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
                                 {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
@@ -966,14 +1015,21 @@ const EditConfigPage = () => {
                                 </details>
                               </div>
                             ) : (
+                              // Empty seat = click-to-browse button that doubles as a drop
+                              // zone. Dragging over lifts + tints the card; the drop is
+                              // type-validated in handleManagerDocDrop before uploading.
                               <button
                                 type="button"
                                 disabled={mgrUploading}
                                 onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
-                                className="w-full py-4 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                                onDragEnter={(e) => { e.preventDefault(); setMgrDragIdx(idx); }}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDragLeave={(e) => { e.preventDefault(); setMgrDragIdx(null); }}
+                                onDrop={(e) => handleManagerDocDrop(idx, e)}
+                                className={`w-full py-4 border-2 border-dashed rounded-xl transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed ${mgrDragIdx === idx ? 'border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43] scale-[1.01]' : 'border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'}`}
                               >
                                 {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
-                                {mgrUploading ? 'Uploading & parsing…' : `Upload Manager ${idx + 1}'s document`}
+                                {mgrUploading ? 'Uploading & parsing…' : mgrDragIdx === idx ? 'Drop to upload' : `Upload Manager ${idx + 1}'s document — or drop it here`}
                               </button>
                             )}
                           </div>
@@ -985,11 +1041,16 @@ const EditConfigPage = () => {
                         type="file"
                         ref={mgrFileInputRef}
                         className="hidden"
-                        accept=".txt,.pdf,.md,.docx,.pptx"
+                        accept=".pdf,.docx"
                         onChange={(e) => {
                           const idx = parseInt(e.target.dataset.index || '0', 10);
-                          handleManagerDocUpload(idx, e.target.files?.[0]);
+                          const file = e.target.files?.[0];
                           e.target.value = ''; // allow re-picking the same file
+                          if (file && !isAllowedManagerDoc(file)) {
+                            setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
+                            return;
+                          }
+                          if (file) { setMgrUploadError(''); handleManagerDocUpload(idx, file); }
                         }}
                       />
                       {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}

@@ -1,6 +1,6 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-19
-// @changed   Add Simple/Advanced faculty config-mode toggle to the dashboard navbar.
+// @updated   2026-07-21
+// @changed   Route manager_exercise configs to /manager-exercise (were falling through to 1:1 chat).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes } from 'react-icons/fa';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -21,6 +21,7 @@ const primaryActionLabel = (botType) => {
     case 'video_analysis': return 'Open Dashboard';
     case 'experiential':   return 'Open Sessions';
     case 'group_chat':     return 'Open Chat';
+    case 'manager_exercise': return 'Open Exercise';
     default:               return 'Chat Now';
   }
 };
@@ -288,6 +289,10 @@ const ConfigListPage = () => {
       navigate(`/experiential-dashboard/${config.config_id}`);
     } else if (config.bot_type === 'group_chat') {
       navigate(`/group-chat/${config.config_id}`);
+    } else if (config.bot_type === 'manager_exercise') {
+      // Manager Exercise is a student-facing game like group chat (no faculty
+      // dashboard) — route to its own page, not the 1:1 chat fallback.
+      navigate(`/manager-exercise/${config.config_id}`);
     } else {
       navigate(`/chat/${config.config_id}`);
     }

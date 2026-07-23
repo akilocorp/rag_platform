@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-20  @changed Everyone renders by ROLE NAME (own messages keyed by seat, not uid) so AI seats are indistinguishable; waiting-screen auto-start countdown; roster shows no AI markers. Prior: waiting → memorize → discuss → decide → grading phases with server-deadline countdowns. */
+/* @language JSX  @updated 2026-07-20  @changed Memorize phase renders the briefing as side-by-side candidate cards (parsed from doc_text; hover lifts + orange-accents each card; min-h-[340px] for taller presence; stacks on phones; falls back to raw text for non-list docs). Prior: everyone renders by ROLE NAME so AI seats are indistinguishable; waiting-screen auto-start countdown; roster shows no AI markers. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -75,6 +75,53 @@ const CountUp = ({ value, decimals = 0, suffix = '', durationMs = 900 }) => {
   }, [value, durationMs]);
   return <span>{display.toFixed(decimals)}{suffix}</span>;
 };
+
+// Parse a private-briefing doc into candidate blocks: a non-numbered line is a
+// candidate name; the "1." / "2)" lines beneath it are that person's quals.
+// Returns [] when the text isn't a candidate list (fewer than 2 named people or
+// none with quals) so the caller can fall back to the raw briefing block.
+const parseBriefingCandidates = (text) => {
+  if (!text) return [];
+  const cards = [];
+  let cur = null;
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const qual = line.match(/^\d+[.)]\s*(.+)/);
+    if (qual) {
+      if (cur) cur.quals.push(qual[1]);
+    } else {
+      cur = { name: line, quals: [] };
+      cards.push(cur);
+    }
+  }
+  const usable = cards.filter((c) => c.quals.length > 0);
+  return usable.length >= 2 ? usable : [];
+};
+
+// One candidate's briefing card. Hover lifts + scales it and paints an orange
+// accent border/shadow (matches the ballot card idiom); entry is staggered.
+const CandidateBriefingCard = ({ candidate, index }) => (
+  <div
+    style={{ animationDelay: `${index * 80}ms` }}
+    className="group flex-1 min-w-0 min-h-[340px] rounded-2xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 hover:-translate-y-1 hover:scale-[1.02] hover:border-[#FA6C43] hover:shadow-lg"
+  >
+    <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
+      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-[#FA6C43]/10 text-[#C2410C] flex items-center justify-center transition-colors group-hover:bg-[#FA6C43] group-hover:text-white">
+        <FaUserTie className="text-sm" />
+      </span>
+      <span className="font-bold text-[#222] truncate">{candidate.name}</span>
+    </div>
+    <ol className="space-y-2 list-none">
+      {candidate.quals.map((q, i) => (
+        <li key={i} className="flex gap-2 text-sm text-gray-600 leading-snug">
+          <span className="flex-shrink-0 font-semibold text-[#FA6C43]">{i + 1}.</span>
+          <span>{q}</span>
+        </li>
+      ))}
+    </ol>
+  </div>
+);
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -500,6 +547,8 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'memorize') {
     const urgent = secsLeft != null && secsLeft <= 15;
+    // Candidate list → side-by-side cards; anything else falls back to raw text.
+    const briefingCards = privateDoc ? parseBriefingCandidates(privateDoc.doc_text) : [];
     return (
       <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white/95 backdrop-blur shadow-sm">
@@ -519,7 +568,9 @@ const ManagerExercisePage = () => {
           {(!docLocked && privateDoc) ? (
             <div
               key="doc"
-              className={`w-full max-w-3xl my-4 rounded-3xl bg-white border border-gray-200 shadow-md p-8 transition-all duration-500 ${
+              className={`w-full my-4 rounded-3xl bg-white border border-gray-200 shadow-md p-8 transition-all duration-500 ${
+                briefingCards.length ? 'max-w-5xl' : 'max-w-3xl'
+              } ${
                 docLocked
                   ? 'animate-out fade-out zoom-out-95 opacity-0'
                   : 'animate-in fade-in slide-in-from-bottom-3 duration-500'
@@ -531,9 +582,18 @@ const ManagerExercisePage = () => {
                   Private briefing — {privateDoc.role_name || `Seat ${(privateDoc.seat_index ?? 0) + 1}`}
                 </span>
               </div>
-              <div className="chat-message-md chat-message-md--light max-w-none whitespace-pre-wrap leading-[1.7]">
-                {privateDoc.doc_text}
-              </div>
+              {briefingCards.length ? (
+                // Candidate list: one card per person, side by side (stacks on phones).
+                <div className="flex flex-col md:flex-row gap-4 items-stretch">
+                  {briefingCards.map((c, i) => (
+                    <CandidateBriefingCard key={c.name} candidate={c} index={i} />
+                  ))}
+                </div>
+              ) : (
+                <div className="chat-message-md chat-message-md--light max-w-none whitespace-pre-wrap leading-[1.7]">
+                  {privateDoc.doc_text}
+                </div>
+              )}
               <p className="mt-6 text-xs text-gray-400 italic">
                 You won't be able to see this again once discussion begins — pool the details that others may not have.
               </p>
