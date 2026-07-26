@@ -1,8 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-26
-// @changed   Manager Exercise editing rebuilt for the facilitated rework: students + discussion window +
-//            learning points, AI-only case materials with per-candidate outcome docs, and a review block
-//            showing the derived pooled tally / answer key. Removed seats, memorize, grading weights.
+// @updated   2026-07-27
+// @changed   Manager Exercise case materials reduced to the candidate summary + one outcome doc per
+//            candidate; dropped the General Information slot, which no authored case uses.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -132,7 +131,6 @@ const EditConfigPage = () => {
             discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
-            general_info: docRef(me.general_info),
             candidate_summary: docRef(me.candidate_summary),
             candidates: Array.isArray(me.candidates)
                 ? me.candidates.map(c => ({
@@ -405,7 +403,6 @@ const EditConfigPage = () => {
     try {
       const me = config.manager_exercise || {};
       const res = await apiClient.post('/config/case-pack/preview', {
-        general_info_text: me.general_info?.text || '',
         candidate_summary_text: me.candidate_summary?.text || '',
         candidates: me.candidates || [],
       });
@@ -956,27 +953,24 @@ const EditConfigPage = () => {
                         candidate summary states every role's private view. */}
                     <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Case Materials</h4>
                     <p className="text-[11px] text-gray-400 mb-3">ACTR-only. Replacing any document clears the analysis below, so the tally can never describe files that are no longer loaded.</p>
-                    {[
-                      { field: 'general_info', label: 'General Information', hint: 'The shared setting every role knows.' },
-                      { field: 'candidate_summary', label: 'Candidate Summary', hint: "Every role's private view, side by side. The pooled tally derives from this." },
-                    ].map(slot => {
-                      const doc = me[slot.field] || {};
+                    {(() => {
+                      const doc = me.candidate_summary || {};
                       const filled = (doc.text || '').trim().length > 0;
                       return (
-                        <div key={slot.field} className={`p-4 mb-3 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
+                        <div className={`p-4 mb-3 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="font-bold text-sm text-[#222]">{slot.label}</p>
-                              <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
+                              <p className="font-bold text-sm text-[#222]">Candidate Summary</p>
+                              <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : "Every role's private view, side by side. The pooled tally derives from this."}</p>
                             </div>
                             <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
                               {filled ? 'Replace' : 'Upload'}
-                              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
+                              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload('candidate_summary', e.target.files?.[0])} />
                             </label>
                           </div>
                         </div>
                       );
-                    })}
+                    })()}
 
                     {/* One outcome document per candidate, revealed on pick. */}
                     <div className="flex items-center justify-between mb-2 mt-5">

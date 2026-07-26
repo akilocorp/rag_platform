@@ -1,8 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-26
-// @changed   Manager Exercise authoring rebuilt for the facilitated rework: Setup (students + discussion
-//            window + learning points), Case Materials (AI-only docs + candidate outcomes), and a new
-//            Review step that shows the derived pooled tally and answer key before the config can save.
+// @updated   2026-07-27
+// @changed   Manager Exercise Case Materials reduced to the candidate summary + one outcome doc per
+//            candidate; dropped the General Information upload slot, which no authored case uses.
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -198,7 +197,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
       discuss_minutes: 20,
       class_preset: '',
       learning_outcome: '',
-      general_info: { file_id: '', text: '' },        // AI-only reference doc
       candidate_summary: { file_id: '', text: '' },   // AI-only; the tally derives from this
       candidates: [],                                 // { name, forecast_text, forecast_file_id }
       case_pack: null                                 // derived + reviewed in step 4
@@ -419,7 +417,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
     try {
       const me = config.manager_exercise;
       const res = await apiClient.post('/config/case-pack/preview', {
-        general_info_text: me.general_info?.text || '',
         candidate_summary_text: me.candidate_summary?.text || '',
         candidates: me.candidates,
       });
@@ -880,29 +877,27 @@ const ConfigModal = ({ isOpen, onClose }) => {
                 // these — they read their confidential packets on paper, in the room.
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Case Materials</h2>
-                  <p className="text-center text-sm text-gray-500 mb-4">These go to ACTR only. Nothing here is ever shown to a student — the candidate summary in particular states every role's private view.</p>
+                  <p className="text-center text-sm text-gray-500 mb-4">These go to ACTR only and are never shown to a student — the candidate summary states every role's private view.</p>
 
-                  {[
-                    { field: 'general_info', label: 'General Information', hint: 'The shared setting every role knows.' },
-                    { field: 'candidate_summary', label: 'Candidate Summary', hint: "Every role's private view, side by side. The pooled tally is derived from this." },
-                  ].map(slot => {
-                    const doc = config.manager_exercise[slot.field] || {};
+                  {/* The one document the pooled tally is derived from. */}
+                  {(() => {
+                    const doc = config.manager_exercise.candidate_summary || {};
                     const filled = (doc.text || '').trim().length > 0;
                     return (
-                      <div key={slot.field} className={`p-4 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
+                      <div className={`p-4 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="font-bold text-sm text-[#222]">{slot.label}</p>
-                            <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
+                            <p className="font-bold text-sm text-[#222]">Candidate Summary</p>
+                            <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : "Every role's private view, side by side. The pooled tally is derived from this."}</p>
                           </div>
                           <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
                             {filled ? 'Replace' : 'Upload'}
-                            <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
+                            <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload('candidate_summary', e.target.files?.[0])} />
                           </label>
                         </div>
                       </div>
                     );
-                  })}
+                  })()}
 
                   {/* One outcome document per candidate. The name is parsed from the
                       doc header, so uploading is very nearly the whole authoring step. */}

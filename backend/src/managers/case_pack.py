@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   New: derive a case pack (per-role items + deterministic distinct tally + answer key) from uploaded case docs.
+# @updated   2026-07-27
+# @changed   Dropped the general-information input: an authored case is a candidate summary plus one
+#            outcome document per candidate, nothing else.
 """Turn a professor's uploaded case documents into a **case pack**.
 
 The facilitator system prompt is a static constant that never changes per case
@@ -286,11 +287,12 @@ def recompute(pack):
     return pack
 
 
-def build_case_pack(general_info_text, candidate_summary_text, candidates):
+def build_case_pack(candidate_summary_text, candidates):
     """Extract a case pack from the uploaded documents. Returns (pack, error).
 
-    `candidates` is the authored roster — `[{name, forecast_text}]` — whose
-    `forecast_text` are the per-option outcome documents. On any failure returns
+    Two inputs, which is all an authored case actually has: the candidate summary
+    (every role's private view, side by side) and one outcome document per
+    candidate — `candidates` is `[{name, forecast_text}]`. On any failure returns
     `(None, "<reason>")` so the caller can block the config save rather than
     shipping an exercise with an empty answer key.
     """
@@ -312,7 +314,6 @@ def build_case_pack(general_info_text, candidate_summary_text, candidates):
         return None, "Each candidate needs an uploaded outcome document before the case pack can be built."
 
     user = "\n\n".join([
-        "## General information (shared setting)\n" + ((general_info_text or "").strip()[:_MAX_DOC_CHARS] or "(none provided)"),
         "## Candidate summary (what each role privately holds)\n" + summary[:_MAX_DOC_CHARS],
         "\n\n".join(outcome_blocks),
         "Extract the case pack now.",
