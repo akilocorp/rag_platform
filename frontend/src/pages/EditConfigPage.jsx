@@ -1,8 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-20
-// @changed   Manager Exercise upload (mirror ConfigPage): restrict to Word (.docx) + PDF only and make each
-//            manager card a drag-and-drop target (drop bypasses `accept`, so validate on drop).
-//            Prior: blocked Next scrolls to + pulses the first empty seat card; "done/total uploaded" chip.
+// @updated   2026-07-26
+// @changed   Manager Exercise editing rebuilt for the facilitated rework: students + discussion window +
+//            learning points, AI-only case materials with per-candidate outcome docs, and a review block
+//            showing the derived pooled tally / answer key. Removed seats, memorize, grading weights.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -16,6 +16,13 @@ import InstructionsInfoTip from '../components/InstructionsInfoTip';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import AdvancedReveal from '../components/AdvancedReveal';
 import useConfigMode from '../hooks/useConfigMode';
+
+// Learning-point presets offered for the manager exercise. Only the KEY is sent —
+// the full text lives in backend/src/managers/class_presets.py and is stamped into
+// the config server-side, so every config on a preset gets identical wording.
+const ME_CLASS_PRESETS = [
+  { key: 'creative', label: 'Creative Class' },
+];
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -111,8 +118,7 @@ const EditConfigPage = () => {
     // Manager exercise: the sub-object may arrive as a nested dict or a JSON
     // string (like bots/scoring_spec). Parse defensively and backfill every field
     // with a default so a partially-authored config still round-trips and the
-    // controlled inputs below never read undefined. managers[] length is snapped
-    // to num_managers so the seat cards stay in sync even if the stored doc drifted.
+    // controlled inputs below never read undefined.
     let resolvedManagerExercise = null;
     if (configFromState.bot_type === 'manager_exercise') {
         let me = configFromState.manager_exercise;
@@ -120,31 +126,25 @@ const EditConfigPage = () => {
             try { me = JSON.parse(me); } catch (e) { me = null; }
         }
         me = (me && typeof me === 'object') ? me : {};
-        const num = Math.max(2, Math.min(10, parseInt(me.num_managers, 10) || 3));
-        const managers = Array.isArray(me.managers) ? me.managers.map(m => ({
-            role_name: m?.role_name || '',
-            doc_file_id: m?.doc_file_id || '',
-            doc_text: m?.doc_text || ''
-        })) : [];
-        while (managers.length < num) managers.push({ role_name: '', doc_file_id: '', doc_text: '' });
-        managers.length = num;
-        const gw = (me.grading_weights && typeof me.grading_weights === 'object') ? me.grading_weights : {};
+        const docRef = (v) => ({ file_id: v?.file_id || '', text: v?.text || '' });
         resolvedManagerExercise = {
-            num_managers: num,
-            memorize_minutes: typeof me.memorize_minutes === 'number' ? me.memorize_minutes : 5,
-            discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 15,
-            correct_candidate: me.correct_candidate || '',
+            num_students: Math.max(2, Math.min(10, parseInt(me.num_students, 10) || 3)),
+            discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
+            class_preset: me.class_preset || '',
+            learning_outcome: me.learning_outcome || '',
+            general_info: docRef(me.general_info),
+            candidate_summary: docRef(me.candidate_summary),
             candidates: Array.isArray(me.candidates)
-                ? me.candidates.map(c => ({ name: c?.name || '', blurb: c?.blurb || '' }))
+                ? me.candidates.map(c => ({
+                    name: c?.name || '',
+                    forecast_text: c?.forecast_text || '',
+                    forecast_file_id: c?.forecast_file_id || '',
+                }))
                 : [],
-            managers,
-            ai_personality: ['friend', 'foe', 'confused'].includes(me.ai_personality) ? me.ai_personality : 'friend',
-            grading_weights: {
-                communication: typeof gw.communication === 'number' ? gw.communication : 0.34,
-                individual: typeof gw.individual === 'number' ? gw.individual : 0.33,
-                collective: typeof gw.collective === 'number' ? gw.collective : 0.33
-            },
-            no_show_timeout_seconds: typeof me.no_show_timeout_seconds === 'number' ? me.no_show_timeout_seconds : 300
+            // Kept as saved. Re-analysis is explicit in the review step, so an edit
+            // that doesn't touch the documents can't silently re-derive the answer
+            // key (and quietly discard a professor's manual override).
+            case_pack: (me.case_pack && typeof me.case_pack === 'object') ? me.case_pack : null,
         };
     }
 
@@ -153,8 +153,8 @@ const EditConfigPage = () => {
         instructions: resolvedInstructions,
         bots: parsedBots,
         ...(resolvedManagerExercise ? { manager_exercise: resolvedManagerExercise } : {}),
-        // Keep the matcher invariant (group_size == num_managers) even before save.
-        group_size: resolvedManagerExercise ? resolvedManagerExercise.num_managers : (configFromState.group_size || 2),
+        // Keep the matcher invariant (group_size == num_students) even before save.
+        group_size: resolvedManagerExercise ? resolvedManagerExercise.num_students : (configFromState.group_size || 2),
         group_duration: configFromState.group_duration || 10,
         web_access: configFromState.web_access !== undefined ? configFromState.web_access : true,
         qualtrics_enabled: !!configFromState.qualtrics_enabled,
@@ -281,53 +281,45 @@ const EditConfigPage = () => {
   };
 
   // ---- Manager Exercise authoring state + helpers -----------------------------
-  // Mirrors ConfigPage. `mgrUploading` guards the active per-seat POST so faculty
-  // can't double-submit a doc; `mgrUploadError` surfaces a per-step failure inline.
-  // One shared hidden file input drives the picker for whichever seat was clicked.
+  // Mirrors ConfigPage. `mgrUploading` guards the active POST so faculty can't
+  // double-submit a document; `mgrUploadError` surfaces a failure inline.
   const [mgrUploading, setMgrUploading] = useState(false);
   const [mgrUploadError, setMgrUploadError] = useState('');
-  const mgrFileInputRef = useRef(null);
-  // Blocked Next → scroll to + pulse the first seat still missing a doc (the `n`
-  // bump re-fires the effect on repeat clicks). Mirrors ConfigPage.
-  const [mgrHighlight, setMgrHighlight] = useState({ idx: null, n: 0 });
-  // Which manager seat is currently being dragged over, so only that card lights up.
-  const [mgrDragIdx, setMgrDragIdx] = useState(null);
-  useEffect(() => {
-    if (mgrHighlight.idx == null) return;
-    document.getElementById(`mgr-card-${mgrHighlight.idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const t = setTimeout(() => setMgrHighlight((h) => ({ ...h, idx: null })), 1700);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mgrHighlight.n]);
+  // Case-pack analysis state for the review block.
+  const [packLoading, setPackLoading] = useState(false);
+  const [packError, setPackError] = useState('');
+
+  // The derived case pack, if this config has one. Read throughout the review block.
+  const mePack = config.manager_exercise?.case_pack || null;
 
   // Patch a single field on the manager_exercise sub-object.
   const setMgr = (field, value) => {
     setConfig(prev => ({ ...prev, manager_exercise: { ...(prev.manager_exercise || {}), [field]: value } }));
   };
 
-  // Resize managers[] to match num_managers. Growing appends empty seats (filled
-  // by the wizard); shrinking trims from the tail. group_size tracks num_managers
-  // so the matcher invariant holds even before save.
-  const handleNumManagersChange = (n) => {
-    const count = Math.max(1, Math.min(10, parseInt(n, 10) || 1));
-    setConfig(prev => {
-      const managers = [...(prev.manager_exercise?.managers || [])];
-      while (managers.length < count) managers.push({ role_name: '', doc_file_id: '', doc_text: '' });
-      managers.length = count;
-      return {
-        ...prev,
-        group_size: count,
-        manager_exercise: { ...prev.manager_exercise, num_managers: count, managers }
-      };
-    });
+  // Group size drives the top-level group_size invariant, so the two move together
+  // and can never drift before save.
+  const handleNumStudentsChange = (n) => {
+    const count = Math.max(2, Math.min(10, parseInt(n, 10) || 2));
+    setConfig(prev => ({
+      ...prev,
+      group_size: count,
+      manager_exercise: { ...prev.manager_exercise, num_students: count },
+    }));
   };
 
-  // Upload + parse ONE manager's private document via the faculty-only
-  // /api/files/manager-doc endpoint, which extracts plaintext and best-effort
-  // parses the role name from the doc header. Also serves the "Replace" action
-  // for an already-filled seat (same endpoint, overwrites the seat in place).
-  const handleManagerDocUpload = async (index, file) => {
-    if (!file) return;
+  // Case documents are restricted to Word (.docx) and PDF.
+  const isAllowedManagerDoc = (file) =>
+    !!file && ['pdf', 'docx'].includes((file.name.split('.').pop() || '').toLowerCase());
+
+  // POST one document to the faculty-only /api/files/manager-doc endpoint, which
+  // extracts plaintext and best-effort parses a name from the header. Returns null
+  // (and surfaces the error inline) on failure.
+  const uploadCaseDoc = async (file) => {
+    if (!isAllowedManagerDoc(file)) {
+      setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
+      return null;
+    }
     setMgrUploading(true);
     setMgrUploadError('');
     try {
@@ -338,108 +330,109 @@ const EditConfigPage = () => {
       const res = await apiClient.post('/files/manager-doc', fd, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
-      const { role_name = '', doc_text = '', file_id = '' } = res.data || {};
-      setConfig(prev => {
-        const managers = [...(prev.manager_exercise?.managers || [])];
-        managers[index] = { role_name, doc_file_id: file_id, doc_text };
-        return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
-      });
+      return res.data || {};
     } catch (err) {
       const d = err.response?.data;
       setMgrUploadError((d && (d.error || d.message)) || err.message || 'Upload failed');
+      return null;
     } finally {
       setMgrUploading(false);
     }
   };
 
-  // Manager briefs are restricted to Word (.docx) and PDF. The picker enforces this
-  // via `accept`, but drag-and-drop bypasses that filter, so validate by extension.
-  const isAllowedManagerDoc = (file) =>
-    !!file && ['pdf', 'docx'].includes((file.name.split('.').pop() || '').toLowerCase());
-
-  // Drop a file onto an empty manager card → type-check, then route through the same
-  // upload/parse path as the picker. Rejects bad types inline via `mgrUploadError`.
-  const handleManagerDocDrop = (index, e) => {
-    e.preventDefault();
-    setMgrDragIdx(null);
-    const file = e.dataTransfer.files?.[0];
+  // Replace one of the AI-only reference documents. Clears the derived pack: a
+  // tally computed from documents that are no longer loaded is exactly what the
+  // review step exists to catch.
+  const handleCaseDocUpload = async (field, file) => {
     if (!file) return;
-    if (!isAllowedManagerDoc(file)) {
-      setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
-      return;
-    }
-    setMgrUploadError('');
-    handleManagerDocUpload(index, file);
-  };
-
-  // Edit the faculty-confirmable role name on an already-uploaded manager seat.
-  const setManagerRoleName = (index, roleName) => {
-    setConfig(prev => {
-      const managers = [...(prev.manager_exercise?.managers || [])];
-      managers[index] = { ...managers[index], role_name: roleName };
-      return { ...prev, manager_exercise: { ...prev.manager_exercise, managers } };
-    });
-  };
-
-  // Add / edit / remove a candidate on the shared roster (used for voting). If
-  // the removed candidate was the marked ground truth, clear the marking too.
-  const addCandidate = () => setMgr('candidates', [...(config.manager_exercise?.candidates || []), { name: '', blurb: '' }]);
-  const setCandidate = (index, field, value) => {
-    const candidates = [...(config.manager_exercise?.candidates || [])];
-    candidates[index] = { ...candidates[index], [field]: value };
-    setMgr('candidates', candidates);
-  };
-  const removeCandidate = (index) => {
-    const removed = config.manager_exercise?.candidates?.[index];
-    const candidates = (config.manager_exercise?.candidates || []).filter((_, i) => i !== index);
+    const data = await uploadCaseDoc(file);
+    if (!data) return;
     setConfig(prev => ({
       ...prev,
       manager_exercise: {
         ...prev.manager_exercise,
-        candidates,
-        correct_candidate: removed?.name === prev.manager_exercise?.correct_candidate ? '' : prev.manager_exercise?.correct_candidate
-      }
+        [field]: { file_id: data.file_id || '', text: data.doc_text || '' },
+        case_pack: null,
+      },
     }));
   };
 
-  // Auto-seed candidate names mentioned across every uploaded manager doc.
-  // Heuristic: prefer an explicit "Candidates:"/"Applicants:" block, else scan
-  // for capitalized two/three-word proper-name lines; dedupe against the roster.
-  // Convenience only — faculty still edit the result.
-  const autoExtractCandidates = () => {
-    const roster = config.manager_exercise?.candidates || [];
-    const found = new Set(roster.map(c => (c.name || '').trim().toLowerCase()).filter(Boolean));
-    const additions = [];
-    (config.manager_exercise?.managers || []).forEach(m => {
-      const text = m.doc_text || '';
-      const listMatch = text.match(/(?:candidates?|applicants?)\s*:\s*([\s\S]{0,400})/i);
-      const scope = listMatch ? listMatch[1] : text;
-      const nameRe = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/g;
-      let hit;
-      while ((hit = nameRe.exec(scope)) !== null) {
-        const name = hit[1].trim();
-        const key = name.toLowerCase();
-        if (!found.has(key)) { found.add(key); additions.push({ name, blurb: '' }); }
-        if (additions.length >= 12) break; // cap the seed so we don't flood the roster
-      }
-    });
-    if (additions.length) setMgr('candidates', [...roster, ...additions]);
+  // Add one candidate's OUTCOME document. The name is parsed from the doc header
+  // and stays editable.
+  const handleOutcomeUpload = async (file) => {
+    if (!file) return;
+    const data = await uploadCaseDoc(file);
+    if (!data) return;
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        candidates: [
+          ...(prev.manager_exercise?.candidates || []),
+          {
+            name: data.role_name || '',
+            forecast_text: data.doc_text || '',
+            forecast_file_id: data.file_id || '',
+          },
+        ],
+        case_pack: null,
+      },
+    }));
   };
 
-  // Normalize the three grading weights so they sum to 1.0 after a slider moves.
-  // Keeps the just-moved key at its chosen value and rescales the other two by
-  // their prior ratio (equal split if the remainder was zero).
-  const setGradingWeight = (key, value) => {
-    const v = Math.max(0, Math.min(1, parseFloat(value)));
-    const w = { ...(config.manager_exercise?.grading_weights || {}) };
-    const others = Object.keys(w).filter(k => k !== key);
-    const remainder = 1 - v;
-    const otherSum = others.reduce((s, k) => s + (w[k] || 0), 0);
-    const next = { ...w, [key]: v };
-    others.forEach(k => {
-      next[k] = otherSum > 0 ? remainder * ((w[k] || 0) / otherSum) : remainder / others.length;
+  const setCandidateName = (index, name) => {
+    const candidates = [...(config.manager_exercise?.candidates || [])];
+    candidates[index] = { ...candidates[index], name };
+    setMgr('candidates', candidates);
+  };
+
+  const removeCandidate = (index) => {
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        candidates: (prev.manager_exercise?.candidates || []).filter((_, i) => i !== index),
+        case_pack: null,
+      },
+    }));
+  };
+
+  // Re-derive the case pack from the currently loaded documents. Same code path as
+  // save, so what is approved here is what the facilitator will steer by.
+  const analyzeCase = async () => {
+    setPackLoading(true);
+    setPackError('');
+    try {
+      const me = config.manager_exercise || {};
+      const res = await apiClient.post('/config/case-pack/preview', {
+        general_info_text: me.general_info?.text || '',
+        candidate_summary_text: me.candidate_summary?.text || '',
+        candidates: me.candidates || [],
+      });
+      setMgr('case_pack', res.data?.case_pack || null);
+    } catch (err) {
+      const d = err.response?.data;
+      setPackError((d && (d.error || d.message)) || err.message || 'Analysis failed');
+    } finally {
+      setPackLoading(false);
+    }
+  };
+
+  // Correct a misread outcome verdict — it selects the facilitator's branch entry,
+  // so a wrong one sends ACTR into the wrong opening.
+  const setOutcomeVerdict = (index, verdict) => {
+    const options = [...(mePack.options || [])];
+    options[index] = { ...options[index], outcome_verdict: verdict };
+    setMgr('case_pack', { ...mePack, options });
+  };
+
+  // Override the derived answer key. `best_option_locked` stops the server-side
+  // recompute from re-deriving it from the tally on subsequent saves.
+  const setBestOption = (name) => {
+    setMgr('case_pack', {
+      ...mePack,
+      answer_key: { ...(mePack.answer_key || {}), best_option: name, best_option_locked: true },
     });
-    setMgr('grading_weights', next);
   };
   // ---------------------------------------------------------------------------
 
@@ -482,19 +475,13 @@ const EditConfigPage = () => {
     } else if (config.bot_type === 'experiential') {
         if (!(config.experiential_config && config.experiential_config.method)) newErrors.form = 'Generate the lab from your prompt before saving.';
     } else if (config.bot_type === 'manager_exercise') {
-        // Every seat needs an uploaded doc; the roster needs >=2 candidates; and
-        // the ground-truth best-fit pick must be a marked, real candidate.
+        // ACTR needs the candidate summary (the tally derives from it), an outcome
+        // document per candidate, and a reviewed case pack carrying the answer key.
         const me = config.manager_exercise || {};
-        const managers = me.managers || [];
-        const candidates = me.candidates || [];
-        const filled = managers.filter(m => (m.doc_text || '').trim()).length;
-        if (filled < (me.num_managers || 0)) {
-          newErrors.form = `Upload a document for all ${me.num_managers} managers (${filled}/${me.num_managers} done).`;
-          const firstEmpty = managers.findIndex(m => !(m.doc_text || '').trim());
-          if (firstEmpty >= 0) setMgrHighlight(h => ({ idx: firstEmpty, n: h.n + 1 }));
-        }
-        else if (candidates.filter(c => (c.name || '').trim()).length < 2) newErrors.form = 'Add at least two candidates to vote on.';
-        else if (!me.correct_candidate) newErrors.form = 'Mark the correct best-fit candidate.';
+        const usable = (me.candidates || []).filter(c => (c.name || '').trim() && (c.forecast_text || '').trim());
+        if (!(me.candidate_summary?.text || '').trim()) newErrors.form = 'Upload the Candidate Summary document.';
+        else if (usable.length < 2) newErrors.form = 'Upload a named outcome document for at least two candidates.';
+        else if (!me.case_pack) newErrors.form = 'Analyse the case and review the result before saving.';
     } else {
         if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }
@@ -533,12 +520,12 @@ const EditConfigPage = () => {
           configToSubmit.prompt_template = "";
       } else if (configToSubmit.bot_type === 'manager_exercise') {
           // Satisfy backend instructions validation; the real spec lives in the
-          // manager_exercise sub-object. Pin the Claude reasoning model and enforce
-          // the matcher invariant group_size == num_managers (backend re-enforces).
-          configToSubmit.instructions = 'Manager Exercise: hidden-profile decision game.';
+          // manager_exercise sub-object. Pin the Claude facilitator model and
+          // enforce group_size == num_students (backend re-enforces).
+          configToSubmit.instructions = 'Manager Exercise: facilitated hidden-profile debrief.';
           configToSubmit.prompt_template = '';
           configToSubmit.model_name = 'claude-sonnet-4-6';
-          configToSubmit.group_size = configToSubmit.manager_exercise?.num_managers || configToSubmit.group_size;
+          configToSubmit.group_size = configToSubmit.manager_exercise?.num_students || configToSubmit.group_size;
       } else {
           // Unified instructions panel — always send instructions; backend wraps it.
           configToSubmit.prompt_template = '';
@@ -923,212 +910,153 @@ const EditConfigPage = () => {
               </div>
             ) : config.bot_type === 'manager_exercise' ? (
               // ==============================
-              // MANAGER EXERCISE — hidden-profile authoring (mirrors ConfigPage)
+              // MANAGER EXERCISE — facilitated debrief authoring (mirrors ConfigPage)
               // ==============================
               // `me` is the guaranteed-present sub-object (the init effect backfills
               // every field for this bot_type). Aliased so the JSX reads cleanly and
               // stays null-safe even if a partial doc slipped through.
               (() => {
                 const me = config.manager_exercise || {};
-                const managers = me.managers || [];
                 const candidates = me.candidates || [];
-                const gradingWeights = me.grading_weights || {};
                 return (
                   <div className="border-t border-gray-100 pt-8 mt-8">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-1"><FaUserTie className="mr-2 text-[#FA6C43]"/> Manager Exercise</h3>
-                    <p className="text-[11px] text-gray-400 mb-6">Hidden-profile decision game. Edit the roster, per-manager briefs, and grading below.</p>
+                    <p className="text-[11px] text-gray-400 mb-6">The decision itself happens offline on printed packets. Everything below is what ACTR needs for the debrief afterwards.</p>
 
-                    {/* Group + timing rules: N managers (== student seats) plus the two
-                        phase durations. num_managers drives group_size (matcher invariant). */}
-                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Roles &amp; Timing</h3>
+                    {/* Group size + the one timed phase. num_students drives group_size. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">
                       <div className="mb-5">
                         <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                          <span className="inline-flex items-center gap-1">Total Manager Seats<InfoTip text="Total named managerial roles in the room. One seat is ALWAYS a hidden AI manager, so N seats = (N−1) students + 1 AI. Each seat gets its own private document. If students no-show, their seats also fill with AI after the timeout." /></span>
-                          <span className="text-[#FA6C43] font-bold">{me.num_managers} seats</span>
+                          <span className="inline-flex items-center gap-1">Students per group<InfoTip text="How many students debrief together. Every participant is a real student — there are no AI players. Each holds a different printed packet, which is what makes pooling necessary." /></span>
+                          <span className="text-[#FA6C43] font-bold">{me.num_students} students</span>
                         </label>
-                        <input type="range" min="2" max="10" step="1" value={me.num_managers || 2} onChange={(e) => handleNumManagersChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
-                        {/* Explicit student/AI split so faculty aren't surprised that N ≠ student count. */}
-                        <p className="mt-2 text-[11px] font-semibold text-gray-500">
-                          = <span className="text-[#222]">{Math.max(1, (me.num_managers || 2) - 1)} student{(me.num_managers || 2) - 1 === 1 ? '' : 's'}</span> + <span className="text-[#222]">1 AI manager</span> <span className="text-gray-400">(the AI is hidden from students)</span>
-                        </p>
+                        <input type="range" min="2" max="10" step="1" value={me.num_students || 2} onChange={(e) => handleNumStudentsChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        <p className="mt-2 text-[11px] font-semibold text-gray-500">The room opens once all {me.num_students} have joined.</p>
                       </div>
-                      <div className="grid grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-2">Memorize (minutes)</label>
-                          <input type="number" min="0" step="any" value={me.memorize_minutes} onChange={(e) => setMgr('memorize_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                          <p className="text-[10px] text-gray-400 mt-1">Chat locked; doc visible.</p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-2">Discuss (minutes)</label>
-                          <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                          <p className="text-[10px] text-gray-400 mt-1">Chat open; AI nudges.</p>
-                        </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-2">Discussion window (minutes)</label>
+                        <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                        <p className="text-[10px] text-gray-400 mt-1">How long the facilitated debrief runs after the outcome is revealed.</p>
                       </div>
                     </div>
 
-                    {/* Sequential per-manager document wizard. Renders Manager 1..N as
-                        cards; each card either shows an Upload button (empty) or, once
-                        parsed, the auto-detected role_name in an EDITABLE field plus a
-                        collapsible plaintext preview. "Replace" re-runs the upload for a
-                        filled seat, so faculty can swap a brief while editing. */}
-                    {(() => {
-                      const done = managers.filter(m => (m.doc_text || '').trim()).length;
-                      const total = me.num_managers || managers.length;
+                    {/* What ACTR steers toward. Only the preset KEY is sent; the full
+                        learning-point text is stamped in server-side. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class preset<InfoTip text="Pre-written learning points the facilitator steers toward. Leave blank to rely on your own stated outcome alone." /></label>
+                      <select value={me.class_preset || ''} onChange={(e) => setMgr('class_preset', e.target.value)} className="w-full p-2.5 mb-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all">
+                        <option value="">— none —</option>
+                        {ME_CLASS_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                      </select>
+                      <label className="block text-xs font-semibold text-gray-700 mb-2">What should they take away?</label>
+                      <textarea rows="3" value={me.learning_outcome || ''} onChange={(e) => setMgr('learning_outcome', e.target.value)} placeholder="e.g. Groups under-share unique information and over-weight a concern everyone happens to hold." className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                    </div>
+
+                    {/* AI-only reference documents. Never shown to a student — the
+                        candidate summary states every role's private view. */}
+                    <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Case Materials</h4>
+                    <p className="text-[11px] text-gray-400 mb-3">ACTR-only. Replacing any document clears the analysis below, so the tally can never describe files that are no longer loaded.</p>
+                    {[
+                      { field: 'general_info', label: 'General Information', hint: 'The shared setting every role knows.' },
+                      { field: 'candidate_summary', label: 'Candidate Summary', hint: "Every role's private view, side by side. The pooled tally derives from this." },
+                    ].map(slot => {
+                      const doc = me[slot.field] || {};
+                      const filled = (doc.text || '').trim().length > 0;
                       return (
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Manager Documents</h3>
-                          {/* In-place progress so the upload state is obvious without scrolling up to the error. */}
-                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${done >= total ? 'bg-[#FA6C43]/10 text-[#FA6C43]' : 'bg-gray-100 text-gray-500'}`}>
-                            {done}/{total} uploaded
-                          </span>
+                        <div key={slot.field} className={`p-4 mb-3 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-[#222]">{slot.label}</p>
+                              <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
+                            </div>
+                            <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
+                              {filled ? 'Replace' : 'Upload'}
+                              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
+                            </label>
+                          </div>
                         </div>
                       );
-                    })()}
-                    <p className="text-[11px] text-gray-400 mb-3">One private brief per manager, in order — Word (.docx) or PDF only. Drag a file onto a card or click to browse. The role name is read from the doc header ("To: Marketing Manager") for you to confirm.</p>
-                    <div className="space-y-3 mb-6">
-                      {managers.map((mgr, idx) => {
-                        const uploaded = !!(mgr.doc_text || '').trim();
-                        return (
-                          <div key={idx} id={`mgr-card-${idx}`} className={`bg-white p-4 rounded-2xl border-2 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-1 duration-300 ${mgrHighlight.idx === idx ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/50 ring-offset-2 animate-pulse' : uploaded ? 'border-[#FA6C43]/40' : 'border-gray-100'}`}>
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="inline-flex items-center gap-2 text-[13px] font-bold text-gray-700">
-                                {uploaded ? <FaCheckCircle className="text-[#FA6C43]" /> : <span className="w-4 h-4 rounded-full border-2 border-gray-300 inline-block" />}
-                                Manager {idx + 1}
-                              </span>
-                              {uploaded && (
-                                <button type="button" onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors active:scale-95">Replace</button>
-                              )}
-                            </div>
+                    })}
 
-                            {uploaded ? (
-                              <div className="space-y-3 animate-in fade-in duration-300">
-                                {/* Editable auto-detected role — faculty confirms/overrides. */}
-                                <div>
-                                  <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Role Name <span className="normal-case font-normal text-gray-400">(auto-detected, editable)</span></label>
-                                  <input type="text" value={mgr.role_name} onChange={(e) => setManagerRoleName(idx, e.target.value)} placeholder="e.g. Marketing Manager" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
-                                </div>
-                                {/* Collapsible parsed-doc preview for a sanity check. */}
-                                <details className="group">
-                                  <summary className="cursor-pointer text-[11px] font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors select-none">Preview parsed document</summary>
-                                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 custom-scrollbar">{mgr.doc_text}</pre>
-                                </details>
-                              </div>
-                            ) : (
-                              // Empty seat = click-to-browse button that doubles as a drop
-                              // zone. Dragging over lifts + tints the card; the drop is
-                              // type-validated in handleManagerDocDrop before uploading.
-                              <button
-                                type="button"
-                                disabled={mgrUploading}
-                                onClick={() => { mgrFileInputRef.current.dataset.index = String(idx); mgrFileInputRef.current.click(); }}
-                                onDragEnter={(e) => { e.preventDefault(); setMgrDragIdx(idx); }}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDragLeave={(e) => { e.preventDefault(); setMgrDragIdx(null); }}
-                                onDrop={(e) => handleManagerDocDrop(idx, e)}
-                                className={`w-full py-4 border-2 border-dashed rounded-xl transition-all font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed ${mgrDragIdx === idx ? 'border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43] scale-[1.01]' : 'border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'}`}
-                              >
-                                {mgrUploading ? <FaSpinner className="animate-spin" /> : <FaUpload />}
-                                {mgrUploading ? 'Uploading & parsing…' : mgrDragIdx === idx ? 'Drop to upload' : `Upload Manager ${idx + 1}'s document — or drop it here`}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {/* One shared hidden input; the target seat index is stashed on its
-                          dataset by whichever card triggered the picker. */}
-                      <input
-                        type="file"
-                        ref={mgrFileInputRef}
-                        className="hidden"
-                        accept=".pdf,.docx"
-                        onChange={(e) => {
-                          const idx = parseInt(e.target.dataset.index || '0', 10);
-                          const file = e.target.files?.[0];
-                          e.target.value = ''; // allow re-picking the same file
-                          if (file && !isAllowedManagerDoc(file)) {
-                            setMgrUploadError('Only Word (.docx) and PDF files are allowed.');
-                            return;
-                          }
-                          if (file) { setMgrUploadError(''); handleManagerDocUpload(idx, file); }
-                        }}
-                      />
-                      {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
-                    </div>
-
-                    {/* Candidate roster + ground-truth marking. Candidates may be
-                        auto-seeded from the uploaded docs or entered by hand; the correct
-                        best-FIT pick is chosen from this list. */}
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidates</h3>
-                      <button type="button" onClick={autoExtractCandidates} className="text-[11px] font-semibold text-gray-400 hover:text-[#FA6C43] transition-colors active:scale-95">Auto-extract from docs</button>
+                    {/* One outcome document per candidate, revealed on pick. */}
+                    <div className="flex items-center justify-between mb-2 mt-5">
+                      <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidate Outcomes</h4>
+                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">{candidates.length} uploaded</span>
                     </div>
                     <div className="space-y-2 mb-3">
                       {candidates.map((cand, idx) => (
                         <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
-                          <input type="text" value={cand.name} onChange={(e) => setCandidate(idx, 'name', e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
-                          <input type="text" value={cand.blurb} onChange={(e) => setCandidate(idx, 'blurb', e.target.value)} placeholder="One-line blurb (optional)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                          <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(cand.forecast_text || '').trim().length.toLocaleString()} chars</span>
                           <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
                         </div>
                       ))}
                     </div>
-                    <button type="button" onClick={addCandidate} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center active:scale-[0.99]">
-                      <FaPlus className="mr-2" /> Add Candidate
-                    </button>
+                    <label className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                      <FaPlus className="mr-2" /> Add a candidate outcome
+                      <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
+                    </label>
+                    {mgrUploading && <p className="text-xs font-medium text-gray-500 mb-3">Uploading…</p>}
+                    {mgrUploadError && <p className="text-xs font-medium text-red-500 mb-3">{mgrUploadError}</p>}
 
-                    {/* Ground-truth: which candidate is the best FIT (not necessarily the
-                        most-qualified). Drives individual/collective grade correctness. */}
-                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-2">
-                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Correct best-fit candidate<InfoTip text="The ground-truth answer used for grading. Best FIT for the role — which is not always the most-qualified applicant." /></label>
-                      <select
-                        value={me.correct_candidate || ''}
-                        onChange={(e) => setMgr('correct_candidate', e.target.value)}
-                        className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
-                      >
-                        <option value="">— select a candidate —</option>
-                        {candidates.filter(c => (c.name || '').trim()).map((c, i) => (
-                          <option key={i} value={c.name}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* The derived answer key. A wrong one is invisible once the
+                        exercise is running, so saving is gated on it existing. */}
+                    <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaCheckCircle className="mr-2 text-[#FA6C43]"/> The Analysis</h4>
+                    <p className="text-[11px] text-gray-400 mb-3">Who holds what, what pools together, and which candidate the pooled evidence favours.</p>
 
-                    {/* Advanced authoring — AI personality + grading weights. */}
-                    <AdvancedReveal show={advanced}>
-                    <div className="pt-4 mt-2 border-t border-gray-100">
-                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-3">AI Manager personality<InfoTip text="How the AI Manager behaves during discussion. Friend = supportive facilitator; Foe = contrarian/adversarial; Confused = muddled, misremembers facts." /></label>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          { id: 'friend', label: 'Friend', desc: 'Supportive' },
-                          { id: 'foe', label: 'Foe', desc: 'Contrarian' },
-                          { id: 'confused', label: 'Confused', desc: 'Muddled' }
-                        ].map(p => (
-                          <label key={p.id} className={`cursor-pointer p-3 border-2 rounded-xl text-center transition-all active:scale-[0.97] ${me.ai_personality === p.id ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 bg-white'}`}>
-                            <input type="radio" name="ai_personality" value={p.id} checked={me.ai_personality === p.id} onChange={() => setMgr('ai_personality', p.id)} className="hidden" />
-                            <p className="font-bold text-[#222] text-sm">{p.label}</p>
-                            <p className="text-[10px] text-gray-500 font-medium mt-0.5">{p.desc}</p>
-                          </label>
-                        ))}
+                    {!mePack ? (
+                      <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-sm text-gray-500 mb-4">Not analysed yet.</p>
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95">
+                          {packLoading ? 'Analysing…' : 'Analyse the case'}
+                        </button>
+                        {packError && <p className="text-xs font-medium text-red-500 mt-3">{packError}</p>}
                       </div>
-                    </div>
-
-                    <div className="pt-4 mt-4 border-t border-gray-100">
-                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-1">Grading weights<InfoTip text="How the three grade components combine. Sliders auto-normalize so the three weights always sum to 100%." /></label>
-                      <p className="text-[11px] text-gray-400 mb-4">Auto-normalized to 100%.</p>
-                      {[
-                        { key: 'communication', label: 'Communication quality' },
-                        { key: 'individual', label: 'Individual decision' },
-                        { key: 'collective', label: 'Collective decision' }
-                      ].map(gw => (
-                        <div key={gw.key} className="mb-4">
-                          <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                            <span>{gw.label}</span>
-                            <span className="text-[#FA6C43] font-bold">{Math.round((gradingWeights[gw.key] || 0) * 100)}%</span>
-                          </label>
-                          <input type="range" min="0" max="1" step="0.01" value={gradingWeights[gw.key] || 0} onChange={(e) => setGradingWeight(gw.key, e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-gray-200 overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+                              <tr>
+                                <th className="text-left font-bold px-4 py-2.5">Candidate</th>
+                                <th className="text-center font-bold px-3 py-2.5">Strengths</th>
+                                <th className="text-center font-bold px-3 py-2.5">Concerns</th>
+                                <th className="text-left font-bold px-3 py-2.5">Outcome</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(mePack.options || []).map((o, i) => (
+                                <tr key={i} className={`border-t border-gray-100 ${o.name === mePack.answer_key?.best_option ? 'bg-[#F9D0C4]/20' : ''}`}>
+                                  <td className="px-4 py-3 font-semibold text-[#222]">{o.name}</td>
+                                  <td className="px-3 py-3 text-center font-bold text-[#222] tabular-nums">{o.distinct_strengths}</td>
+                                  <td className="px-3 py-3 text-center font-bold text-[#222] tabular-nums">{o.distinct_concerns}</td>
+                                  <td className="px-3 py-3">
+                                    <select value={o.outcome_verdict || 'failure'} onChange={(e) => setOutcomeVerdict(i, e.target.value)} className="text-xs font-semibold bg-white border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-[#FA6C43]">
+                                      <option value="success">succeeded</option>
+                                      <option value="failure">failed</option>
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                      ))}
-                    </div>
-                    </AdvancedReveal>
+
+                        <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                          <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Strongest candidate<InfoTip text="Derived from the pooled tally: most distinct strengths, fewest distinct concerns. ACTR never states this — it steers students until they count it themselves. Override only if the analysis got it wrong." /></label>
+                          <select value={mePack.answer_key?.best_option || ''} onChange={(e) => setBestOption(e.target.value)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all">
+                            {(mePack.options || []).map((o, i) => <option key={i} value={o.name}>{o.name}</option>)}
+                          </select>
+                          {mePack.answer_key?.best_option_locked && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">Set manually — the tally no longer decides this.</p>}
+                          {mePack.answer_key?.mechanism && <p className="text-[11px] text-gray-500 mt-3 leading-relaxed"><span className="font-bold uppercase tracking-wider text-gray-400">The trap: </span>{mePack.answer_key.mechanism}</p>}
+                        </div>
+
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50 active:scale-[0.99]">
+                          {packLoading ? 'Analysing…' : 'Re-analyse from the documents'}
+                        </button>
+                        {packError && <p className="text-xs font-medium text-red-500">{packError}</p>}
+                      </div>
+                    )}
                   </div>
                 );
               })()

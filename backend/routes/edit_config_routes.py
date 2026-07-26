@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-07-20
-# @changed   Accept/validate/persist the manager_exercise sub-object on PUT (edit); reuse config_routes.validate_manager_exercise; sync group_size==num_managers.
+# @updated   2026-07-26
+# @changed   manager_exercise now syncs group_size to num_students (was num_managers) after the facilitated
+#            rework; still reuses config_routes.validate_manager_exercise for the PUT path.
 from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
@@ -169,7 +170,7 @@ def update_existing_config(config_id):
         # form omits it. Only run the (strict) validator when a manager_exercise
         # payload is actually present, so unrelated edits to a manager_exercise
         # config (e.g. renaming the bot) don't require re-sending the full
-        # sub-object. When it validates, group_size is force-set to num_managers.
+        # sub-object. When it validates, group_size is force-set to num_students.
         bot_type = data.get('bot_type') or config_to_update.get('bot_type')
         if bot_type == 'manager_exercise' and data.get('manager_exercise') is not None:
             err = validate_manager_exercise(data, update_data)

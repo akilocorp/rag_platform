@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-20
-# @changed   manager_exercise num_managers is now TOTAL seats (>= 2): N-1 students + 1 AI. Prior: accept/validate/persist
-#            the sub-object (POST create), add bot_type, sync group_size==num_managers, validate+normalize grading_weights.
+# @updated   2026-07-26
+# @changed   validate_manager_exercise rewritten for the facilitated rework: num_students/discuss_minutes,
+#            class-preset learning points, AI-only reference docs, and a derived+recomputed case pack.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -14,6 +14,8 @@ from models.config import Config
 from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
+from src.managers import case_pack
+from src.managers import class_presets
 
 import re
 import json
@@ -68,63 +70,51 @@ def validate_class_usage(source, target, current_config_id=None):
     return None
 
 # --- Manager Exercise ---------------------------------------------------------
-# Canonical enum + defaults for the manager_exercise sub-object (contract §1).
-ME_AI_PERSONALITIES = ("friend", "foe", "confused")
-ME_GRADING_KEYS = ("communication", "individual", "collective")
+# Minimum group size. The exercise is a hidden-profile debrief: the whole lesson
+# is that information was distributed and never pooled, which needs at least two
+# people holding different packets.
+ME_MIN_STUDENTS = 2
 
 
-def _me_normalize_grading_weights(raw):
-    """Coerce grading_weights into three floats keyed by ME_GRADING_KEYS and
-    normalize them to sum to 1.0.
+def _me_doc_ref(raw, field):
+    """Normalize an AI-only reference document to {file_id, text}.
 
-    Rules (contract §1): missing keys default to equal thirds; any negative
-    weight is a hard error (caller returns 400). If every weight is zero we fall
-    back to equal thirds rather than dividing by zero. Returns
-    (weights_dict, error_message_or_None).
+    `text` is authoritative (it is what the case-pack extractor and the
+    facilitator actually read); `file_id` is a bookkeeping pointer to the upload.
     """
-    if not isinstance(raw, dict):
-        raw = {}
-    weights = {}
-    for key in ME_GRADING_KEYS:
-        val = raw.get(key)
-        if val is None:
-            # Missing key → equal-thirds placeholder; renormalized below.
-            weights[key] = 1.0 / len(ME_GRADING_KEYS)
-            continue
-        try:
-            fval = float(val)
-        except (ValueError, TypeError):
-            return None, f"grading_weights.{key} must be a number"
-        if fval < 0:
-            return None, f"grading_weights.{key} must be >= 0"
-        weights[key] = fval
-
-    total = sum(weights.values())
-    if total <= 0:
-        # All zero (or absent) → equal thirds.
-        weights = {key: 1.0 / len(ME_GRADING_KEYS) for key in ME_GRADING_KEYS}
-    else:
-        weights = {key: (weights[key] / total) for key in ME_GRADING_KEYS}
-    return weights, None
+    val = raw.get(field)
+    if not isinstance(val, dict):
+        return {"file_id": "", "text": ""}
+    file_id = val.get("file_id")
+    text = val.get("text")
+    return {
+        "file_id": file_id.strip() if isinstance(file_id, str) else "",
+        "text": text if isinstance(text, str) else "",
+    }
 
 
 def validate_manager_exercise(source, target):
-    """Validate + normalize the `manager_exercise` sub-object and force the
-    top-level `group_size == num_managers` invariant.
+    """Validate + normalize the `manager_exercise` sub-object, derive the case pack,
+    and force the top-level `group_size == num_students` invariant.
 
-    Mirrors how scoring_spec / experiential_config / facilitator are handled:
-    the value may arrive as a dict or a JSON string. On success, writes the
-    normalized sub-object into `target['manager_exercise']` and overwrites
-    `target['group_size']` with `num_managers`. Returns an error (response,
-    status) tuple on failure, or None on success.
+    Mirrors how scoring_spec / experiential_config / facilitator are handled: the
+    value may arrive as a dict or a JSON string. On success, writes the normalized
+    sub-object into `target['manager_exercise']` and overwrites
+    `target['group_size']`. Returns an error (response, status) tuple on failure,
+    or None on success.
 
-    Contract §1 rules enforced here:
+    Rules enforced here:
       - manager_exercise required and must be a dict.
-      - len(managers) == num_managers (>= 1).
-      - correct_candidate must match some candidates[].name.
-      - ai_personality defaults to "friend" if missing/invalid.
-      - grading_weights normalized to sum 1.0; negatives → 400.
-      - doc_text is authoritative; doc_file_id is a reference only.
+      - num_students int >= ME_MIN_STUDENTS; discuss_minutes > 0.
+      - candidates non-empty with unique names, each carrying its outcome doc.
+      - learning_points resolved server-side from class_preset (never trusted
+        from the client, so every config on a preset gets identical wording).
+      - case_pack derived from the uploaded docs unless the client supplied an
+        edited one; either way the tallies are recomputed in Python.
+
+    A config cannot be saved without a usable case pack: the pack carries the
+    answer key the facilitator steers by, and an exercise with an empty one would
+    silently run without any pedagogy.
     """
     raw = source.get('manager_exercise')
     if isinstance(raw, str):
@@ -135,33 +125,23 @@ def validate_manager_exercise(source, target):
     if not isinstance(raw, dict):
         return jsonify({"error": "manager_exercise config is required for this bot type"}), 400
 
-    # num_managers (N): TOTAL manager seats. One seat is always the AI, so N seats =
-    # (N-1) students + 1 AI. Must be an int >= 2 (at least one student + the AI).
+    # num_students: every participant is a real student — there are no AI seats.
     try:
-        num_managers = int(raw.get('num_managers'))
+        num_students = int(raw.get('num_students'))
     except (ValueError, TypeError):
-        return jsonify({"error": "manager_exercise.num_managers must be an integer"}), 400
-    if num_managers < 2:
-        return jsonify({"error": "manager_exercise.num_managers must be >= 2 (N-1 students + 1 AI)"}), 400
+        return jsonify({"error": "manager_exercise.num_students must be an integer"}), 400
+    if num_students < ME_MIN_STUDENTS:
+        return jsonify({"error": f"manager_exercise.num_students must be >= {ME_MIN_STUDENTS}"}), 400
 
-    # Phase durations (minutes) — floats allowed, must be strictly positive.
-    def _positive_minutes(field):
-        try:
-            val = float(raw.get(field))
-        except (ValueError, TypeError):
-            return None, f"manager_exercise.{field} must be a number"
-        if val <= 0:
-            return None, f"manager_exercise.{field} must be > 0"
-        return val, None
+    # Discuss window (minutes) — the only timed phase left.
+    try:
+        discuss_minutes = float(raw.get('discuss_minutes'))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.discuss_minutes must be a number"}), 400
+    if discuss_minutes <= 0:
+        return jsonify({"error": "manager_exercise.discuss_minutes must be > 0"}), 400
 
-    memorize_minutes, err = _positive_minutes('memorize_minutes')
-    if err:
-        return jsonify({"error": err}), 400
-    discuss_minutes, err = _positive_minutes('discuss_minutes')
-    if err:
-        return jsonify({"error": err}), 400
-
-    # Candidate roster — normalize to [{name, blurb}] with unique names.
+    # Candidate roster — each entry carries the outcome document revealed on pick.
     raw_candidates = raw.get('candidates')
     if not isinstance(raw_candidates, list) or not raw_candidates:
         return jsonify({"error": "manager_exercise.candidates must be a non-empty list"}), 400
@@ -176,66 +156,77 @@ def validate_manager_exercise(source, target):
         if name in seen_names:
             return jsonify({"error": f"duplicate candidate name '{name}'"}), 400
         seen_names.add(name)
-        blurb = c.get('blurb')
-        candidates.append({"name": name, "blurb": blurb.strip() if isinstance(blurb, str) else ""})
-
-    # Ground-truth best-fit candidate must reference the roster by name.
-    correct_candidate = (raw.get('correct_candidate') or '').strip()
-    if correct_candidate not in seen_names:
-        return jsonify({"error": "manager_exercise.correct_candidate must match a candidate name"}), 400
-
-    # Per-manager private docs — length MUST equal num_managers; index == seat.
-    raw_managers = raw.get('managers')
-    if not isinstance(raw_managers, list):
-        return jsonify({"error": "manager_exercise.managers must be a list"}), 400
-    if len(raw_managers) != num_managers:
-        return jsonify({"error": f"manager_exercise.managers must have exactly {num_managers} entries (one per manager)"}), 400
-    managers = []
-    for i, m in enumerate(raw_managers):
-        if not isinstance(m, dict):
-            return jsonify({"error": f"manager {i} must be an object"}), 400
-        role_name = m.get('role_name')
-        doc_file_id = m.get('doc_file_id')
-        doc_text = m.get('doc_text')
-        managers.append({
-            "role_name": role_name.strip() if isinstance(role_name, str) else "",
-            "doc_file_id": doc_file_id.strip() if isinstance(doc_file_id, str) else "",
-            "doc_text": doc_text if isinstance(doc_text, str) else "",
+        forecast_text = c.get('forecast_text')
+        forecast_file_id = c.get('forecast_file_id')
+        if not isinstance(forecast_text, str) or not forecast_text.strip():
+            return jsonify({"error": f"candidate '{name}' needs an uploaded outcome document"}), 400
+        candidates.append({
+            "name": name,
+            "forecast_text": forecast_text,
+            "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
 
-    # AI personality — enum with a safe default.
-    ai_personality = raw.get('ai_personality')
-    if ai_personality not in ME_AI_PERSONALITIES:
-        ai_personality = "friend"
+    # AI-only reference documents. Never sent to a student client — the candidate
+    # summary states each role's private view and (in most authored cases) the
+    # pooled totals, i.e. the answer key in plain text.
+    general_info = _me_doc_ref(raw, 'general_info')
+    candidate_summary = _me_doc_ref(raw, 'candidate_summary')
+    if not candidate_summary["text"].strip():
+        return jsonify({"error": "manager_exercise.candidate_summary is required (upload the Candidate Summary document)"}), 400
 
-    # Grading weights — normalized to sum 1.0; negatives already 400 inside.
-    grading_weights, err = _me_normalize_grading_weights(raw.get('grading_weights'))
-    if err:
-        return jsonify({"error": err}), 400
+    class_preset = (raw.get('class_preset') or '').strip()
+    learning_outcome = raw.get('learning_outcome')
+    learning_outcome = learning_outcome.strip() if isinstance(learning_outcome, str) else ""
 
-    # No-show AI-fill timeout (seconds) — positive int, default 300.
-    try:
-        no_show_timeout_seconds = int(raw.get('no_show_timeout_seconds', 300))
-    except (ValueError, TypeError):
-        no_show_timeout_seconds = 300
-    if no_show_timeout_seconds <= 0:
-        no_show_timeout_seconds = 300
+    # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
+    # otherwise extract it from the uploaded documents. Tallies are recomputed
+    # either way so a hand-edited pack can never disagree with its own items.
+    supplied = raw.get('case_pack')
+    if isinstance(supplied, dict) and supplied.get('options'):
+        pack = case_pack.recompute(supplied)
+    else:
+        pack, err = case_pack.build_case_pack(
+            general_info["text"], candidate_summary["text"], candidates,
+        )
+        if err:
+            return jsonify({"error": err}), 400
 
     target['manager_exercise'] = {
-        "num_managers": num_managers,
-        "memorize_minutes": memorize_minutes,
+        "num_students": num_students,
         "discuss_minutes": discuss_minutes,
-        "correct_candidate": correct_candidate,
+        "class_preset": class_preset,
+        "learning_outcome": learning_outcome,
+        "learning_points": class_presets.get_learning_points(class_preset),
+        "general_info": general_info,
+        "candidate_summary": candidate_summary,
         "candidates": candidates,
-        "managers": managers,
-        "ai_personality": ai_personality,
-        "grading_weights": grading_weights,
-        "no_show_timeout_seconds": no_show_timeout_seconds,
+        "case_pack": pack,
     }
-    # Invariant: top-level group_size is force-set to num_managers (ignore any
+    # Invariant: top-level group_size is force-set to num_students (ignore any
     # mismatching client value).
-    target['group_size'] = num_managers
+    target['group_size'] = num_students
     return None
+
+
+@config_bp.route('/config/case-pack/preview', methods=['POST'])
+@jwt_required()
+def preview_case_pack():
+    """Build a case pack from uploaded documents WITHOUT saving a config.
+
+    The authoring wizard's review step needs the extracted tallies and answer key
+    before the config exists, so the professor can correct a bad extraction rather
+    than discover it mid-class. Same code path as save, so what they approve here
+    is exactly what gets stored.
+    """
+    data = request.get_json(silent=True) or {}
+    pack, err = case_pack.build_case_pack(
+        data.get('general_info_text') or '',
+        data.get('candidate_summary_text') or '',
+        data.get('candidates') or [],
+    )
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({"case_pack": pack}), 200
 
 
 @config_bp.route('/config_list', methods=['GET'])
@@ -510,7 +501,7 @@ Answer:"""
                 config_document['experiential_config'] = exp_config
 
         # Manager Exercise — hidden-profile group game. Validates + normalizes the
-        # manager_exercise sub-object and force-sets group_size == num_managers.
+        # manager_exercise sub-object and force-sets group_size == num_students.
         if bot_type == 'manager_exercise':
             err = validate_manager_exercise(config_data, config_document)
             if err:

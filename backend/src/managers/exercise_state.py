@@ -1,29 +1,33 @@
 # @language  Python
-# @updated   2026-07-20
-# @changed   New: in-memory ExerciseState registry for the Manager Exercise — phase machine, timers, chat-lock, votes, collective ballot, Mongo persist+rebuild.
+# @updated   2026-07-26
+# @changed   Rewrote the phase machine for the facilitated rework: waiting/choose/discuss/done, no seats or
+#            grading, plus the turn-taking state (roster, go-around quorum, facilitator cooldown).
 """
 In-process registry of live Manager-Exercise rooms.
 
 Each matched room owns one `ExerciseState`. It holds the phase-machine state
-(waiting → memorize → discuss → decide → grading → done), seat/AI-seat maps,
-individual + collective votes, and the per-timed-phase deadlines. **Every**
+(waiting → choose → discuss → done), the group's chosen candidate, and the
+turn-taking bookkeeping that keeps ACTR from replying to every message. **Every**
 mutation is written through to the durable `manager_exercise_sessions` collection
-via `ManagerExerciseSession` (contract §6e) BEFORE the corresponding socket emit,
-so a crash between persist and emit is recoverable: on cold access the state is
-rebuilt from Mongo (`get_or_create_exercise`) and any already-elapsed timed phase
-is fast-forwarded.
+via `ManagerExerciseSession` BEFORE the corresponding socket emit, so a crash
+between persist and emit is recoverable: on cold access the state is rebuilt from
+Mongo (`get_or_create_exercise`) and any elapsed timed phase is fast-forwarded.
+
+The decision itself is made OFFLINE, on paper, before anyone opens the app. This
+machine only covers what happens afterwards: the group enters its pick, the
+matching outcome document is revealed, and ACTR facilitates the debrief. There is
+no memorize phase, no per-seat private document, no individual ballot, and no
+grading — students are never scored here.
 
 Timers run on `socketio.start_background_task` + `socketio.sleep` only
-(async_mode='threading') — never time.sleep/asyncio (contract §10.3).
+(async_mode='threading') — never time.sleep/asyncio.
 
-This module depends ONLY on the session-model API (contract §6e). The AI-side
-work (opening/periodic nudges, AI-seat voting, LLM grading) lives in other files
-(`ai_manager`, `exercise_grader`) and is wired in by the sockets agent through the
-optional callback hooks below — keeping this file free of those imports.
+This module depends ONLY on the session-model API. The AI-side work lives in
+`ai_manager` and is wired in by the sockets layer through the callback hooks
+below, keeping this file free of those imports.
 """
 import logging
 import time
-from datetime import datetime
 from threading import RLock
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -31,40 +35,45 @@ from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
 
-# --- Phase constants (contract §3 — EXACT strings) --------------------------
+# --- Phase constants --------------------------------------------------------
 PHASE_WAITING = "waiting"
-PHASE_MEMORIZE = "memorize"
+PHASE_CHOOSE = "choose"
 PHASE_DISCUSS = "discuss"
-PHASE_DECIDE = "decide"
-PHASE_GRADING = "grading"
 PHASE_DONE = "done"
 
 # Ordered flow; used to fast-forward on rehydration.
-PHASE_ORDER = [
-    PHASE_WAITING,
-    PHASE_MEMORIZE,
-    PHASE_DISCUSS,
-    PHASE_DECIDE,
-    PHASE_GRADING,
-    PHASE_DONE,
-]
+PHASE_ORDER = [PHASE_WAITING, PHASE_CHOOSE, PHASE_DISCUSS, PHASE_DONE]
 
-# Chat is unlocked ONLY during discuss (contract §3 / §10.1).
+# Chat is unlocked ONLY during discuss. In `choose` the group speaks through the
+# ballot buttons, not the chat, so the pick is a single deliberate act.
 _UNLOCKED_PHASES = {PHASE_DISCUSS}
 
-# Hard cap on the decide window before the collective ballot auto-resolves even if
-# not everyone has voted (keeps a stalled seat from hanging the whole room).
-DECIDE_WINDOW_SECONDS = 120
+# --- Turn-taking gates ------------------------------------------------------
+# A prompt cannot make itself wait: invoked on every message, a model that just
+# asked a question will answer the first student who replies. These four numbers
+# enforce the waiting outside the model. See facilitator_gate().
+#
+# Quorum: how long to wait for a silent student before proceeding with partial
+# answers to a go-around.
+GO_AROUND_TIMEOUT_SECONDS = 60
+# Debounce: the room must be quiet this long before ACTR is even considered, so a
+# burst of three quick messages produces one invocation rather than three.
+FACILITATOR_DEBOUNCE_SECONDS = 8
+# Cooldown: student messages required since ACTR last spoke. Structurally enforces
+# "never post twice in a row".
+FACILITATOR_COOLDOWN_MSGS = 3
+# Escape hatch for the cooldown: if the room stalls after only one or two replies,
+# ACTR would otherwise be locked out forever. Long quiet re-opens the door.
+FACILITATOR_IDLE_SECONDS = 45
 
 
 class ExerciseState:
     """
     Live state for one Manager-Exercise room.
 
-    `config` is the `manager_exercise` sub-object augmented with the few top-level
-    config fields the runtime needs (see `_read_config`). It is kept only for
-    read-only lookups (candidate roster, role names, durations); it is NOT
-    persisted here — the config lives on the `config_collections` doc.
+    `config` is the `manager_exercise` sub-object. It is kept only for read-only
+    lookups (candidates, durations, case pack); it is NOT persisted here — the
+    config lives on the `config_collections` doc.
     """
 
     def __init__(self, room_id: str, config: Dict, session_doc: Optional[Dict] = None):
@@ -76,86 +85,75 @@ class ExerciseState:
         # mutate the same state from different green threads.
         self._lock = RLock()
 
-        # Wiring set by start(); None until the phase machine is kicked off.
         self._socketio = None
         self._app = None
         self._started = False
 
-        # Optional hooks the sockets agent registers so AI-side work fires at the
-        # right phase edges without this module importing ai_manager/grader.
-        #   on_discuss_start(state)   -> emit AI opening nudge
-        #   on_decide_start(state)    -> collect AI-seat individual votes
-        #   on_collective_open(state) -> collect AI-seat collective votes
-        #   on_grading(state)         -> run LLM grading, then call set_grades()
+        # Hooks the sockets layer registers so AI-side work fires at the right
+        # phase edges without this module importing ai_manager:
+        #   on_choose_start(state)  -> ACTR asks which candidate they chose
+        #   on_pick_resolved(state) -> reveal the outcome doc + ACTR branch entry
+        #   on_wrapup(state)        -> ACTR's closing message
         self.hooks: Dict[str, Callable] = {}
 
-        # --- Config-derived, read-only -------------------------------------
         cfg = self._read_config()
-        self.num_managers: int = cfg["num_managers"]
+        self.num_students: int = cfg["num_students"]
         self.candidates: List[Dict] = cfg["candidates"]
-        self.managers: List[Dict] = cfg["managers"]
-        self.memorize_seconds: float = cfg["memorize_seconds"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
-        self.no_show_timeout_seconds: int = cfg["no_show_timeout_seconds"]
         self._candidate_names = {c.get("name") for c in self.candidates if c.get("name")}
 
-        # --- Mutable state (either rehydrated or defaulted) ----------------
         if session_doc:
             self._load_from_doc(session_doc)
         else:
             self._phase = PHASE_WAITING
             self.phase_deadline_ts: Optional[float] = None
-            self.no_show_deadline_ts: Optional[float] = None
-            self.seat_assignment: Dict[str, int] = {}
-            self.ai_seats: List[int] = []
-            self.individual_votes: Dict[str, str] = {}
+            self.roster: List[Dict] = []
             self.collective_ballot: Dict = {"open": False, "votes": {}}
-            self.collective_vote: Optional[str] = None
-            self.grades: Dict[str, Dict] = {}
+            self.chosen_candidate: Optional[str] = None
+            self.forecast_shown_for: Optional[str] = None
+            self.pending_go_around: Optional[Dict] = None
+            self.last_facilitator_at: Optional[float] = None
+            self.msgs_since_facilitator: int = 0
+            self.last_message_ts: Optional[float] = None
 
     # ==================================================================
     # CONFIG NORMALIZATION
     # ==================================================================
     def _read_config(self) -> Dict:
-        """
-        Pull the runtime-relevant fields out of the (possibly sparse) config with
-        safe defaults. Minutes → seconds happen here so the timers deal in seconds.
-        """
+        """Pull runtime-relevant fields out of the (possibly sparse) config, minutes → seconds."""
         c = self.config or {}
-        managers = c.get("managers") or []
-        num = int(c.get("num_managers") or len(managers) or 1)
+        try:
+            num = int(c.get("num_students") or 0)
+        except (TypeError, ValueError):
+            num = 0
         return {
-            "num_managers": num,
+            "num_students": max(2, num or 2),
             "candidates": c.get("candidates") or [],
-            "managers": managers,
-            "memorize_seconds": float(c.get("memorize_minutes") or 0) * 60.0,
-            "discuss_seconds": float(c.get("discuss_minutes") or 0) * 60.0,
-            "no_show_timeout_seconds": int(c.get("no_show_timeout_seconds") or 300),
+            "discuss_seconds": float(c.get("discuss_minutes") or 20) * 60.0,
         }
 
     # ==================================================================
     # REHYDRATION
     # ==================================================================
     def _load_from_doc(self, doc: Dict):
-        """Reconstruct mutable state from a persisted session document (contract §2)."""
+        """Reconstruct mutable state from a persisted session document."""
         self._phase = doc.get("phase") or PHASE_WAITING
         self.phase_deadline_ts = doc.get("phase_deadline_ts")
-        self.no_show_deadline_ts = doc.get("no_show_deadline_ts")
-        self.seat_assignment = dict(doc.get("seat_assignment") or {})
-        # seat indices may come back as strings from some stores — coerce to int.
-        self.seat_assignment = {u: int(i) for u, i in self.seat_assignment.items()}
-        self.ai_seats = [int(i) for i in (doc.get("ai_seats") or [])]
-        self.individual_votes = dict(doc.get("individual_votes") or {})
+        self.roster = list(doc.get("roster") or [])
         cb = doc.get("collective_ballot") or {}
         self.collective_ballot = {
             "open": bool(cb.get("open", False)),
             "votes": dict(cb.get("votes") or {}),
         }
-        self.collective_vote = doc.get("collective_vote")
-        self.grades = dict(doc.get("grades") or {})
+        self.chosen_candidate = doc.get("chosen_candidate")
+        self.forecast_shown_for = doc.get("forecast_shown_for")
+        self.pending_go_around = doc.get("pending_go_around") or None
+        self.last_facilitator_at = doc.get("last_facilitator_at")
+        self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
+        self.last_message_ts = doc.get("last_message_ts")
 
     # ==================================================================
-    # PUBLIC READ ACCESSORS (contract §6b)
+    # PUBLIC READ ACCESSORS
     # ==================================================================
     def phase(self) -> str:
         return self._phase
@@ -164,95 +162,69 @@ class ExerciseState:
         """Authoritative chat gate. True unless the room is in `discuss`."""
         return self._phase not in _UNLOCKED_PHASES
 
-    # --- Seat / participant helpers ------------------------------------
-    def seat_of(self, uid: str) -> Optional[int]:
-        """Seat index for a human uid, or None if not seated."""
-        return self.seat_assignment.get(uid)
+    def roster_uids(self) -> List[str]:
+        return [e.get("uid") for e in self.roster if e.get("uid")]
 
-    def role_name_for_seat(self, seat_index: Optional[int]) -> Optional[str]:
-        """Role name for a seat index from the config's managers list."""
-        if seat_index is None or seat_index < 0 or seat_index >= len(self.managers):
-            return None
-        return (self.managers[seat_index] or {}).get("role_name") or f"Manager {seat_index + 1}"
+    def display_name(self, uid: str) -> str:
+        """The name ACTR and the transcript use for a uid; falls back to a short id."""
+        for e in self.roster:
+            if e.get("uid") == uid:
+                return e.get("name") or "Student"
+        return f"Student {str(uid)[:4]}"
 
-    def doc_text_for_seat(self, seat_index: Optional[int]) -> str:
-        """Private document text for a seat index (served to the seated student)."""
-        if seat_index is None or seat_index < 0 or seat_index >= len(self.managers):
-            return ""
-        return (self.managers[seat_index] or {}).get("doc_text") or ""
-
-    def all_participant_keys(self) -> List[str]:
-        """
-        Every voting participant: human uids + AI-seat keys ("ai:<idx>").
-        Used to know when a vote stage is complete (contract §4b).
-        """
-        keys = list(self.seat_assignment.keys())
-        keys.extend(f"ai:{idx}" for idx in self.ai_seats)
-        return keys
-
-    def total_participants(self) -> int:
-        return len(self.seat_assignment) + len(self.ai_seats)
-
-    def _seated_roles(self) -> List[str]:
-        """Role names ordered by seat index, for the roster UI."""
-        return [self.role_name_for_seat(i) or "" for i in range(self.num_managers)]
+    def forecast_text_for(self, name: Optional[str]) -> str:
+        """The uploaded outcome document for a candidate name ("" if unknown)."""
+        for c in self.candidates:
+            if (c.get("name") or "") == (name or ""):
+                return c.get("forecast_text") or ""
+        return ""
 
     # ==================================================================
-    # SNAPSHOT (contract §4c `exercise_state` payload)
+    # SNAPSHOT (`exercise_state` payload)
     # ==================================================================
     def snapshot_for(self, uid: str) -> Dict:
         """
-        Build the per-viewer `exercise_state` payload. Never leaks other players'
-        picks — only booleans + progress-safe fields.
+        Build the per-viewer `exercise_state` payload.
+
+        Fields are listed explicitly rather than spread from config: the config
+        carries `candidate_summary` and `case_pack` (the answer key), and a
+        student client must never receive either.
         """
         with self._lock:
-            seat = self.seat_of(uid)
+            revealed = self.forecast_shown_for and self.forecast_shown_for == self.chosen_candidate
             return {
                 "room_id": self.room_id,
                 "phase": self._phase,
                 "phase_deadline_ts": self.phase_deadline_ts,
                 "server_now_ts": time.time(),
-                "num_managers": self.num_managers,
-                "your_seat_index": seat,
-                "your_role_name": self.role_name_for_seat(seat),
-                "candidates": [
-                    {"name": c.get("name", ""), "blurb": c.get("blurb", "")}
-                    for c in self.candidates
-                ],
-                "seated_roles": self._seated_roles(),
-                # No-show deadline drives the waiting-screen countdown. AI seats are
-                # deliberately NOT exposed — clients must not be able to tell which
-                # seats are AI (they render identically to human managers).
-                "no_show_deadline_ts": self.no_show_deadline_ts,
-                "you_voted_individual": uid in self.individual_votes,
+                "num_students": self.num_students,
+                "candidates": [{"name": c.get("name", "")} for c in self.candidates],
+                "roster": [{"name": e.get("name", "")} for e in self.roster],
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
+                "chosen_candidate": self.chosen_candidate,
+                "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
             }
 
     # ==================================================================
-    # PERSISTENCE (write-through — contract §10.2)
+    # PERSISTENCE (write-through)
     # ==================================================================
     def _persist(self, fields: Dict):
-        """
-        Write mutated fields through to Mongo. Best-effort: a persistence failure
-        is logged but must not raise into a socket handler / timer thread.
-        """
+        """Write mutated fields through to Mongo. Never raises into a handler/timer."""
         try:
             ManagerExerciseSession.upsert(self.room_id, fields)
-        except Exception as e:  # noqa: BLE001 — never let persistence sink a turn
+        except Exception as e:  # noqa: BLE001
             logger.error("Failed to persist exercise state for %s: %s", self.room_id, e)
 
-    def _emit(self, event: str, payload: Dict, to_room: bool = True, to_sid: Optional[str] = None):
-        """Emit a socket event inside the app context (write happens BEFORE this)."""
+    def _emit(self, event: str, payload: Dict, to_sid: Optional[str] = None):
+        """Emit a socket event (the persist always happens BEFORE this)."""
         if not self._socketio:
             return
         try:
             if to_sid:
                 self._socketio.emit(event, payload, to=to_sid)
-            elif to_room:
-                self._socketio.emit(event, payload, room=self.room_id)
             else:
-                self._socketio.emit(event, payload)
+                self._socketio.emit(event, payload, room=self.room_id)
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to emit %s for %s: %s", event, self.room_id, e)
 
@@ -267,53 +239,46 @@ class ExerciseState:
             logger.error("Exercise hook %s failed for %s: %s", name, self.room_id, e)
 
     # ==================================================================
-    # SEAT / MEMBERSHIP MUTATION
+    # ROSTER
     # ==================================================================
-    def set_seats(self, seat_assignment: Dict[str, int], ai_seats: List[int]):
+    def note_participant(self, uid: str, name: Optional[str] = None) -> bool:
+        """Record a student who has entered the room. Returns True if the roster grew.
+
+        The roster is what lets ACTR address people by name and what the go-around
+        quorum is measured against, so it is captured on room entry rather than
+        derived from who happens to have spoken.
         """
-        Install the seat map (human uid → index) and AI-filled seat indices, then
-        persist. Called by the sockets agent at room formation / no-show fill.
-        """
+        if not uid:
+            return False
         with self._lock:
-            self.seat_assignment = {u: int(i) for u, i in (seat_assignment or {}).items()}
-            self.ai_seats = [int(i) for i in (ai_seats or [])]
-            self._persist({"seat_assignment": self.seat_assignment, "ai_seats": self.ai_seats})
+            for e in self.roster:
+                if e.get("uid") == uid:
+                    if name and not e.get("name"):
+                        e["name"] = name
+                        self._persist({"roster": self.roster})
+                    return False
+            self.roster.append({"uid": uid, "name": name or f"Student {len(self.roster) + 1}"})
+            self._persist({"roster": self.roster})
+            return True
 
     # ==================================================================
     # PHASE MACHINE
     # ==================================================================
     def start(self, socketio, app):
-        """
-        Kick off the phase machine (contract §6b). Idempotent: safe to call again
-        on reconnect — it will not double-launch timers.
-
-        On a FRESH room (phase == waiting) it arms the no-show timer and the
-        memorize entry. On a REHYDRATED room it fast-forwards any timed phase whose
-        deadline already elapsed, then re-arms the remaining timers.
-        """
+        """Kick off (or resume) the phase machine. Idempotent across reconnects."""
         with self._lock:
             self._socketio = socketio
             self._app = app
             if self._started:
                 return
             self._started = True
-
         socketio.start_background_task(self._drive)
 
     def _drive(self):
-        """Background driver: fast-forward stale phases, then run the live timeline."""
+        """Background driver: re-arm the only timed phase after a restart."""
         with self._app.app_context():
-            phase = self._phase
-            if phase == PHASE_WAITING:
-                self._run_waiting()
-            elif phase == PHASE_MEMORIZE:
-                self._resume_timed(PHASE_MEMORIZE, self._enter_discuss)
-            elif phase == PHASE_DISCUSS:
-                self._resume_timed(PHASE_DISCUSS, self._enter_decide)
-            elif phase == PHASE_DECIDE:
-                # Ballot may still be open on a mid-decide restart; re-arm its cap.
-                self._resume_timed(PHASE_DECIDE, self._auto_resolve_decide)
-            # grading/done are terminal-ish; nothing to re-arm.
+            if self._phase == PHASE_DISCUSS:
+                self._resume_timed(PHASE_DISCUSS, self._enter_done)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -326,10 +291,7 @@ class ExerciseState:
             self._socketio.sleep(min(remaining, 1.0))
 
     def _resume_timed(self, expected_phase: str, on_expire: Callable):
-        """
-        Resume a timed phase after rehydration. If its deadline already passed,
-        transition immediately; otherwise sleep out the remainder then transition.
-        """
+        """Resume a timed phase after rehydration, firing immediately if it already elapsed."""
         if self._phase != expected_phase:
             return
         if self.phase_deadline_ts and self.phase_deadline_ts <= time.time():
@@ -339,111 +301,72 @@ class ExerciseState:
         if self._phase == expected_phase:
             on_expire()
 
-    def _run_waiting(self):
-        """
-        Waiting phase: hold until either all seats are filled/AI-filled (the sockets
-        agent flips us to memorize via `begin_memorize`) OR the no-show deadline
-        fires. This loop only handles the no-show fallback timeout.
-        """
-        if not self.no_show_deadline_ts:
-            self.no_show_deadline_ts = time.time() + self.no_show_timeout_seconds
-            self._persist({"no_show_deadline_ts": self.no_show_deadline_ts})
+    def maybe_begin_choose(self):
+        """Advance waiting→choose once every expected student has entered the room.
 
-        self._sleep_until(self.no_show_deadline_ts)
-        # If the sockets agent already advanced us (all humans present), do nothing.
-        if self._phase == PHASE_WAITING:
-            self._run_hook("on_no_show_fill")   # sockets: AI-fill empty seats, set_seats()
-            self.begin_memorize()
+        The room only forms when `num_students` humans have matched, so this is
+        really "wait for them all to finish loading" — it just avoids opening the
+        ballot in front of a partially-arrived group.
+        """
+        if self._phase != PHASE_WAITING:
+            return
+        if len(self.roster) >= self.num_students:
+            self.begin_choose()
 
-    def begin_memorize(self):
-        """
-        Enter the memorize phase: arm the timer, persist, broadcast phase_change +
-        chat_locked. Private docs are sent by the sockets agent (per-seat targeted).
-        Idempotent guard: only fires from `waiting`.
-        """
+    def begin_choose(self):
+        """Enter `choose`: open the ballot, keep chat locked, ask for the group's pick."""
         with self._lock:
             if self._phase != PHASE_WAITING:
                 return
-            self._phase = PHASE_MEMORIZE
-            self.phase_deadline_ts = time.time() + self.memorize_seconds
-            self._persist({"phase": PHASE_MEMORIZE, "phase_deadline_ts": self.phase_deadline_ts})
+            self._phase = PHASE_CHOOSE
+            self.phase_deadline_ts = None
+            self.collective_ballot = {"open": True, "votes": {}}
+            self._persist({
+                "phase": PHASE_CHOOSE,
+                "phase_deadline_ts": None,
+                "collective_ballot": self.collective_ballot,
+            })
 
         self._broadcast_phase()
-        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "memorize"})
-        self._run_hook("on_memorize_start")   # sockets: send private_document per seat
-
-        # Arm the memorize→discuss timer on the current background task.
-        self._sleep_until(self.phase_deadline_ts)
-        if self._phase == PHASE_MEMORIZE:
-            self._enter_discuss()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "choose"})
+        self._emit("ballot_update", {
+            "room_id": self.room_id,
+            "open": True,
+            "candidates": [{"name": c.get("name", "")} for c in self.candidates],
+        })
+        self._run_hook("on_choose_start")
 
     def _enter_discuss(self):
-        """
-        Memorize expired → hide docs permanently, unlock chat, start discuss timer,
-        fire the AI opening nudge hook. Then arm the discuss→decide timer.
-        """
+        """Pick resolved → unlock chat and arm the single discuss timer."""
         with self._lock:
-            if self._phase != PHASE_MEMORIZE:
+            if self._phase != PHASE_CHOOSE:
                 return
             self._phase = PHASE_DISCUSS
             self.phase_deadline_ts = time.time() + self.discuss_seconds
             self._persist({"phase": PHASE_DISCUSS, "phase_deadline_ts": self.phase_deadline_ts})
 
-        self._emit("document_locked", {"room_id": self.room_id})
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
-        self._run_hook("on_discuss_start")    # sockets: ai_manager.opening_nudge + periodic loop
 
         self._sleep_until(self.phase_deadline_ts)
         if self._phase == PHASE_DISCUSS:
-            self._enter_decide()
+            self._enter_done()
 
-    def _enter_decide(self):
-        """
-        Discuss expired → lock chat, open individual voting, collect AI-seat
-        individual votes, then open the collective ballot. Arms a hard cap so the
-        ballot resolves even if a seat never votes.
-        """
+    def _enter_done(self):
+        """Discuss expired → wrap up. No scorecard: this exercise is not graded."""
         with self._lock:
-            if self._phase != PHASE_DISCUSS:
+            if self._phase == PHASE_DONE:
                 return
-            self._phase = PHASE_DECIDE
-            self.phase_deadline_ts = time.time() + DECIDE_WINDOW_SECONDS
-            self._persist({"phase": PHASE_DECIDE, "phase_deadline_ts": self.phase_deadline_ts})
-
-        self._broadcast_phase()
-        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "decide"})
-        self._run_hook("on_decide_start")     # sockets: collect AI-seat individual votes
-        self.open_collective_ballot()
-        self._run_hook("on_collective_open")  # sockets: collect AI-seat collective votes
-
-        # Hard cap: if not everyone votes, auto-resolve when the window elapses.
-        self._sleep_until(self.phase_deadline_ts)
-        if self._phase == PHASE_DECIDE:
-            self._auto_resolve_decide()
-
-    def _auto_resolve_decide(self):
-        """Decide window elapsed with an open ballot → force-resolve and grade."""
-        if self._phase == PHASE_DECIDE and self.collective_ballot.get("open"):
-            self.resolve_collective()
-
-    def _enter_grading(self):
-        """
-        Ballot resolved → move to grading, fire the grading hook (sockets runs the
-        LLM judge, then calls set_grades which advances to done + emits `grades`).
-        """
-        with self._lock:
-            if self._phase != PHASE_DECIDE:
-                return
-            self._phase = PHASE_GRADING
+            self._phase = PHASE_DONE
             self.phase_deadline_ts = None
-            self._persist({"phase": PHASE_GRADING, "phase_deadline_ts": None})
+            self._persist({"phase": PHASE_DONE, "phase_deadline_ts": None})
 
         self._broadcast_phase()
-        self._run_hook("on_grading")          # sockets: exercise_grader.grade_exercise → set_grades()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "done"})
+        self._run_hook("on_wrapup")
 
     def _broadcast_phase(self):
-        """Emit the room-wide `phase_change` (contract §4c) after a persisted transition."""
+        """Emit the room-wide `phase_change` after a persisted transition."""
         self._emit("phase_change", {
             "room_id": self.room_id,
             "phase": self._phase,
@@ -452,152 +375,188 @@ class ExerciseState:
         })
 
     # ==================================================================
-    # VOTING (contract §4b / §6b)
+    # THE PICK (collective ballot)
     # ==================================================================
     def _valid_candidate(self, candidate: str) -> bool:
         return candidate in self._candidate_names
 
-    def record_individual_vote(self, uid: str, candidate: str) -> bool:
-        """
-        Record a seated participant's individual pick. Accepted only in `decide`
-        for a valid candidate from a seated uid (human) or AI-seat key. Persists;
-        returns True if the vote was stored.
-        """
-        with self._lock:
-            if self._phase != PHASE_DECIDE:
-                return False
-            if not self._is_participant(uid) or not self._valid_candidate(candidate):
-                return False
-            self.individual_votes[uid] = candidate
-            self._persist({"individual_votes": self.individual_votes})
-            return True
-
-    def open_collective_ballot(self):
-        """Open the SEPARATE group ballot (contract §4b decision 2). Persists."""
-        with self._lock:
-            if self.collective_ballot.get("open"):
-                return
-            self.collective_ballot["open"] = True
-            self._persist({"collective_ballot": self.collective_ballot})
-
     def record_collective_vote(self, uid: str, candidate: str) -> bool:
-        """
-        Record a group-ballot vote. Accepted only while the ballot is open, from a
-        participant, for a valid candidate. Persists. If every participant has now
-        voted, resolves the ballot. Returns True if the vote was stored.
+        """Record one student's ballot entry; resolves once everyone present has entered one.
+
+        The group has already agreed on paper — the ballot is a confirmation, not a
+        vote — so agreement is the normal case and a plurality settles a mismatch.
         """
         with self._lock:
             if not self.collective_ballot.get("open"):
                 return False
-            if not self._is_participant(uid) or not self._valid_candidate(candidate):
+            if uid not in self.roster_uids() or not self._valid_candidate(candidate):
                 return False
             self.collective_ballot["votes"][uid] = candidate
             self._persist({"collective_ballot": self.collective_ballot})
-            everyone_voted = len(self.collective_ballot["votes"]) >= self.total_participants()
+            everyone_voted = len(self.collective_ballot["votes"]) >= max(1, len(self.roster))
 
         if everyone_voted:
             self.resolve_collective()
         return True
 
-    def _is_participant(self, uid: str) -> bool:
-        """A uid may vote iff it holds a human seat or is an AI-seat key."""
-        if uid in self.seat_assignment:
-            return True
-        if uid.startswith("ai:"):
-            try:
-                return int(uid.split(":", 1)[1]) in self.ai_seats
-            except (ValueError, IndexError):
-                return False
-        return False
+    def resolve_collective(self) -> Tuple[Optional[str], Dict]:
+        """
+        Tally the ballot, set the group's pick, close the ballot, persist, emit
+        `collective_result`, then reveal the outcome via `on_pick_resolved`.
 
-    def resolve_collective(self) -> Tuple[str, Dict]:
+        Serves both the first pick (from `choose`) and a re-choice (from `discuss`);
+        only the first advances the phase. Returns (winner, tally).
         """
-        Tally the collective ballot, set the finalized group pick, close the ballot,
-        persist, emit `collective_result`, and advance to grading. Idempotent —
-        returns the already-resolved result on a repeat call. Returns (winner, tally).
-        """
+        entering_discuss = False
         with self._lock:
-            if self.collective_vote is not None and not self.collective_ballot.get("open"):
-                return self.collective_vote, self._tally(self.collective_ballot["votes"])
+            if not self.collective_ballot.get("open"):
+                return self.chosen_candidate, self._tally(self.collective_ballot.get("votes", {}))
 
             votes = self.collective_ballot.get("votes", {})
             tally = self._tally(votes)
             winner = self._pick_winner(tally)
 
-            self.collective_vote = winner
+            self.chosen_candidate = winner
             self.collective_ballot["open"] = False
+            self.forecast_shown_for = winner
             self._persist({
-                "collective_vote": self.collective_vote,
+                "chosen_candidate": self.chosen_candidate,
                 "collective_ballot": self.collective_ballot,
+                "forecast_shown_for": self.forecast_shown_for,
             })
+            entering_discuss = self._phase == PHASE_CHOOSE
 
         self._emit("collective_result", {
             "room_id": self.room_id,
-            "collective_vote": winner,
+            "chosen_candidate": winner,
             "tally": tally,
         })
-        self._enter_grading()
+        self._emit("ballot_update", {"room_id": self.room_id, "open": False, "candidates": []})
+        self._run_hook("on_pick_resolved")
+
+        if entering_discuss:
+            self._enter_discuss()
         return winner, tally
+
+    def reopen_choice(self):
+        """Reopen the ballot inside `discuss` so the group can choose again.
+
+        A phase flag rather than a phase change: chat stays unlocked so students
+        keep talking through the re-choice, which is where most of the learning
+        happens. Called when ACTR's branch entry says the pick was below top tally.
+        """
+        with self._lock:
+            if self._phase != PHASE_DISCUSS:
+                return
+            self.collective_ballot = {"open": True, "votes": {}}
+            self._persist({"collective_ballot": self.collective_ballot})
+
+        self._emit("ballot_update", {
+            "room_id": self.room_id,
+            "open": True,
+            "candidates": [{"name": c.get("name", "")} for c in self.candidates],
+        })
 
     @staticmethod
     def _tally(votes: Dict[str, str]) -> Dict[str, int]:
-        """Count votes per candidate name."""
+        """Count ballot entries per candidate name."""
         tally: Dict[str, int] = {}
         for cand in votes.values():
             tally[cand] = tally.get(cand, 0) + 1
         return tally
 
     def _pick_winner(self, tally: Dict[str, int]) -> Optional[str]:
-        """
-        Highest-count candidate. Ties broken deterministically by candidate-roster
-        order so a rebuild yields the same winner. None if no votes were cast.
-        """
+        """Highest count; ties break on roster order so a rebuild yields the same winner."""
         if not tally:
             return None
-        roster_order = {c.get("name"): i for i, c in enumerate(self.candidates)}
-        return max(tally.items(), key=lambda kv: (kv[1], -roster_order.get(kv[0], 1_000_000)))[0]
+        order = {c.get("name"): i for i, c in enumerate(self.candidates)}
+        return max(tally.items(), key=lambda kv: (kv[1], -order.get(kv[0], 1_000_000)))[0]
 
     # ==================================================================
-    # GRADING (contract §6b — sockets computes; we persist + finalize)
+    # TURN-TAKING (the gates that stop ACTR replying to everyone)
     # ==================================================================
-    def set_grades(self, grades: Dict[str, Dict]):
-        """
-        Persist the LLM-judge grading results, advance to `done`, and broadcast the
-        `grades` payload (contract §4c) — ground truth + collective pick revealed,
-        each grade enriched with role_name + the participant's individual_vote.
+    def note_student_message(self, uid: str):
+        """Register a student turn: feeds the cooldown, debounce, and go-around quorum."""
+        with self._lock:
+            self.msgs_since_facilitator += 1
+            self.last_message_ts = time.time()
+            fields = {
+                "msgs_since_facilitator": self.msgs_since_facilitator,
+                "last_message_ts": self.last_message_ts,
+            }
+            if self.pending_go_around and uid:
+                received = self.pending_go_around.setdefault("received", [])
+                if uid not in received:
+                    received.append(uid)
+                    fields["pending_go_around"] = self.pending_go_around
+            self._persist(fields)
+
+    def note_facilitator_spoke(self, go_around: bool):
+        """Reset the cooldown after ACTR speaks; arm the quorum gate if it opened a go-around.
+
+        `expected` is the full roster: a go-around asks everyone, and the gate must
+        hold ACTR silent until the last of them has answered (or the timeout fires).
         """
         with self._lock:
-            self.grades = dict(grades or {})
-            self._phase = PHASE_DONE
-            self.phase_deadline_ts = None
+            self.last_facilitator_at = time.time()
+            self.msgs_since_facilitator = 0
+            self.pending_go_around = (
+                {"asked_at": time.time(), "expected": self.roster_uids(), "received": []}
+                if go_around else None
+            )
             self._persist({
-                "grades": self.grades,
-                "phase": PHASE_DONE,
-                "phase_deadline_ts": None,
+                "last_facilitator_at": self.last_facilitator_at,
+                "msgs_since_facilitator": 0,
+                "pending_go_around": self.pending_go_around,
             })
 
-        self._broadcast_phase()
+    def clear_go_around(self):
+        """Drop the quorum gate (the go-around has been answered or has timed out)."""
+        with self._lock:
+            if self.pending_go_around is None:
+                return
+            self.pending_go_around = None
+            self._persist({"pending_go_around": None})
 
-        # Enrich only HUMAN grades for the client payload. AI-seat grades stay in
-        # Mongo (self.grades) but are never broadcast — shipping an "ai:<idx>" key
-        # would reveal which participant was the AI.
-        enriched = {}
-        for uid, g in self.grades.items():
-            if uid.startswith("ai:"):
-                continue
-            seat = self.seat_of(uid)
-            enriched[uid] = {
-                **g,
-                "role_name": self.role_name_for_seat(seat) or "",
-                "individual_vote": self.individual_votes.get(uid),
-            }
+    def facilitator_gate(self, addressed: bool = False) -> Tuple[bool, bool]:
+        """Decide whether ACTR may speak right now. Returns (invoke, go_around_timed_out).
 
-        self._emit("grades", {
-            "room_id": self.room_id,
-            "correct_candidate": self.config.get("correct_candidate"),
-            "collective_vote": self.collective_vote,
-            "grades": enriched,
-        })
+        Evaluated AFTER the debounce sleep, so "the room is quiet" is already true
+        by construction when this is called. Order matters:
+
+          addressed  -> always let it answer a direct question.
+          quorum     -> a pending go-around blocks everything until it completes or
+                        times out. This is the gate that stops ACTR acknowledging
+                        students one at a time.
+          cooldown   -> needs FACILITATOR_COOLDOWN_MSGS student turns since it last
+                        spoke, which makes "never post twice in a row" structural...
+          idle       -> ...except when the room has simply stalled, where waiting for
+                        a third message would lock ACTR out of a dead conversation.
+        """
+        now = time.time()
+        with self._lock:
+            if self._phase != PHASE_DISCUSS:
+                return False, False
+            if addressed:
+                return True, False
+
+            if self.pending_go_around:
+                expected = set(self.pending_go_around.get("expected") or [])
+                received = set(self.pending_go_around.get("received") or [])
+                if expected and expected.issubset(received):
+                    return True, False
+                asked_at = self.pending_go_around.get("asked_at") or now
+                if now - asked_at >= GO_AROUND_TIMEOUT_SECONDS:
+                    return True, True
+                return False, False
+
+            if self.msgs_since_facilitator <= 0:
+                return False, False
+            if self.msgs_since_facilitator >= FACILITATOR_COOLDOWN_MSGS:
+                return True, False
+
+            quiet_for = now - (self.last_message_ts or now)
+            return quiet_for >= FACILITATOR_IDLE_SECONDS, False
 
 
 # =====================================================================
@@ -610,9 +569,8 @@ _registry_lock = RLock()
 def get_or_create_exercise(room_id: str, config: Dict, socketio=None, app=None) -> ExerciseState:
     """
     Fetch the live ExerciseState for a room, rebuilding from Mongo on the first
-    access after a restart (persist-backed — contract §6b). If `socketio`/`app`
-    are supplied and the phase machine has not been started yet, kicks it off so a
-    rehydrated room resumes its timers (fast-forwarding stale phases).
+    access after a restart. If `socketio`/`app` are supplied and the machine has
+    not started, kicks it off so a rehydrated room resumes its discuss timer.
     """
     with _registry_lock:
         state = _exercises.get(room_id)
@@ -625,7 +583,6 @@ def get_or_create_exercise(room_id: str, config: Dict, socketio=None, app=None) 
             state = ExerciseState(room_id, config, session_doc=session_doc)
             _exercises[room_id] = state
 
-    # Resume/kick the machine outside the registry lock (start() is idempotent).
     if socketio is not None and app is not None:
         state.start(socketio, app)
     return state
@@ -643,5 +600,5 @@ def remove_exercise(room_id: str):
 
 
 def _config_id_from_room(room_id: str) -> str:
-    """config_id is everything before the trailing `_{8hex}` (contract intro)."""
+    """config_id is everything before the trailing `_{8hex}`."""
     return room_id.rsplit("_", 1)[0] if "_" in room_id else room_id

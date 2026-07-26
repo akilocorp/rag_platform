@@ -1,9 +1,8 @@
 # @language  Python
-# @updated   2026-07-20
-# @changed   AI seats never take two turns in a row: _last_message_is_human() gates both the proactive
-#            nudge loop and the human-reaction path, so the AI speaks once then waits for a user (nudge
-#            loop no longer re-prompts unprompted; at most one AI reply per human turn).
-#            Prior: AI holds a real seat, fully conversational under its ROLE NAME, indistinguishable from humans.
+# @updated   2026-07-26
+# @changed   manager_exercise rewired to the single ACTR facilitator: plain matchmaking, choose/discuss
+#            hooks, outcome reveal + re-choice, and the debounce/quorum/cooldown gates that keep ACTR
+#            from replying to every message. Removed AI seats, nudge loops, no-show fill, and grading.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -16,11 +15,10 @@ from src.managers.match_manager import match_manager
 from src.managers.context_manager import get_or_create_context
 from src.managers.bot_manager import analyze_intent, get_or_create_bot
 
-# Manager Exercise collaborators (contract §6). We only IMPORT these — the files
-# themselves are owned by their respective agents.
+# Manager Exercise collaborators. ExerciseState owns the phase machine and the
+# turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import ai_manager
-from src.managers import exercise_grader
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -28,10 +26,6 @@ logger = logging.getLogger(__name__)
 # sid ↔ uid mappings so we can target specific users by socket ID
 sid_to_uid: dict = {}
 uid_to_sid: dict = {}
-
-# How often the AI Manager considers dropping a nudge during the discuss phase.
-# It sleeps this many seconds between ticks; each tick may stay silent.
-NUDGE_INTERVAL_SECONDS = 45
 
 
 def register_socket_events(socketio, app):
@@ -71,362 +65,188 @@ def register_socket_events(socketio, app):
         return raw or {}
 
     def _exercise_runtime_config(config_doc):
-        """Build the config dict handed to ExerciseState / ai_manager / grader.
+        """Build the config dict handed to ExerciseState / ai_manager.
 
-        ExerciseState reads the manager_exercise sub-object's fields directly
-        (num_managers, candidates, managers, durations, correct_candidate,
-        grading_weights, ai_personality, no_show_timeout_seconds). We hand it the
-        sub-object verbatim; ai_manager._config_get also accepts this shape.
+        Both read the manager_exercise sub-object's fields directly (num_students,
+        candidates, discuss_minutes, case_pack, learning_points), so we hand it the
+        sub-object verbatim.
         """
         return _manager_exercise_config(config_doc)
 
-    # ---- Manager-Exercise hook implementations --------------------------------
-    # ExerciseState drives the phase machine and invokes these registered hooks at
-    # each edge so the AI-side work (docs, nudges, votes, grading) lives here in the
-    # sockets/orchestration layer, not inside exercise_state.py (contract §6b).
+    # ---- Manager-Exercise facilitation ----------------------------------------
+    # ExerciseState drives the phase machine and invokes the hooks registered below
+    # at each edge, so all AI-side work lives here in the sockets/orchestration
+    # layer rather than inside exercise_state.py.
+    #
+    # There are no AI players: the room is all real students and ACTR is a single
+    # facilitator voice whose default is silence. Everything that decides WHEN it
+    # speaks is in `_facilitator_turn`.
+
+    FACILITATOR_SENDER = "ACTR"
+
+    def _post(state, sender, text):
+        """Persist + broadcast one room message under a display name.
+
+        The manager exercise stores the DISPLAY NAME as `sender` rather than a uid:
+        the facilitator reads the rendered transcript verbatim and has to see who
+        said what by name, and nothing here is attributed per-uid for grading any
+        more.
+        """
+        get_or_create_context(state.room_id).add_message(sender, text, sender_role=sender)
+        socketio.emit("message", {
+            "room_id": state.room_id,
+            "sender": sender,
+            "text": text,
+        }, room=state.room_id)
+
+    def _post_facilitator(state, text, go_around=False):
+        """Post an ACTR turn and reset its turn-taking counters.
+
+        `note_facilitator_spoke` arms the quorum gate when the message opened a
+        go-around — that is what stops ACTR replying to each student individually
+        as their answers trickle in.
+        """
+        if not text:
+            return
+        _post(state, FACILITATOR_SENDER, text)
+        state.note_facilitator_spoke(go_around)
 
     def _register_exercise_hooks(state, config_doc):
         """Attach the phase-edge hooks to a live ExerciseState.
 
         Every hook runs inside the ExerciseState background task (which already
-        holds an app context), so we can touch Mongo / current_app freely. All are
-        wrapped by ExerciseState._run_hook, which swallows exceptions — but we still
-        guard the AI calls internally so a partial failure never stalls the machine.
+        holds an app context). All are wrapped by ExerciseState._run_hook, which
+        swallows exceptions, and the model-calling ones are pushed onto their own
+        background task so a slow completion never stalls the phase machine.
         """
         me_config = _exercise_runtime_config(config_doc)
-        personality = (me_config.get("ai_personality") or "friend")
-        config_id = state.config_id
 
-        def on_no_show_fill(st):
-            """Waiting deadline elapsed with empty seats → AI-fill the remainder.
+        def on_choose_start(st):
+            """Ballot opened → ACTR asks which candidate the group chose offline."""
+            _post_facilitator(st, ai_manager.facilitator_open(me_config))
 
-            Re-forms the room's seating so trailing empty seats become AI seats,
-            then persists via ExerciseState.set_seats so the rebuilt state and the
-            AI participant keys ("ai:<idx>") stay consistent.
-            """
-            seated = dict(st.seat_assignment)
-            filled = set(seated.values())
-            ai_seats = list(st.ai_seats)
-            for idx in range(st.num_managers):
-                if idx not in filled and idx not in ai_seats:
-                    ai_seats.append(idx)
-            st.set_seats(seated, sorted(ai_seats))
-            logger.info(f"🪑 No-show fill for {st.room_id}: ai_seats={sorted(ai_seats)}")
+        def on_pick_resolved(st):
+            """Pick entered → reveal that candidate's outcome, then ACTR's branch entry."""
+            socketio.start_background_task(_reveal_and_enter, st.room_id)
 
-        def on_memorize_start(st):
-            """Send each seated human their OWN private document (targeted, never broadcast).
-
-            Contract §4c: private_document goes only to the seat's socket. AI seats
-            get nothing (no human is watching). Sent once, at memorize start.
-            """
-            for uid, seat in st.seat_assignment.items():
-                target_sid = uid_to_sid.get(uid)
-                if not target_sid:
-                    continue
-                socketio.emit("private_document", {
-                    "room_id": st.room_id,
-                    "seat_index": seat,
-                    "role_name": st.role_name_for_seat(seat),
-                    "doc_text": st.doc_text_for_seat(seat),
-                }, to=target_sid)
-
-        def on_discuss_start(st):
-            """Discuss opened → the lead AI seat opens IN CHARACTER, then a proactive loop runs."""
-            ctx = get_or_create_context(st.room_id)
-            summary = ctx.summary_for_nudge()
-            lead = min(st.ai_seats) if st.ai_seats else None
-            if lead is not None:
-                opener = ai_manager.seat_message(
-                    me_config, personality,
-                    st.role_name_for_seat(lead), st.doc_text_for_seat(lead),
-                    transcript_summary=summary, kind="opening",
-                )
-                if opener:
-                    _emit_seat_turn(st, lead, f"ai:{lead}", opener)
-            # Fire-and-forget proactive loop; it self-terminates when the phase
-            # leaves discuss (checked each tick against the live state).
-            socketio.start_background_task(_nudge_loop, st.room_id)
-
-        def on_decide_start(st):
-            """Individual voting opened → have every AI seat reason from its doc and vote."""
-            candidates = me_config.get("candidates") or []
-            for idx in st.ai_seats:
-                key = f"ai:{idx}"
-                doc_text = st.doc_text_for_seat(idx)
-                result = ai_manager.ai_seat_vote(doc_text, candidates, personality)
-                candidate = (result or {}).get("candidate")
-                if candidate and st.record_individual_vote(key, candidate):
-                    _emit_vote_update(st, "individual")
-
-        def on_collective_open(st):
-            """Collective ballot opened → AI seats cast their group vote (reuse their pick)."""
-            candidates = me_config.get("candidates") or []
-            for idx in st.ai_seats:
-                key = f"ai:{idx}"
-                # Prefer the AI's already-computed individual pick for consistency;
-                # fall back to a fresh reasoning pass only if it never voted.
-                candidate = st.individual_votes.get(key)
-                if not candidate:
-                    result = ai_manager.ai_seat_vote(st.doc_text_for_seat(idx), candidates, personality)
-                    candidate = (result or {}).get("candidate")
-                if candidate:
-                    if st.record_collective_vote(key, candidate):
-                        _emit_vote_update(st, "collective")
-
-        def on_grading(st):
-            """Grading phase entered → run the LLM judge in the background, then set_grades."""
-            socketio.start_background_task(_run_grading, st.room_id, me_config)
+        def on_wrapup(st):
+            """Discuss timer expired → ACTR's closing ask. Nothing is scored."""
+            socketio.start_background_task(_wrapup, st.room_id)
 
         state.hooks = {
-            "on_no_show_fill": on_no_show_fill,
-            "on_memorize_start": on_memorize_start,
-            "on_discuss_start": on_discuss_start,
-            "on_decide_start": on_decide_start,
-            "on_collective_open": on_collective_open,
-            "on_grading": on_grading,
+            "on_choose_start": on_choose_start,
+            "on_pick_resolved": on_pick_resolved,
+            "on_wrapup": on_wrapup,
         }
 
-    def _emit_seat_turn(state, seat_index, participant_key, text):
-        """Persist + broadcast a manager turn under the seat's ROLE NAME.
+    def _reveal_and_enter(room_id):
+        """Background: post the chosen candidate's outcome document, then ACTR's entry.
 
-        Both humans and AI seats speak through here so every message the client sees
-        carries `sender` = role name and `sender_seat` = index — never a uid or an
-        "ai:<idx>" key. The client marks a viewer's OWN messages via sender_seat ==
-        your_seat_index, so it can never tell which seats are AI. The grader-facing
-        `sender` stays the raw participant_key (uid / "ai:<idx>").
-        """
-        role = state.role_name_for_seat(seat_index) or f"Manager {(seat_index or 0) + 1}"
-        get_or_create_context(state.room_id).add_message(
-            participant_key, text, sender_role=role, sender_seat=seat_index,
-        )
-        socketio.emit("message", {
-            "room_id": state.room_id,
-            "sender": role,
-            "sender_seat": seat_index,
-            "text": text,
-        }, room=state.room_id)
-
-    def _emit_vote_update(state, stage):
-        """Emit a `vote_update` progress ping (contract §4c) — never leaks per-voter picks."""
-        if stage == "individual":
-            submitted = len(state.individual_votes)
-        else:
-            submitted = len(state.collective_ballot.get("votes", {}))
-        socketio.emit("vote_update", {
-            "room_id": state.room_id,
-            "stage": stage,
-            "submitted": submitted,
-            "total": state.total_participants(),
-        }, room=state.room_id)
-
-    def _lead_ai_seat(state):
-        """The lowest-indexed AI seat — drives proactive contributions so exactly one
-        AI voice keeps the room alive (others still react to humans via _ai_seats_react)."""
-        return min(state.ai_seats) if state.ai_seats else None
-
-    def _last_message_is_human(room_id):
-        """True iff the most recent message in the room came from a human seat.
-
-        AI seats always post under the participant key "ai:<idx>"; humans post under
-        their uid. This enforces "the AI speaks once, then waits for a human" — no AI
-        seat ever takes two turns in a row without a human message in between.
-        """
-        msgs = get_or_create_context(room_id).messages
-        if not msgs:
-            return False
-        return not str(msgs[-1].get("sender", "")).startswith("ai:")
-
-    def _nudge_loop(room_id):
-        """Background loop: while the room stays in discuss, the lead AI seat proactively
-        contributes IN CHARACTER (volunteers a unique fact or probes fit-vs-qualified).
-
-        Sleeps NUDGE_INTERVAL_SECONDS between ticks; each tick may stay silent. Self-
-        terminates the moment the phase leaves discuss so it never speaks into a locked room.
-        """
-        with app.app_context():
-            call_index = 0
-            while True:
-                socketio.sleep(NUDGE_INTERVAL_SECONDS)
-                st = ex_state.get_exercise(room_id)
-                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
-                    return
-                lead = _lead_ai_seat(st)
-                if lead is None:
-                    return
-                # Speak only when a human spoke most recently — the AI never posts a
-                # second unprompted turn; it waits for the user before contributing again.
-                if not _last_message_is_human(st.room_id):
-                    continue
-                me_config = st.config
-                personality = (me_config.get("ai_personality") or "friend")
-                summary = get_or_create_context(room_id).summary_for_nudge()
-                nudge = ai_manager.seat_message(
-                    me_config, personality,
-                    st.role_name_for_seat(lead), st.doc_text_for_seat(lead),
-                    transcript_summary=summary, kind="nudge", call_index=call_index,
-                )
-                call_index += 1
-                if not nudge:
-                    continue
-                # Re-check phase after the (possibly slow) model call before speaking.
-                st = ex_state.get_exercise(room_id)
-                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
-                    return
-                _emit_seat_turn(st, lead, f"ai:{lead}", nudge)
-
-    def _ai_seats_react(room_id):
-        """A human spoke during discuss → AI seats may reply IN CHARACTER (mostly stay silent).
-
-        Each AI seat is staggered so replies feel natural and never all land at once;
-        ai_manager.seat_message(kind='reply') returns None unless the seat has something
-        genuinely additive, which keeps the AI from answering every single line.
+        Ordering matters — the outcome lands first so the group reads it before
+        being asked anything. A below-top-tally pick reopens the ballot afterwards
+        so they can choose again; that decision comes from the case pack's tally in
+        Python, never from the model.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
-            if st is None or st.phase() != ex_state.PHASE_DISCUSS:
+            if st is None or not st.chosen_candidate:
                 return
-            me_config = st.config
-            personality = (me_config.get("ai_personality") or "friend")
-            for n, idx in enumerate(list(st.ai_seats)):
-                socketio.sleep(1.5 + n * 1.8)   # human-like typing delay, staggered per seat
-                st = ex_state.get_exercise(room_id)
-                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
-                    return
-                # One AI reply per human turn: once any seat has spoken, the last
-                # message is no longer human, so we stop and wait for the next user line.
-                if not _last_message_is_human(room_id):
-                    return
-                summary = get_or_create_context(room_id).summary_for_nudge()
-                reply = ai_manager.seat_message(
-                    me_config, personality,
-                    st.role_name_for_seat(idx), st.doc_text_for_seat(idx),
-                    transcript_summary=summary, kind="reply",
-                )
-                if not reply:
-                    continue
-                st = ex_state.get_exercise(room_id)
-                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
-                    return
-                _emit_seat_turn(st, idx, f"ai:{idx}", reply)
-                return   # spoke once — wait for the user before any AI replies again
+            chosen = st.chosen_candidate
+            forecast = st.forecast_text_for(chosen)
+            if forecast:
+                _post(st, f"📊 {chosen} — Outcome", forecast)
 
-    def _run_grading(room_id, me_config):
-        """Background: run the LLM-judge grader, then hand results to ExerciseState.set_grades.
+            summary = get_or_create_context(room_id).summary_for_nudge()
+            result = ai_manager.facilitator_on_pick(
+                st.config, st.roster, st.num_students, chosen, forecast,
+                transcript_summary=summary,
+            )
+            _post_facilitator(st, result.get("message"), result.get("go_around", False))
+            if result.get("reopen"):
+                st.reopen_choice()
 
-        set_grades persists, advances to `done`, and broadcasts the `grades` event.
-        Fail-soft: the grader never raises, but if state vanished (shouldn't) we bail.
+    def _wrapup(room_id):
+        """Background: ACTR's closing message when the discuss window ends."""
+        with app.app_context():
+            st = ex_state.get_exercise(room_id)
+            if st is None:
+                return
+            summary = get_or_create_context(room_id).summary_for_nudge()
+            text = ai_manager.facilitator_wrapup(
+                st.config, st.roster, st.num_students, summary, st.chosen_candidate,
+            )
+            _post(st, FACILITATOR_SENDER, text)
+
+    def _facilitator_turn(room_id, addressed=False):
+        """Background: run the turn-taking gates, then (maybe) post one ACTR message.
+
+        A prompt cannot make itself wait — invoked on every message, a model that
+        just asked a question will answer the first student who replies. So the
+        waiting is enforced here, in order:
+
+          1. DEBOUNCE — sleep, then bail if anyone spoke during the sleep, so a
+             burst of quick messages yields one invocation instead of three.
+          2. QUORUM  — a pending go-around blocks everything until every student
+             has answered or the timeout fires (ExerciseState.facilitator_gate).
+          3. COOLDOWN— N student turns since ACTR last spoke, making "never post
+             twice in a row" structural, with an idle escape for a stalled room.
+          4. SILENT  — the model's own veto, applied last inside ai_manager.
+
+        Only the last of the four is the model's call.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
                 return
-            ctx = get_or_create_context(room_id)
-            transcript = ctx.transcript_for_grading()
+            if not addressed:
+                mark = st.last_message_ts
+                socketio.sleep(ex_state.FACILITATOR_DEBOUNCE_SECONDS)
+                st = ex_state.get_exercise(room_id)
+                if st is None or st.last_message_ts != mark:
+                    return   # someone spoke during the wait; their turn re-arms this
 
-            # seat_roles: participant key (uid / "ai:<idx>") -> role_name, for prompt context.
-            seat_roles = {}
-            for uid, seat in st.seat_assignment.items():
-                seat_roles[uid] = st.role_name_for_seat(seat) or ""
-            for idx in st.ai_seats:
-                seat_roles[f"ai:{idx}"] = st.role_name_for_seat(idx) or ""
+            invoke, timed_out = st.facilitator_gate(addressed=addressed)
+            if not invoke:
+                return
 
-            grades = exercise_grader.grade_exercise(
-                config=me_config,
-                transcript=transcript,
-                individual_votes=st.individual_votes,
-                collective_vote=st.collective_vote,
-                correct_candidate=me_config.get("correct_candidate"),
-                seat_roles=seat_roles,
+            summary = get_or_create_context(room_id).summary_for_nudge()
+            result = ai_manager.facilitator_reply(
+                st.config, st.roster, st.num_students, summary,
+                chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
             )
-            st.set_grades(grades)
+            message = result.get("message")
+            if not message:
+                # Model declined. Still drop a timed-out go-around, or the quorum
+                # gate would wedge the room shut for the rest of the session.
+                if timed_out:
+                    st.clear_go_around()
+                return
 
-    def _bootstrap_exercise(room_id, config_doc, seat_assignment=None, ai_seats=None):
+            # The model call is slow enough that the phase can move under us.
+            st = ex_state.get_exercise(room_id)
+            if st is None or st.phase() != ex_state.PHASE_DISCUSS:
+                return
+            _post_facilitator(st, message, result.get("go_around", False))
+
+    def _bootstrap_exercise(room_id, config_doc, create_session=False):
         """Create/rehydrate the ExerciseState for a room and start its phase machine.
 
-        Called on match-formation (fresh) and on reconnect (rehydrate). Idempotent:
-        get_or_create_exercise rebuilds from Mongo if needed and start() won't
-        double-launch timers. Returns the live ExerciseState.
+        Called on match-formation (`create_session=True`) and on every reconnect.
+        Idempotent: get_or_create_exercise rebuilds from Mongo if needed and start()
+        won't double-launch timers. Returns the live ExerciseState.
         """
         me_config = _exercise_runtime_config(config_doc)
         # Ensure the durable session doc exists before the machine can persist to it.
-        if seat_assignment is not None:
+        if create_session:
             try:
-                ManagerExerciseSession.create(
-                    room_id, room_id.rsplit("_", 1)[0],
-                    seat_assignment, ai_seats or [],
-                )
+                ManagerExerciseSession.create(room_id, room_id.rsplit("_", 1)[0])
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to create exercise session for {room_id}: {e}")
 
         state = ex_state.get_or_create_exercise(room_id, me_config)
         _register_exercise_hooks(state, config_doc)
-        # Install seats on a freshly-formed room (rehydrated rooms already have them).
-        if seat_assignment is not None and not state.seat_assignment:
-            state.set_seats(seat_assignment, ai_seats or [])
-        # Start (or resume) the phase machine now that hooks + seats are in place.
         state.start(socketio, app)
         return state
-
-    def _maybe_begin_memorize(state):
-        """Advance waiting→memorize as soon as every seat is accounted for.
-
-        Called after each successful get_history join. A manager_exercise room forms
-        already fully seated — humans in the leading seats, the reserved AI seat(s)
-        trailing — so once human seats + AI seats cover all N indices we start rather
-        than waiting out the no-show timer.
-        """
-        if state.phase() != ex_state.PHASE_WAITING:
-            return
-        if len(state.seat_assignment) + len(state.ai_seats) >= state.num_managers:
-            state.begin_memorize()
-
-    def _schedule_no_show(config_id, group_size, timeout_seconds):
-        """Arm the no-show fallback: after `timeout_seconds`, force-form a room with AI fill.
-
-        Guards against forming an empty/dead room: if no human is queued when the
-        timer fires, it does nothing (the queue is already empty). Only fires the
-        first time a config's queue starts filling; a per-config in-flight flag
-        prevents piling multiple timers on repeated joins.
-        """
-        if config_id in _no_show_armed:
-            return
-        _no_show_armed.add(config_id)
-        # Record the shared absolute deadline so every queued client counts down to
-        # the SAME auto-start moment (sent in the `queued` payload).
-        _no_show_deadline[config_id] = time.time() + timeout_seconds
-
-        def _fire():
-            with app.app_context():
-                socketio.sleep(timeout_seconds)
-                _no_show_armed.discard(config_id)
-                _no_show_deadline.pop(config_id, None)
-                # If everyone already matched normally, the queue is empty — bail.
-                queued = match_manager.queues.get(config_id, [])
-                if not queued:
-                    return
-                config_doc = _load_config_doc(config_id)
-                if not config_doc or config_doc.get("bot_type") != "manager_exercise":
-                    return
-                room_id, human_uids, ai_seat_indices = match_manager.force_form_room(
-                    config_id, group_size, fill_with_ai=True
-                )
-                seat_assignment = match_manager.get_seat_assignment(room_id)
-                logger.info(
-                    f"⏰ No-show fire for {config_id}: room={room_id} "
-                    f"humans={human_uids} ai_seats={ai_seat_indices}"
-                )
-                _bootstrap_exercise(room_id, config_doc, seat_assignment, ai_seat_indices)
-                for uid in human_uids:
-                    target_sid = uid_to_sid.get(uid)
-                    if target_sid:
-                        socketio.emit("match_found", {"room_id": room_id}, to=target_sid)
-
-        socketio.start_background_task(_fire)
-
-    # Per-config flag so we only arm one no-show timer at a time per config, plus the
-    # shared auto-start deadline (epoch secs) surfaced to queued clients for the countdown.
-    _no_show_armed = set()
-    _no_show_deadline = {}
 
     # ==================================================================
     # CONNECTION / UPLOAD SUBSCRIPTIONS (unchanged)
@@ -490,39 +310,23 @@ def register_socket_events(socketio, app):
             return
 
         # ------------------- MANAGER EXERCISE PATH -------------------
+        # Plain matchmaking now: every participant is a real student, so the room
+        # simply waits for `num_students` humans. No seat assignment, no AI fill,
+        # and no no-show timer — an under-filled group has nobody to pool with, so
+        # force-starting one would defeat the exercise.
         if bot_type == "manager_exercise":
             me_config = _manager_exercise_config(config_doc)
-            # num_managers = TOTAL seats. One seat is always the AI, so we only wait
-            # for (num_managers - 1) HUMANS; the trailing seat is reserved as AI. A
-            # room therefore forms as soon as N-1 students queue (or the no-show timer
-            # fires with fewer, padding the rest with AI).
-            num_managers = int(me_config.get("num_managers") or group_size or 2)
-            group_size = num_managers
-            human_target = max(1, num_managers - 1)
+            num_students = int(me_config.get("num_students") or group_size or 2)
 
-            room_id, matched_uids = match_manager.join_queue(
-                config_id, uid, human_target, seat_assign=True, ai_fill_to=num_managers,
-            )
+            room_id, matched_uids = match_manager.join_queue(config_id, uid, num_students)
             if room_id is None:
-                # Still waiting — arm the no-show timer and report queue position +
-                # the shared auto-start deadline so the waiting screen can count down.
-                timeout = int(me_config.get("no_show_timeout_seconds") or 300)
-                _schedule_no_show(config_id, num_managers, timeout)
                 position = match_manager.queue_position(config_id, uid)
                 logger.info(f"⏳ {uid} queued (manager_exercise) at position {position}")
-                emit('queued', {
-                    'position': position,
-                    'no_show_deadline_ts': _no_show_deadline.get(config_id),
-                    'server_now_ts': time.time(),
-                }, to=request.sid)
+                emit('queued', {'position': position, 'server_now_ts': time.time()}, to=request.sid)
                 return
 
-            # A full group formed — bootstrap durable state + phase machine, then
-            # notify every matched user so they can get_history / enter.
-            seat_assignment = match_manager.get_seat_assignment(room_id)
-            ai_seats = match_manager.get_ai_seats(room_id)
-            logger.info(f"✅ ManagerExercise match: humans={matched_uids} ai_seats={ai_seats} → room {room_id}")
-            _bootstrap_exercise(room_id, config_doc, seat_assignment, ai_seats=ai_seats)
+            logger.info(f"✅ ManagerExercise match: students={matched_uids} → room {room_id}")
+            _bootstrap_exercise(room_id, config_doc, create_session=True)
             for matched_uid in matched_uids:
                 target_sid = uid_to_sid.get(matched_uid)
                 if target_sid:
@@ -567,9 +371,8 @@ def register_socket_events(socketio, app):
     @socketio.on('get_history')
     def handle_get_history(data):
         """Join the room + replay history. For manager_exercise this is also where the
-        user actually ENTERS: we (re)hydrate ExerciseState, emit the current
-        exercise_state snapshot, and — only if the doc hasn't been locked yet —
-        (re)send this seat's private_document.
+        user actually ENTERS: we (re)hydrate ExerciseState, record them on the roster
+        so ACTR can address them by name, and emit the current state snapshot.
         """
         room_id = data.get('room_id')
         if not room_id:
@@ -582,54 +385,21 @@ def register_socket_events(socketio, app):
         is_manager_exercise = bool(config_doc and config_doc.get("bot_type") == "manager_exercise")
 
         if ctx.messages:
-            if is_manager_exercise:
-                # Replay under ROLE NAMES only — never leak stored uids / "ai:<idx>"
-                # keys, so a reconnecting client still can't tell which seats are AI.
-                safe = [{
-                    'sender': m.get('sender_role') or 'Manager',
-                    'sender_seat': m.get('sender_seat'),
-                    'text': m.get('text', ''),
-                } for m in ctx.messages]
-                emit('chat_history', {'messages': safe}, to=request.sid)
-            else:
-                emit('chat_history', {'messages': ctx.messages}, to=request.sid)
+            emit('chat_history', {'messages': ctx.messages}, to=request.sid)
 
-        # Manager-exercise: hydrate + emit state / private doc for this socket.
         if is_manager_exercise:
             uid = sid_to_uid.get(request.sid)
             state = _bootstrap_exercise(room_id, config_doc)
             if uid:
+                # The roster is captured on entry (not on first message) because the
+                # go-around quorum is measured against it — a student who never
+                # speaks must still be someone ACTR is waiting on.
+                state.note_participant(uid, (data or {}).get('display_name'))
                 emit('exercise_state', state.snapshot_for(uid), to=request.sid)
-                # Re-send the private doc ONLY while it is still legitimately visible
-                # (waiting/memorize). Once discuss begins the doc is permanently
-                # hidden — never re-send it (contract §4c).
-                if state.phase() in (ex_state.PHASE_WAITING, ex_state.PHASE_MEMORIZE):
-                    seat = state.seat_of(uid)
-                    if seat is not None:
-                        emit('private_document', {
-                            "room_id": room_id,
-                            "seat_index": seat,
-                            "role_name": state.role_name_for_seat(seat),
-                            "doc_text": state.doc_text_for_seat(seat),
-                        }, to=request.sid)
-                # If all humans are now present, kick memorize off promptly.
-                _maybe_begin_memorize(state)
+                # Everyone present → open the ballot rather than sitting in waiting.
+                state.maybe_begin_choose()
 
         logger.info(f"📜 Sent history for room {room_id} to {request.sid}")
-
-    @socketio.on('exercise_ready')
-    def handle_exercise_ready(data):
-        """Client signals it rendered its private doc (contract §4b, optional/idempotent).
-
-        Purely an early-start optimization: if this ack means every human seat is
-        present, begin memorize without waiting on the no-show timer.
-        """
-        room_id = (data or {}).get('room_id')
-        if not room_id:
-            return
-        state = ex_state.get_exercise(room_id)
-        if state is not None:
-            _maybe_begin_memorize(state)
 
     # ==================================================================
     # MESSAGING (server-side chat lock for manager_exercise)
@@ -645,7 +415,7 @@ def register_socket_events(socketio, app):
 
         # Manager-exercise: enforce the AUTHORITATIVE server-side chat lock. Only the
         # discuss phase accepts sends; anything else is dropped (not broadcast, not
-        # persisted) and the sender is told why (contract §4a / §10.1).
+        # persisted) and the sender is told why.
         state = ex_state.get_exercise(room_id)
         if state is not None:
             if state.chat_locked():
@@ -655,13 +425,13 @@ def register_socket_events(socketio, app):
                     "reason": state.phase(),
                 }, to=request.sid)
                 return
-            # Discuss phase: broadcast + persist UNDER THE SENDER'S ROLE NAME (never the
-            # raw uid), then let the AI seats react in character.
-            seat = state.seat_of(uid)
-            if seat is None:
-                return   # only seated managers may speak
-            _emit_seat_turn(state, seat, uid, text)
-            socketio.start_background_task(_ai_seats_react, room_id)
+            state.note_participant(uid)
+            _post(state, state.display_name(uid), text)
+            state.note_student_message(uid)
+            # Naming ACTR is treated as a direct question, which bypasses the
+            # debounce and cooldown so it always gets an answer.
+            addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
+            socketio.start_background_task(_facilitator_turn, room_id, addressed)
             return
 
         # ------------------- PLAIN GROUP CHAT PATH (unchanged) -------------------
@@ -671,35 +441,16 @@ def register_socket_events(socketio, app):
         socketio.start_background_task(process_ai_logic, app, room_id, uid, text, socketio)
 
     # ==================================================================
-    # VOTING (manager_exercise only)
+    # THE PICK (manager_exercise only)
     # ==================================================================
-    @socketio.on('submit_individual_vote')
-    def handle_submit_individual_vote(data):
-        """Record a seated human's individual best-fit pick (contract §4b).
-
-        ExerciseState.record_individual_vote enforces phase (decide-only), a valid
-        candidate, and that the uid holds a seat. On success we emit a leak-free
-        vote_update progress ping.
-        """
-        room_id = (data or {}).get('room_id')
-        uid = (data or {}).get('uid')
-        candidate = (data or {}).get('candidate')
-        if not room_id or not uid or not candidate:
-            return
-        state = ex_state.get_exercise(room_id)
-        if state is None:
-            return
-        if state.record_individual_vote(uid, candidate):
-            _emit_vote_update(state, "individual")
-
     @socketio.on('submit_collective_vote')
     def handle_submit_collective_vote(data):
-        """Record a seated human's vote in the SEPARATE collective group ballot.
+        """Record one student's entry of the group's already-agreed pick.
 
-        record_collective_vote enforces the ballot being open + validity, and will
-        auto-resolve (→ collective_result → grading) once every participant has
-        voted. We only emit the progress ping here; resolution events come from
-        ExerciseState itself.
+        record_collective_vote enforces an open ballot, roster membership, and a
+        valid candidate, and auto-resolves (→ collective_result → outcome reveal)
+        once everyone present has entered one. Serves both the first pick and a
+        re-choice; resolution events come from ExerciseState itself.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -710,7 +461,11 @@ def register_socket_events(socketio, app):
         if state is None:
             return
         if state.record_collective_vote(uid, candidate):
-            _emit_vote_update(state, "collective")
+            socketio.emit("vote_update", {
+                "room_id": room_id,
+                "submitted": len(state.collective_ballot.get("votes", {})),
+                "total": len(state.roster),
+            }, room=room_id)
 
     # ==================================================================
     # DISCONNECT (unchanged)
