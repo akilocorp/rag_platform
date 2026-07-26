@@ -1,8 +1,7 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   manager_exercise rewired to the single ACTR facilitator: plain matchmaking, choose/discuss
-#            hooks, outcome reveal + re-choice, and the debounce/quorum/cooldown gates that keep ACTR
-#            from replying to every message. Removed AI seats, nudge loops, no-show fill, and grading.
+# @updated   2026-07-27
+# @changed   One student now enters the group's pick on the team's behalf (no per-member ballot), and the
+#            re-choice ballot only opens when ACTR invites it at MOVE 5 rather than on the outcome reveal.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -453,12 +452,13 @@ def register_socket_events(socketio, app):
     # ==================================================================
     @socketio.on('submit_collective_vote')
     def handle_submit_collective_vote(data):
-        """Record one student's entry of the group's already-agreed pick.
+        """One student enters the group's already-agreed pick, on the team's behalf.
 
-        record_collective_vote enforces an open ballot, roster membership, and a
-        valid candidate, and auto-resolves (→ collective_result → outcome reveal)
-        once everyone present has entered one. Serves both the first pick and a
-        re-choice; resolution events come from ExerciseState itself.
+        record_collective_vote enforces an open ballot, roster membership and a
+        valid candidate, then resolves immediately (→ collective_result → outcome
+        reveal). Serves both the first pick and a re-choice; every resulting event
+        is broadcast by ExerciseState, so the other members see the ballot close
+        and the outcome arrive without doing anything.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -468,12 +468,7 @@ def register_socket_events(socketio, app):
         state = ex_state.get_exercise(room_id)
         if state is None:
             return
-        if state.record_collective_vote(uid, candidate):
-            socketio.emit("vote_update", {
-                "room_id": room_id,
-                "submitted": len(state.collective_ballot.get("votes", {})),
-                "total": len(state.roster),
-            }, room=room_id)
+        state.record_collective_vote(uid, candidate)
 
     # ==================================================================
     # DISCONNECT (unchanged)

@@ -1,7 +1,8 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Split re-choice permission from timing: added reopen_allowed, and reopen_choice() now only
-#            fires when ACTR invites it, so the ballot no longer appears beside the outcome reveal.
+# @changed   One entry resolves the ballot (the team already decided offline; whoever enters speaks for
+#            them). Plus: split re-choice permission from timing via reopen_allowed, so the ballot no
+#            longer appears beside the outcome reveal.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -383,10 +384,15 @@ class ExerciseState:
         return candidate in self._candidate_names
 
     def record_collective_vote(self, uid: str, candidate: str) -> bool:
-        """Record one student's ballot entry; resolves once everyone present has entered one.
+        """Record the group's decision. The FIRST valid entry resolves the ballot.
 
-        The group has already agreed on paper — the ballot is a confirmation, not a
-        vote — so agreement is the normal case and a plurality settles a mismatch.
+        This is not a vote. The group already decided together, offline, on paper;
+        whoever enters it is speaking for the team. Requiring all N would just be
+        the same answer typed N times, and would stall the room on whoever happens
+        to be slowest. Applies equally to the first pick and to any re-choice.
+
+        Any roster member may enter it. If two people click at once the first wins
+        and the second is rejected because the ballot has already closed.
         """
         with self._lock:
             if not self.collective_ballot.get("open"):
@@ -395,10 +401,8 @@ class ExerciseState:
                 return False
             self.collective_ballot["votes"][uid] = candidate
             self._persist({"collective_ballot": self.collective_ballot})
-            everyone_voted = len(self.collective_ballot["votes"]) >= max(1, len(self.roster))
 
-        if everyone_voted:
-            self.resolve_collective()
+        self.resolve_collective()
         return True
 
     def resolve_collective(self) -> Tuple[Optional[str], Dict]:

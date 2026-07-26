@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-26  @changed Rebuilt for the facilitated rework: waiting/choose/discuss/done, candidate entry + outcome reveal + inline re-choice, ACTR-styled messages. Removed memorize, private docs, individual ballot, grading and the scorecard. */
+/* @language JSX  @updated 2026-07-27  @changed One member now enters the decision for the whole team: dropped the per-member vote-progress bar and reworded the choose / choose-again cards accordingly. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -110,10 +110,12 @@ const ManagerExercisePage = () => {
   const [chatLocked, setChatLocked] = useState(true);
 
   // ---- the pick ----
+  // One member enters the decision on the team's behalf, so `voted` only guards
+  // this client's own double-submit; the ballot closes for everyone on the first
+  // valid entry.
   const [ballotOpen, setBallotOpen] = useState(false);
   const [pick, setPick] = useState(null);
   const [voted, setVoted] = useState(false);
-  const [voteProgress, setVoteProgress] = useState(null); // {submitted,total}
 
   const [userInfo, setUserInfo] = useState(null);
 
@@ -259,11 +261,7 @@ const ManagerExercisePage = () => {
         socket.on('ballot_update', (d) => {
           setBallotOpen(Boolean(d.open));
           if (Array.isArray(d.candidates) && d.candidates.length) setCandidates(d.candidates);
-          if (d.open) { setVoted(false); setPick(null); setVoteProgress(null); }
-        });
-
-        socket.on('vote_update', (d) => {
-          setVoteProgress({ submitted: d.submitted, total: d.total });
+          if (d.open) { setVoted(false); setPick(null); }
         });
 
         socket.on('collective_result', (d) => {
@@ -397,23 +395,10 @@ const ManagerExercisePage = () => {
           Enter our choice
         </button>
       )}
-      {voteProgress && (
-        <div className="mt-4">
-          <div className="flex items-center justify-between text-xs font-bold text-gray-500 mb-1.5">
-            <span>{voteProgress.submitted} of {voteProgress.total} entered</span>
-            {voted && (
-              <span className="inline-flex items-center gap-1 text-emerald-600">
-                <FaCheckCircle /> Yours is in
-              </span>
-            )}
-          </div>
-          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-            <div
-              className="h-full bg-[#FA6C43] transition-all duration-500"
-              style={{ width: `${voteProgress.total ? (voteProgress.submitted / voteProgress.total) * 100 : 0}%` }}
-            />
-          </div>
-        </div>
+      {voted && (
+        <p className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+          <FaCheckCircle /> Submitted for the group
+        </p>
       )}
     </>
   );
@@ -560,7 +545,7 @@ const ManagerExercisePage = () => {
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
               <h2 className="text-lg font-bold text-[#222] mb-1">Your group's decision</h2>
               <p className="text-sm text-gray-500 mb-5">
-                Enter the candidate your group agreed on. Everyone enters the same name.
+                One of you enters the candidate the group already agreed on — it counts for the whole team.
               </p>
               <CandidateGrid />
             </section>
@@ -644,7 +629,7 @@ const ManagerExercisePage = () => {
         {ballotOpen && (
           <section className="mt-6 max-w-xl rounded-3xl bg-white border-2 border-[#FA6C43]/40 shadow-md p-6 animate-in fade-in slide-in-from-bottom-3 duration-400">
             <h2 className="text-base font-bold text-[#222] mb-1">Choose again</h2>
-            <p className="text-sm text-gray-500 mb-4">Enter the group's new choice when you're ready.</p>
+            <p className="text-sm text-gray-500 mb-4">One of you enters the group's new choice when you're ready.</p>
             <CandidateGrid compact />
           </section>
         )}
