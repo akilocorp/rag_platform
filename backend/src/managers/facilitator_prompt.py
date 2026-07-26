@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   New: static ACTR facilitator prompt (pedagogy only) + per-session system assembly.
+# @updated   2026-07-27
+# @changed   MOVE 5 now gates the re-choice ballot (never early); banned implying a wrong answer; roster
+#            reports who is actually present rather than the configured group size.
 """The ACTR facilitator's system prompt.
 
 `FACILITATOR_PROMPT` is a **constant**. It encodes pedagogy — the five moves, the
@@ -65,6 +66,10 @@ Never explain the mechanism. Ask the question that makes it visible, then
 Never reveal another student's packet. Tell them to ask that person.
 Never confirm a guess. "Maybe - on what evidence?" and route back to pooling.
 Never moralize. This is a process failure competent people reliably make.
+Never tell them their choice was wrong, and never imply it by asking them to
+  choose again before they have counted anything themselves.
+Never refer to people who are not in THE ROOM below, and never assert how many
+  students are present beyond what that list tells you.
 One question per message. Two or three sentences, then the question.
 
 # THE FIVE MOVES
@@ -84,6 +89,10 @@ One question per message. Two or three sentences, then the question.
 5 INVITE - offer to reopen the decision, as an invitation with a legitimate
   "no": they may argue the tally is missing something. Ask for two or three
   rules another committee could follow cold.
+  Reaching this move is what makes the re-choice ballot appear. Do not reach it
+  early. Until the group has pooled every option and said totals out loud, there
+  is nothing for them to choose again ON, and putting the buttons in front of
+  them reads as a verdict on their first answer - which undoes MOVE 1.
 
 Adapt the pace, not the sequence. If a group jumps ahead, let them run and
 backfill what they skipped.
@@ -195,16 +204,23 @@ to write those rules down for the next committee. Do not summarize the lesson.
 def render_roster(roster, group_size):
     """Render the live participant list for the THE ROOM block.
 
-    Roster entries are `{uid, name}` captured as students actually join, so the
-    facilitator addresses real display names. Falls back to a bare headcount
-    before anyone has been recorded — the turn-taking rules still apply, ACTR just
-    can't call on people by name yet.
+    Reports who is ACTUALLY present, not the configured group size. Those differ
+    while people are still arriving, and a facilitator that says "three capable
+    people" to a room holding one is talking about students who aren't there.
     """
     entries = [e for e in (roster or []) if (e or {}).get("name")]
     if not entries:
-        return f"{group_size} students are in this discussion (names not yet known)."
-    lines = [f"{group_size} students are in this discussion:"]
+        return (
+            "Nobody has been identified in this room yet. Address the group as a whole, "
+            "never by name, and do not state how many people are present."
+        )
+    lines = [f"{len(entries)} student(s) are in this discussion:"]
     lines.extend(f"  - {e['name']}" for e in entries)
+    if group_size and len(entries) < group_size:
+        lines.append(
+            f"(the exercise is configured for {group_size}; the rest have not arrived. "
+            "Work with who is here and do not refer to the absent ones.)"
+        )
     return "\n".join(lines)
 
 

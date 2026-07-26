@@ -143,9 +143,13 @@ def register_socket_events(socketio, app):
         """Background: post the chosen candidate's outcome document, then ACTR's entry.
 
         Ordering matters — the outcome lands first so the group reads it before
-        being asked anything. A below-top-tally pick reopens the ballot afterwards
-        so they can choose again; that decision comes from the case pack's tally in
-        Python, never from the model.
+        being asked anything.
+
+        A below-top-tally pick only records that a re-choice is PERMITTED. The
+        ballot is not reopened here: buttons appearing beside the disarm message
+        read as "your answer was wrong" however gently the message is worded, and
+        that is the opposite of the move ACTR is making. The offer comes later,
+        from ACTR, at MOVE 5.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
@@ -161,9 +165,8 @@ def register_socket_events(socketio, app):
                 st.config, st.roster, st.num_students, chosen, forecast,
                 transcript_summary=summary,
             )
+            st.set_reopen_allowed(result.get("reopen_allowed", False))
             _post_facilitator(st, result.get("message"), result.get("go_around", False))
-            if result.get("reopen"):
-                st.reopen_choice()
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the discuss window ends."""
@@ -213,6 +216,7 @@ def register_socket_events(socketio, app):
             result = ai_manager.facilitator_reply(
                 st.config, st.roster, st.num_students, summary,
                 chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
+                reopen_allowed=st.reopen_allowed,
             )
             message = result.get("message")
             if not message:
@@ -227,6 +231,10 @@ def register_socket_events(socketio, app):
             if st is None or st.phase() != ex_state.PHASE_DISCUSS:
                 return
             _post_facilitator(st, message, result.get("go_around", False))
+            # MOVE 5: ACTR decided the group has pooled and counted enough to be
+            # invited to choose again, so the ballot appears WITH that invitation.
+            if result.get("offer_reopen"):
+                st.reopen_choice()
 
     def _bootstrap_exercise(room_id, config_doc, create_session=False):
         """Create/rehydrate the ExerciseState for a room and start its phase machine.

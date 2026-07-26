@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   Rewrote the phase machine for the facilitated rework: waiting/choose/discuss/done, no seats or
-#            grading, plus the turn-taking state (roster, go-around quorum, facilitator cooldown).
+# @updated   2026-07-27
+# @changed   Split re-choice permission from timing: added reopen_allowed, and reopen_choice() now only
+#            fires when ACTR invites it, so the ballot no longer appears beside the outcome reveal.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -111,6 +111,7 @@ class ExerciseState:
             self.collective_ballot: Dict = {"open": False, "votes": {}}
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
+            self.reopen_allowed: bool = False
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -147,6 +148,7 @@ class ExerciseState:
         }
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
+        self.reopen_allowed = bool(doc.get("reopen_allowed", False))
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -438,15 +440,27 @@ class ExerciseState:
             self._enter_discuss()
         return winner, tally
 
+    def set_reopen_allowed(self, allowed: bool):
+        """Record that a re-choice is PERMITTED — not that it is being offered.
+
+        Set from the case-pack tally when the pick resolves. Splitting permission
+        from timing is what stops the ballot appearing beside the outcome reveal,
+        where it reads as a verdict on the group's first answer.
+        """
+        with self._lock:
+            self.reopen_allowed = bool(allowed)
+            self._persist({"reopen_allowed": self.reopen_allowed})
+
     def reopen_choice(self):
         """Reopen the ballot inside `discuss` so the group can choose again.
 
         A phase flag rather than a phase change: chat stays unlocked so students
         keep talking through the re-choice, which is where most of the learning
-        happens. Called when ACTR's branch entry says the pick was below top tally.
+        happens. Called only when ACTR itself invites a re-choice at MOVE 5, and
+        only if the tally permits one.
         """
         with self._lock:
-            if self._phase != PHASE_DISCUSS:
+            if self._phase != PHASE_DISCUSS or not self.reopen_allowed:
                 return
             self.collective_ballot = {"open": True, "votes": {}}
             self._persist({"collective_ballot": self.collective_ballot})
