@@ -424,6 +424,28 @@ const EditConfigPage = () => {
     setMgr('case_pack', { ...mePack, options });
   };
 
+  // Push an edited pack through the server's counting code so the tally on screen
+  // matches what will be saved. Falls back to the local pack if the call fails —
+  // the edit is never lost, only its recount is deferred to save.
+  const recomputePack = async (next) => {
+    setMgr('case_pack', next);
+    try {
+      const res = await apiClient.post('/config/case-pack/recompute', { case_pack: next });
+      if (res.data?.case_pack) setMgr('case_pack', res.data.case_pack);
+    } catch { /* keep the local edit; save recomputes anyway */ }
+  };
+
+  // Accept or reject one proposed merge. Rejecting splits the two wordings back
+  // into separate items, which raises that candidate's count by one.
+  const setMergeConfirmed = (optionIndex, mergeId, confirmed) => {
+    const options = [...(mePack.options || [])];
+    const merges = (options[optionIndex].merges || []).map(m => (
+      m.id === mergeId ? { ...m, confirmed } : m
+    ));
+    options[optionIndex] = { ...options[optionIndex], merges };
+    recomputePack({ ...mePack, options });
+  };
+
   // Override the derived answer key. `best_option_locked` stops the server-side
   // recompute from re-deriving it from the tally on subsequent saves.
   const setBestOption = (name) => {
@@ -1037,6 +1059,23 @@ const EditConfigPage = () => {
                       </div>
                     ) : (
                       <div className="space-y-4">
+                        {/* Cross-check against totals the document states for itself. */}
+                        {(mePack.warnings || []).length > 0 && (
+                          <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-2">
+                              Doesn't match the document
+                            </p>
+                            <ul className="space-y-1">
+                              {mePack.warnings.map((w, i) => (
+                                <li key={i} className="text-xs text-amber-900">• {w}</li>
+                              ))}
+                            </ul>
+                            <p className="text-[11px] text-amber-700 mt-2">
+                              Check the merges below — an incorrect merge removes an item from the count.
+                            </p>
+                          </div>
+                        )}
+
                         <div className="rounded-2xl border border-gray-200 overflow-hidden">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
@@ -1064,6 +1103,33 @@ const EditConfigPage = () => {
                             </tbody>
                           </table>
                         </div>
+
+                        {/* Every pair of wordings judged to be the same fact, and so
+                            counted once. The only place the tally loses items, so the
+                            only place worth auditing. Untick to split them back apart. */}
+                        {(mePack.options || []).some(o => (o.merges || []).length > 0) && (
+                          <div className="bg-white p-5 rounded-2xl border border-gray-200">
+                            <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">Counted as one item</h4>
+                            <p className="text-[11px] text-gray-400 mb-3">Untick anything that is really two separate facts — the count updates as you go.</p>
+                            {(mePack.options || []).map((o, i) => (o.merges || []).map(m => (
+                              <label key={m.id} className="flex items-start gap-3 py-2 border-t border-gray-100 first:border-t-0 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!!m.confirmed}
+                                  onChange={(e) => setMergeConfirmed(i, m.id, e.target.checked)}
+                                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#FA6C43] cursor-pointer"
+                                />
+                                <span className="min-w-0">
+                                  <span className="text-[11px] font-bold text-[#222]">{o.name}</span>
+                                  <span className="text-[10px] font-semibold text-gray-400 ml-2 uppercase tracking-wider">{m.field}</span>
+                                  <span className="block text-[11px] text-gray-500">• {m.a}</span>
+                                  <span className="block text-[11px] text-gray-500">• {m.b}</span>
+                                  {m.note && <span className="block text-[10px] text-gray-400 italic mt-0.5">{m.note}</span>}
+                                </span>
+                              </label>
+                            )))}
+                          </div>
+                        )}
 
                         <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
                           <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Strongest candidate<InfoTip text="Derived from the pooled tally: most distinct strengths, fewest distinct concerns. ACTR never states this — it steers students until they count it themselves. Override only if the analysis got it wrong." /></label>

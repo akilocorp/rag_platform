@@ -241,6 +241,23 @@ def preview_case_pack():
     return jsonify({"case_pack": pack}), 200
 
 
+@config_bp.route('/config/case-pack/recompute', methods=['POST'])
+@jwt_required()
+def recompute_case_pack():
+    """Re-derive the tally from a pack the professor has edited. No model call.
+
+    Lets the Review step show the effect of un-ticking a merge immediately, using
+    the same counting code that runs at save. Duplicating the arithmetic in the
+    browser would be a second source of truth for the one number the exercise
+    turns on.
+    """
+    data = request.get_json(silent=True) or {}
+    pack = data.get('case_pack')
+    if not isinstance(pack, dict) or not pack.get('options'):
+        return jsonify({"error": "case_pack is required"}), 400
+    return jsonify({"case_pack": case_pack.recompute(pack)}), 200
+
+
 @config_bp.route('/config_list', methods=['GET'])
 @jwt_required()
 def getconfigs():

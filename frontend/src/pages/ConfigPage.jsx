@@ -438,6 +438,28 @@ const ConfigModal = ({ isOpen, onClose }) => {
     setMgr('case_pack', { ...mePack, options });
   };
 
+  // Push an edited pack through the server's counting code so the tally on screen
+  // matches what will be saved. Falls back to the local pack if the call fails —
+  // the edit is never lost, only its recount is deferred to save.
+  const recomputePack = async (next) => {
+    setMgr('case_pack', next);
+    try {
+      const res = await apiClient.post('/config/case-pack/recompute', { case_pack: next });
+      if (res.data?.case_pack) setMgr('case_pack', res.data.case_pack);
+    } catch { /* keep the local edit; save recomputes anyway */ }
+  };
+
+  // Accept or reject one proposed merge. Rejecting splits the two wordings back
+  // into separate items, which raises that candidate's count by one.
+  const setMergeConfirmed = (optionIndex, mergeId, confirmed) => {
+    const options = [...(mePack.options || [])];
+    const merges = (options[optionIndex].merges || []).map(m => (
+      m.id === mergeId ? { ...m, confirmed } : m
+    ));
+    options[optionIndex] = { ...options[optionIndex], merges };
+    recomputePack({ ...mePack, options });
+  };
+
   // Override the derived answer key. `best_option_locked` tells the server-side
   // recompute to stop deriving it from the tally on subsequent saves.
   const setBestOption = (name) => {
@@ -1118,6 +1140,25 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       </div>
                     ) : (
                       <div className="space-y-5">
+                        {/* Cross-check against totals the document states for itself.
+                            A tally that disagrees is invisible once the exercise is
+                            running, so it gets said loudly here. */}
+                        {(mePack.warnings || []).length > 0 && (
+                          <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-2">
+                              Doesn't match the document
+                            </p>
+                            <ul className="space-y-1">
+                              {mePack.warnings.map((w, i) => (
+                                <li key={i} className="text-xs text-amber-900">• {w}</li>
+                              ))}
+                            </ul>
+                            <p className="text-[11px] text-amber-700 mt-2">
+                              Check the merges below — an incorrect merge removes an item from the count.
+                            </p>
+                          </div>
+                        )}
+
                         {/* Pooled tally, counted server-side from the extracted items —
                             exactly the numbers the facilitator will steer by. */}
                         <div className="rounded-2xl border border-gray-200 overflow-hidden">
@@ -1159,18 +1200,29 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           {mePack.answer_key?.mechanism && <p className="text-[11px] text-gray-500 mt-3 leading-relaxed"><span className="font-bold uppercase tracking-wider text-gray-400">The trap: </span>{mePack.answer_key.mechanism}</p>}
                         </div>
 
-                        {/* Worth a glance: a wrong collapse pair changes a candidate's
-                            concern count, which changes who the tally favours. */}
-                        {(mePack.options || []).some(o => (o.collapse_pairs || []).length) && (
+                        {/* Every pair of wordings judged to be the same fact, and so
+                            counted once. This is the only place the tally loses items,
+                            so it is the only place worth auditing. Untick to split. */}
+                        {(mePack.options || []).some(o => (o.merges || []).length > 0) && (
                           <div className="bg-white p-5 rounded-2xl border border-gray-200">
-                            <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-3">Same concern, different wording (counted once)</h4>
-                            {(mePack.options || []).map((o, i) => (o.collapse_pairs || []).map((pair, j) => (
-                              <div key={`${i}-${j}`} className="mb-2 last:mb-0">
-                                <p className="text-xs font-bold text-[#222]">{o.name}</p>
-                                <ul className="mt-0.5 space-y-0.5">
-                                  {pair.map((line, k) => <li key={k} className="text-[11px] text-gray-500">• {line}</li>)}
-                                </ul>
-                              </div>
+                            <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">Counted as one item</h4>
+                            <p className="text-[11px] text-gray-400 mb-3">Untick anything that is really two separate facts — the count updates as you go.</p>
+                            {(mePack.options || []).map((o, i) => (o.merges || []).map(m => (
+                              <label key={m.id} className="flex items-start gap-3 py-2 border-t border-gray-100 first:border-t-0 cursor-pointer group">
+                                <input
+                                  type="checkbox"
+                                  checked={!!m.confirmed}
+                                  onChange={(e) => setMergeConfirmed(i, m.id, e.target.checked)}
+                                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#FA6C43] cursor-pointer"
+                                />
+                                <span className="min-w-0">
+                                  <span className="text-[11px] font-bold text-[#222]">{o.name}</span>
+                                  <span className="text-[10px] font-semibold text-gray-400 ml-2 uppercase tracking-wider">{m.field}</span>
+                                  <span className="block text-[11px] text-gray-500">• {m.a}</span>
+                                  <span className="block text-[11px] text-gray-500">• {m.b}</span>
+                                  {m.note && <span className="block text-[10px] text-gray-400 italic mt-0.5">{m.note}</span>}
+                                </span>
+                              </label>
                             )))}
                           </div>
                         )}
