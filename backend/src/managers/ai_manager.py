@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Re-choice is no longer triggered by the outcome reveal: on_pick returns reopen_allowed, and the
-#            ballot only reopens when ACTR itself invites it at MOVE 5 via the [REOPEN] marker.
+# @changed   ACTR now judges its own turn: called after every student message with a turn brief instead of
+#            being gated, on a cached system prompt at temperature 0.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -14,12 +14,15 @@ system prompt (`facilitator_prompt.build_facilitator_system`) — nothing about 
 particular case is written here. The pedagogy lives in the prompt; this module is
 call plumbing.
 
-Two things are decided in Python rather than by the model, deliberately:
-  - **whether a re-choice is permitted at all** (`case_pack.is_top_choice`), so
-    that can never drift with the model's mood. WHEN it is offered is the model's
-    call, at MOVE 5, once the group has actually pooled and counted;
-  - **whether ACTR is invoked at all**, which the socket layer gates (quorum /
-    debounce / cooldown) before calling in here.
+One thing is decided in Python rather than by the model, deliberately: **whether
+a re-choice is permitted at all** (`case_pack.is_top_choice`), so it can never
+drift with the model's mood. WHEN it is offered is the model's call, at MOVE 5,
+once the group has actually pooled and counted.
+
+Turn-taking used to be decided in Python too — a quorum and a cooldown gating
+whether ACTR was invoked. Those bought their guarantees with latency, so they are
+gone. ACTR is now asked after every student message and decides for itself, from
+the facts in `turn_context` plus the worked example in the prompt.
 
 Fail-soft throughout, mirroring `src/facilitator/runner.py`: a missing key,
 missing package, or failed call degrades to a safe fallback or silence and never
@@ -31,7 +34,7 @@ import os
 import re
 
 from src.managers import case_pack as case_pack_mod
-from src.managers.facilitator_prompt import build_facilitator_system
+from src.managers.facilitator_prompt import build_facilitator_system, render_turn_brief
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +127,17 @@ def _split_markers(text):
 
 
 def _call(system, user, fallback=None):
-    """One facilitator turn. Returns the model's text, or `fallback` on any failure."""
+    """One facilitator turn. Returns the model's text, or `fallback` on any failure.
+
+    The system prompt is identical for every turn in a room — pedagogy plus this
+    case's pack, several thousand tokens of it — and ACTR is now asked after every
+    student message. So it is sent as a cached block: the first turn pays for it,
+    the rest of the session reads it back. Same idiom as
+    `src/agentic/agent_runner.py`.
+
+    Temperature 0 because "is it my turn" should not be a dice roll; the same room
+    state should produce the same decision.
+    """
     client = _get_client()
     if client is None:
         return fallback
@@ -132,7 +145,12 @@ def _call(system, user, fallback=None):
         msg = client.messages.create(
             model=FACILITATOR_MODEL,
             max_tokens=FACILITATOR_MAX_TOKENS,
-            system=system,
+            temperature=0,
+            system=[{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }],
             messages=[{"role": "user", "content": user}],
         )
     except Exception:  # noqa: BLE001
@@ -210,18 +228,19 @@ def facilitator_on_pick(config, roster, group_size, chosen_name, forecast_text, 
 
 
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,
-                      go_around_timed_out=False, reopen_allowed=False):
+                      turn_context=None, reopen_allowed=False):
     """A reactive facilitator turn during discuss.
 
     Returns `{"message": str|None, "go_around": bool, "offer_reopen": bool}` —
-    `message` is None when the model returns SILENT, which is its own veto on top
-    of the socket layer's gates. Called ONLY when those gates have already decided
-    this is a plausible moment to speak, so the model is judging "do I have
-    something worth saying", not "is it my turn".
+    `message` is None when the model returns SILENT.
 
-    `go_around_timed_out` tells ACTR a student never answered, so it works with the
-    partial set instead of continuing to wait. It is not told who is missing —
-    naming an absent student in front of peers is not worth the completeness.
+    Called after EVERY student message. Nothing filters these calls any more, so
+    the model is deciding "is it my turn" as well as "have I got anything", and
+    SILENT is the expected answer most of the time. `turn_context` carries the
+    facts that used to be enforced as gates — who still owes an answer to a
+    go-around, how long the room has been quiet, how many messages since ACTR last
+    spoke — which is what lets it hold during a go-around and step in when one has
+    been abandoned.
 
     `reopen_allowed` unlocks the MOVE 5 invitation. Without it the ballot stays
     shut no matter what the model emits, so a group that already picked the
@@ -231,9 +250,10 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     fallback = None   # silence is the correct failure mode for a reactive turn
 
     task = [
-        "TASK: React to the discussion below in ONE short message, but ONLY if one of your "
-        "SPEAK conditions holds. If none of them holds, reply with exactly the single word "
-        "SILENT and nothing else.",
+        "TASK: Decide whether to speak. Read WHERE THE TURN STANDS above, then the "
+        "discussion. If it is not your turn, or you have nothing genuinely additive, reply "
+        "with exactly the single word SILENT and nothing else — that is the usual answer. "
+        "Otherwise write ONE short message.",
         f"If your message asks every student in turn for an item, end it with {GO_AROUND_MARKER}.",
     ]
     if reopen_allowed:
@@ -243,13 +263,9 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
             f"again, end your message with {REOPEN_MARKER} and the ballot will appear. Do not use "
             "it before then — a ballot arriving early reads as a verdict on their first answer."
         )
-    if go_around_timed_out:
-        task.append(
-            "NOTE: you asked the group to go around and not everyone answered in time. Work with "
-            "the answers you did get and move the session forward. Do not name who did not answer."
-        )
 
     user = "\n\n".join([
+        "WHERE THE TURN STANDS\n" + render_turn_brief(turn_context),
         f"The group's current pick: {chosen_name or '(none yet)'}",
         f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}",
         "\n".join(task),

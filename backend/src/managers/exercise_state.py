@@ -48,20 +48,19 @@ PHASE_ORDER = [PHASE_WAITING, PHASE_CHOOSE, PHASE_DISCUSS, PHASE_DONE]
 # ballot buttons, not the chat, so the pick is a single deliberate act.
 _UNLOCKED_PHASES = {PHASE_DISCUSS}
 
-# --- Turn-taking gates ------------------------------------------------------
-# A prompt cannot make itself wait: invoked on every message, a model that just
-# asked a question will answer the first student who replies. These four numbers
-# enforce the waiting outside the model. See facilitator_gate().
+# --- Turn-taking ------------------------------------------------------------
+# There are no gates. ACTR is invoked on every student message and decides for
+# itself, from the facts `turn_context()` hands it plus the worked example in the
+# prompt. Gates were tried first and every one of them bought a guarantee at the
+# cost of latency: a quorum that stalled the room for a minute when one student
+# went quiet, a cooldown that muted ACTR for three turns whether or not it had
+# anything to say.
 #
-# Quorum: how long to wait for a silent student before proceeding with partial
-# answers to a go-around.
-GO_AROUND_TIMEOUT_SECONDS = 60
-# Cooldown: student messages required since ACTR last spoke. Structurally enforces
-# "never post twice in a row".
-FACILITATOR_COOLDOWN_MSGS = 3
-# Escape hatch for the cooldown: if the room stalls after only one or two replies,
-# ACTR would otherwise be locked out forever. Long quiet re-opens the door.
-FACILITATOR_IDLE_SECONDS = 45
+# Two things remain structural, and neither costs a wait:
+#   * only STUDENT messages invoke the facilitator, so it cannot post twice in a
+#     row — there is no trigger for a second turn;
+#   * one turn per room at a time (`claim_facilitator`), because two concurrent
+#     turns would both post.
 
 
 class ExerciseState:
@@ -504,10 +503,10 @@ class ExerciseState:
         return max(tally.items(), key=lambda kv: (kv[1], -order.get(kv[0], 1_000_000)))[0]
 
     # ==================================================================
-    # TURN-TAKING (the gates that stop ACTR replying to everyone)
+    # TURN-TAKING (bookkeeping ACTR reads; nothing here blocks)
     # ==================================================================
     def note_student_message(self, uid: str):
-        """Register a student turn: feeds the cooldown and the go-around quorum."""
+        """Register a student turn. Feeds the facts in `turn_context()`."""
         with self._lock:
             self.msgs_since_facilitator += 1
             self.last_message_ts = time.time()
@@ -523,10 +522,11 @@ class ExerciseState:
             self._persist(fields)
 
     def note_facilitator_spoke(self, go_around: bool):
-        """Reset the cooldown after ACTR speaks; arm the quorum gate if it opened a go-around.
+        """Record that ACTR spoke, and who it is waiting on if it opened a go-around.
 
-        `expected` is the full roster: a go-around asks everyone, and the gate must
-        hold ACTR silent until the last of them has answered (or the timeout fires).
+        `expected` is the roster at the moment of asking: a go-around asks everyone
+        present, and a student who arrives afterwards was never asked, so ACTR is
+        not left waiting on them.
         """
         with self._lock:
             self.last_facilitator_at = time.time()
@@ -542,7 +542,7 @@ class ExerciseState:
             })
 
     def clear_go_around(self):
-        """Drop the quorum gate (the go-around has been answered or has timed out)."""
+        """Stop tracking an outstanding go-around (answered, or plainly abandoned)."""
         with self._lock:
             if self.pending_go_around is None:
                 return
@@ -566,44 +566,40 @@ class ExerciseState:
         with self._lock:
             self._facilitator_busy = False
 
-    def facilitator_gate(self, addressed: bool = False) -> Tuple[bool, bool]:
-        """Decide whether ACTR may speak right now. Returns (invoke, go_around_timed_out).
+    def turn_context(self, addressed: bool = False) -> Dict:
+        """The facts ACTR needs to judge whether it is its turn.
 
-        Order matters:
+        These used to be gates. "Two of the three you asked have answered" is
+        information, not a reason to make the room wait — a facilitator that knows
+        it can hold *or* step in when the go-around has plainly been abandoned,
+        where a blocking gate could only stall until a timeout fired.
 
-          addressed  -> always let it answer a direct question.
-          quorum     -> a pending go-around blocks everything until it completes or
-                        times out. This is the gate that stops ACTR acknowledging
-                        students one at a time.
-          cooldown   -> needs FACILITATOR_COOLDOWN_MSGS student turns since it last
-                        spoke, which makes "never post twice in a row" structural...
-          idle       -> ...except when the room has simply stalled, where waiting for
-                        a third message would lock ACTR out of a dead conversation.
+        Names, not uids: this is rendered into the prompt and ACTR addresses people
+        by name.
         """
         now = time.time()
         with self._lock:
-            if self._phase != PHASE_DISCUSS:
-                return False, False
-            if addressed:
-                return True, False
-
+            outstanding, answered = [], []
             if self.pending_go_around:
-                expected = set(self.pending_go_around.get("expected") or [])
+                expected = self.pending_go_around.get("expected") or []
                 received = set(self.pending_go_around.get("received") or [])
-                if expected and expected.issubset(received):
-                    return True, False
-                asked_at = self.pending_go_around.get("asked_at") or now
-                if now - asked_at >= GO_AROUND_TIMEOUT_SECONDS:
-                    return True, True
-                return False, False
+                outstanding = [self.display_name(u) for u in expected if u not in received]
+                answered = [self.display_name(u) for u in expected if u in received]
+            return {
+                "addressed": bool(addressed),
+                "go_around_open": bool(self.pending_go_around),
+                "outstanding": outstanding,
+                "answered": answered,
+                "msgs_since_facilitator": self.msgs_since_facilitator,
+                "seconds_since_last_message": round(now - (self.last_message_ts or now), 1),
+                "seconds_since_you_spoke": (
+                    round(now - self.last_facilitator_at, 1) if self.last_facilitator_at else None
+                ),
+            }
 
-            if self.msgs_since_facilitator <= 0:
-                return False, False
-            if self.msgs_since_facilitator >= FACILITATOR_COOLDOWN_MSGS:
-                return True, False
-
-            quiet_for = now - (self.last_message_ts or now)
-            return quiet_for >= FACILITATOR_IDLE_SECONDS, False
+    def in_discussion(self) -> bool:
+        """True while the room is in `discuss` — the only phase ACTR reacts in."""
+        return self._phase == PHASE_DISCUSS
 
 
 # =====================================================================

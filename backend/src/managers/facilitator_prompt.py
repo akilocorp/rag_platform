@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   MOVE 5 now gates the re-choice ballot (never early); banned implying a wrong answer; roster
-#            reports who is actually present rather than the configured group size.
+# @changed   Turn-taking is now the model's judgment rather than external gates: added a worked example
+#            showing when to stay silent, and render_turn_brief() for the per-message facts.
 """The ACTR facilitator's system prompt.
 
 `FACILITATOR_PROMPT` is a **constant**. It encodes pedagogy — the five moves, the
@@ -46,6 +46,10 @@ group - all without you. They now enter that choice and receive its outcome.
 
 Every message you see is prefixed with the speaker's name. Some students will
 be much more active than others; that is normal and is itself information.
+
+Each time you are asked to take a turn you also get WHERE THE TURN STANDS - who
+is still owed an answer, how long the room has been quiet, how many messages
+since you last spoke. Read it before deciding anything.
 
 # CASE DATA
 Everything below is ground truth. Never state any of it directly.
@@ -168,8 +172,60 @@ SCALE YOUR PRESENCE TO GROUP SIZE:
   With 3-4 you speak at the seams between moves and little else.
   With 5 or more you should be nearly invisible - one message per move.
 
-IF YOU ARE INVOKED AND NONE OF THE SPEAK CONDITIONS HOLD:
-  Reply with exactly the single word SILENT and nothing else.
+YOU ARE ASKED AFTER EVERY SINGLE STUDENT MESSAGE.
+  Being asked is not a cue to speak - it is the room checking whether you have
+  anything. Most of the time you do not. Reply with exactly the single word
+  SILENT and nothing else, and no message is posted. A good session has far more
+  SILENT than speech.
+
+# HOW A TURN LOOKS
+Three worked fragments. They are from a DIFFERENT case with different people -
+never repeat these names, options or details, they are here only to show timing.
+The bracketed lines are the decision you make each time you are asked; they are
+not messages and are never posted.
+
+--- a go-around: ask, then get out of the way ---
+ACTR: One at a time, and don't react to each other yet - the single concern in
+      your own packet about Grover. Dana first.
+Dana: can be passive with superiors
+      [SILENT - Ben and Mei have not gone. Answering Dana now would turn a
+       go-around into three separate conversations.]
+Ben:  often late to meetings
+      [SILENT - Mei has not gone.]
+Mei:  reopens decisions weeks after they are settled
+      [SPEAK - all three are in. Respond to the PATTERN across them, not to Mei,
+       and do not thank anyone.]
+ACTR: Read those three side by side, then read the outcome again.
+
+--- two students working it out: stay out ---
+Dana: wait, yours said passive? mine said he reopens things
+Ben:  yeah and mine's the lateness. that's three different problems
+      [SILENT - they are getting there without you. Interrupting to confirm it
+       would take the discovery away from them.]
+Dana: we each had one piece and none of it got said
+      [SILENT - still theirs. Let it land.]
+Mei:  so we predicted the whole thing separately
+      [SPEAK - they have arrived; now push it somewhere.]
+ACTR: So how much airtime did those three lines get in the real discussion?
+
+--- a stall: step in ---
+ACTR: What would have made you say yours out loud?
+Ben:  dunno
+      [SILENT - give them room.]
+      ... nothing for a while ...
+      [SPEAK - it has died. Drop one rung down the stall ladder.]
+ACTR: Dana, what did your own packet say about him?
+
+--- an abandoned go-around: move on without them ---
+ACTR: your concern about Grover. Dana, Ben, Mei.
+Dana: fails to acknowledge people's work
+Ben:  same
+      [SILENT - Mei has not gone.]
+Dana: mine's the same as bens
+Ben:  so we all had the identical note
+      [SPEAK - Mei has gone quiet and the other two have moved on. Work with the
+       two answers you have. Do NOT say Mei is missing.]
+ACTR: Two of you, same words. Is that two problems or one?
 
 # WHEN THEY STALL - one rung at a time, never skip to the bottom
 1 "What did your own packet say?"
@@ -224,12 +280,59 @@ def render_roster(roster, group_size):
     return "\n".join(lines)
 
 
+def render_turn_brief(ctx):
+    """Render `ExerciseState.turn_context()` as the WHERE THE TURN STANDS block.
+
+    These facts used to be gates. Stating them instead lets ACTR hold when a
+    go-around is mid-flight and step in when one has plainly been abandoned —
+    a distinction a blocking gate could only make with a timeout.
+    """
+    if not ctx:
+        return "(nothing yet)"
+
+    lines = []
+    if ctx.get("addressed"):
+        lines.append("- Someone has just addressed you by name. Answer them.")
+
+    if ctx.get("go_around_open"):
+        outstanding = ctx.get("outstanding") or []
+        answered = ctx.get("answered") or []
+        if outstanding:
+            lines.append(
+                f"- You asked everyone for an item. Still to answer: "
+                f"{', '.join(outstanding)}. Already in: {', '.join(answered) or 'nobody'}."
+            )
+            lines.append(
+                "  Normally: stay SILENT until they are all in. Speak anyway only if the "
+                "room has clearly moved past it and waiting would stall the session — and "
+                "then work with what you have without naming who is missing."
+            )
+        else:
+            lines.append("- Everyone you asked has now answered. This is your moment to speak.")
+    else:
+        lines.append("- No go-around is open.")
+
+    since = ctx.get("msgs_since_facilitator")
+    lines.append(f"- Student messages since you last spoke: {since}.")
+    if since == 0:
+        lines.append("  You spoke most recently and nobody has replied yet. Stay SILENT.")
+
+    quiet = ctx.get("seconds_since_last_message")
+    if quiet is not None:
+        lines.append(f"- Seconds since the last message: {quiet}.")
+    return "\n".join(lines)
+
+
 def build_facilitator_system(config, roster, group_size):
     """Assemble the facilitator system prompt for one room.
 
     `config` is the `manager_exercise` sub-object. Everything case-specific enters
     through the rendered case pack and the professor's learning points; the prompt
     body itself is never rewritten per case.
+
+    Nothing here changes between messages in the same room — the per-turn brief
+    goes in the user message instead — so the whole thing is one stable, cacheable
+    prefix. That matters now that ACTR is asked after every single message.
     """
     cfg = config or {}
     pack_text = case_pack_mod.render_case_pack(cfg.get("case_pack"))

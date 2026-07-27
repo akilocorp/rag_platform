@@ -1,8 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Breakout rooms accept late joiners: a room in progress stays open until it is full or
-#            finished, and the arrival gets the full transcript. Plus: students pick a room rather than
-#            being queued, and start when ready even if short-handed.
+# @changed   ACTR now judges its own turn after every student message — the quorum and cooldown gates are
+#            gone, replaced by a turn brief and a re-run so nothing is dropped by the concurrency lock.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -26,6 +25,10 @@ logger = logging.getLogger(__name__)
 # sid ↔ uid mappings so we can target specific users by socket ID
 sid_to_uid: dict = {}
 uid_to_sid: dict = {}
+
+# How much transcript ACTR sees when judging its turn. Wider than the default so
+# the start of a go-around is never scrolled off — it has to see who it asked.
+FACILITATOR_HISTORY_MESSAGES = 20
 
 # Live occupancy of each manager-exercise breakout room: {room_id: {uid: name}}.
 # Socket presence rather than the persisted roster, so closing a tab frees the
@@ -187,52 +190,48 @@ def register_socket_events(socketio, app):
             _post(st, FACILITATOR_SENDER, text)
 
     def _facilitator_turn(room_id, addressed=False):
-        """Background: run the turn-taking gates, then (maybe) post one ACTR message.
+        """Background: ask ACTR whether this is its turn, and post if it says yes.
 
-        A prompt cannot make itself wait — invoked on every message, a model that
-        just asked a question will answer the first student who replies. So the
-        waiting is enforced here, in order:
+        Runs after EVERY student message. There is nothing between the message and
+        the model's judgment — no debounce, no quorum, no cooldown. Each of those
+        bought a guarantee with latency, and the facts they encoded are handed to
+        the model instead (`turn_context`), which lets it hold during a go-around
+        and step in when one has plainly been abandoned. SILENT is the expected
+        answer most of the time.
 
-          1. LOCK    — one turn per room at a time. Two messages can clear the
-             gates together, and the counters that would stop the second are not
-             reset until the first finishes its (slow) model call.
-          2. QUORUM  — a pending go-around blocks everything until every student
-             has answered or the timeout fires (ExerciseState.facilitator_gate).
-          3. COOLDOWN— N student turns since ACTR last spoke, making "never post
-             twice in a row" structural, with an idle escape for a stalled room.
-          4. SILENT  — the model's own veto, applied last inside ai_manager.
-
-        Only the last of the four is the model's call. There is deliberately no
-        settle delay: after the final answer to a go-around there is nothing left
-        to wait for, and pausing there just reads as a laggy facilitator.
+        Two things stay structural, and neither makes anyone wait:
+          * only student messages get here, so ACTR cannot post twice in a row;
+          * one turn per room at a time, or two concurrent turns both post.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
-            if st is None:
+            if st is None or not st.in_discussion():
                 return
+            if not st.claim_facilitator():
+                return   # a turn is already running; the re-run below picks this up
 
-            invoke, timed_out = st.facilitator_gate(addressed=addressed)
-            if not invoke or not st.claim_facilitator():
-                return
+            started_at_ts = st.last_message_ts
             try:
-                summary = get_or_create_context(room_id).summary_for_nudge()
+                ctx = get_or_create_context(room_id)
                 result = ai_manager.facilitator_reply(
-                    st.config, st.roster, st.active_group_size(), summary,
-                    chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
+                    st.config, st.roster, st.active_group_size(),
+                    ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
+                    chosen_name=st.chosen_candidate,
+                    turn_context=st.turn_context(addressed=addressed),
                     reopen_allowed=st.reopen_allowed,
                 )
                 message = result.get("message")
                 if not message:
-                    # Model declined. Still drop a timed-out go-around, or the
-                    # quorum gate would wedge the room shut for the session.
-                    if timed_out:
-                        st.clear_go_around()
                     return
 
                 # The model call is slow enough that the phase can move under us.
                 st = ex_state.get_exercise(room_id)
-                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
+                if st is None or not st.in_discussion():
                     return
+                # Speaking closes whatever go-around was open: it either answered
+                # the pattern or moved past it, and either way ACTR is no longer
+                # waiting on anyone.
+                st.clear_go_around()
                 _post_facilitator(st, message, result.get("go_around", False))
                 # MOVE 5: ACTR decided the group has pooled and counted enough to
                 # be invited to choose again, so the ballot appears WITH it.
@@ -242,6 +241,10 @@ def register_socket_events(socketio, app):
                 st = ex_state.get_exercise(room_id)
                 if st is not None:
                     st.release_facilitator()
+                    # Anything said while that call was in flight was refused the
+                    # lock and would otherwise never be considered. Look once more.
+                    if st.last_message_ts != started_at_ts and st.in_discussion():
+                        socketio.start_background_task(_facilitator_turn, room_id, False)
 
     # ---- Breakout-room lobby ---------------------------------------------------
     # A class gets one code and N named breakout rooms. Students see the rooms with
