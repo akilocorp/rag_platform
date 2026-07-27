@@ -292,6 +292,8 @@ const EditConfigPage = () => {
   const [presetName, setPresetName] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetMsg, setPresetMsg] = useState('');
+  // Public by default — a case is teaching material and sharing it is the point.
+  const [presetVisibility, setPresetVisibility] = useState('public');
 
   const saveCasePreset = async () => {
     const name = presetName.trim();
@@ -302,13 +304,16 @@ const EditConfigPage = () => {
     try {
       await apiClient.post('/case-presets', {
         name,
+        visibility: presetVisibility,
         candidate_summary: me.candidate_summary,
         candidates: me.candidates,
         case_pack: me.case_pack,
         class_preset: me.class_preset,
         learning_outcome: me.learning_outcome,
       });
-      setPresetMsg(`Saved "${name}". New classes can start from it.`);
+      setPresetMsg(presetVisibility === 'public'
+        ? `Saved "${name}" — anyone building a class can now start from it.`
+        : `Saved "${name}" — only you can see it.`);
     } catch (err) {
       const d = err.response?.data;
       setPresetMsg((d && (d.error || d.message)) || 'Could not save the case.');
@@ -1189,6 +1194,29 @@ const EditConfigPage = () => {
                             >
                               {presetBusy ? 'Saving…' : 'Save case'}
                             </button>
+                          </div>
+
+                          {/* Who else can build from it. Changeable later from the
+                              case picker when creating a class. */}
+                          <div className="mt-3 flex gap-2">
+                            {[
+                              { key: 'public', label: 'Shared', hint: 'Anyone building a class can use it' },
+                              { key: 'private', label: 'Private', hint: 'Only you can see it' },
+                            ].map(v => (
+                              <button
+                                key={v.key}
+                                type="button"
+                                onClick={() => setPresetVisibility(v.key)}
+                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                  presetVisibility === v.key
+                                    ? 'border-[#FA6C43] bg-[#FA6C43]/5'
+                                    : 'border-gray-200 bg-white hover:border-gray-300'
+                                }`}
+                              >
+                                <div className="text-xs font-bold text-[#222]">{v.label}</div>
+                                <div className="text-[10px] text-gray-500">{v.hint}</div>
+                              </button>
+                            ))}
                           </div>
                           {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
                         </div>

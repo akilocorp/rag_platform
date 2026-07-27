@@ -242,18 +242,21 @@ def preview_case_pack():
     return jsonify({"case_pack": pack}), 200
 
 
-def _preset_summary(doc):
-    """List-view shape: enough to choose between presets, without the document text.
+def _preset_summary(doc, user_id=None):
+    """List-view shape: enough to choose between cases, without the document text.
 
     The full candidate summary and every outcome document run to tens of
-    kilobytes each; a professor picking from a list needs the name, the
-    candidates, and the tally, so that is all that ships.
+    kilobytes each; someone picking from a list needs the name, the candidates
+    and the tally, so that is all that ships. `owned` tells the UI whether to
+    offer the visibility toggle and delete.
     """
     pack = doc.get("case_pack") or {}
     return {
         "preset_id": str(doc.get("_id")),
         "name": doc.get("name") or "Untitled case",
         "case_name": pack.get("case_name") or "",
+        "visibility": CasePreset.normalize_visibility(doc.get("visibility"), default="private"),
+        "owned": bool(user_id) and doc.get("user_id") == user_id,
         "candidates": [c.get("name", "") for c in (doc.get("candidates") or [])],
         "tally": [
             {
@@ -270,25 +273,38 @@ def _preset_summary(doc):
 @config_bp.route('/case-presets', methods=['GET'])
 @jwt_required()
 def list_case_presets():
-    """A professor's saved cases, newest first (summaries only)."""
+    """Cases this user may build from — every public one plus their own private ones."""
     user_id = get_jwt_identity()
-    presets = [_preset_summary(d) for d in CasePreset.find_by_user(user_id)]
+    presets = [_preset_summary(d, user_id) for d in CasePreset.find_readable(user_id)]
     return jsonify({"presets": presets}), 200
 
 
 @config_bp.route('/case-presets/<preset_id>', methods=['GET'])
 @jwt_required()
 def get_case_preset(preset_id):
-    """The full preset — documents and reviewed case pack — to load into a new class."""
-    doc = CasePreset.find_owned(preset_id, get_jwt_identity())
+    """The full case — documents and reviewed case pack — to load into a new class."""
+    user_id = get_jwt_identity()
+    doc = CasePreset.find_one_readable(preset_id, user_id)
     if not doc:
-        return jsonify({"error": "Preset not found"}), 404
+        return jsonify({"error": "Case not found"}), 404
     doc["preset_id"] = str(doc.pop("_id"))
-    doc.pop("user_id", None)
+    doc["owned"] = doc.pop("user_id", None) == user_id
+    doc["visibility"] = CasePreset.normalize_visibility(doc.get("visibility"), default="private")
     for key in ("created_at", "updated_at"):
         if doc.get(key):
             doc[key] = doc[key].isoformat()
     return jsonify({"preset": doc}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>/visibility', methods=['PATCH'])
+@jwt_required()
+def set_case_preset_visibility(preset_id):
+    """Share a case with everyone, or take it back. Author only."""
+    visibility = (request.get_json(silent=True) or {}).get('visibility')
+    result = CasePreset.set_visibility(preset_id, get_jwt_identity(), visibility)
+    if not result or result.matched_count == 0:
+        return jsonify({"error": "Case not found, or not yours to change"}), 404
+    return jsonify({"visibility": CasePreset.normalize_visibility(visibility)}), 200
 
 
 @config_bp.route('/case-presets', methods=['POST'])
@@ -297,11 +313,13 @@ def save_case_preset():
     """Save the current case — documents plus its reviewed analysis — for reuse.
 
     Deliberately stores the `case_pack` as reviewed rather than re-deriving it on
-    load: re-analysing would regenerate the answer key, and a professor who has
+    load: re-analysing would regenerate the answer key, and someone who has
     already checked and corrected one should not have to check it again.
 
-    Saving under a name that already exists overwrites it, so refining a case is
-    an edit rather than a pile of near-duplicates.
+    Public by default, since a case is teaching material and sharing is the point.
+    The overwrite-by-name check is scoped to YOUR cases, so refining your own is
+    an edit rather than a pile of near-duplicates and you can never clobber a
+    colleague's case by choosing the same name.
     """
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
@@ -316,6 +334,7 @@ def save_case_preset():
     fields = {
         "user_id": user_id,
         "name": name,
+        "visibility": CasePreset.normalize_visibility(data.get('visibility')),
         "candidate_summary": data.get('candidate_summary') or {"file_id": "", "text": ""},
         "candidates": data.get('candidates') or [],
         "case_pack": case_pack.recompute(pack),
@@ -323,22 +342,26 @@ def save_case_preset():
         "learning_outcome": (data.get('learning_outcome') or '').strip(),
     }
 
-    existing = CasePreset.get_collection().find_one({"user_id": user_id, "name": name})
+    existing = CasePreset.find_owned_by_name(name, user_id)
     if existing:
         CasePreset.replace_owned(existing["_id"], user_id, fields)
-        saved = CasePreset.find_owned(existing["_id"], user_id)
+        saved = CasePreset.find_one_readable(existing["_id"], user_id)
     else:
         saved = CasePreset.create(fields)
-    return jsonify({"preset": _preset_summary(saved)}), 200
+    return jsonify({"preset": _preset_summary(saved, user_id)}), 200
 
 
 @config_bp.route('/case-presets/<preset_id>', methods=['DELETE'])
 @jwt_required()
 def delete_case_preset(preset_id):
-    """Remove a saved case. Classes already created from it are unaffected."""
+    """Remove a case you saved. Deleting someone else's is simply not found.
+
+    Classes already built from it are unaffected — the case lives on each config
+    doc, so removing the library copy never breaks a running exercise.
+    """
     result = CasePreset.delete_owned(preset_id, get_jwt_identity())
     if not result or result.deleted_count == 0:
-        return jsonify({"error": "Preset not found"}), 404
+        return jsonify({"error": "Case not found, or not yours to delete"}), 404
     return jsonify({"deleted": True}), 200
 
 

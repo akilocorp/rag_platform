@@ -5,7 +5,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
-import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt } from 'react-icons/fa';
+import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt, FaShareAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -306,6 +306,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetMsg, setPresetMsg] = useState('');
+  // Public by default — a case is teaching material and sharing it is the point.
+  const [presetVisibility, setPresetVisibility] = useState('public');
 
   const loadCasePresets = useCallback(() => {
     apiClient.get('/case-presets')
@@ -339,6 +341,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
         },
       }));
       setPresetName(p.name || '');
+      if (p.visibility) setPresetVisibility(p.visibility);
       setPresetMsg(`Loaded "${p.name}". Set the group size and rooms below, then skip ahead.`);
     } catch {
       setPresetMsg('Could not load that case.');
@@ -357,13 +360,16 @@ const ConfigModal = ({ isOpen, onClose }) => {
       const me = config.manager_exercise;
       await apiClient.post('/case-presets', {
         name,
+        visibility: presetVisibility,
         candidate_summary: me.candidate_summary,
         candidates: me.candidates,
         case_pack: me.case_pack,
         class_preset: me.class_preset,
         learning_outcome: me.learning_outcome,
       });
-      setPresetMsg(`Saved "${name}". You can start from it next time.`);
+      setPresetMsg(presetVisibility === 'public'
+        ? `Saved "${name}" — anyone building a class can now start from it.`
+        : `Saved "${name}" — only you can see it.`);
       loadCasePresets();
     } catch (err) {
       const d = err.response?.data;
@@ -376,6 +382,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
   const deleteCasePreset = async (presetId) => {
     try {
       await apiClient.delete(`/case-presets/${presetId}`);
+      loadCasePresets();
+    } catch { /* the list simply stays as it was */ }
+  };
+
+  // Share one of your saved cases with everyone, or take it back private.
+  const toggleCaseVisibility = async (presetId, next) => {
+    try {
+      await apiClient.patch(`/case-presets/${presetId}/visibility`, { visibility: next });
       loadCasePresets();
     } catch { /* the list simply stays as it was */ }
   };
@@ -884,7 +898,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   {casePresets.length > 0 && (
                     <div className="bg-white p-5 rounded-2xl border-2 border-[#FA6C43]/30 animate-in fade-in slide-in-from-bottom-2 duration-300">
                       <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Start from a saved case</h3>
-                      <p className="text-[11px] text-gray-400 mb-3">Reuses the documents and the analysis you already approved — no re-upload, no re-analysis.</p>
+                      <p className="text-[11px] text-gray-400 mb-3">Shared cases plus your own. Reuses the documents and the approved analysis — no re-upload, no re-analysis.</p>
                       <div className="space-y-2">
                         {casePresets.map(p => (
                           <div key={p.preset_id} className="flex items-center gap-2">
@@ -894,18 +908,36 @@ const ConfigModal = ({ isOpen, onClose }) => {
                               onClick={() => applyCasePreset(p.preset_id)}
                               className="flex-1 text-left rounded-xl border-2 border-gray-200 bg-white px-4 py-3 hover:border-[#FA6C43] hover:-translate-y-0.5 transition-all disabled:opacity-50 active:scale-[0.99]"
                             >
-                              <div className="font-bold text-sm text-[#222]">{p.name}</div>
+                              <div className="font-bold text-sm text-[#222] flex items-center gap-2 flex-wrap">
+                                {p.name}
+                                {p.owned && <span className="text-[9px] font-bold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/60 px-1.5 py-0.5 rounded-full">Yours</span>}
+                                {p.visibility === 'private' && <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">Private</span>}
+                              </div>
                               <div className="text-[11px] text-gray-500">
                                 {p.tally.map(t => `${t.name} ${t.strengths}/${t.concerns}`).join('  ·  ') || p.candidates.join(', ')}
                               </div>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteCasePreset(p.preset_id)}
-                              className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"
-                            >
-                              <FaTrash className="text-sm" />
-                            </button>
+                            {/* Anyone may build from a case; only its author may
+                                share it, un-share it, or remove it. */}
+                            {p.owned && (
+                              <>
+                                <button
+                                  type="button"
+                                  title={p.visibility === 'public' ? 'Shared with everyone — click to make private' : 'Private — click to share'}
+                                  onClick={() => toggleCaseVisibility(p.preset_id, p.visibility === 'public' ? 'private' : 'public')}
+                                  className={`p-2 rounded-lg transition-colors ${p.visibility === 'public' ? 'text-[#FA6C43] hover:bg-[#F9D0C4]/30' : 'text-gray-400 hover:text-[#FA6C43] hover:bg-[#F9D0C4]/20'}`}
+                                >
+                                  <FaShareAlt className="text-sm" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteCasePreset(p.preset_id)}
+                                  className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"
+                                >
+                                  <FaTrash className="text-sm" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1359,7 +1391,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                             cohort-independent, so only group size, rooms and the
                             class code will need setting next time. */}
                         <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                          <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Save this case for reuse<InfoTip text="Stores the documents and this approved analysis under a name. Next time, pick it in Setup and you only need to set the group size, breakout rooms and class code. Saving under an existing name replaces it." /></label>
+                          <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Save this case for reuse<InfoTip text="Stores the documents and this approved analysis under a name. Next time, pick it in Setup and you only need to set the group size, breakout rooms and class code. Reusing one of your own names replaces that case; you can never overwrite someone else's." /></label>
                           <div className="flex gap-2">
                             <input
                               type="text"
@@ -1376,6 +1408,29 @@ const ConfigModal = ({ isOpen, onClose }) => {
                             >
                               {presetBusy ? 'Saving…' : 'Save case'}
                             </button>
+                          </div>
+
+                          {/* Who else can build from it. Changeable later from the
+                              picker in Setup — this is only the starting choice. */}
+                          <div className="mt-3 flex gap-2">
+                            {[
+                              { key: 'public', label: 'Shared', hint: 'Anyone building a class can use it' },
+                              { key: 'private', label: 'Private', hint: 'Only you can see it' },
+                            ].map(v => (
+                              <button
+                                key={v.key}
+                                type="button"
+                                onClick={() => setPresetVisibility(v.key)}
+                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                  presetVisibility === v.key
+                                    ? 'border-[#FA6C43] bg-[#FA6C43]/5'
+                                    : 'border-gray-200 bg-white hover:border-gray-300'
+                                }`}
+                              >
+                                <div className="text-xs font-bold text-[#222]">{v.label}</div>
+                                <div className="text-[10px] text-gray-500">{v.hint}</div>
+                              </button>
+                            ))}
                           </div>
                           {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
                         </div>
