@@ -1,8 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Made the tally consistent: extraction no longer groups anything (temp 0, transcription only),
-#            Python proposes cross-role merge candidates, a narrow second call adjudicates them, and the
-#            result is cross-checked against totals stated in the document.
+# @changed   Restored the optional general-information document: carried onto the pack verbatim so the
+#            facilitator can quote what the ROLE requires when the group argues about which failure costs more.
 """Turn a professor's uploaded case documents into a **case pack**.
 
 The facilitator system prompt is a static constant that never changes per case
@@ -481,14 +480,20 @@ def recompute(pack):
     return _validate(pack)
 
 
-def build_case_pack(candidate_summary_text, candidates):
+def build_case_pack(general_info_text, candidate_summary_text, candidates):
     """Extract a case pack from the uploaded documents. Returns (pack, error).
 
-    Two inputs, which is all an authored case actually has: the candidate summary
-    (every role's private view, side by side) and one outcome document per
-    candidate — `candidates` is `[{name, forecast_text}]`. On any failure returns
-    `(None, "<reason>")` so the caller can block the config save rather than
-    shipping an exercise with an empty answer key.
+    `candidate_summary_text` (every role's private view) and one outcome document
+    per candidate — `candidates` is `[{name, forecast_text}]` — are what the tally
+    is derived from and are required.
+
+    `general_info_text` is optional and is not extracted from at all: it is
+    carried through onto the pack so the facilitator can quote what the ROLE
+    requires. That is the only thing that settles an argument about which of two
+    failures costs more, which comparing candidates against each other cannot.
+
+    On any failure returns `(None, "<reason>")` so the caller can block the config
+    save rather than shipping an exercise with an empty answer key.
     """
     client = _get_client()
     if client is None:
@@ -540,6 +545,8 @@ def build_case_pack(candidate_summary_text, candidates):
     pack = {
         "case_name": raw.get("case_name") or "",
         "roles": raw.get("roles") or [],
+        # Verbatim, not extracted: the facilitator quotes this back at the group.
+        "general_info": (general_info_text or "").strip()[:_MAX_DOC_CHARS],
         "criterion": "most distinct strengths, fewest distinct concerns",
         "collapse_rule": (
             "items describing the same underlying behaviour collapse to one, regardless of "
@@ -569,6 +576,21 @@ def render_case_pack(pack):
         f"Roles: {', '.join(pack.get('roles') or []) or 'unspecified'}",
         f"Criterion: {pack.get('criterion')}",
         f"Collapse rule: {pack.get('collapse_rule')}",
+    ]
+
+    if (pack.get("general_info") or "").strip():
+        lines += [
+            "",
+            "## The role and the setting",
+            "Reach for this when the group is arguing about which failure matters more."
+            " It is what the job actually requires, and it settles arguments that",
+            "comparing candidates against each other cannot. Quoting it is allowed —"
+            " unlike the tally, this is not an answer key.",
+            "",
+            pack["general_info"].strip(),
+        ]
+
+    lines += [
         "",
         "## Tally (never state these numbers — students must count them out loud)",
     ]

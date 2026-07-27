@@ -1,7 +1,6 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   manager_exercise materials reduced to the candidate summary + one outcome doc per candidate;
-#            dropped the general_information slot from the schema, validator and case-pack preview.
+# @changed   Restored the optional general_info document on manager_exercise (schema, validator, preview).
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -183,9 +182,14 @@ def validate_manager_exercise(source, target):
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
 
-    # AI-only reference document. Never sent to a student client — it states each
-    # role's private view and (in most authored cases) the pooled totals, i.e. the
-    # answer key in plain text.
+    # AI-only reference documents. Never sent to a student client — the candidate
+    # summary states each role's private view and (in most authored cases) the
+    # pooled totals, i.e. the answer key in plain text.
+    #
+    # general_info is optional and does a different job: it is what the ROLE
+    # requires, which the facilitator quotes when the group is arguing about which
+    # failure costs more. Students already hold it on paper.
+    general_info = _me_doc_ref(raw, 'general_info')
     candidate_summary = _me_doc_ref(raw, 'candidate_summary')
     if not candidate_summary["text"].strip():
         return jsonify({"error": "manager_exercise.candidate_summary is required (upload the Candidate Summary document)"}), 400
@@ -201,7 +205,9 @@ def validate_manager_exercise(source, target):
     if isinstance(supplied, dict) and supplied.get('options'):
         pack = case_pack.recompute(supplied)
     else:
-        pack, err = case_pack.build_case_pack(candidate_summary["text"], candidates)
+        pack, err = case_pack.build_case_pack(
+            general_info["text"], candidate_summary["text"], candidates,
+        )
         if err:
             return jsonify({"error": err}), 400
 
@@ -212,6 +218,7 @@ def validate_manager_exercise(source, target):
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),
+        "general_info": general_info,
         "candidate_summary": candidate_summary,
         "candidates": candidates,
         "case_pack": pack,
@@ -234,6 +241,7 @@ def preview_case_pack():
     """
     data = request.get_json(silent=True) or {}
     pack, err = case_pack.build_case_pack(
+        data.get('general_info_text') or '',
         data.get('candidate_summary_text') or '',
         data.get('candidates') or [],
     )

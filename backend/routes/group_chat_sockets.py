@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   ACTR now judges its own turn after every student message — the quorum and cooldown gates are
-#            gone, replaced by a turn brief and a re-run so nothing is dropped by the concurrency lock.
+# @changed   8s silence watcher armed by each student message — a timer that FIRES to break an awkward
+#            pause, not one that blocks ACTR from speaking.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -29,6 +29,12 @@ uid_to_sid: dict = {}
 # How much transcript ACTR sees when judging its turn. Wider than the default so
 # the start of a go-around is never scrolled off — it has to see who it asked.
 FACILITATOR_HISTORY_MESSAGES = 20
+
+# How long a pause is allowed to run before ACTR breaks it. This is a timer that
+# FIRES, not one that blocks: ACTR is still asked the instant a student posts, and
+# never waits when it judges it should speak. The timer only covers the case where
+# a student says something and nobody — including the other students — follows.
+FACILITATOR_SILENCE_SECONDS = 8
 
 # Live occupancy of each manager-exercise breakout room: {room_id: {uid: name}}.
 # Socket presence rather than the persisted roster, so closing a tab frees the
@@ -189,7 +195,25 @@ def register_socket_events(socketio, app):
             )
             _post(st, FACILITATOR_SENDER, text)
 
-    def _facilitator_turn(room_id, addressed=False):
+    def _silence_watch(room_id, mark_ts):
+        """Break an awkward pause: a student spoke, and 8s later nobody has followed.
+
+        Armed by every student message and usually a no-op — if anyone speaks in
+        the interval, or ACTR has already filled the gap, this returns without
+        doing anything and whoever spoke last has their own watcher. It exists for
+        the case the immediate turn deliberately passed on: one person answered,
+        ACTR held to let the others react, and the others never did.
+        """
+        with app.app_context():
+            socketio.sleep(FACILITATOR_SILENCE_SECONDS)
+            st = ex_state.get_exercise(room_id)
+            if st is None or not st.in_discussion():
+                return
+            if st.last_message_ts != mark_ts or st.spoke_last():
+                return
+            _facilitator_turn(room_id, silence=True)
+
+    def _facilitator_turn(room_id, addressed=False, silence=False):
         """Background: ask ACTR whether this is its turn, and post if it says yes.
 
         Runs after EVERY student message. There is nothing between the message and
@@ -217,7 +241,7 @@ def register_socket_events(socketio, app):
                     st.config, st.roster, st.active_group_size(),
                     ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
                     chosen_name=st.chosen_candidate,
-                    turn_context=st.turn_context(addressed=addressed),
+                    turn_context=st.turn_context(addressed=addressed, silence=silence),
                     reopen_allowed=st.reopen_allowed,
                 )
                 message = result.get("message")
@@ -594,10 +618,13 @@ def register_socket_events(socketio, app):
             state.note_participant(uid)
             _post(state, state.display_name(uid), text)
             state.note_student_message(uid)
-            # Naming ACTR is treated as a direct question, which bypasses the
-            # cooldown so it always gets an answer.
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
-            socketio.start_background_task(_facilitator_turn, room_id, addressed)
+            # Two paths, and they do different jobs. The immediate one asks ACTR
+            # whether it should speak NOW — usually it should not, because one
+            # student answering is not the group answering. The watcher covers the
+            # case where holding was right but nobody else ever spoke.
+            socketio.start_background_task(_facilitator_turn, room_id, addressed, False)
+            socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
             return
 
         # ------------------- PLAIN GROUP CHAT PATH (unchanged) -------------------

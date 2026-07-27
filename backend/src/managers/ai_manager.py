@@ -1,7 +1,6 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   ACTR now judges its own turn: called after every student message with a turn brief instead of
-#            being gated, on a cached system prompt at temperature 0.
+# @changed   facilitator_reply takes a silence flag: when the room has gone quiet it must not reply SILENT.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -16,8 +15,8 @@ call plumbing.
 
 One thing is decided in Python rather than by the model, deliberately: **whether
 a re-choice is permitted at all** (`case_pack.is_top_choice`), so it can never
-drift with the model's mood. WHEN it is offered is the model's call, at MOVE 5,
-once the group has actually pooled and counted.
+drift with the model's mood. WHEN it is offered is the model's call, at step 11 of
+the sequence, once the group has actually pooled and counted.
 
 Turn-taking used to be decided in Python too — a quorum and a cooldown gating
 whether ACTR was invoked. Those bought their guarantees with latency, so they are
@@ -256,6 +255,13 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
         "Otherwise write ONE short message.",
         f"If your message asks every student in turn for an item, end it with {GO_AROUND_MARKER}.",
     ]
+    if (turn_context or {}).get("silence"):
+        task.append(
+            "The room has gone quiet — a student spoke and nobody followed. Do NOT reply "
+            "SILENT this time; the pause has become awkward and it is yours to break. It "
+            "need not be a new move: pulling in whoever has not spoken is enough, e.g. "
+            "\"Marco, you've been quiet — what did yours say?\""
+        )
     if reopen_allowed:
         task.append(
             "The group may reopen their decision, but ONLY once they have pooled every option and "

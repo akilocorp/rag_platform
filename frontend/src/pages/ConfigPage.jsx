@@ -198,6 +198,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       discuss_minutes: 20,
       class_preset: '',
       learning_outcome: '',
+      general_info: { file_id: '', text: '' },        // AI-only, optional; what the ROLE requires
       candidate_summary: { file_id: '', text: '' },   // AI-only; the tally derives from this
       candidates: [],                                 // { name, forecast_text, forecast_file_id }
       case_pack: null                                 // derived + reviewed in step 4
@@ -513,6 +514,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     try {
       const me = config.manager_exercise;
       const res = await apiClient.post('/config/case-pack/preview', {
+        general_info_text: me.general_info?.text || '',
         candidate_summary_text: me.candidate_summary?.text || '',
         candidates: me.candidates,
       });
@@ -1079,25 +1081,35 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Case Materials</h2>
                   <p className="text-center text-sm text-gray-500 mb-4">These go to ACTR only and are never shown to a student — the candidate summary states every role's private view.</p>
 
-                  {/* The one document the pooled tally is derived from. */}
-                  {(() => {
-                    const doc = config.manager_exercise.candidate_summary || {};
+                  {/* General information is optional and does a different job from
+                      the summary: ACTR quotes it when the group argues about which
+                      failure costs more. The summary is what the tally comes from. */}
+                  {[
+                    { field: 'general_info', label: 'General Information', required: false,
+                      hint: 'What the role actually requires. ACTR uses it to settle arguments about which failure matters more.' },
+                    { field: 'candidate_summary', label: 'Candidate Summary', required: true,
+                      hint: "Every role's private view, side by side. The pooled tally is derived from this." },
+                  ].map(slot => {
+                    const doc = config.manager_exercise[slot.field] || {};
                     const filled = (doc.text || '').trim().length > 0;
                     return (
-                      <div className={`p-4 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
+                      <div key={slot.field} className={`p-4 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="font-bold text-sm text-[#222]">Candidate Summary</p>
-                            <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : "Every role's private view, side by side. The pooled tally is derived from this."}</p>
+                            <p className="font-bold text-sm text-[#222]">
+                              {slot.label}
+                              {!slot.required && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">optional</span>}
+                            </p>
+                            <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
                           </div>
                           <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
                             {filled ? 'Replace' : 'Upload'}
-                            <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload('candidate_summary', e.target.files?.[0])} />
+                            <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
                           </label>
                         </div>
                       </div>
                     );
-                  })()}
+                  })}
 
                   {/* One outcome document per candidate. The name is parsed from the
                       doc header, so uploading is very nearly the whole authoring step. */}

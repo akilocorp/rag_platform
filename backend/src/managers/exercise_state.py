@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Dropped the 8s facilitator debounce (it only made ACTR feel laggy) and replaced the
-#            serialisation it was incidentally providing with an explicit per-room facilitator lock.
+# @changed   spoke_last() and a silence flag on turn_context, so an 8s pause after a STUDENT message can
+#            be broken without ever delaying ACTR when it judges it should speak.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -566,7 +566,7 @@ class ExerciseState:
         with self._lock:
             self._facilitator_busy = False
 
-    def turn_context(self, addressed: bool = False) -> Dict:
+    def turn_context(self, addressed: bool = False, silence: bool = False) -> Dict:
         """The facts ACTR needs to judge whether it is its turn.
 
         These used to be gates. "Two of the three you asked have answered" is
@@ -587,6 +587,7 @@ class ExerciseState:
                 answered = [self.display_name(u) for u in expected if u in received]
             return {
                 "addressed": bool(addressed),
+                "silence": bool(silence),
                 "go_around_open": bool(self.pending_go_around),
                 "outstanding": outstanding,
                 "answered": answered,
@@ -600,6 +601,18 @@ class ExerciseState:
     def in_discussion(self) -> bool:
         """True while the room is in `discuss` — the only phase ACTR reacts in."""
         return self._phase == PHASE_DISCUSS
+
+    def spoke_last(self) -> bool:
+        """True when ACTR posted more recently than any student.
+
+        The silence timer only breaks a pause a STUDENT left. If ACTR spoke last,
+        the room is waiting on them, not the other way round, and filling that gap
+        would just be ACTR talking to itself.
+        """
+        with self._lock:
+            if not self.last_facilitator_at:
+                return False
+            return self.last_facilitator_at > (self.last_message_ts or 0)
 
 
 # =====================================================================
