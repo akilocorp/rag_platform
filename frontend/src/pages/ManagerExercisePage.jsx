@@ -226,8 +226,8 @@ const ManagerExercisePage = () => {
         });
 
         socket.on('breakout_error', (d) => {
-          setRoomError(d.reason === 'started'
-            ? 'That group has already begun — pick another.'
+          setRoomError(d.reason === 'finished'
+            ? 'That group has already finished — pick another.'
             : 'That group is full — pick another.');
         });
 
@@ -508,40 +508,42 @@ const ManagerExercisePage = () => {
           )}
 
           <div className="space-y-3">
+            {/* A room in progress is still joinable — you get the whole transcript
+                on the way in. Only full or finished rooms are closed. */}
             {rooms.map((r, i) => {
-              const full = r.occupants >= r.capacity;
-              const blocked = r.started || full;
+              const joinable = r.joinable !== false;
               return (
                 <button
                   key={r.room_id}
                   onClick={() => joinBreakout(r.index)}
-                  disabled={blocked}
+                  disabled={!joinable}
                   style={{ animationDelay: `${i * 50}ms` }}
                   className={`w-full text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 ${
-                    blocked
+                    !joinable
                       ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
-                      : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
+                      : r.started
+                        ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10 hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
+                        : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-bold text-[#222]">{r.label}</div>
+                      <div className="font-bold text-[#222] flex items-center gap-2">
+                        {r.label}
+                        {r.started && joinable && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/60 px-1.5 py-0.5 rounded-full">
+                            In progress — you can still join
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-gray-500 truncate">
-                        {r.started
-                          ? 'In progress'
-                          : r.names.length
-                            ? r.names.join(', ')
-                            : 'Empty — be the first'}
+                        {r.names.length ? r.names.join(', ') : 'Empty — be the first'}
                       </div>
                     </div>
                     <span className={`flex-shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                      r.started
-                        ? 'bg-gray-200 text-gray-500'
-                        : full
-                          ? 'bg-gray-200 text-gray-500'
-                          : 'bg-[#FA6C43]/10 text-[#C2410C]'
+                      joinable ? 'bg-[#FA6C43]/10 text-[#C2410C]' : 'bg-gray-200 text-gray-500'
                     }`}>
-                      {r.started ? 'Started' : `${r.occupants} / ${r.capacity}`}
+                      {r.phase === 'done' ? 'Finished' : `${r.occupants} / ${r.capacity}`}
                     </span>
                   </div>
                 </button>

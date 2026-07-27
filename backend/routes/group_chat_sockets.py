@@ -1,8 +1,8 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   manager_exercise now uses breakout rooms instead of a queue: students see live room occupancy,
-#            pick one, and start when ready even if short-handed — the facilitator is told the real
-#            headcount. Plus: one student enters the pick for the team.
+# @changed   Breakout rooms accept late joiners: a room in progress stays open until it is full or
+#            finished, and the arrival gets the full transcript. Plus: students pick a room rather than
+#            being queued, and start when ready even if short-handed.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -284,6 +284,10 @@ def register_socket_events(socketio, app):
                 "occupants": len(members),
                 "capacity": capacity,
                 "started": phase != ex_state.PHASE_WAITING,
+                # A room in progress is still joinable — students arrive late and
+                # a latecomer gets the whole transcript. Only a full or finished
+                # room is closed.
+                "joinable": phase != ex_state.PHASE_DONE and len(members) < capacity,
                 "phase": phase,
             })
         return rooms
@@ -445,11 +449,15 @@ def register_socket_events(socketio, app):
 
     @socketio.on('join_breakout_room')
     def handle_join_breakout_room(data):
-        """Claim a place in a named breakout room.
+        """Claim a place in a named breakout room, before or after it has started.
 
-        Refused when the room is full or has already begun — a group mid-debrief
-        has pooled information a latecomer never held, and dropping someone in
-        would quietly break the exercise's premise.
+        Late joining is allowed on purpose: a class does not arrive all at once,
+        and locking a room the moment it begins strands everyone who was thirty
+        seconds behind. A latecomer gets the full transcript on entry, joins the
+        roster, and counts toward the headcount ACTR is told about from then on.
+
+        Refused only when the room is full, or finished — there is nothing left to
+        join once the discussion has closed.
         """
         d = data or {}
         config_id, uid = d.get('config_id'), d.get('uid')
@@ -467,8 +475,8 @@ def register_socket_events(socketio, app):
         room_id = _room_id_for(config_id, index)
 
         state = ex_state.get_exercise(room_id)
-        if state is not None and state.phase() != ex_state.PHASE_WAITING:
-            emit('breakout_error', {'reason': 'started', 'room_id': room_id}, to=request.sid)
+        if state is not None and state.phase() == ex_state.PHASE_DONE:
+            emit('breakout_error', {'reason': 'finished', 'room_id': room_id}, to=request.sid)
             return
         try:
             capacity = max(1, int(me_config.get("num_students") or 3))
