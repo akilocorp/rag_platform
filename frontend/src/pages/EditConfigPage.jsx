@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-27
-// @changed   Manager Exercise case materials reduced to the candidate summary + one outcome doc per
-//            candidate; dropped the General Information slot, which no authored case uses.
+// @changed   Manager Exercise gains the Class Code field it never had on the edit page, plus a breakout
+//            groups slider. Case materials reduced to the candidate summary + per-candidate outcomes.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -955,6 +955,27 @@ const EditConfigPage = () => {
                       </select>
                       <label className="block text-xs font-semibold text-gray-700 mb-2">What should they take away?</label>
                       <textarea rows="3" value={me.learning_outcome || ''} onChange={(e) => setMgr('learning_outcome', e.target.value)} placeholder="e.g. Groups under-share unique information and over-weight a concern everyone happens to hold." className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                    </div>
+
+                    {/* Class code — how students reach the exercise at all, so it sits
+                        in the main flow rather than behind the Advanced toggle. */}
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class code<InfoTip text="Students open /join/CODE, sign in, and land straight in the breakout lobby. Leave blank to share the direct link instead." /></label>
+                      <input
+                        type="text"
+                        value={(config.class_code || '').toUpperCase()}
+                        onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
+                        maxLength={20}
+                        placeholder="e.g. MGMT5110"
+                        className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">3–20 characters, letters, numbers, hyphens. Must be unique.</p>
+                      {config.class_code && (
+                        <p className="mt-2 text-[11px] font-semibold text-[#C2410C] break-all">
+                          Share: {window.location.origin}/join/{config.class_code.toUpperCase()}
+                        </p>
+                      )}
+                      {classUsageFields}
                     </div>
 
                     {/* AI-only reference documents. Never shown to a student — the
