@@ -193,54 +193,55 @@ def register_socket_events(socketio, app):
         just asked a question will answer the first student who replies. So the
         waiting is enforced here, in order:
 
-          1. DEBOUNCE — sleep, then bail if anyone spoke during the sleep, so a
-             burst of quick messages yields one invocation instead of three.
+          1. LOCK    — one turn per room at a time. Two messages can clear the
+             gates together, and the counters that would stop the second are not
+             reset until the first finishes its (slow) model call.
           2. QUORUM  — a pending go-around blocks everything until every student
              has answered or the timeout fires (ExerciseState.facilitator_gate).
           3. COOLDOWN— N student turns since ACTR last spoke, making "never post
              twice in a row" structural, with an idle escape for a stalled room.
           4. SILENT  — the model's own veto, applied last inside ai_manager.
 
-        Only the last of the four is the model's call.
+        Only the last of the four is the model's call. There is deliberately no
+        settle delay: after the final answer to a go-around there is nothing left
+        to wait for, and pausing there just reads as a laggy facilitator.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
                 return
-            if not addressed:
-                mark = st.last_message_ts
-                socketio.sleep(ex_state.FACILITATOR_DEBOUNCE_SECONDS)
-                st = ex_state.get_exercise(room_id)
-                if st is None or st.last_message_ts != mark:
-                    return   # someone spoke during the wait; their turn re-arms this
 
             invoke, timed_out = st.facilitator_gate(addressed=addressed)
-            if not invoke:
+            if not invoke or not st.claim_facilitator():
                 return
+            try:
+                summary = get_or_create_context(room_id).summary_for_nudge()
+                result = ai_manager.facilitator_reply(
+                    st.config, st.roster, st.active_group_size(), summary,
+                    chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
+                    reopen_allowed=st.reopen_allowed,
+                )
+                message = result.get("message")
+                if not message:
+                    # Model declined. Still drop a timed-out go-around, or the
+                    # quorum gate would wedge the room shut for the session.
+                    if timed_out:
+                        st.clear_go_around()
+                    return
 
-            summary = get_or_create_context(room_id).summary_for_nudge()
-            result = ai_manager.facilitator_reply(
-                st.config, st.roster, st.active_group_size(), summary,
-                chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
-                reopen_allowed=st.reopen_allowed,
-            )
-            message = result.get("message")
-            if not message:
-                # Model declined. Still drop a timed-out go-around, or the quorum
-                # gate would wedge the room shut for the rest of the session.
-                if timed_out:
-                    st.clear_go_around()
-                return
-
-            # The model call is slow enough that the phase can move under us.
-            st = ex_state.get_exercise(room_id)
-            if st is None or st.phase() != ex_state.PHASE_DISCUSS:
-                return
-            _post_facilitator(st, message, result.get("go_around", False))
-            # MOVE 5: ACTR decided the group has pooled and counted enough to be
-            # invited to choose again, so the ballot appears WITH that invitation.
-            if result.get("offer_reopen"):
-                st.reopen_choice()
+                # The model call is slow enough that the phase can move under us.
+                st = ex_state.get_exercise(room_id)
+                if st is None or st.phase() != ex_state.PHASE_DISCUSS:
+                    return
+                _post_facilitator(st, message, result.get("go_around", False))
+                # MOVE 5: ACTR decided the group has pooled and counted enough to
+                # be invited to choose again, so the ballot appears WITH it.
+                if result.get("offer_reopen"):
+                    st.reopen_choice()
+            finally:
+                st = ex_state.get_exercise(room_id)
+                if st is not None:
+                    st.release_facilitator()
 
     # ---- Breakout-room lobby ---------------------------------------------------
     # A class gets one code and N named breakout rooms. Students see the rooms with
@@ -591,7 +592,7 @@ def register_socket_events(socketio, app):
             _post(state, state.display_name(uid), text)
             state.note_student_message(uid)
             # Naming ACTR is treated as a direct question, which bypasses the
-            # debounce and cooldown so it always gets an answer.
+            # cooldown so it always gets an answer.
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
             socketio.start_background_task(_facilitator_turn, room_id, addressed)
             return

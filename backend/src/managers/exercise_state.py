@@ -1,8 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Breakout rooms: num_students is now room CAPACITY, the exercise starts on an explicit student
-#            action rather than the room filling, and active_group_size() reports the real headcount so the
-#            facilitator adapts to a short group.
+# @changed   Dropped the 8s facilitator debounce (it only made ACTR feel laggy) and replaced the
+#            serialisation it was incidentally providing with an explicit per-room facilitator lock.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -57,9 +56,6 @@ _UNLOCKED_PHASES = {PHASE_DISCUSS}
 # Quorum: how long to wait for a silent student before proceeding with partial
 # answers to a go-around.
 GO_AROUND_TIMEOUT_SECONDS = 60
-# Debounce: the room must be quiet this long before ACTR is even considered, so a
-# burst of three quick messages produces one invocation rather than three.
-FACILITATOR_DEBOUNCE_SECONDS = 8
 # Cooldown: student messages required since ACTR last spoke. Structurally enforces
 # "never post twice in a row".
 FACILITATOR_COOLDOWN_MSGS = 3
@@ -89,6 +85,13 @@ class ExerciseState:
         self._socketio = None
         self._app = None
         self._started = False
+
+        # True while a facilitator turn is in flight. Two messages arriving close
+        # together can both clear the gates, and a model call takes seconds — the
+        # counters that would stop the second turn are not reset until the first
+        # one finishes. Without this they both post, which is exactly the
+        # "never twice in a row" rule the cooldown exists to enforce.
+        self._facilitator_busy = False
 
         # Hooks the sockets layer registers so AI-side work fires at the right
         # phase edges without this module importing ai_manager:
@@ -504,7 +507,7 @@ class ExerciseState:
     # TURN-TAKING (the gates that stop ACTR replying to everyone)
     # ==================================================================
     def note_student_message(self, uid: str):
-        """Register a student turn: feeds the cooldown, debounce, and go-around quorum."""
+        """Register a student turn: feeds the cooldown and the go-around quorum."""
         with self._lock:
             self.msgs_since_facilitator += 1
             self.last_message_ts = time.time()
@@ -546,11 +549,27 @@ class ExerciseState:
             self.pending_go_around = None
             self._persist({"pending_go_around": None})
 
+    def claim_facilitator(self) -> bool:
+        """Take the facilitator slot for this room. False if a turn is already running.
+
+        The caller must call `release_facilitator()` when done, whatever the
+        outcome, or the room goes permanently quiet.
+        """
+        with self._lock:
+            if self._facilitator_busy:
+                return False
+            self._facilitator_busy = True
+            return True
+
+    def release_facilitator(self):
+        """Give the facilitator slot back. Safe to call when not held."""
+        with self._lock:
+            self._facilitator_busy = False
+
     def facilitator_gate(self, addressed: bool = False) -> Tuple[bool, bool]:
         """Decide whether ACTR may speak right now. Returns (invoke, go_around_timed_out).
 
-        Evaluated AFTER the debounce sleep, so "the room is quiet" is already true
-        by construction when this is called. Order matters:
+        Order matters:
 
           addressed  -> always let it answer a direct question.
           quorum     -> a pending go-around blocks everything until it completes or
