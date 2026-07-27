@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-27
-// @changed   Manager Exercise gains the Class Code field it never had on the edit page, plus a breakout
-//            groups slider. Case materials reduced to the candidate summary + per-candidate outcomes.
+// @changed   Save this class's reviewed case as a reusable preset; plus the tally warnings banner and
+//            per-merge confirm toggles, the Class Code field, and the breakout groups slider.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -287,6 +287,35 @@ const EditConfigPage = () => {
   // Case-pack analysis state for the review block.
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState('');
+  // Saving this class's case for reuse. No picker here — an existing class keeps
+  // the case it was built on; only new classes choose one.
+  const [presetName, setPresetName] = useState('');
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [presetMsg, setPresetMsg] = useState('');
+
+  const saveCasePreset = async () => {
+    const name = presetName.trim();
+    const me = config.manager_exercise || {};
+    if (!name || !me.case_pack) return;
+    setPresetBusy(true);
+    setPresetMsg('');
+    try {
+      await apiClient.post('/case-presets', {
+        name,
+        candidate_summary: me.candidate_summary,
+        candidates: me.candidates,
+        case_pack: me.case_pack,
+        class_preset: me.class_preset,
+        learning_outcome: me.learning_outcome,
+      });
+      setPresetMsg(`Saved "${name}". New classes can start from it.`);
+    } catch (err) {
+      const d = err.response?.data;
+      setPresetMsg((d && (d.error || d.message)) || 'Could not save the case.');
+    } finally {
+      setPresetBusy(false);
+    }
+  };
 
   // The derived case pack, if this config has one. Read throughout the review block.
   const mePack = config.manager_exercise?.case_pack || null;
@@ -1138,6 +1167,30 @@ const EditConfigPage = () => {
                           </select>
                           {mePack.answer_key?.best_option_locked && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">Set manually — the tally no longer decides this.</p>}
                           {mePack.answer_key?.mechanism && <p className="text-[11px] text-gray-500 mt-3 leading-relaxed"><span className="font-bold uppercase tracking-wider text-gray-400">The trap: </span>{mePack.answer_key.mechanism}</p>}
+                        </div>
+
+                        {/* Keep this case for the next cohort — everything above is
+                            cohort-independent. */}
+                        <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                          <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Save this case for reuse<InfoTip text="Stores the documents and this approved analysis under a name. A new class can start from it and only needs a group size, breakout rooms and a class code. Saving under an existing name replaces it." /></label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={presetName}
+                              onChange={(e) => setPresetName(e.target.value)}
+                              placeholder="e.g. HKL Solutions COO"
+                              className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={saveCasePreset}
+                              disabled={presetBusy || !presetName.trim()}
+                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                            >
+                              {presetBusy ? 'Saving…' : 'Save case'}
+                            </button>
+                          </div>
+                          {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
                         </div>
 
                         <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50 active:scale-[0.99]">

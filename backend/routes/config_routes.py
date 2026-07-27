@@ -11,6 +11,7 @@ import os
 from werkzeug.utils import secure_filename
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from models.config import Config
+from models.case_preset import CasePreset
 from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
@@ -239,6 +240,106 @@ def preview_case_pack():
     if err:
         return jsonify({"error": err}), 400
     return jsonify({"case_pack": pack}), 200
+
+
+def _preset_summary(doc):
+    """List-view shape: enough to choose between presets, without the document text.
+
+    The full candidate summary and every outcome document run to tens of
+    kilobytes each; a professor picking from a list needs the name, the
+    candidates, and the tally, so that is all that ships.
+    """
+    pack = doc.get("case_pack") or {}
+    return {
+        "preset_id": str(doc.get("_id")),
+        "name": doc.get("name") or "Untitled case",
+        "case_name": pack.get("case_name") or "",
+        "candidates": [c.get("name", "") for c in (doc.get("candidates") or [])],
+        "tally": [
+            {
+                "name": o.get("name", ""),
+                "strengths": o.get("distinct_strengths", 0),
+                "concerns": o.get("distinct_concerns", 0),
+            }
+            for o in (pack.get("options") or [])
+        ],
+        "updated_at": (doc.get("updated_at").isoformat() if doc.get("updated_at") else None),
+    }
+
+
+@config_bp.route('/case-presets', methods=['GET'])
+@jwt_required()
+def list_case_presets():
+    """A professor's saved cases, newest first (summaries only)."""
+    user_id = get_jwt_identity()
+    presets = [_preset_summary(d) for d in CasePreset.find_by_user(user_id)]
+    return jsonify({"presets": presets}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>', methods=['GET'])
+@jwt_required()
+def get_case_preset(preset_id):
+    """The full preset — documents and reviewed case pack — to load into a new class."""
+    doc = CasePreset.find_owned(preset_id, get_jwt_identity())
+    if not doc:
+        return jsonify({"error": "Preset not found"}), 404
+    doc["preset_id"] = str(doc.pop("_id"))
+    doc.pop("user_id", None)
+    for key in ("created_at", "updated_at"):
+        if doc.get(key):
+            doc[key] = doc[key].isoformat()
+    return jsonify({"preset": doc}), 200
+
+
+@config_bp.route('/case-presets', methods=['POST'])
+@jwt_required()
+def save_case_preset():
+    """Save the current case — documents plus its reviewed analysis — for reuse.
+
+    Deliberately stores the `case_pack` as reviewed rather than re-deriving it on
+    load: re-analysing would regenerate the answer key, and a professor who has
+    already checked and corrected one should not have to check it again.
+
+    Saving under a name that already exists overwrites it, so refining a case is
+    an edit rather than a pile of near-duplicates.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({"error": "Give the case a name"}), 400
+    pack = data.get('case_pack')
+    if not isinstance(pack, dict) or not pack.get('options'):
+        return jsonify({"error": "Analyse and review the case before saving it as a preset"}), 400
+
+    fields = {
+        "user_id": user_id,
+        "name": name,
+        "candidate_summary": data.get('candidate_summary') or {"file_id": "", "text": ""},
+        "candidates": data.get('candidates') or [],
+        "case_pack": case_pack.recompute(pack),
+        "class_preset": (data.get('class_preset') or '').strip(),
+        "learning_outcome": (data.get('learning_outcome') or '').strip(),
+    }
+
+    existing = CasePreset.get_collection().find_one({"user_id": user_id, "name": name})
+    if existing:
+        CasePreset.replace_owned(existing["_id"], user_id, fields)
+        saved = CasePreset.find_owned(existing["_id"], user_id)
+    else:
+        saved = CasePreset.create(fields)
+    return jsonify({"preset": _preset_summary(saved)}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>', methods=['DELETE'])
+@jwt_required()
+def delete_case_preset(preset_id):
+    """Remove a saved case. Classes already created from it are unaffected."""
+    result = CasePreset.delete_owned(preset_id, get_jwt_identity())
+    if not result or result.deleted_count == 0:
+        return jsonify({"error": "Preset not found"}), 404
+    return jsonify({"deleted": True}), 200
 
 
 @config_bp.route('/config/case-pack/recompute', methods=['POST'])

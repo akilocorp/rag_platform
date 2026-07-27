@@ -1,8 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-07-27
-// @changed   Manager Exercise Case Materials reduced to the candidate summary + one outcome doc per
-//            candidate; dropped the General Information upload slot, which no authored case uses.
-import React, { useState, useRef, useEffect } from 'react';
+// @changed   Saved cases: pick one in Setup to load its documents and approved analysis, or save the
+//            current case from Review. Plus the tally warnings banner and per-merge confirm toggles.
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt } from 'react-icons/fa';
@@ -298,6 +298,87 @@ const ConfigModal = ({ isOpen, onClose }) => {
   // Case-pack analysis state for the step-4 review.
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState('');
+
+  // Saved cases. Authoring a case (upload, analyse, review the answer key) is the
+  // expensive part and none of it changes between cohorts, so a preset carries it
+  // all and a second class only has to set group size, rooms, and a code.
+  const [casePresets, setCasePresets] = useState([]);
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [presetMsg, setPresetMsg] = useState('');
+
+  const loadCasePresets = useCallback(() => {
+    apiClient.get('/case-presets')
+      .then(res => setCasePresets(res.data?.presets || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (config.bot_type === 'manager_exercise') loadCasePresets();
+  }, [config.bot_type, loadCasePresets]);
+
+  // Load a saved case wholesale — documents AND the reviewed analysis. The pack is
+  // reused rather than re-derived on purpose: re-analysing would regenerate the
+  // answer key the professor already checked.
+  const applyCasePreset = async (presetId) => {
+    setPresetBusy(true);
+    setPresetMsg('');
+    try {
+      const res = await apiClient.get(`/case-presets/${presetId}`);
+      const p = res.data?.preset;
+      if (!p) return;
+      setConfig(prev => ({
+        ...prev,
+        manager_exercise: {
+          ...prev.manager_exercise,
+          candidate_summary: p.candidate_summary || { file_id: '', text: '' },
+          candidates: p.candidates || [],
+          case_pack: p.case_pack || null,
+          class_preset: p.class_preset || prev.manager_exercise.class_preset,
+          learning_outcome: p.learning_outcome || prev.manager_exercise.learning_outcome,
+        },
+      }));
+      setPresetName(p.name || '');
+      setPresetMsg(`Loaded "${p.name}". Set the group size and rooms below, then skip ahead.`);
+    } catch {
+      setPresetMsg('Could not load that case.');
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
+  // Save the current case + its reviewed analysis for reuse. Same name overwrites.
+  const saveCasePreset = async () => {
+    const name = presetName.trim();
+    if (!name || !mePack) return;
+    setPresetBusy(true);
+    setPresetMsg('');
+    try {
+      const me = config.manager_exercise;
+      await apiClient.post('/case-presets', {
+        name,
+        candidate_summary: me.candidate_summary,
+        candidates: me.candidates,
+        case_pack: me.case_pack,
+        class_preset: me.class_preset,
+        learning_outcome: me.learning_outcome,
+      });
+      setPresetMsg(`Saved "${name}". You can start from it next time.`);
+      loadCasePresets();
+    } catch (err) {
+      const d = err.response?.data;
+      setPresetMsg((d && (d.error || d.message)) || 'Could not save the case.');
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
+  const deleteCasePreset = async (presetId) => {
+    try {
+      await apiClient.delete(`/case-presets/${presetId}`);
+      loadCasePresets();
+    } catch { /* the list simply stays as it was */ }
+  };
 
   // The derived case pack, once analysed. Read throughout the review step.
   const mePack = config.manager_exercise?.case_pack || null;
@@ -797,6 +878,41 @@ const ConfigModal = ({ isOpen, onClose }) => {
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Setup</h2>
 
+                  {/* Start from a case already uploaded, analysed and reviewed. Loads
+                      the documents and the approved answer key, so the remaining
+                      steps are just confirmation. */}
+                  {casePresets.length > 0 && (
+                    <div className="bg-white p-5 rounded-2xl border-2 border-[#FA6C43]/30 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Start from a saved case</h3>
+                      <p className="text-[11px] text-gray-400 mb-3">Reuses the documents and the analysis you already approved — no re-upload, no re-analysis.</p>
+                      <div className="space-y-2">
+                        {casePresets.map(p => (
+                          <div key={p.preset_id} className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={presetBusy}
+                              onClick={() => applyCasePreset(p.preset_id)}
+                              className="flex-1 text-left rounded-xl border-2 border-gray-200 bg-white px-4 py-3 hover:border-[#FA6C43] hover:-translate-y-0.5 transition-all disabled:opacity-50 active:scale-[0.99]"
+                            >
+                              <div className="font-bold text-sm text-[#222]">{p.name}</div>
+                              <div className="text-[11px] text-gray-500">
+                                {p.tally.map(t => `${t.name} ${t.strengths}/${t.concerns}`).join('  ·  ') || p.candidates.join(', ')}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteCasePreset(p.preset_id)}
+                              className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"
+                            >
+                              <FaTrash className="text-sm" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-3">{presetMsg}</p>}
+                    </div>
+                  )}
+
                   {/* Group size + the one timed phase. num_students drives group_size. */}
                   <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Group &amp; Timing</h3>
@@ -1238,6 +1354,31 @@ const ConfigModal = ({ isOpen, onClose }) => {
                             ))}
                           </div>
                         )}
+
+                        {/* Keep this case for the next cohort. Everything above is
+                            cohort-independent, so only group size, rooms and the
+                            class code will need setting next time. */}
+                        <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                          <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Save this case for reuse<InfoTip text="Stores the documents and this approved analysis under a name. Next time, pick it in Setup and you only need to set the group size, breakout rooms and class code. Saving under an existing name replaces it." /></label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={presetName}
+                              onChange={(e) => setPresetName(e.target.value)}
+                              placeholder="e.g. HKL Solutions COO"
+                              className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={saveCasePreset}
+                              disabled={presetBusy || !presetName.trim()}
+                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                            >
+                              {presetBusy ? 'Saving…' : 'Save case'}
+                            </button>
+                          </div>
+                          {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
+                        </div>
 
                         <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50 active:scale-[0.99]">
                           {packLoading ? 'Analysing…' : 'Re-analyse from the documents'}
