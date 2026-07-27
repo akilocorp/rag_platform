@@ -193,7 +193,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     // (mirrors bots/scoring_spec). num_students drives group_size (invariant,
     // enforced again server-side).
     manager_exercise: {
-      num_students: 3,
+      num_students: 3,                                // capacity of one breakout room
+      num_rooms: 5,                                   // how many groups the class splits into
       discuss_minutes: 20,
       class_preset: '',
       learning_outcome: '',
@@ -779,11 +780,20 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Group &amp; Timing</h3>
                     <div className="mb-5">
                       <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                        <span className="inline-flex items-center gap-1">Students per group<InfoTip text="How many students debrief together. Every participant is a real student — there are no AI players. Each one holds a different printed packet, which is what makes pooling necessary." /></span>
+                        <span className="inline-flex items-center gap-1">Students per group<InfoTip text="Capacity of one breakout room, not a requirement. Every participant is a real student — there are no AI players. A group can start short-handed, and the facilitator is told how many actually turned up." /></span>
                         <span className="text-[#FA6C43] font-bold">{config.manager_exercise.num_students} students</span>
                       </label>
                       <input type="range" min="2" max="10" step="1" value={config.manager_exercise.num_students} onChange={(e) => handleNumStudentsChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
-                      <p className="mt-2 text-[11px] font-semibold text-gray-500">The room opens once all {config.manager_exercise.num_students} have joined.</p>
+                    </div>
+                    <div className="mb-5">
+                      <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                        <span className="inline-flex items-center gap-1">Breakout groups<InfoTip text="How many groups the class splits into. Students see them as Group 1, Group 2… with live occupancy, and pick one — there is no queue." /></span>
+                        <span className="text-[#FA6C43] font-bold">{config.manager_exercise.num_rooms} groups</span>
+                      </label>
+                      <input type="range" min="1" max="20" step="1" value={config.manager_exercise.num_rooms} onChange={(e) => setMgr('num_rooms', Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1)))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                      <p className="mt-2 text-[11px] font-semibold text-gray-500">
+                        Room for up to {config.manager_exercise.num_rooms * config.manager_exercise.num_students} students.
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 mb-2">Discussion window (minutes)</label>
@@ -803,6 +813,26 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     </select>
                     <label className="block text-xs font-semibold text-gray-700 mb-2">What should they take away?</label>
                     <textarea rows="3" value={config.manager_exercise.learning_outcome} onChange={(e) => setMgr('learning_outcome', e.target.value)} placeholder="e.g. Groups under-share unique information and over-weight a concern everyone happens to hold." className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                  </div>
+
+                  {/* Class code — how students reach the exercise at all, so it sits
+                      in the main flow rather than behind the Advanced toggle. */}
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class code<InfoTip text="Students open /join/CODE, sign in, and land straight in the breakout lobby. Leave blank to share the direct link instead." /></label>
+                    <input
+                      type="text"
+                      value={(config.class_code || '').toUpperCase()}
+                      onChange={e => setConfig(prev => ({ ...prev, class_code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') }))}
+                      maxLength={20}
+                      placeholder="e.g. MGMT5110"
+                      className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">3–20 characters, letters, numbers, hyphens. Must be unique.</p>
+                    {config.class_code && (
+                      <p className="mt-2 text-[11px] font-semibold text-[#C2410C] break-all">
+                        Share: {window.location.origin}/join/{config.class_code.toUpperCase()}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (

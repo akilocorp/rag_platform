@@ -128,6 +128,7 @@ const EditConfigPage = () => {
         const docRef = (v) => ({ file_id: v?.file_id || '', text: v?.text || '' });
         resolvedManagerExercise = {
             num_students: Math.max(2, Math.min(10, parseInt(me.num_students, 10) || 3)),
+            num_rooms: Math.max(1, Math.min(20, parseInt(me.num_rooms, 10) || 5)),
             discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
@@ -924,11 +925,18 @@ const EditConfigPage = () => {
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">
                       <div className="mb-5">
                         <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
-                          <span className="inline-flex items-center gap-1">Students per group<InfoTip text="How many students debrief together. Every participant is a real student — there are no AI players. Each holds a different printed packet, which is what makes pooling necessary." /></span>
+                          <span className="inline-flex items-center gap-1">Students per group<InfoTip text="Capacity of one breakout room, not a requirement. A group can start short-handed, and the facilitator is told how many actually turned up." /></span>
                           <span className="text-[#FA6C43] font-bold">{me.num_students} students</span>
                         </label>
                         <input type="range" min="2" max="10" step="1" value={me.num_students || 2} onChange={(e) => handleNumStudentsChange(e.target.value)} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
-                        <p className="mt-2 text-[11px] font-semibold text-gray-500">The room opens once all {me.num_students} have joined.</p>
+                      </div>
+                      <div className="mb-5">
+                        <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                          <span className="inline-flex items-center gap-1">Breakout groups<InfoTip text="How many groups the class splits into. Students see them as Group 1, Group 2… with live occupancy, and pick one — there is no queue." /></span>
+                          <span className="text-[#FA6C43] font-bold">{me.num_rooms} groups</span>
+                        </label>
+                        <input type="range" min="1" max="20" step="1" value={me.num_rooms || 1} onChange={(e) => setMgr('num_rooms', Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1)))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
+                        <p className="mt-2 text-[11px] font-semibold text-gray-500">Room for up to {(me.num_rooms || 1) * (me.num_students || 1)} students.</p>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 mb-2">Discussion window (minutes)</label>

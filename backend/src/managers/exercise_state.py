@@ -1,8 +1,8 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   One entry resolves the ballot (the team already decided offline; whoever enters speaks for
-#            them). Plus: split re-choice permission from timing via reopen_allowed, so the ballot no
-#            longer appears beside the outcome reveal.
+# @changed   Breakout rooms: num_students is now room CAPACITY, the exercise starts on an explicit student
+#            action rather than the room filling, and active_group_size() reports the real headcount so the
+#            facilitator adapts to a short group.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -98,7 +98,7 @@ class ExerciseState:
         self.hooks: Dict[str, Callable] = {}
 
         cfg = self._read_config()
-        self.num_students: int = cfg["num_students"]
+        self.capacity: int = cfg["capacity"]
         self.candidates: List[Dict] = cfg["candidates"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
         self._candidate_names = {c.get("name") for c in self.candidates if c.get("name")}
@@ -129,7 +129,8 @@ class ExerciseState:
         except (TypeError, ValueError):
             num = 0
         return {
-            "num_students": max(2, num or 2),
+            # Room CAPACITY, not a required headcount — a group may start short.
+            "capacity": max(2, num or 2),
             "candidates": c.get("candidates") or [],
             "discuss_seconds": float(c.get("discuss_minutes") or 20) * 60.0,
         }
@@ -168,6 +169,16 @@ class ExerciseState:
     def roster_uids(self) -> List[str]:
         return [e.get("uid") for e in self.roster if e.get("uid")]
 
+    def active_group_size(self) -> int:
+        """How many students are ACTUALLY in this room.
+
+        This — not the configured capacity — is what the facilitator is told. A
+        room set up for four that starts with two is a room of two: ACTR must say
+        "you two", scale its presence accordingly, and wait on two answers in a
+        go-around, not four.
+        """
+        return max(1, len(self.roster))
+
     def display_name(self, uid: str) -> str:
         """The name ACTR and the transcript use for a uid; falls back to a short id."""
         for e in self.roster:
@@ -200,9 +211,10 @@ class ExerciseState:
                 "phase": self._phase,
                 "phase_deadline_ts": self.phase_deadline_ts,
                 "server_now_ts": time.time(),
-                "num_students": self.num_students,
+                "capacity": self.capacity,
                 "candidates": [{"name": c.get("name", "")} for c in self.candidates],
                 "roster": [{"name": e.get("name", "")} for e in self.roster],
+                "can_start": self.can_start(),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
                 "chosen_candidate": self.chosen_candidate,
@@ -304,20 +316,18 @@ class ExerciseState:
         if self._phase == expected_phase:
             on_expire()
 
-    def maybe_begin_choose(self):
-        """Advance waiting→choose once every expected student has entered the room.
-
-        The room only forms when `num_students` humans have matched, so this is
-        really "wait for them all to finish loading" — it just avoids opening the
-        ballot in front of a partially-arrived group.
-        """
-        if self._phase != PHASE_WAITING:
-            return
-        if len(self.roster) >= self.num_students:
-            self.begin_choose()
+    def can_start(self) -> bool:
+        """True while this room is still in its lobby state and has someone in it."""
+        return self._phase == PHASE_WAITING and len(self.roster) >= 1
 
     def begin_choose(self):
-        """Enter `choose`: open the ballot, keep chat locked, ask for the group's pick."""
+        """Enter `choose`: open the ballot, keep chat locked, ask for the group's pick.
+
+        Started explicitly by a student, NOT by the room filling up. Groups rarely
+        arrive complete, and waiting on absent classmates strands the ones who did
+        turn up. Whoever is in the room when this fires is the group, and the
+        facilitator is told that headcount.
+        """
         with self._lock:
             if self._phase != PHASE_WAITING:
                 return

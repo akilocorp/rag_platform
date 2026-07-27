@@ -75,6 +75,12 @@ def validate_class_usage(source, target, current_config_id=None):
 # people holding different packets.
 ME_MIN_STUDENTS = 2
 
+# Breakout rooms the class splits into. The professor hands out one class code and
+# students choose a room from a lobby, so the cap is just "more than any class
+# would plausibly need".
+ME_DEFAULT_ROOMS = 5
+ME_MAX_ROOMS = 20
+
 
 def _me_doc_ref(raw, field):
     """Normalize an AI-only reference document to {file_id, text}.
@@ -125,13 +131,23 @@ def validate_manager_exercise(source, target):
     if not isinstance(raw, dict):
         return jsonify({"error": "manager_exercise config is required for this bot type"}), 400
 
-    # num_students: every participant is a real student — there are no AI seats.
+    # num_students is the CAPACITY of one breakout room, not a gate. A group may
+    # start under-filled; the facilitator is told the real headcount at that point.
     try:
         num_students = int(raw.get('num_students'))
     except (ValueError, TypeError):
         return jsonify({"error": "manager_exercise.num_students must be an integer"}), 400
     if num_students < ME_MIN_STUDENTS:
         return jsonify({"error": f"manager_exercise.num_students must be >= {ME_MIN_STUDENTS}"}), 400
+
+    # How many breakout rooms the class is split into. Students pick one from a
+    # lobby rather than being queued into whichever fills first.
+    try:
+        num_rooms = int(raw.get('num_rooms', ME_DEFAULT_ROOMS))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.num_rooms must be an integer"}), 400
+    if not 1 <= num_rooms <= ME_MAX_ROOMS:
+        return jsonify({"error": f"manager_exercise.num_rooms must be between 1 and {ME_MAX_ROOMS}"}), 400
 
     # Discuss window (minutes) — the only timed phase left.
     try:
@@ -190,6 +206,7 @@ def validate_manager_exercise(source, target):
 
     target['manager_exercise'] = {
         "num_students": num_students,
+        "num_rooms": num_rooms,
         "discuss_minutes": discuss_minutes,
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,

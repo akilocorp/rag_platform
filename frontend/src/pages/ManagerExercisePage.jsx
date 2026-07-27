@@ -1,11 +1,12 @@
-/* @language JSX  @updated 2026-07-27  @changed One member now enters the decision for the whole team: dropped the per-member vote-progress bar and reworded the choose / choose-again cards accordingly. */
+/* @language JSX  @updated 2026-07-27  @changed Breakout-room lobby replaces the queue: pick a group with live occupancy, then start with whoever is present. Plus one member enters the decision for the whole team. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
 // The decision itself happens OFFLINE, on printed packets, before anyone opens
 // this page. What's left is the debrief:
-//   loading → local-only, before the socket has matched us into a room
-//   waiting → room formed, waiting for the rest of the group to load in
+//   loading → local-only, before the lobby has loaded
+//   lobby   → pick a breakout room (Group 1..N) with live occupancy
+//   waiting → in a room; start whenever the team is ready, full or not
 //   choose  → the group enters the candidate it already agreed on (chat locked,
 //             so the pick is one deliberate act rather than a chat negotiation)
 //   discuss → that candidate's outcome document is revealed and ACTR facilitates;
@@ -89,13 +90,17 @@ const ManagerExercisePage = () => {
 
   // ---- lifecycle / identity ----
   const [config, setConfig] = useState(null);
-  const [phase, setPhase] = useState('loading'); // loading|waiting|choose|discuss|done
+  const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|choose|discuss|done
   const [roomId, setRoomId] = useState(null);
-  const [queuePosition, setQueuePosition] = useState(null);
+
+  // ---- breakout lobby ----
+  const [rooms, setRooms] = useState([]);              // [{room_id,index,label,names,occupants,capacity,started}]
+  const [roomError, setRoomError] = useState('');
 
   // ---- exercise snapshot (from `exercise_state`) ----
-  const [numStudents, setNumStudents] = useState(0);
+  const [capacity, setCapacity] = useState(0);
   const [roster, setRoster] = useState([]);            // [{name}]
+  const [canStart, setCanStart] = useState(false);
   const [candidates, setCandidates] = useState([]);    // [{name}]
   const [chosenCandidate, setChosenCandidate] = useState(null);
 
@@ -172,7 +177,8 @@ const ManagerExercisePage = () => {
     }
     if (s.phase) setPhase(s.phase);
     setDeadlineTs(typeof s.phase_deadline_ts === 'number' ? s.phase_deadline_ts : null);
-    if (typeof s.num_students === 'number') setNumStudents(s.num_students);
+    if (typeof s.capacity === 'number') setCapacity(s.capacity);
+    if (typeof s.can_start === 'boolean') setCanStart(s.can_start);
     if (Array.isArray(s.roster)) setRoster(s.roster);
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
@@ -207,29 +213,31 @@ const ManagerExercisePage = () => {
           room_id: rid, display_name: displayNameRef.current,
         });
 
-        // Join queue on connect; guard so reconnects never re-queue mid-exercise.
+        // Already in a room → rejoin it. Otherwise watch the breakout lobby.
         socket.on('connect', () => {
-          if (phaseRef.current !== 'loading' && phaseRef.current !== 'waiting') {
-            if (roomIdRef.current) enterRoom(roomIdRef.current);
-            return;
-          }
-          socket.emit('join_queue', { uid: userIdRef.current, config_id: configId });
+          if (roomIdRef.current) { enterRoom(roomIdRef.current); return; }
+          socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
         });
 
-        socket.on('queued', (data) => {
-          setQueuePosition(data.position ?? null);
-          if (typeof data.server_now_ts === 'number') {
-            clockSkewRef.current = data.server_now_ts - (Date.now() / 1000);
-          }
-          if (phaseRef.current === 'loading') setPhase('waiting');
+        // Live room list, pushed whenever anyone joins, leaves, or starts.
+        socket.on('breakout_rooms', (d) => {
+          setRooms(Array.isArray(d.rooms) ? d.rooms : []);
+          if (phaseRef.current === 'loading' && !roomIdRef.current) setPhase('lobby');
         });
 
-        // Matched into a room — pull history + exercise state.
+        socket.on('breakout_error', (d) => {
+          setRoomError(d.reason === 'started'
+            ? 'That group has already begun — pick another.'
+            : 'That group is full — pick another.');
+        });
+
+        // We're in a room. Not started yet: the room screen shows who else is here.
         socket.on('match_found', (data) => {
+          setRoomError('');
           setRoomId(data.room_id);
           roomIdRef.current = data.room_id;
           enterRoom(data.room_id);
-          if (phaseRef.current === 'loading' || phaseRef.current === 'waiting') setPhase('waiting');
+          if (phaseRef.current === 'loading' || phaseRef.current === 'lobby') setPhase('waiting');
         });
 
         socket.on('exercise_state', (s) => applyExerciseState(s));
@@ -306,12 +314,32 @@ const ManagerExercisePage = () => {
   useEffect(() => { adjustInputHeight(); }, [input, adjustInputHeight]);
 
   // ---- actions ----
-  const handleLeave = () => {
-    if (socketRef.current) {
-      socketRef.current.emit('leave_queue', { uid: userIdRef.current });
-      socketRef.current.disconnect();
-    }
-    navigate('/config_list');
+  // Claim a place in a breakout room. The server refuses a full or already-started
+  // room and answers with `breakout_error`, so no client-side guard is needed.
+  const joinBreakout = (index) => {
+    setRoomError('');
+    socketRef.current?.emit('join_breakout_room', {
+      config_id: configId,
+      room_index: index,
+      uid: userIdRef.current,
+      display_name: displayNameRef.current,
+    });
+  };
+
+  // Step back out to the lobby before the exercise begins, freeing the slot.
+  const leaveBreakout = () => {
+    socketRef.current?.emit('leave_breakout_room', { uid: userIdRef.current });
+    setRoomId(null);
+    roomIdRef.current = null;
+    setRoster([]);
+    setPhase('lobby');
+    socketRef.current?.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
+  };
+
+  // Begin with whoever is currently in the room. Whatever the configured capacity,
+  // the people present at this moment are the group, and ACTR is told so.
+  const startExercise = () => {
+    socketRef.current?.emit('start_exercise', { room_id: roomId, uid: userIdRef.current });
   };
 
   const handleSend = () => {
@@ -461,11 +489,81 @@ const ManagerExercisePage = () => {
   }
 
   // -------------------------------------------------------------------------
-  // Phase: waiting (group assembling)
+  // Phase: lobby (pick a breakout room)
+  // -------------------------------------------------------------------------
+  if (phase === 'lobby') {
+    return (
+      <div className="min-h-screen bg-[#F0F6FB] text-[#222] py-10 px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
+              <FaUsers className="text-3xl text-[#FA6C43]" />
+            </div>
+            <h1 className="text-2xl font-bold text-[#222] mb-1">{config?.bot_name || 'Manager Exercise'}</h1>
+            <p className="text-gray-500 text-sm">Join your group. You can start as soon as your team is here.</p>
+          </div>
+
+          {roomError && (
+            <p className="mb-4 text-center text-sm font-semibold text-red-500 animate-in fade-in">{roomError}</p>
+          )}
+
+          <div className="space-y-3">
+            {rooms.map((r, i) => {
+              const full = r.occupants >= r.capacity;
+              const blocked = r.started || full;
+              return (
+                <button
+                  key={r.room_id}
+                  onClick={() => joinBreakout(r.index)}
+                  disabled={blocked}
+                  style={{ animationDelay: `${i * 50}ms` }}
+                  className={`w-full text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 ${
+                    blocked
+                      ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
+                      : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-bold text-[#222]">{r.label}</div>
+                      <div className="text-[11px] text-gray-500 truncate">
+                        {r.started
+                          ? 'In progress'
+                          : r.names.length
+                            ? r.names.join(', ')
+                            : 'Empty — be the first'}
+                      </div>
+                    </div>
+                    <span className={`flex-shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
+                      r.started
+                        ? 'bg-gray-200 text-gray-500'
+                        : full
+                          ? 'bg-gray-200 text-gray-500'
+                          : 'bg-[#FA6C43]/10 text-[#C2410C]'
+                    }`}>
+                      {r.started ? 'Started' : `${r.occupants} / ${r.capacity}`}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {rooms.length === 0 && (
+            <div className="flex justify-center py-10">
+              <FaSpinner className="animate-spin text-2xl text-[#FA6C43] opacity-60" />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase: waiting (in a room, not yet started)
   // -------------------------------------------------------------------------
   if (phase === 'waiting') {
-    const joined = roster.length || (queuePosition != null ? 1 : 0);
-    const target = numStudents || config?.group_size || 0;
+    const label = rooms.find((r) => r.room_id === roomId)?.label || 'Your group';
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="flex flex-col items-center gap-6 bg-white rounded-3xl shadow-md border border-gray-100 px-12 py-14 max-w-md w-full mx-4 animate-in fade-in zoom-in-95 duration-300">
@@ -478,21 +576,11 @@ const ManagerExercisePage = () => {
           </div>
 
           <div className="text-center">
-            <h2 className="text-xl font-bold text-[#222] mb-2">Assembling your group…</h2>
-            <p className="text-gray-500 text-sm">Waiting for the rest of your team to join.</p>
+            <h2 className="text-xl font-bold text-[#222] mb-2">{label}</h2>
+            <p className="text-gray-500 text-sm">
+              {roster.length} of {capacity || roster.length} here. Start whenever your team is ready.
+            </p>
           </div>
-
-          {target > 0 && (
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 px-4 py-2 shadow-sm">
-              <span className="text-xs font-bold uppercase tracking-widest text-[#C2410C]">
-                {joined} of {target} joined
-              </span>
-            </div>
-          )}
-
-          {queuePosition != null && !roster.length && (
-            <div className="text-xs font-semibold text-gray-500">Position in queue: {queuePosition}</div>
-          )}
 
           {roster.length > 0 && (
             <div className="flex flex-wrap items-center justify-center gap-2">
@@ -508,13 +596,21 @@ const ManagerExercisePage = () => {
             </div>
           )}
 
-          <FaSpinner className="animate-spin text-2xl text-[#FA6C43] opacity-60" />
+          {/* No need to wait for a full room — whoever is here is the group, and
+              ACTR is told the real headcount when this fires. */}
+          <button
+            onClick={startExercise}
+            disabled={!canStart}
+            className="w-full rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
+          >
+            Start with {roster.length} {roster.length === 1 ? 'person' : 'people'}
+          </button>
 
           <button
-            onClick={handleLeave}
-            className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
+            onClick={leaveBreakout}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
           >
-            <FaArrowLeft className="text-xs" /> Leave
+            <FaArrowLeft className="text-xs" /> Switch group
           </button>
         </div>
       </div>

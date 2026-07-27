@@ -1,7 +1,8 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   One student now enters the group's pick on the team's behalf (no per-member ballot), and the
-#            re-choice ballot only opens when ACTR invites it at MOVE 5 rather than on the outcome reveal.
+# @changed   manager_exercise now uses breakout rooms instead of a queue: students see live room occupancy,
+#            pick one, and start when ready even if short-handed — the facilitator is told the real
+#            headcount. Plus: one student enters the pick for the team.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 # sid ↔ uid mappings so we can target specific users by socket ID
 sid_to_uid: dict = {}
 uid_to_sid: dict = {}
+
+# Live occupancy of each manager-exercise breakout room: {room_id: {uid: name}}.
+# Socket presence rather than the persisted roster, so closing a tab frees the
+# slot. In-process only — a restart empties the lobby, which is the right default
+# since every socket has dropped anyway.
+_room_members: dict = {}
 
 
 def register_socket_events(socketio, app):
@@ -66,9 +73,9 @@ def register_socket_events(socketio, app):
     def _exercise_runtime_config(config_doc):
         """Build the config dict handed to ExerciseState / ai_manager.
 
-        Both read the manager_exercise sub-object's fields directly (num_students,
-        candidates, discuss_minutes, case_pack, learning_points), so we hand it the
-        sub-object verbatim.
+        Both read the manager_exercise sub-object's fields directly (num_students
+        as room capacity, num_rooms, candidates, discuss_minutes, case_pack,
+        learning_points), so we hand it the sub-object verbatim.
         """
         return _manager_exercise_config(config_doc)
 
@@ -161,7 +168,7 @@ def register_socket_events(socketio, app):
 
             summary = get_or_create_context(room_id).summary_for_nudge()
             result = ai_manager.facilitator_on_pick(
-                st.config, st.roster, st.num_students, chosen, forecast,
+                st.config, st.roster, st.active_group_size(), chosen, forecast,
                 transcript_summary=summary,
             )
             st.set_reopen_allowed(result.get("reopen_allowed", False))
@@ -175,7 +182,7 @@ def register_socket_events(socketio, app):
                 return
             summary = get_or_create_context(room_id).summary_for_nudge()
             text = ai_manager.facilitator_wrapup(
-                st.config, st.roster, st.num_students, summary, st.chosen_candidate,
+                st.config, st.roster, st.active_group_size(), summary, st.chosen_candidate,
             )
             _post(st, FACILITATOR_SENDER, text)
 
@@ -213,7 +220,7 @@ def register_socket_events(socketio, app):
 
             summary = get_or_create_context(room_id).summary_for_nudge()
             result = ai_manager.facilitator_reply(
-                st.config, st.roster, st.num_students, summary,
+                st.config, st.roster, st.active_group_size(), summary,
                 chosen_name=st.chosen_candidate, go_around_timed_out=timed_out,
                 reopen_allowed=st.reopen_allowed,
             )
@@ -234,6 +241,70 @@ def register_socket_events(socketio, app):
             # invited to choose again, so the ballot appears WITH that invitation.
             if result.get("offer_reopen"):
                 st.reopen_choice()
+
+    # ---- Breakout-room lobby ---------------------------------------------------
+    # A class gets one code and N named breakout rooms. Students see the rooms with
+    # live occupancy, pick one, and start when they're ready — no queue. Waiting for
+    # a room to fill strands whoever actually turned up, which is the common case.
+
+    def _room_id_for(config_id, index):
+        """Deterministic room id, so "Group 3" is the same room for everyone."""
+        return f"{config_id}_g{int(index)}"
+
+    def _lobby_channel(config_id):
+        return f"lobby:{config_id}"
+
+    def _lobby_rooms(config_id, me_config):
+        """Live view of every breakout room: who's in it and whether it has begun.
+
+        Occupancy comes from `_room_members` (socket presence) rather than the
+        persisted roster, so a student who closes the tab frees their slot instead
+        of holding it for the rest of the class.
+        """
+        try:
+            num_rooms = max(1, int(me_config.get("num_rooms") or 5))
+        except (TypeError, ValueError):
+            num_rooms = 5
+        try:
+            capacity = max(1, int(me_config.get("num_students") or 3))
+        except (TypeError, ValueError):
+            capacity = 3
+
+        rooms = []
+        for i in range(1, num_rooms + 1):
+            rid = _room_id_for(config_id, i)
+            members = _room_members.get(rid, {})
+            st = ex_state.get_exercise(rid)
+            phase = st.phase() if st else ex_state.PHASE_WAITING
+            rooms.append({
+                "room_id": rid,
+                "index": i,
+                "label": f"Group {i}",
+                "names": list(members.values()),
+                "occupants": len(members),
+                "capacity": capacity,
+                "started": phase != ex_state.PHASE_WAITING,
+                "phase": phase,
+            })
+        return rooms
+
+    def _broadcast_lobby(config_id, me_config):
+        """Push the room list to everyone still looking at this config's lobby."""
+        socketio.emit(
+            "breakout_rooms",
+            {"config_id": config_id, "rooms": _lobby_rooms(config_id, me_config)},
+            room=_lobby_channel(config_id),
+        )
+
+    def _drop_from_rooms(uid):
+        """Remove a uid from whichever breakout room held it. Returns its config_id."""
+        for rid, members in list(_room_members.items()):
+            if uid in members:
+                members.pop(uid, None)
+                if not members:
+                    _room_members.pop(rid, None)
+                return rid.rsplit("_", 1)[0]
+        return None
 
     def _bootstrap_exercise(room_id, config_doc, create_session=False):
         """Create/rehydrate the ExerciseState for a room and start its phase machine.
@@ -285,9 +356,10 @@ def register_socket_events(socketio, app):
     # ==================================================================
     @socketio.on('join_queue')
     def handle_join_queue(data):
-        """User enters matchmaking. Branches on bot_type: manager_exercise uses the
-        seat-assigned path (+ no-show timer); every other bot_type keeps the plain
-        group-chat behavior verbatim.
+        """User enters matchmaking (plain group chat).
+
+        manager_exercise does NOT come through here — it uses the breakout-room
+        lobby below, where students pick a room instead of being queued into one.
         """
         uid = data.get('uid')
         config_id = data.get('config_id')
@@ -314,30 +386,6 @@ def register_socket_events(socketio, app):
         if existing_room:
             logger.info(f"🔁 {uid} reconnected, already in room {existing_room}")
             emit('match_found', {'room_id': existing_room}, to=request.sid)
-            return
-
-        # ------------------- MANAGER EXERCISE PATH -------------------
-        # Plain matchmaking now: every participant is a real student, so the room
-        # simply waits for `num_students` humans. No seat assignment, no AI fill,
-        # and no no-show timer — an under-filled group has nobody to pool with, so
-        # force-starting one would defeat the exercise.
-        if bot_type == "manager_exercise":
-            me_config = _manager_exercise_config(config_doc)
-            num_students = int(me_config.get("num_students") or group_size or 2)
-
-            room_id, matched_uids = match_manager.join_queue(config_id, uid, num_students)
-            if room_id is None:
-                position = match_manager.queue_position(config_id, uid)
-                logger.info(f"⏳ {uid} queued (manager_exercise) at position {position}")
-                emit('queued', {'position': position, 'server_now_ts': time.time()}, to=request.sid)
-                return
-
-            logger.info(f"✅ ManagerExercise match: students={matched_uids} → room {room_id}")
-            _bootstrap_exercise(room_id, config_doc, create_session=True)
-            for matched_uid in matched_uids:
-                target_sid = uid_to_sid.get(matched_uid)
-                if target_sid:
-                    socketio.emit('match_found', {'room_id': room_id}, to=target_sid)
             return
 
         # ------------------- PLAIN GROUP CHAT PATH (unchanged) -------------------
@@ -373,6 +421,107 @@ def register_socket_events(socketio, app):
         logger.info(f"🚪 {uid} left the queue")
 
     # ==================================================================
+    # BREAKOUT ROOMS (manager_exercise only)
+    # ==================================================================
+    @socketio.on('list_breakout_rooms')
+    def handle_list_breakout_rooms(data):
+        """Subscribe this socket to a config's lobby and send the current room list."""
+        config_id = (data or {}).get('config_id')
+        uid = (data or {}).get('uid')
+        if not config_id:
+            return
+        if uid:
+            sid_to_uid[request.sid] = uid
+            uid_to_sid[uid] = request.sid
+        config_doc = _load_config_doc(config_id)
+        if not config_doc or config_doc.get("bot_type") != "manager_exercise":
+            return
+        join_room(_lobby_channel(config_id))
+        me_config = _manager_exercise_config(config_doc)
+        emit('breakout_rooms', {
+            'config_id': config_id,
+            'rooms': _lobby_rooms(config_id, me_config),
+        }, to=request.sid)
+
+    @socketio.on('join_breakout_room')
+    def handle_join_breakout_room(data):
+        """Claim a place in a named breakout room.
+
+        Refused when the room is full or has already begun — a group mid-debrief
+        has pooled information a latecomer never held, and dropping someone in
+        would quietly break the exercise's premise.
+        """
+        d = data or {}
+        config_id, uid = d.get('config_id'), d.get('uid')
+        index, display_name = d.get('room_index'), (d.get('display_name') or '').strip()
+        if not config_id or not uid or not index:
+            return
+
+        sid_to_uid[request.sid] = uid
+        uid_to_sid[uid] = request.sid
+
+        config_doc = _load_config_doc(config_id)
+        if not config_doc or config_doc.get("bot_type") != "manager_exercise":
+            return
+        me_config = _manager_exercise_config(config_doc)
+        room_id = _room_id_for(config_id, index)
+
+        state = ex_state.get_exercise(room_id)
+        if state is not None and state.phase() != ex_state.PHASE_WAITING:
+            emit('breakout_error', {'reason': 'started', 'room_id': room_id}, to=request.sid)
+            return
+        try:
+            capacity = max(1, int(me_config.get("num_students") or 3))
+        except (TypeError, ValueError):
+            capacity = 3
+        members = _room_members.setdefault(room_id, {})
+        if uid not in members and len(members) >= capacity:
+            emit('breakout_error', {'reason': 'full', 'room_id': room_id}, to=request.sid)
+            return
+
+        _drop_from_rooms(uid)   # switching rooms must not leave a ghost behind
+        _room_members.setdefault(room_id, {})[uid] = display_name or uid
+
+        leave_room(_lobby_channel(config_id))
+        _bootstrap_exercise(room_id, config_doc, create_session=True)
+        emit('match_found', {'room_id': room_id}, to=request.sid)
+        _broadcast_lobby(config_id, me_config)
+        logger.info(f"🚪 {uid} joined breakout {room_id} ({len(_room_members[room_id])}/{capacity})")
+
+    @socketio.on('leave_breakout_room')
+    def handle_leave_breakout_room(data):
+        """Give up a place before the exercise starts, freeing the slot for someone else."""
+        uid = (data or {}).get('uid') or sid_to_uid.get(request.sid)
+        if not uid:
+            return
+        config_id = _drop_from_rooms(uid)
+        if not config_id:
+            return
+        config_doc = _load_config_doc(config_id)
+        if config_doc:
+            _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+
+    @socketio.on('start_exercise')
+    def handle_start_exercise(data):
+        """Any member starts the exercise with whoever is currently in the room.
+
+        The headcount at this moment becomes the group — `active_group_size()` is
+        what the facilitator is told from here on, not the configured capacity.
+        """
+        room_id = (data or {}).get('room_id')
+        if not room_id:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None or not state.can_start():
+            return
+        logger.info(f"▶️  Exercise starting in {room_id} with {state.active_group_size()} student(s)")
+        state.begin_choose()
+        config_id = room_id.rsplit("_", 1)[0]
+        config_doc = _load_config_doc(config_id)
+        if config_doc:
+            _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+
+    # ==================================================================
     # ROOM ENTRY / HISTORY
     # ==================================================================
     @socketio.on('get_history')
@@ -403,8 +552,6 @@ def register_socket_events(socketio, app):
                 # speaks must still be someone ACTR is waiting on.
                 state.note_participant(uid, (data or {}).get('display_name'))
                 emit('exercise_state', state.snapshot_for(uid), to=request.sid)
-                # Everyone present → open the ballot rather than sitting in waiting.
-                state.maybe_begin_choose()
 
         logger.info(f"📜 Sent history for room {room_id} to {request.sid}")
 
@@ -479,6 +626,12 @@ def register_socket_events(socketio, app):
         if uid:
             uid_to_sid.pop(uid, None)
             match_manager.leave_queue(uid)
+            # Free their breakout slot so the lobby stays honest about who's around.
+            config_id = _drop_from_rooms(uid)
+            if config_id:
+                config_doc = _load_config_doc(config_id)
+                if config_doc:
+                    _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
             logger.info(f"🔌 {uid} disconnected and removed from queue")
 
 
