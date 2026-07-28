@@ -216,8 +216,8 @@ def facilitator_on_pick(config, roster, group_size, chosen_name, forecast_text, 
         "matches this option's outcome verdict (it failed: \"could you have seen that coming?\"; it "
         "succeeded: \"why did you choose them?\"), and read CHOOSING YOUR ENTRY for where to go "
         "next. One short message. Do not state any tally, do not name the best option, do not "
-        "explain the mechanism, and do NOT suggest they choose again — that comes much later, at "
-        "step 11, and only after they have pooled and counted."
+        "explain the mechanism, and do NOT suggest they choose again — that comes much later, "
+        "and only after they have pooled and counted."
         f" If your message asks every student in turn for an item, end it with {GO_AROUND_MARKER}.",
     ])
 
@@ -267,8 +267,8 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     if reopen_allowed:
         task.append(
             "The group may reopen their decision, but ONLY once they have pooled every option and "
-            "said the totals out loud. When you reach step 11 and are inviting them to choose "
-            f"again, end your message with {REOPEN_MARKER} and the ballot will appear. Do not use "
+            "said the totals out loud. Whenever you are inviting them to choose again, "
+            f"end your message with {REOPEN_MARKER} and the ballot will appear. Do not use "
             "it before then — a ballot arriving early reads as a verdict on their first answer."
         )
 
