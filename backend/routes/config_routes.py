@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-27
-# @changed   general_info is now REQUIRED on manager_exercise — without it the facilitator has nothing to
-#            test a candidate's pooled picture against and the session collapses into counting.
+# @updated   2026-07-28
+# @changed   manager_exercise accepts facilitator_prompt_override (validated for <<CASE_PACK>>), and a new
+#            GET /config/facilitator-prompt/default serves the stock prompt so the wizard can prefill it.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -17,6 +17,7 @@ from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
 from src.managers import class_presets
+from src.managers import facilitator_prompt
 
 import re
 import json
@@ -204,6 +205,16 @@ def validate_manager_exercise(source, target):
     learning_outcome = raw.get('learning_outcome')
     learning_outcome = learning_outcome.strip() if isinstance(learning_outcome, str) else ""
 
+    # Optional full replacement of the facilitator's system prompt, edited by the
+    # professor in the wizard's advanced block. Blank means "use the stock prompt",
+    # so an untouched config is byte-identical to before. Only <<CASE_PACK>> is
+    # mandatory — losing it would leave the facilitator inventing the case.
+    prompt_override = raw.get('facilitator_prompt_override')
+    prompt_override = prompt_override.strip() if isinstance(prompt_override, str) else ""
+    override_err = facilitator_prompt.validate_prompt_override(prompt_override)
+    if override_err:
+        return jsonify({"error": override_err}), 400
+
     # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
     # otherwise extract it from the uploaded documents. Tallies are recomputed
     # either way so a hand-edited pack can never disagree with its own items.
@@ -224,6 +235,7 @@ def validate_manager_exercise(source, target):
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),
+        "facilitator_prompt_override": prompt_override,
         "general_info": general_info,
         "candidate_summary": candidate_summary,
         "candidates": candidates,
@@ -233,6 +245,22 @@ def validate_manager_exercise(source, target):
     # mismatching client value).
     target['group_size'] = num_students
     return None
+
+
+@config_bp.route('/config/facilitator-prompt/default', methods=['GET'])
+@jwt_required()
+def facilitator_prompt_default():
+    """Serve the stock facilitator prompt so the wizard can prefill its editor.
+
+    Fetched on demand rather than bundled into the frontend or stored on every
+    config: it is ~12 KB of pedagogy that most professors will never touch, and
+    keeping one copy server-side means an edit here reaches every config that
+    has not overridden it.
+    """
+    return jsonify({
+        "prompt": facilitator_prompt.FACILITATOR_PROMPT,
+        "required_placeholder": facilitator_prompt.REQUIRED_PLACEHOLDER,
+    }), 200
 
 
 @config_bp.route('/config/case-pack/preview', methods=['POST'])

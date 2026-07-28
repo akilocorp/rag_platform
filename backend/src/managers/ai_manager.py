@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-07-27
-# @changed   facilitator_reply takes a silence flag: when the room has gone quiet it must not reply SILENT.
+# @updated   2026-07-28
+# @changed   Point the model at the real step numbers (the sequence has thirteen steps and step 1 is no
+#            longer "disarm"), and let the outcome verdict pick the opener.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -51,12 +52,12 @@ FACILITATOR_MAX_TOKENS = 400
 # gate, so ACTR is not invoked again until every named student has answered.
 GO_AROUND_MARKER = "[GO_AROUND]"
 
-# Appended when ACTR reaches MOVE 5 and is inviting the group to reopen the
+# Appended when ACTR reaches step 11 and is inviting the group to reopen the
 # decision. Python decides WHETHER a re-choice is permitted (below-top-tally
 # pick); the model decides WHEN it is offered.
 #
 # These are two different questions and conflating them is what made the ballot
-# appear beside the disarm message, which reads as "you were wrong" no matter how
+# appear beside the opening message, which reads as "you were wrong" no matter how
 # carefully the message is worded.
 REOPEN_MARKER = "[REOPEN]"
 
@@ -191,8 +192,8 @@ def facilitator_on_pick(config, roster, group_size, chosen_name, forecast_text, 
     `reopen_allowed` is computed in Python from the case pack and only records
     that a re-choice is *permitted*. It must NOT reopen the ballot here: a ballot
     appearing beside this message reads as "your answer was wrong" however gently
-    the message is worded, which is the opposite of MOVE 1. The offer comes later,
-    from ACTR, once the group has pooled and counted.
+    the message is worded, which is the opposite of what step 1 is for. The offer
+    comes later, from ACTR, once the group has pooled and counted.
     """
     cfg = config or {}
     pack = cfg.get("case_pack") or {}
@@ -211,11 +212,12 @@ def facilitator_on_pick(config, roster, group_size, chosen_name, forecast_text, 
         "The outcome document has just been posted in the chat. Its text:\n"
         + ((forecast_text or "").strip()[:6000] or "(not available)"),
         f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}",
-        "TASK: This is your first message after the reveal. Open with MOVE 1 (disarm), then ask "
-        "the single question that starts the session, following the branch entry that matches "
-        "this option's outcome verdict. One short message. Do not state any tally, do not name "
-        "the best option, do not explain the mechanism, and do NOT suggest they choose again — "
-        "that comes much later, at MOVE 5, and only after they have pooled and counted."
+        "TASK: This is your first message after the reveal. This is step 1 — ask the opener that "
+        "matches this option's outcome verdict (it failed: \"could you have seen that coming?\"; it "
+        "succeeded: \"why did you choose them?\"), and read CHOOSING YOUR ENTRY for where to go "
+        "next. One short message. Do not state any tally, do not name the best option, do not "
+        "explain the mechanism, and do NOT suggest they choose again — that comes much later, at "
+        "step 11, and only after they have pooled and counted."
         f" If your message asks every student in turn for an item, end it with {GO_AROUND_MARKER}.",
     ])
 
@@ -265,7 +267,7 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     if reopen_allowed:
         task.append(
             "The group may reopen their decision, but ONLY once they have pooled every option and "
-            "said the totals out loud. When you reach MOVE 5 and are inviting them to choose "
+            "said the totals out loud. When you reach step 11 and are inviting them to choose "
             f"again, end your message with {REOPEN_MARKER} and the ballot will appear. Do not use "
             "it before then — a ballot arriving early reads as a verdict on their first answer."
         )

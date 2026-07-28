@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-27
-# @changed   spoke_last() and a silence flag on turn_context, so an 8s pause after a STUDENT message can
-#            be broken without ever delaying ACTR when it judges it should speak.
+# @updated   2026-07-28
+# @changed   A re-choice ballot no longer re-offers the candidate whose outcome the group just saw —
+#            _ballot_candidates() is now the one source for both the emitted list and vote validation.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -103,7 +103,6 @@ class ExerciseState:
         self.capacity: int = cfg["capacity"]
         self.candidates: List[Dict] = cfg["candidates"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
-        self._candidate_names = {c.get("name") for c in self.candidates if c.get("name")}
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -347,7 +346,7 @@ class ExerciseState:
         self._emit("ballot_update", {
             "room_id": self.room_id,
             "open": True,
-            "candidates": [{"name": c.get("name", "")} for c in self.candidates],
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
         self._run_hook("on_choose_start")
 
@@ -392,8 +391,20 @@ class ExerciseState:
     # ==================================================================
     # THE PICK (collective ballot)
     # ==================================================================
+    def _ballot_candidates(self) -> List[Dict]:
+        """The candidates a ballot may offer right now.
+
+        On the first pick that is everyone. On a re-choice the group has already
+        seen what happened to `chosen_candidate`, so it is out of the running —
+        the question is which of the *remaining* candidates they now want.
+        """
+        return [c for c in self.candidates
+                if c.get("name") and c.get("name") != self.chosen_candidate]
+
     def _valid_candidate(self, candidate: str) -> bool:
-        return candidate in self._candidate_names
+        # Same rule server-side as the emitted list, so a stale client cannot vote
+        # for the candidate the re-choice just eliminated.
+        return any(c.get("name") == candidate for c in self._ballot_candidates())
 
     def record_collective_vote(self, uid: str, candidate: str) -> bool:
         """Record the group's decision. The FIRST valid entry resolves the ballot.
@@ -472,8 +483,11 @@ class ExerciseState:
 
         A phase flag rather than a phase change: chat stays unlocked so students
         keep talking through the re-choice, which is where most of the learning
-        happens. Called only when ACTR itself invites a re-choice at MOVE 5, and
-        only if the tally permits one.
+        happens. Called only when ACTR itself invites a re-choice at step 11 of
+        the sequence, and only if the tally permits one.
+
+        The candidate they already picked is dropped from the list — they have
+        seen its outcome, so re-offering it makes the question meaningless.
         """
         with self._lock:
             if self._phase != PHASE_DISCUSS or not self.reopen_allowed:
@@ -484,7 +498,7 @@ class ExerciseState:
         self._emit("ballot_update", {
             "room_id": self.room_id,
             "open": True,
-            "candidates": [{"name": c.get("name", "")} for c in self.candidates],
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
 
     @staticmethod

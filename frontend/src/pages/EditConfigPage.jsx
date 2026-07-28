@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-27
-// @changed   Save this class's reviewed case as a reusable preset; plus the tally warnings banner and
-//            per-merge confirm toggles, the Class Code field, and the breakout groups slider.
+// @updated   2026-07-28
+// @changed   Advanced block for editing the facilitator's own system prompt per config — load the stock
+//            text, edit it in place, or clear it to keep following the standard one.
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -50,6 +50,13 @@ const EditConfigPage = () => {
   // HeyGen State
   const [heygenAvatars, setHeygenAvatars] = useState([]);
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
+
+  // Facilitator prompt editor (manager_exercise, advanced only). The stock prompt
+  // is ~12 KB of pedagogy, so it is fetched on demand rather than bundled — and
+  // only written onto the config once the professor deliberately loads it.
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptErr, setPromptErr] = useState('');
 
   // Class rollout usage tiers
   const [usageTiers, setUsageTiers] = useState([]);
@@ -132,6 +139,9 @@ const EditConfigPage = () => {
             discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
+            // Blank = run the stock facilitator prompt. Only set once a professor
+            // has actually loaded and edited it in the advanced block below.
+            facilitator_prompt_override: me.facilitator_prompt_override || '',
             general_info: docRef(me.general_info),
             candidate_summary: docRef(me.candidate_summary),
             candidates: Array.isArray(me.candidates)
@@ -320,6 +330,23 @@ const EditConfigPage = () => {
       setPresetMsg((d && (d.error || d.message)) || 'Could not save the case.');
     } finally {
       setPresetBusy(false);
+    }
+  };
+
+  // Pull the stock facilitator prompt into the editor. Overwrites whatever is in
+  // the box, so it doubles as "revert to default" — the professor then saves it
+  // as their own copy, or clears the box to go back to tracking the stock text.
+  const loadStockPrompt = async () => {
+    setPromptBusy(true);
+    setPromptErr('');
+    try {
+      const res = await apiClient.get('/config/facilitator-prompt/default');
+      setMgr('facilitator_prompt_override', res.data.prompt || '');
+    } catch (err) {
+      const d = err.response?.data;
+      setPromptErr((d && (d.error || d.message)) || 'Could not load the stock prompt.');
+    } finally {
+      setPromptBusy(false);
     }
   };
 
@@ -1015,6 +1042,52 @@ const EditConfigPage = () => {
                       <label className="block text-xs font-semibold text-gray-700 mb-2">What should they take away?</label>
                       <textarea rows="3" value={me.learning_outcome || ''} onChange={(e) => setMgr('learning_outcome', e.target.value)} placeholder="e.g. Groups under-share unique information and over-weight a concern everyone happens to hold." className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                     </div>
+
+                    {/* The facilitator's own system prompt, editable in place. Empty means
+                        the stock prompt is used and keeps tracking future revisions; any
+                        text here replaces it wholesale for this config only. */}
+                    <AdvancedReveal show={advanced}>
+                      <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-6">
+                        <button type="button" onClick={() => setPromptOpen(v => !v)} className="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                          {promptOpen ? '▾' : '▸'} Facilitator instructions
+                          <span className={`normal-case tracking-normal font-semibold ${(me.facilitator_prompt_override || '').trim() ? 'text-[#C2410C]' : 'text-gray-400'}`}>
+                            {(me.facilitator_prompt_override || '').trim() ? '· edited' : '· default'}
+                          </span>
+                        </button>
+                        {promptOpen && (
+                          <div className="mt-3">
+                            <p className="text-[11px] text-gray-500 mb-3">
+                              Everything ACTR is told before a session — the sequence, the constraints, how it takes turns.
+                              Leave this empty to run the standard prompt and pick up future improvements automatically.
+                              Load it to make your own copy, which then stays frozen as you edited it.
+                              Keep the <code className="bg-white px-1 rounded border border-gray-200">&lt;&lt;CASE_PACK&gt;&gt;</code> marker —
+                              it is where your case is injected. <code className="bg-white px-1 rounded border border-gray-200">&lt;&lt;ROSTER&gt;&gt;</code>,
+                              <code className="bg-white px-1 rounded border border-gray-200">&lt;&lt;LEARNING_OBJECTIVES&gt;&gt;</code> and
+                              <code className="bg-white px-1 rounded border border-gray-200">&lt;&lt;GROUP_SIZE&gt;&gt;</code> are optional.
+                            </p>
+                            <div className="flex gap-2 mb-2">
+                              <button type="button" onClick={loadStockPrompt} disabled={promptBusy} className="rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-3 py-1.5 text-xs shadow-sm disabled:opacity-50 transition-all active:scale-95">
+                                {promptBusy ? 'Loading…' : ((me.facilitator_prompt_override || '').trim() ? 'Reset to standard' : 'Load standard prompt')}
+                              </button>
+                              {(me.facilitator_prompt_override || '').trim() && (
+                                <button type="button" onClick={() => setMgr('facilitator_prompt_override', '')} className="rounded-lg border border-gray-200 bg-white hover:border-gray-300 text-gray-600 font-bold px-3 py-1.5 text-xs transition-all active:scale-95">
+                                  Clear &amp; follow the standard
+                                </button>
+                              )}
+                            </div>
+                            {promptErr && <p className="text-[11px] font-semibold text-red-500 mb-2">{promptErr}</p>}
+                            <textarea
+                              rows="18"
+                              value={me.facilitator_prompt_override || ''}
+                              onChange={(e) => setMgr('facilitator_prompt_override', e.target.value)}
+                              placeholder="Empty — the standard facilitator prompt is in use. Load it above to edit your own copy."
+                              spellCheck={false}
+                              className="w-full p-3 bg-white border border-gray-200 rounded-lg font-mono text-[11px] leading-relaxed focus:outline-none focus:border-[#FA6C43] transition-all"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </AdvancedReveal>
 
                     {/* Class code — how students reach the exercise at all, so it sits
                         in the main flow rather than behind the Advanced toggle. */}
