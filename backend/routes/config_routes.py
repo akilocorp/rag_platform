@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-07-27
-# @changed   Restored the optional general_info document on manager_exercise (schema, validator, preview).
+# @changed   general_info is now REQUIRED on manager_exercise — without it the facilitator has nothing to
+#            test a candidate's pooled picture against and the session collapses into counting.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -186,13 +187,18 @@ def validate_manager_exercise(source, target):
     # summary states each role's private view and (in most authored cases) the
     # pooled totals, i.e. the answer key in plain text.
     #
-    # general_info is optional and does a different job: it is what the ROLE
-    # requires, which the facilitator quotes when the group is arguing about which
-    # failure costs more. Students already hold it on paper.
+    # general_info does a different job from the summary: it is what the ROLE
+    # requires, which is what a candidate's pooled picture gets tested against.
+    # Without it the exercise degenerates into counting items, so it is required.
+    # Students already hold it on paper.
     general_info = _me_doc_ref(raw, 'general_info')
     candidate_summary = _me_doc_ref(raw, 'candidate_summary')
     if not candidate_summary["text"].strip():
         return jsonify({"error": "manager_exercise.candidate_summary is required (upload the Candidate Summary document)"}), 400
+    # Required, because without it the facilitator has nothing to test a candidate
+    # against and the session collapses into counting items.
+    if not general_info["text"].strip():
+        return jsonify({"error": "manager_exercise.general_info is required (upload the General Information document)"}), 400
 
     class_preset = (raw.get('class_preset') or '').strip()
     learning_outcome = raw.get('learning_outcome')

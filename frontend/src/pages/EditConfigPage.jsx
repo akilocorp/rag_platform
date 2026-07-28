@@ -2,7 +2,7 @@
 // @updated   2026-07-27
 // @changed   Save this class's reviewed case as a reusable preset; plus the tally warnings banner and
 //            per-merge confirm toggles, the Class Code field, and the breakout groups slider.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
@@ -535,7 +535,8 @@ const EditConfigPage = () => {
         // document per candidate, and a reviewed case pack carrying the answer key.
         const me = config.manager_exercise || {};
         const usable = (me.candidates || []).filter(c => (c.name || '').trim() && (c.forecast_text || '').trim());
-        if (!(me.candidate_summary?.text || '').trim()) newErrors.form = 'Upload the Candidate Summary document.';
+        if (!(me.general_info?.text || '').trim()) newErrors.form = 'Upload the General Information document — ACTR needs it to ask what the role requires.';
+        else if (!(me.candidate_summary?.text || '').trim()) newErrors.form = 'Upload the Candidate Summary document.';
         else if (usable.length < 2) newErrors.form = 'Upload a named outcome document for at least two candidates.';
         else if (!me.case_pack) newErrors.form = 'Analyse the case and review the result before saving.';
     } else {
@@ -1041,8 +1042,8 @@ const EditConfigPage = () => {
                     <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Case Materials</h4>
                     <p className="text-[11px] text-gray-400 mb-3">ACTR-only. Replacing any document clears the analysis below, so the tally can never describe files that are no longer loaded.</p>
                     {[
-                      { field: 'general_info', label: 'General Information', required: false,
-                        hint: 'What the role actually requires. ACTR uses it to settle arguments about which failure matters more.' },
+                      { field: 'general_info', label: 'General Information', required: true,
+                        hint: 'What the role requires. ACTR uses it to ask what outcome each candidate would produce, and whether that is what the job needed.' },
                       { field: 'candidate_summary', label: 'Candidate Summary', required: true,
                         hint: "Every role's private view, side by side. The pooled tally derives from this." },
                     ].map(slot => {

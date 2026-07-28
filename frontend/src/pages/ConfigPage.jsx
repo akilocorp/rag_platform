@@ -585,7 +585,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
     if (step === 3 && config.bot_type === 'manager_exercise') {
       const me = config.manager_exercise;
       const usable = me.candidates.filter(c => (c.name || '').trim() && (c.forecast_text || '').trim());
-      if (!(me.candidate_summary?.text || '').trim()) {
+      if (!(me.general_info?.text || '').trim()) {
+        newErrors.form = 'Upload the General Information document — ACTR needs it to ask what the role requires.';
+      } else if (!(me.candidate_summary?.text || '').trim()) {
         newErrors.form = 'Upload the Candidate Summary document.';
       } else if (usable.length < 2) {
         newErrors.form = 'Upload a named outcome document for at least two candidates.';
@@ -1081,12 +1083,13 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Case Materials</h2>
                   <p className="text-center text-sm text-gray-500 mb-4">These go to ACTR only and are never shown to a student — the candidate summary states every role's private view.</p>
 
-                  {/* General information is optional and does a different job from
-                      the summary: ACTR quotes it when the group argues about which
-                      failure costs more. The summary is what the tally comes from. */}
+                  {/* Both required, and they do different jobs. The summary is what
+                      the tally comes from; general information is what a pooled
+                      picture gets tested against — without it the session
+                      collapses into counting items. */}
                   {[
-                    { field: 'general_info', label: 'General Information', required: false,
-                      hint: 'What the role actually requires. ACTR uses it to settle arguments about which failure matters more.' },
+                    { field: 'general_info', label: 'General Information', required: true,
+                      hint: 'What the role requires. ACTR uses it to ask what outcome each candidate would produce, and whether that is what the job needed.' },
                     { field: 'candidate_summary', label: 'Candidate Summary', required: true,
                       hint: "Every role's private view, side by side. The pooled tally is derived from this." },
                   ].map(slot => {
