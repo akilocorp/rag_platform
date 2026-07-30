@@ -80,6 +80,44 @@ const OutcomeCard = ({ title, text }) => {
   );
 };
 
+// M6: the "6 months later" time-skip — a brief full-screen blackout with a clock
+// spinning forward, shown after a student presses Continue and before their outcome
+// reveal. Module-level so the auto-advance timer isn't reset by parent re-renders.
+const TimeSkipAnimation = ({ onDone }) => {
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  useEffect(() => {
+    const id = setTimeout(() => doneRef.current && doneRef.current(), 2600);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0B1220] text-white animate-in fade-in duration-500">
+      <div className="relative w-28 h-28 rounded-full border-4 border-white/80 shadow-2xl">
+        {/* hour + minute hands rotate about the clock centre (transform-origin at
+            bottom); animate-spin owns the transform, so positioning uses left/bottom. */}
+        <div className="absolute animate-spin" style={{ left: 'calc(50% - 1.5px)', bottom: '50%', width: '3px', height: '30px', background: 'white', transformOrigin: 'bottom center', animationDuration: '1.6s' }} />
+        <div className="absolute animate-spin" style={{ left: 'calc(50% - 1px)', bottom: '50%', width: '2px', height: '42px', background: '#FA6C43', transformOrigin: 'bottom center', animationDuration: '0.6s' }} />
+        <div className="absolute rounded-full bg-white" style={{ left: 'calc(50% - 4px)', top: 'calc(50% - 4px)', width: '8px', height: '8px' }} />
+      </div>
+      <p className="mt-8 text-lg font-bold tracking-wide animate-in fade-in slide-in-from-bottom-2 duration-1000">Six months later…</p>
+    </div>
+  );
+};
+
+// M6: the kiosk gate — a deliberate full-screen stop so students look up at the
+// instructor. Pressing Continue advances only THIS student (the phase machine
+// holds the shared discussion until everyone has).
+const KioskGate = ({ onContinue }) => (
+  <div className="h-screen flex flex-col items-center justify-center bg-[#0B1220] text-white p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="max-w-md">
+      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center"><FaRegClock className="text-2xl" /></div>
+      <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
+      <p className="text-white/70 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. Press Continue when you're ready to see how the hire played out.</p>
+      <button onClick={onContinue} className="rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-10 py-4 shadow-lg transition-all active:scale-[0.97]">Continue</button>
+    </div>
+  </div>
+);
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -90,7 +128,7 @@ const ManagerExercisePage = () => {
 
   // ---- lifecycle / identity ----
   const [config, setConfig] = useState(null);
-  const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|choose|discuss|done
+  const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|choose|kiosk|discuss|done
   const [roomId, setRoomId] = useState(null);
 
   // ---- breakout lobby ----
@@ -130,6 +168,17 @@ const ManagerExercisePage = () => {
   const [finalCall, setFinalCall] = useState(false);
   const ballotWasOpenRef = useRef(false);
   const audioCtxRef = useRef(null);
+
+  // ---- kiosk gate (M6) ----
+  // `kioskStage` walks THIS client through gate → time-skip → reveal on its own;
+  // `kioskAcked/Total` drive the "waiting for your group" line; `forecastText` is
+  // the chosen candidate's outcome, shown to each student after their time-skip.
+  const [kioskStage, setKioskStage] = useState('gate'); // gate|timeskip|reveal
+  const [kioskAcked, setKioskAcked] = useState(0);
+  const [kioskTotal, setKioskTotal] = useState(0);
+  const [youContinued, setYouContinued] = useState(false);
+  const [forecastText, setForecastText] = useState(null);
+  const kioskInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
 
@@ -201,6 +250,21 @@ const ManagerExercisePage = () => {
     if (s.collective_tally) setTally(s.collective_tally);
     if (s.your_vote !== undefined) { setYourVote(s.your_vote); if (s.your_vote) setPick(s.your_vote); }
     if (typeof s.collective_final_call === 'boolean') setFinalCall(s.collective_final_call);
+    // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
+    if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
+    if (typeof s.kiosk_acked === 'number') setKioskAcked(s.kiosk_acked);
+    if (typeof s.kiosk_total === 'number') setKioskTotal(s.kiosk_total);
+    if (typeof s.you_continued === 'boolean') setYouContinued(s.you_continued);
+    // Initialize the kiosk walkthrough once per entry into the phase — a reconnecting
+    // student who already pressed Continue lands straight on their reveal.
+    if (s.phase === 'kiosk') {
+      if (!kioskInitedRef.current) {
+        kioskInitedRef.current = true;
+        setKioskStage(s.you_continued ? 'reveal' : 'gate');
+      }
+    } else {
+      kioskInitedRef.current = false;
+    }
     // Chat is only unlocked during discuss (server is authoritative; this is cosmetic).
     setChatLocked(s.phase !== 'discuss');
   }, []);
@@ -301,6 +365,12 @@ const ManagerExercisePage = () => {
           setFinalCall(false);
           if (d.tally) setTally(d.tally);
         });
+
+        // M6: live kiosk tally — how many of the room have pressed Continue.
+        socket.on('kiosk_update', (d) => {
+          if (typeof d.acked === 'number') setKioskAcked(d.acked);
+          if (typeof d.total === 'number') setKioskTotal(d.total);
+        });
       } catch (e) {
         console.error('Failed to load manager exercise', e);
       }
@@ -390,6 +460,14 @@ const ManagerExercisePage = () => {
   // a majority of the room has already voted (quorum lives server-side).
   const earlyDecision = () => {
     socketRef.current?.emit('early_decision', { room_id: roomId, uid: userIdRef.current });
+  };
+
+  // M6: press Continue at the kiosk. Advances THIS client into the time-skip at
+  // once; the server holds the shared discussion until the whole room has pressed.
+  const continueAck = () => {
+    socketRef.current?.emit('continue_ack', { room_id: roomId, uid: userIdRef.current });
+    setYouContinued(true);
+    setKioskStage('timeskip');
   };
 
   const secsLeft = remaining == null ? null : Math.max(0, remaining);
@@ -705,6 +783,46 @@ const ManagerExercisePage = () => {
             <FaArrowLeft className="text-xs" /> Switch group
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase: kiosk (M6 — instructor-paced gate → time-skip → per-student outcome)
+  // -------------------------------------------------------------------------
+  if (phase === 'kiosk') {
+    if (kioskStage === 'timeskip') {
+      return <TimeSkipAnimation onDone={() => setKioskStage('reveal')} />;
+    }
+    if (kioskStage === 'gate' && !youContinued) {
+      return <KioskGate onContinue={continueAck} />;
+    }
+    // reveal: this student has passed the time-skip; show the outcome and wait on
+    // the rest of the room before the shared discussion opens.
+    const everyoneReady = kioskTotal > 0 && kioskAcked >= kioskTotal;
+    return (
+      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
+            <h1 className="font-semibold text-[#222] text-base truncate">{config?.bot_name || 'Manager Exercise'}</h1>
+          </div>
+        </header>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div className="text-center pt-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#FA6C43]">Six months later</span>
+            </div>
+            {forecastText
+              ? <OutcomeCard title={`${chosenCandidate || 'Your hire'} — Outcome`} text={forecastText} />
+              : <p className="text-center text-gray-500">Loading the outcome…</p>}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm animate-in fade-in duration-500">
+              {everyoneReady
+                ? <p className="text-sm font-semibold text-emerald-600">Everyone's ready — opening the discussion…</p>
+                : <p className="text-sm font-semibold text-gray-600">Waiting for your group — {kioskAcked} of {kioskTotal} ready.</p>}
+            </div>
+          </div>
+        </main>
       </div>
     );
   }

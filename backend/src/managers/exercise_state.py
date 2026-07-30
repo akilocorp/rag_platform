@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M5: `choose` is now a TIMED, tallied ballot — per-uid votes, majority auto-resolve, an
-#            early-decision (quorum) finalize, and a 30s final-call window. Prior: first entry resolved it.
+# @changed   M6: new `kiosk` phase between pick and reveal — each student presses Continue to advance
+#            themselves; the shared reveal + discussion wait until the whole room has. Prior: M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -38,11 +38,15 @@ logger = logging.getLogger(__name__)
 # --- Phase constants --------------------------------------------------------
 PHASE_WAITING = "waiting"
 PHASE_CHOOSE = "choose"
+# M6: instructor-paced gate between the pick and the reveal. Each student presses
+# Continue to advance their OWN screen (kiosk → time-skip → outcome); the room only
+# moves on to the shared discussion once every seated student has pressed it.
+PHASE_KIOSK = "kiosk"
 PHASE_DISCUSS = "discuss"
 PHASE_DONE = "done"
 
 # Ordered flow; used to fast-forward on rehydration.
-PHASE_ORDER = [PHASE_WAITING, PHASE_CHOOSE, PHASE_DISCUSS, PHASE_DONE]
+PHASE_ORDER = [PHASE_WAITING, PHASE_CHOOSE, PHASE_KIOSK, PHASE_DISCUSS, PHASE_DONE]
 
 # Chat is unlocked ONLY during discuss. In `choose` the group speaks through the
 # ballot buttons, not the chat, so the pick is a single deliberate act.
@@ -92,6 +96,11 @@ class ExerciseState:
         # "never twice in a row" rule the cooldown exists to enforce.
         self._facilitator_busy = False
 
+        # M6: one-shot guard so a rehydration `_drive` racing a final Continue can't
+        # run the kiosk's shared reveal twice. Transient (not persisted); reset each
+        # time the kiosk is (re-)entered.
+        self._kiosk_finishing = False
+
         # Hooks the sockets layer registers so AI-side work fires at the right
         # phase edges without this module importing ai_manager:
         #   on_choose_start(state)  -> ACTR asks which candidate they chose
@@ -113,6 +122,7 @@ class ExerciseState:
             self.phase_deadline_ts: Optional[float] = None
             self.roster: List[Dict] = []
             self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
+            self.continue_acks: List[str] = []
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
             self.reopen_allowed: bool = False
@@ -157,6 +167,7 @@ class ExerciseState:
             "votes": dict(cb.get("votes") or {}),
             "final_call": bool(cb.get("final_call", False)),
         }
+        self.continue_acks = list(doc.get("continue_acks") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
         self.reopen_allowed = bool(doc.get("reopen_allowed", False))
@@ -231,6 +242,11 @@ class ExerciseState:
                 "collective_final_call": bool(self.collective_ballot.get("final_call")),
                 "collective_tally": self._tally(self.collective_ballot.get("votes", {})),
                 "your_vote": self.collective_ballot.get("votes", {}).get(uid),
+                # M6: kiosk progress so a (re)joining client renders the gate/wait
+                # accurately and knows whether it has already pressed Continue.
+                "kiosk_acked": len(self.continue_acks),
+                "kiosk_total": len(self.roster),
+                "you_continued": uid in self.continue_acks,
                 "chosen_candidate": self.chosen_candidate,
                 "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
             }
@@ -312,6 +328,11 @@ class ExerciseState:
         with self._app.app_context():
             if self._phase == PHASE_CHOOSE and self.collective_ballot.get("open"):
                 self._run_choose_window()
+            elif self._phase == PHASE_KIOSK:
+                # No timer to re-arm — the kiosk waits on Continue presses. But if a
+                # crash landed between the last ack and the transition, finish now.
+                if self._all_continued():
+                    self._finish_kiosk()
             elif self._phase == PHASE_DISCUSS:
                 self._resume_timed(PHASE_DISCUSS, self._enter_done)
 
@@ -421,9 +442,11 @@ class ExerciseState:
         })
 
     def _enter_discuss(self):
-        """Pick resolved → unlock chat and arm the single discuss timer."""
+        """Kiosk cleared (or re-choice) → unlock chat and arm the single discuss timer."""
         with self._lock:
-            if self._phase != PHASE_CHOOSE:
+            # M6: the first pick now reaches discuss via the kiosk gate, so accept
+            # the transition from either `choose` (legacy/re-choice) or `kiosk`.
+            if self._phase not in (PHASE_CHOOSE, PHASE_KIOSK):
                 return
             self._phase = PHASE_DISCUSS
             self.phase_deadline_ts = time.time() + self.discuss_seconds
@@ -554,7 +577,7 @@ class ExerciseState:
                 "collective_ballot": self.collective_ballot,
                 "forecast_shown_for": self.forecast_shown_for,
             })
-            entering_discuss = self._phase == PHASE_CHOOSE
+            from_choose = self._phase == PHASE_CHOOSE
 
         self._emit("collective_result", {
             "room_id": self.room_id,
@@ -562,11 +585,83 @@ class ExerciseState:
             "tally": tally,
         })
         self._emit("ballot_update", {"room_id": self.room_id, "open": False, "candidates": []})
-        self._run_hook("on_pick_resolved")
 
-        if entering_discuss:
-            self._enter_discuss()
+        # M6: the FIRST pick goes through the kiosk gate — the shared outcome reveal
+        # (`on_pick_resolved`) is deferred until the whole room has pressed Continue.
+        # A re-choice inside discuss keeps revealing immediately (no gate).
+        if from_choose:
+            self._enter_kiosk()
+        else:
+            self._run_hook("on_pick_resolved")
         return winner, tally
+
+    # ==================================================================
+    # KIOSK GATE (M6 — individual advance, collective wait)
+    # ==================================================================
+    def _all_continued(self) -> bool:
+        """True once every seated student has pressed Continue (empty room → False)."""
+        seated = self.roster_uids()
+        return bool(seated) and all(u in self.continue_acks for u in seated)
+
+    def _enter_kiosk(self):
+        """Pick resolved from `choose` → hold at the kiosk gate (chat locked).
+
+        The outcome is already viewable per-client via the snapshot's `forecast_text`
+        (so a student who presses Continue sees their reveal at once); the room-wide
+        reveal message + discussion wait for `_finish_kiosk`.
+        """
+        with self._lock:
+            if self._phase != PHASE_CHOOSE:
+                return
+            self._phase = PHASE_KIOSK
+            self.phase_deadline_ts = None
+            self.continue_acks = []
+            self._kiosk_finishing = False
+            self._persist({
+                "phase": PHASE_KIOSK,
+                "phase_deadline_ts": None,
+                "continue_acks": self.continue_acks,
+            })
+
+        self._broadcast_phase()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "kiosk"})
+        self._emit("kiosk_update", {
+            "room_id": self.room_id, "acked": 0, "total": len(self.roster),
+        })
+
+    def record_continue(self, uid: str) -> bool:
+        """Record one student pressing Continue. Finishes the kiosk once all have.
+
+        Individual-level gate: the pressing client advances on its own; this only
+        governs the SHARED transition. No timeout and no override — a student who
+        never presses simply holds the room at the gate (by design).
+        """
+        finish = False
+        with self._lock:
+            if self._phase != PHASE_KIOSK or uid not in self.roster_uids():
+                return False
+            if uid not in self.continue_acks:
+                self.continue_acks.append(uid)
+                self._persist({"continue_acks": self.continue_acks})
+            finish = self._all_continued()
+
+        self._emit("kiosk_update", {
+            "room_id": self.room_id,
+            "acked": len(self.continue_acks),
+            "total": len(self.roster),
+        })
+        if finish:
+            self._finish_kiosk()
+        return True
+
+    def _finish_kiosk(self):
+        """Everyone has continued → run the shared reveal, then open discussion."""
+        with self._lock:
+            if self._phase != PHASE_KIOSK or self._kiosk_finishing:
+                return
+            self._kiosk_finishing = True
+        self._run_hook("on_pick_resolved")
+        self._enter_discuss()
 
     def set_reopen_allowed(self, allowed: bool):
         """Record that a re-choice is PERMITTED — not that it is being offered.

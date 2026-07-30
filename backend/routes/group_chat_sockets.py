@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M5: add `early_decision` handler (quorum-gated finalize) for the timed manager-exercise ballot.
-#            Prior: 8s silence watcher armed by each student message to break an awkward pause.
+# @changed   M6: add `continue_ack` handler for the kiosk gate (individual advance, collective wait).
+#            Prior: M5 `early_decision` handler (quorum-gated finalize) for the timed ballot.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -673,6 +673,23 @@ def register_socket_events(socketio, app):
         if state is None:
             return
         state.early_finalize(uid)
+
+    @socketio.on('continue_ack')
+    def handle_continue_ack(data):
+        """One student presses Continue at the kiosk gate (M6).
+
+        The pressing client advances its own screen immediately; record_continue
+        only governs the SHARED transition — it opens the outcome reveal + discussion
+        once every seated student in the room has pressed Continue.
+        """
+        room_id = (data or {}).get('room_id')
+        uid = (data or {}).get('uid')
+        if not room_id or not uid:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None:
+            return
+        state.record_continue(uid)
 
     # ==================================================================
     # DISCONNECT (unchanged)
