@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed M7: "Round 2" indicator on the decision screen for the group's second pick. Prior: M6 kiosk gate + '6 months later' time-skip; M5 timed live vote. */
+/* @language JSX  @updated 2026-07-30  @changed M2: the reveal frames as a celebration (hire worked) or aftermath (hire failed) on the verdict. Prior: M7 Round 2 indicator; M6 kiosk + time-skip; M5 timed vote. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -180,6 +180,7 @@ const ManagerExercisePage = () => {
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
   const [forecastText, setForecastText] = useState(null);
+  const [chosenVerdict, setChosenVerdict] = useState(null); // M2: 'success' | 'failure'
   const kioskInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
@@ -256,6 +257,7 @@ const ManagerExercisePage = () => {
     if (typeof s.collective_final_call === 'boolean') setFinalCall(s.collective_final_call);
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
+    if (s.chosen_verdict !== undefined) setChosenVerdict(s.chosen_verdict);
     if (typeof s.kiosk_acked === 'number') setKioskAcked(s.kiosk_acked);
     if (typeof s.kiosk_total === 'number') setKioskTotal(s.kiosk_total);
     if (typeof s.you_continued === 'boolean') setYouContinued(s.you_continued);
@@ -820,9 +822,23 @@ const ManagerExercisePage = () => {
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto space-y-6">
-            <div className="text-center pt-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-[#FA6C43]">Six months later</span>
-            </div>
+            {/* M2: frame the reveal as a celebration (the hire worked out) or an
+                aftermath (it went badly), branched on the pick's outcome verdict. */}
+            {(() => {
+              const win = chosenVerdict === 'success';
+              return (
+                <div className={`rounded-2xl px-5 py-4 text-center border animate-in fade-in slide-in-from-bottom-2 duration-500 ${
+                  win ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+                }`}>
+                  <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
+                  <div className={`text-lg font-extrabold ${win ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {win
+                      ? `Hiring ${chosenCandidate || 'them'} paid off.`
+                      : `Hiring ${chosenCandidate || 'them'} went badly.`}
+                  </div>
+                </div>
+              );
+            })()}
             {forecastText
               ? <OutcomeCard title={`${chosenCandidate || 'Your hire'} — Outcome`} text={forecastText} />
               : <p className="text-center text-gray-500">Loading the outcome…</p>}

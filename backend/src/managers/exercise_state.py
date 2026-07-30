@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M8: session-wide `speakers` tracking + `grades` storage/broadcast (set_grades) + group_outcome();
-#            grading is reintroduced. Prior: M7 second round + two-strike reveal; M6 kiosk; M5 timed ballot.
+# @changed   M2: expose `chosen_verdict` (success/failure) so the reveal frames as celebration vs aftermath.
+#            Prior: M8 grading (speakers/grades/group_outcome); M7 second round; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -238,6 +238,18 @@ class ExerciseState:
         key = (self.config.get("case_pack") or {}).get("answer_key") or {}
         return (key.get("best_option") or None)
 
+    def _verdict_for(self, name: Optional[str]) -> Optional[str]:
+        """The case-pack outcome verdict ('success'/'failure') for a candidate (M2).
+
+        Safe to expose once the pick is revealed — the student is already reading
+        that candidate's outcome document, which says the same thing in prose. It
+        lets the client frame the reveal as a celebration vs an aftermath.
+        """
+        for o in ((self.config.get("case_pack") or {}).get("options") or []):
+            if (o.get("name") or "").strip().lower() == (name or "").strip().lower():
+                return o.get("outcome_verdict") or None
+        return None
+
     def _pick_is_correct(self, name: Optional[str]) -> bool:
         """True when `name` is the case's best option (M7 correctness gate)."""
         best = (self._best_option() or "").strip().lower()
@@ -309,6 +321,9 @@ class ExerciseState:
                 "you_continued": uid in self.continue_acks,
                 "chosen_candidate": self.chosen_candidate,
                 "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
+                # M2: verdict of the revealed pick, so the client frames the reveal
+                # as a celebration (success) or an aftermath (failure).
+                "chosen_verdict": self._verdict_for(self.chosen_candidate) if revealed else None,
                 # M7: round/strike surface. `revealed_candidate` is only the answer
                 # AFTER two strikes, at which point showing it is the whole point.
                 "round": self.round,
