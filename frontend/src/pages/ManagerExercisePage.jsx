@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed Hover on candidate options + lobby rooms is border/shadow only now — removed the translate-y lift that shook the element out from under the cursor. Prior: M2 verdict-branched reveal; M7 Round 2; M6 kiosk; M5 timed vote. */
+/* @language JSX  @updated 2026-07-30  @changed Transcript bubbles: moved the max-w-[88%] cap onto the flex-col wrapper (bubble is max-w-full) so short messages no longer collapse to a sliver and wrap char-by-char — matches the 1:1 chat's wide, natural feel. Prior: hover on options/lobby rooms border/shadow only; M2 verdict reveal; M7 Round 2; M6 kiosk. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -636,9 +636,9 @@ const ManagerExercisePage = () => {
                   : <span className="text-xs font-bold">{sender.substring(0, 2).toUpperCase()}</span>}
               </div>
             )}
-            <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+            <div className={`flex flex-col min-w-0 max-w-[88%] ${isMe ? 'items-end' : 'items-start'}`}>
               {!isMe && <span className="text-[10px] font-bold text-gray-500 ml-1 mb-1">{sender}</span>}
-              <div className={`min-w-0 max-w-[88%] rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
+              <div className={`min-w-0 max-w-full rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
                 isMe
                   ? 'bg-[#FA6C43] text-white rounded-br-none'
                   : isFacilitator
