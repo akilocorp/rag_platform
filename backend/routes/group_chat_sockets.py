@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-27
-# @changed   8s silence watcher armed by each student message — a timer that FIRES to break an awkward
-#            pause, not one that blocks ACTR from speaking.
+# @updated   2026-07-30
+# @changed   M5: add `early_decision` handler (quorum-gated finalize) for the timed manager-exercise ballot.
+#            Prior: 8s silence watcher armed by each student message to break an awkward pause.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -638,13 +638,14 @@ def register_socket_events(socketio, app):
     # ==================================================================
     @socketio.on('submit_collective_vote')
     def handle_submit_collective_vote(data):
-        """One student enters the group's already-agreed pick, on the team's behalf.
+        """One student casts their vote in the timed group ballot (M5).
 
         record_collective_vote enforces an open ballot, roster membership and a
-        valid candidate, then resolves immediately (→ collective_result → outcome
-        reveal). Serves both the first pick and a re-choice; every resulting event
-        is broadcast by ExerciseState, so the other members see the ballot close
-        and the outcome arrive without doing anything.
+        valid candidate, records the vote and broadcasts the running tally. It
+        auto-resolves on a strict majority or once everyone present has voted;
+        otherwise the clock (or the early-decision button) resolves it. Serves both
+        the first pick and a re-choice — every resulting event is broadcast by
+        ExerciseState, so the rest of the room updates without doing anything.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -655,6 +656,23 @@ def register_socket_events(socketio, app):
         if state is None:
             return
         state.record_collective_vote(uid, candidate)
+
+    @socketio.on('early_decision')
+    def handle_early_decision(data):
+        """The group presses "Decide now" to finalize before the clock (M5).
+
+        early_finalize only resolves if a majority of the roster has already voted
+        (quorum); below that it is a no-op, so one impatient student can't end the
+        decision for a room that hasn't weighed in yet.
+        """
+        room_id = (data or {}).get('room_id')
+        uid = (data or {}).get('uid')
+        if not room_id or not uid:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None:
+            return
+        state.early_finalize(uid)
 
     # ==================================================================
     # DISCONNECT (unchanged)

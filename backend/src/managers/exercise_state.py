@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-28
-# @changed   A re-choice ballot no longer re-offers the candidate whose outcome the group just saw —
-#            _ballot_candidates() is now the one source for both the emitted list and vote validation.
+# @updated   2026-07-30
+# @changed   M5: `choose` is now a TIMED, tallied ballot — per-uid votes, majority auto-resolve, an
+#            early-decision (quorum) finalize, and a 30s final-call window. Prior: first entry resolved it.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -103,6 +103,8 @@ class ExerciseState:
         self.capacity: int = cfg["capacity"]
         self.candidates: List[Dict] = cfg["candidates"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
+        self.choose_seconds: float = cfg["choose_seconds"]
+        self.final_call_seconds: float = cfg["final_call_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -110,7 +112,7 @@ class ExerciseState:
             self._phase = PHASE_WAITING
             self.phase_deadline_ts: Optional[float] = None
             self.roster: List[Dict] = []
-            self.collective_ballot: Dict = {"open": False, "votes": {}}
+            self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
             self.reopen_allowed: bool = False
@@ -134,6 +136,11 @@ class ExerciseState:
             "capacity": max(2, num or 2),
             "candidates": c.get("candidates") or [],
             "discuss_seconds": float(c.get("discuss_minutes") or 20) * 60.0,
+            # M5: the `choose` ballot is timed. The main window runs `choose_seconds`;
+            # when it lapses a short `final_call_seconds` window opens (the client
+            # beeps) before the pick is force-resolved from whatever votes are in.
+            "choose_seconds": float(c.get("choose_minutes") or 3) * 60.0,
+            "final_call_seconds": float(c.get("final_call_seconds") or 30),
         }
 
     # ==================================================================
@@ -148,6 +155,7 @@ class ExerciseState:
         self.collective_ballot = {
             "open": bool(cb.get("open", False)),
             "votes": dict(cb.get("votes") or {}),
+            "final_call": bool(cb.get("final_call", False)),
         }
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
@@ -218,6 +226,11 @@ class ExerciseState:
                 "can_start": self.can_start(),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
+                # M5: live decision state so the client can render the running tally,
+                # highlight this viewer's own vote, and flag the final-call window.
+                "collective_final_call": bool(self.collective_ballot.get("final_call")),
+                "collective_tally": self._tally(self.collective_ballot.get("votes", {})),
+                "your_vote": self.collective_ballot.get("votes", {}).get(uid),
                 "chosen_candidate": self.chosen_candidate,
                 "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
             }
@@ -291,9 +304,15 @@ class ExerciseState:
         socketio.start_background_task(self._drive)
 
     def _drive(self):
-        """Background driver: re-arm the only timed phase after a restart."""
+        """Background driver: re-arm the timed phases after a restart.
+
+        M5: `choose` is now timed too, so a room rebuilt mid-ballot must resume its
+        window (or its final-call sub-window) rather than hang with an open ballot.
+        """
         with self._app.app_context():
-            if self._phase == PHASE_DISCUSS:
+            if self._phase == PHASE_CHOOSE and self.collective_ballot.get("open"):
+                self._run_choose_window()
+            elif self._phase == PHASE_DISCUSS:
                 self._resume_timed(PHASE_DISCUSS, self._enter_done)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
@@ -333,11 +352,13 @@ class ExerciseState:
             if self._phase != PHASE_WAITING:
                 return
             self._phase = PHASE_CHOOSE
-            self.phase_deadline_ts = None
-            self.collective_ballot = {"open": True, "votes": {}}
+            # M5: the ballot is timed. Arm the main window here; the background
+            # `_run_choose_window` task carries it through to final-call + resolve.
+            self.phase_deadline_ts = time.time() + self.choose_seconds
+            self.collective_ballot = {"open": True, "votes": {}, "final_call": False}
             self._persist({
                 "phase": PHASE_CHOOSE,
-                "phase_deadline_ts": None,
+                "phase_deadline_ts": self.phase_deadline_ts,
                 "collective_ballot": self.collective_ballot,
             })
 
@@ -346,9 +367,58 @@ class ExerciseState:
         self._emit("ballot_update", {
             "room_id": self.room_id,
             "open": True,
+            "final_call": False,
+            "tally": {},
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
         self._run_hook("on_choose_start")
+        if self._socketio:
+            self._socketio.start_background_task(self._run_choose_window)
+
+    def _run_choose_window(self):
+        """Background timer for the timed `choose` ballot (M5).
+
+        Sleeps out the main window, opens the 30s final-call window (client beeps),
+        then force-resolves whatever votes are in. Any earlier resolution — a
+        majority reached, everyone voted, or an early-decision — has already closed
+        the ballot, so this task then finds it closed and exits without forcing.
+        """
+        with self._app.app_context():
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase != PHASE_CHOOSE or not self.collective_ballot.get("open"):
+                return
+            self._enter_final_call()
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase == PHASE_CHOOSE and self.collective_ballot.get("open"):
+                self.resolve_collective()
+
+    def _enter_final_call(self):
+        """Open the short final-call window: same ballot, a new tight deadline.
+
+        Idempotent — a rehydrated room already in final-call keeps its deadline
+        rather than restarting the countdown.
+        """
+        with self._lock:
+            if (self._phase != PHASE_CHOOSE
+                    or not self.collective_ballot.get("open")
+                    or self.collective_ballot.get("final_call")):
+                return
+            self.collective_ballot["final_call"] = True
+            self.phase_deadline_ts = time.time() + self.final_call_seconds
+            self._persist({
+                "collective_ballot": self.collective_ballot,
+                "phase_deadline_ts": self.phase_deadline_ts,
+            })
+        # Re-broadcast the phase so clients pick up the new (tight) deadline, and
+        # flag the final call so the UI can start the anxiety beep.
+        self._broadcast_phase()
+        self._emit("ballot_update", {
+            "room_id": self.room_id,
+            "open": True,
+            "final_call": True,
+            "tally": self._tally(self.collective_ballot.get("votes", {})),
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
+        })
 
     def _enter_discuss(self):
         """Pick resolved → unlock chat and arm the single discuss timer."""
@@ -407,16 +477,15 @@ class ExerciseState:
         return any(c.get("name") == candidate for c in self._ballot_candidates())
 
     def record_collective_vote(self, uid: str, candidate: str) -> bool:
-        """Record the group's decision. The FIRST valid entry resolves the ballot.
+        """Record ONE participant's vote (M5). Now a real tally, not first-past-post.
 
-        This is not a vote. The group already decided together, offline, on paper;
-        whoever enters it is speaking for the team. Requiring all N would just be
-        the same answer typed N times, and would stall the room on whoever happens
-        to be slowest. Applies equally to the first pick and to any re-choice.
-
-        Any roster member may enter it. If two people click at once the first wins
-        and the second is rejected because the ballot has already closed.
+        The decision is made live in the app: each roster member votes (and may
+        change their vote while the ballot is open). The ballot auto-resolves the
+        moment a candidate holds a strict majority of the room, or everyone present
+        has voted — otherwise it runs until the clock (and its final-call window)
+        forces a resolve. `early_finalize` covers the "decide now" button.
         """
+        resolve = False
         with self._lock:
             if not self.collective_ballot.get("open"):
                 return False
@@ -425,6 +494,37 @@ class ExerciseState:
             self.collective_ballot["votes"][uid] = candidate
             self._persist({"collective_ballot": self.collective_ballot})
 
+            votes = self.collective_ballot["votes"]
+            tally = self._tally(votes)
+            roster_n = max(1, len(self.roster))
+            leader = max(tally.values()) if tally else 0
+            # Strict majority for one candidate, or the whole room has voted.
+            resolve = leader * 2 > roster_n or len(votes) >= roster_n
+
+        self._emit("ballot_update", {
+            "room_id": self.room_id,
+            "open": True,
+            "final_call": bool(self.collective_ballot.get("final_call")),
+            "tally": self._tally(self.collective_ballot.get("votes", {})),
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
+        })
+        if resolve:
+            self.resolve_collective()
+        return True
+
+    def early_finalize(self, uid: str) -> bool:
+        """The group asks to decide before the clock runs out (M5).
+
+        Resolves iff a MAJORITY of the roster has already cast a vote (quorum),
+        taking the current plurality. Below quorum it is a no-op, so one impatient
+        student can't end the decision for a room that hasn't weighed in yet.
+        """
+        with self._lock:
+            if not self.collective_ballot.get("open") or uid not in self.roster_uids():
+                return False
+            votes = self.collective_ballot.get("votes", {})
+            if len(votes) * 2 <= max(1, len(self.roster)):
+                return False
         self.resolve_collective()
         return True
 
@@ -447,6 +547,7 @@ class ExerciseState:
 
             self.chosen_candidate = winner
             self.collective_ballot["open"] = False
+            self.collective_ballot["final_call"] = False
             self.forecast_shown_for = winner
             self._persist({
                 "chosen_candidate": self.chosen_candidate,
@@ -492,12 +593,14 @@ class ExerciseState:
         with self._lock:
             if self._phase != PHASE_DISCUSS or not self.reopen_allowed:
                 return
-            self.collective_ballot = {"open": True, "votes": {}}
+            self.collective_ballot = {"open": True, "votes": {}, "final_call": False}
             self._persist({"collective_ballot": self.collective_ballot})
 
         self._emit("ballot_update", {
             "room_id": self.room_id,
             "open": True,
+            "final_call": False,
+            "tally": {},
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
 

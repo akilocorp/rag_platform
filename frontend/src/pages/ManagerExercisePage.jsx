@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-27  @changed Breakout-room lobby replaces the queue: pick a group with live occupancy, then start with whoever is present. Plus one member enters the decision for the whole team. */
+/* @language JSX  @updated 2026-07-30  @changed M5: the `choose` phase is now a timed live vote — running tally, "Decide now" (quorum) button, decision countdown, and a beep through the final 30s. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -121,6 +121,15 @@ const ManagerExercisePage = () => {
   const [ballotOpen, setBallotOpen] = useState(false);
   const [pick, setPick] = useState(null);
   const [voted, setVoted] = useState(false);
+  // M5: the ballot is a live tally now. `tally` is votes-per-candidate, `yourVote`
+  // is this client's current pick (restored on reconnect), `finalCall` flags the
+  // 30s anxiety window. `ballotWasOpenRef` distinguishes a fresh open (reset the
+  // local pick) from a mid-ballot tally update (keep it).
+  const [tally, setTally] = useState({});
+  const [yourVote, setYourVote] = useState(null);
+  const [finalCall, setFinalCall] = useState(false);
+  const ballotWasOpenRef = useRef(false);
+  const audioCtxRef = useRef(null);
 
   const [userInfo, setUserInfo] = useState(null);
 
@@ -182,8 +191,16 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.roster)) setRoster(s.roster);
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
-    if (typeof s.collective_open === 'boolean') setBallotOpen(s.collective_open);
+    if (typeof s.collective_open === 'boolean') {
+      setBallotOpen(s.collective_open);
+      ballotWasOpenRef.current = s.collective_open;
+    }
     if (typeof s.you_voted_collective === 'boolean') setVoted(s.you_voted_collective);
+    // M5: restore the live tally, this viewer's own vote, and the final-call flag
+    // so a reconnecting student re-enters the ballot exactly where they left it.
+    if (s.collective_tally) setTally(s.collective_tally);
+    if (s.your_vote !== undefined) { setYourVote(s.your_vote); if (s.your_vote) setPick(s.your_vote); }
+    if (typeof s.collective_final_call === 'boolean') setFinalCall(s.collective_final_call);
     // Chat is only unlocked during discuss (server is authoritative; this is cosmetic).
     setChatLocked(s.phase !== 'discuss');
   }, []);
@@ -264,17 +281,25 @@ const ManagerExercisePage = () => {
           setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
         });
 
-        // Ballot opened/closed. Reopening during discuss is the "choose again"
-        // path, so the local pick is cleared to force a fresh, deliberate entry.
+        // Ballot opened/closed + live tally (M5). A FRESH open (closed→open) clears
+        // the local pick so a re-choice is a deliberate re-entry; a mid-ballot tally
+        // update keeps it. `final_call` flips the UI into the anxiety window.
         socket.on('ballot_update', (d) => {
-          setBallotOpen(Boolean(d.open));
+          const nowOpen = Boolean(d.open);
+          if (nowOpen && !ballotWasOpenRef.current) { setVoted(false); setPick(null); setYourVote(null); }
+          ballotWasOpenRef.current = nowOpen;
+          setBallotOpen(nowOpen);
           if (Array.isArray(d.candidates) && d.candidates.length) setCandidates(d.candidates);
-          if (d.open) { setVoted(false); setPick(null); }
+          if (d.tally) setTally(d.tally);
+          if (typeof d.final_call === 'boolean') setFinalCall(d.final_call);
+          if (!nowOpen) setFinalCall(false);
         });
 
         socket.on('collective_result', (d) => {
           setChosenCandidate(d.chosen_candidate);
           setBallotOpen(false);
+          setFinalCall(false);
+          if (d.tally) setTally(d.tally);
         });
       } catch (e) {
         console.error('Failed to load manager exercise', e);
@@ -350,15 +375,57 @@ const ManagerExercisePage = () => {
     setInput('');
   };
 
+  // M5: a real vote the student may change while the ballot is open, not a one-shot
+  // team entry. The server tallies and auto-resolves on a majority.
   const submitPick = () => {
-    if (!pick || voted || !ballotOpen || !socketRef.current) return;
+    if (!pick || !ballotOpen || !socketRef.current) return;
     socketRef.current.emit('submit_collective_vote', {
       room_id: roomId, uid: userIdRef.current, candidate: pick,
     });
     setVoted(true);
+    setYourVote(pick);
+  };
+
+  // "Decide now" — asks the server to finalize early. The server ignores it unless
+  // a majority of the room has already voted (quorum lives server-side).
+  const earlyDecision = () => {
+    socketRef.current?.emit('early_decision', { room_id: roomId, uid: userIdRef.current });
   };
 
   const secsLeft = remaining == null ? null : Math.max(0, remaining);
+
+  // M5: beep once a second through the final-call window to induce decision anxiety.
+  // The AudioContext is created lazily off the student's earlier click (start/vote),
+  // which satisfies the browser autoplay gesture requirement.
+  useEffect(() => {
+    if (phase !== 'choose' || !finalCall) return;
+    const beep = () => {
+      try {
+        let ctx = audioCtxRef.current;
+        if (!ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          ctx = new AC();
+          audioCtxRef.current = ctx;
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } catch { /* audio is a nice-to-have; never let it break the phase */ }
+    };
+    beep();
+    const id = setInterval(beep, 1000);
+    return () => clearInterval(id);
+  }, [phase, finalCall]);
 
   // -------------------------------------------------------------------------
   // Shared UI fragments
@@ -381,17 +448,22 @@ const ManagerExercisePage = () => {
     </div>
   );
 
-  // The candidate entry grid. Shared by the `choose` phase and the inline
-  // re-choice that appears mid-discussion, so both entries look identical.
-  const CandidateGrid = ({ compact }) => (
+  // The candidate voting grid (M5). Shared by the `choose` phase and the inline
+  // re-choice mid-discussion. Each row shows a live vote count; students may change
+  // their vote while the ballot is open, and the server resolves on a majority.
+  const CandidateGrid = ({ compact }) => {
+    const totalVotes = Object.values(tally).reduce((a, b) => a + b, 0);
+    const headcount = roster.length || capacity || 0;
+    return (
     <>
       <div className="grid gap-3">
         {candidates.map((c, i) => {
           const selected = pick === c.name;
+          const count = tally[c.name] || 0;
           return (
             <button
               key={c.name}
-              disabled={voted || !ballotOpen}
+              disabled={!ballotOpen}
               onClick={() => setPick(c.name)}
               style={{ animationDelay: `${i * 50}ms` }}
               className={`text-left rounded-2xl border-2 transition-all animate-in fade-in slide-in-from-bottom-1 disabled:cursor-default active:scale-[0.99] ${
@@ -400,7 +472,7 @@ const ManagerExercisePage = () => {
                 selected
                   ? 'border-[#FA6C43] bg-[#FA6C43]/5 shadow-sm'
                   : 'border-gray-200 bg-white hover:border-[#FA6C43]/50 hover:-translate-y-0.5'
-              } ${voted && !selected ? 'opacity-40' : ''}`}
+              }`}
             >
               <div className="flex items-center gap-3">
                 <span className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -408,28 +480,46 @@ const ManagerExercisePage = () => {
                 }`}>
                   {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                 </span>
-                <span className="font-semibold text-[#222]">{c.name}</span>
+                <span className="flex-1 font-semibold text-[#222]">{c.name}</span>
+                {count > 0 && (
+                  <span className="flex-shrink-0 inline-flex items-center text-xs font-extrabold text-[#C2410C] bg-[#F9D0C4]/50 rounded-full px-2.5 py-0.5 tabular-nums animate-in zoom-in-75 duration-200">
+                    {count}
+                  </span>
+                )}
               </div>
             </button>
           );
         })}
       </div>
-      {!voted && (
+      <div className="mt-5 flex flex-col sm:flex-row gap-3">
         <button
           onClick={submitPick}
           disabled={!pick || !ballotOpen}
-          className="mt-5 w-full rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
+          className="flex-1 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
         >
-          Enter our choice
+          {voted ? 'Update our vote' : 'Cast our vote'}
         </button>
-      )}
-      {voted && (
-        <p className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-          <FaCheckCircle /> Submitted for the group
+        <button
+          onClick={earlyDecision}
+          disabled={!ballotOpen}
+          title="Finalize now (once most of the group has voted)"
+          className="rounded-2xl border-2 border-[#FA6C43]/40 text-[#C2410C] font-bold px-5 py-3.5 hover:bg-[#F9D0C4]/20 disabled:opacity-40 transition-all active:scale-[0.98]"
+        >
+          Decide now
+        </button>
+      </div>
+      {voted ? (
+        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+          <FaCheckCircle /> You voted for {yourVote}. {totalVotes}{headcount ? ` of ${headcount}` : ''} in.
         </p>
+      ) : (
+        totalVotes > 0 && (
+          <p className="mt-3 text-xs font-semibold text-gray-500">{totalVotes}{headcount ? ` of ${headcount}` : ''} voted so far.</p>
+        )
       )}
     </>
-  );
+    );
+  };
 
   // One transcript entry. Three kinds: the outcome document (a report card), an
   // ACTR turn (accented, never right-aligned), and a student turn.
@@ -641,10 +731,20 @@ const ManagerExercisePage = () => {
             <Transcript />
 
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
-              <h2 className="text-lg font-bold text-[#222] mb-1">Your group's decision</h2>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-lg font-bold text-[#222]">Your group's decision</h2>
+                {secsLeft != null && (
+                  <CountdownChip label={finalCall ? 'Final call' : 'Decide'} urgent={finalCall || secsLeft <= 30} />
+                )}
+              </div>
               <p className="text-sm text-gray-500 mb-5">
-                One of you enters the candidate the group already agreed on — it counts for the whole team.
+                Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted.
               </p>
+              {finalCall && (
+                <div className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-600 animate-pulse">
+                  Final call — lock in your vote now.
+                </div>
+              )}
               <CandidateGrid />
             </section>
           </div>

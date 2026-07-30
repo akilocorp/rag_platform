@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-28
-# @changed   manager_exercise accepts facilitator_prompt_override (validated for <<CASE_PACK>>), and a new
-#            GET /config/facilitator-prompt/default serves the stock prompt so the wizard can prefill it.
+# @updated   2026-07-30
+# @changed   M5: manager_exercise accepts choose_minutes + final_call_seconds (the timed in-app decision window).
+#            Prior: facilitator_prompt_override (validated for <<CASE_PACK>>) + GET /config/facilitator-prompt/default.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -151,13 +151,29 @@ def validate_manager_exercise(source, target):
     if not 1 <= num_rooms <= ME_MAX_ROOMS:
         return jsonify({"error": f"manager_exercise.num_rooms must be between 1 and {ME_MAX_ROOMS}"}), 400
 
-    # Discuss window (minutes) — the only timed phase left.
+    # Discuss window (minutes).
     try:
         discuss_minutes = float(raw.get('discuss_minutes'))
     except (ValueError, TypeError):
         return jsonify({"error": "manager_exercise.discuss_minutes must be a number"}), 400
     if discuss_minutes <= 0:
         return jsonify({"error": "manager_exercise.discuss_minutes must be > 0"}), 400
+
+    # M5: the in-app decision (`choose`) is now timed. `choose_minutes` is the main
+    # ballot window; `final_call_seconds` is the tight anxiety window after it lapses.
+    # Both optional with safe defaults so existing configs keep working.
+    try:
+        choose_minutes = float(raw.get('choose_minutes', 3))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.choose_minutes must be a number"}), 400
+    if choose_minutes <= 0:
+        choose_minutes = 3.0
+    try:
+        final_call_seconds = int(raw.get('final_call_seconds', 30))
+    except (ValueError, TypeError):
+        final_call_seconds = 30
+    if final_call_seconds <= 0:
+        final_call_seconds = 30
 
     # Candidate roster — each entry carries the outcome document revealed on pick.
     raw_candidates = raw.get('candidates')
@@ -232,6 +248,8 @@ def validate_manager_exercise(source, target):
         "num_students": num_students,
         "num_rooms": num_rooms,
         "discuss_minutes": discuss_minutes,
+        "choose_minutes": choose_minutes,
+        "final_call_seconds": final_call_seconds,
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),
