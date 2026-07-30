@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed M5: the `choose` phase is now a timed live vote — running tally, "Decide now" (quorum) button, decision countdown, and a beep through the final 30s. */
+/* @language JSX  @updated 2026-07-30  @changed M7: "Round 2" indicator on the decision screen for the group's second pick. Prior: M6 kiosk gate + '6 months later' time-skip; M5 timed live vote. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -141,6 +141,7 @@ const ManagerExercisePage = () => {
   const [canStart, setCanStart] = useState(false);
   const [candidates, setCandidates] = useState([]);    // [{name}]
   const [chosenCandidate, setChosenCandidate] = useState(null);
+  const [roundNum, setRoundNum] = useState(1);         // M7: 1 = first pick, 2 = second round
 
   // ---- countdown, server-clock corrected ----
   const [deadlineTs, setDeadlineTs] = useState(null);
@@ -240,6 +241,7 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.roster)) setRoster(s.roster);
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
+    if (typeof s.round === 'number') setRoundNum(s.round);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
       ballotWasOpenRef.current = s.collective_open;
@@ -329,6 +331,7 @@ const ManagerExercisePage = () => {
           }
           setDeadlineTs(typeof p.phase_deadline_ts === 'number' ? p.phase_deadline_ts : null);
           if (p.phase) setPhase(p.phase);
+          if (typeof p.round === 'number') setRoundNum(p.round);
           setChatLocked(p.phase !== 'discuss');
         });
 
@@ -850,13 +853,20 @@ const ManagerExercisePage = () => {
 
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
               <div className="flex items-center justify-between gap-3 mb-1">
-                <h2 className="text-lg font-bold text-[#222]">Your group's decision</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-[#222]">Your group's decision</h2>
+                  {roundNum >= 2 && (
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/50 rounded-full px-2 py-0.5">Round 2</span>
+                  )}
+                </div>
                 {secsLeft != null && (
                   <CountdownChip label={finalCall ? 'Final call' : 'Decide'} urgent={finalCall || secsLeft <= 30} />
                 )}
               </div>
               <p className="text-sm text-gray-500 mb-5">
-                Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted.
+                {roundNum >= 2
+                  ? <>This time, choose from the candidates you haven't tried. Same rules — majority decides, or press <span className="font-semibold text-[#222]">Decide now</span>.</>
+                  : <>Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted.</>}
               </p>
               {finalCall && (
                 <div className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-600 animate-pulse">

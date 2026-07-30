@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-28
-# @changed   Point the model at the real step numbers (the sequence has thirteen steps and step 1 is no
-#            longer "disarm"), and let the outcome verdict pick the opener.
+# @updated   2026-07-30
+# @changed   M7: add facilitator_reveal_answer — the ONE turn that names the best option (after two wrong
+#            group picks), on a dedicated system prompt so the standard "never name it" rule stays intact.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -308,6 +308,55 @@ def facilitator_wrapup(config, roster, group_size, transcript_summary, chosen_na
         "message. Do not summarize the lesson for them and do not name the best option.",
     ])
     text = _call(_system(cfg, roster, group_size), user, fallback=fallback)
+    if not text or _is_silent(text):
+        return fallback
+    return _split_markers(text)[0] or fallback
+
+
+# Dedicated system prompt for the two-strike reveal (M7). The STANDARD facilitator
+# prompt forbids ever naming the best option; this turn is the deliberate exception,
+# so it runs on its own prompt rather than fighting that invariant. Per the round-2
+# nudge guidance the voice is human and dash-free.
+_REVEAL_SYSTEM = (
+    "You are ACTR, a warm, plain-spoken facilitator in a hiring case exercise. The student group "
+    "has now made TWO hiring decisions and both were wrong, so the exercise is over and this is the "
+    "final debrief. In THIS message you DO name the best candidate outright and explain, in two or "
+    "three sentences, why they were the stronger hire than the two the group tried. Ground it in the "
+    "specifics of this case, not generic advice. Warm and direct, a peer not a lecturer. Never use "
+    "dashes. Keep it under about 70 words."
+)
+
+
+def facilitator_reveal_answer(config, roster, group_size, revealed_name, transcript_summary=""):
+    """The two-strike answer reveal (M7). Names the best option and explains why.
+
+    Returns a plain message string. Draws its explanation from the case pack's
+    answer key (mechanism) and the revealed candidate's distinct strengths — the
+    AI-only pack fields — so the reveal is specific to the case.
+    """
+    cfg = config or {}
+    pack = cfg.get("case_pack") or {}
+    key = pack.get("answer_key") or {}
+    mechanism = (key.get("mechanism") or "").strip()
+    option = case_pack_mod.option_by_name(pack, revealed_name) or {}
+    strengths = option.get("distinct_strengths") or []
+    names = ", ".join(e.get("name", "") for e in (roster or []) if e.get("name")) or "everyone"
+
+    fallback = (
+        f"so the one that actually fit was {revealed_name}. the other two looked strong but "
+        f"{revealed_name} was the better hire for what this role really needed, and the outcomes "
+        "were pointing right at it."
+    )
+    user = "\n\n".join([
+        f"The best hire was: {revealed_name}",
+        f"Why they fit (mechanism): {mechanism or '(use the strengths below)'}",
+        "Their distinct strengths: " + ("; ".join(str(s) for s in strengths) if strengths else "(see case)"),
+        f"Speaking to: {names}",
+        f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}",
+        "TASK: reveal and explain now. Name them and say plainly why they beat the two the group "
+        "chose. One short paragraph. No dashes.",
+    ])
+    text = _call(_REVEAL_SYSTEM, user, fallback=fallback)
     if not text or _is_silent(text):
         return fallback
     return _split_markers(text)[0] or fallback

@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M5: manager_exercise accepts choose_minutes + final_call_seconds (the timed in-app decision window).
-#            Prior: facilitator_prompt_override (validated for <<CASE_PACK>>) + GET /config/facilitator-prompt/default.
+# @changed   M7: manager_exercise now requires EXACTLY 3 candidates (two-strike reveal flow).
+#            Also M5: choose_minutes + final_call_seconds (the timed in-app decision window).
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -199,6 +199,11 @@ def validate_manager_exercise(source, target):
             "forecast_text": forecast_text,
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
+
+    # M7: the two-strike flow needs EXACTLY 3 candidates — two wrong group picks,
+    # then the third (un-chosen) candidate is the answer that gets revealed.
+    if len(candidates) != 3:
+        return jsonify({"error": "manager_exercise requires exactly 3 candidates (two guesses, then the third is revealed)"}), 400
 
     # AI-only reference documents. Never sent to a student client — the candidate
     # summary states each role's private view and (in most authored cases) the

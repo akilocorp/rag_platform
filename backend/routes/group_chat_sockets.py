@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M6: add `continue_ack` handler for the kiosk gate (individual advance, collective wait).
-#            Prior: M5 `early_decision` handler (quorum-gated finalize) for the timed ballot.
+# @changed   M7: [REOPEN] now starts a full second round; two wrong picks trigger the answer reveal.
+#            Prior: M6 `continue_ack` kiosk handler; M5 `early_decision` finalize.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 import logging
@@ -180,8 +180,24 @@ def register_socket_events(socketio, app):
                 st.config, st.roster, st.active_group_size(), chosen, forecast,
                 transcript_summary=summary,
             )
-            st.set_reopen_allowed(result.get("reopen_allowed", False))
-            _post_facilitator(st, result.get("message"), result.get("go_around", False))
+
+            # M7 two-strike: the group has now made two wrong picks, so there is no
+            # third round. ACTR gives its normal entry on THIS outcome, then reveals
+            # the un-chosen answer outright (a scoped exception to "never name the
+            # best option" — see ai_manager.facilitator_reveal_answer).
+            if st.strikes >= 2:
+                st.set_reopen_allowed(False)
+                _post_facilitator(st, result.get("message"), result.get("go_around", False))
+                answer = st.revealed_candidate or ""
+                if answer:
+                    reveal = ai_manager.facilitator_reveal_answer(
+                        st.config, st.roster, st.active_group_size(), answer,
+                        transcript_summary=summary,
+                    )
+                    _post_facilitator(st, reveal)
+            else:
+                st.set_reopen_allowed(result.get("reopen_allowed", False))
+                _post_facilitator(st, result.get("message"), result.get("go_around", False))
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the discuss window ends."""
@@ -257,10 +273,11 @@ def register_socket_events(socketio, app):
                 # waiting on anyone.
                 st.clear_go_around()
                 _post_facilitator(st, message, result.get("go_around", False))
-                # MOVE 5: ACTR decided the group has pooled and counted enough to
-                # be invited to choose again, so the ballot appears WITH it.
+                # MOVE 5: ACTR decided the group has pooled and counted enough to be
+                # invited to choose again. M7: this now starts a FULL second round
+                # (timed choose → kiosk → reveal), not an inline re-ballot.
                 if result.get("offer_reopen"):
-                    st.reopen_choice()
+                    st.begin_next_round()
             finally:
                 st = ex_state.get_exercise(room_id)
                 if st is not None:

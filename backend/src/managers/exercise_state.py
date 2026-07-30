@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M6: new `kiosk` phase between pick and reveal — each student presses Continue to advance
-#            themselves; the shared reveal + discussion wait until the whole room has. Prior: M5 timed ballot.
+# @changed   M7: full second round (round/strikes counters), two-strike reveal of the answer, and round-2
+#            participation tracking. Prior: M6 kiosk gate; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -126,6 +126,15 @@ class ExerciseState:
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
             self.reopen_allowed: bool = False
+            # M7: round/strike machine. `round` is 1|2; `strikes` counts wrong group
+            # picks; two strikes ends the exercise with `collective_failed` and the
+            # un-chosen best option surfaced as `revealed_candidate`. `round2_speakers`
+            # records who spoke in the round-2 discussion (participation flag).
+            self.round: int = 1
+            self.strikes: int = 0
+            self.collective_failed: bool = False
+            self.revealed_candidate: Optional[str] = None
+            self.round2_speakers: List[str] = []
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -171,6 +180,11 @@ class ExerciseState:
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
         self.reopen_allowed = bool(doc.get("reopen_allowed", False))
+        self.round = int(doc.get("round") or 1)
+        self.strikes = int(doc.get("strikes") or 0)
+        self.collective_failed = bool(doc.get("collective_failed", False))
+        self.revealed_candidate = doc.get("revealed_candidate")
+        self.round2_speakers = list(doc.get("round2_speakers") or [])
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -213,6 +227,26 @@ class ExerciseState:
                 return c.get("forecast_text") or ""
         return ""
 
+    def _best_option(self) -> Optional[str]:
+        """The answer key's best hire (AI-only; from the case pack). None if unset."""
+        key = (self.config.get("case_pack") or {}).get("answer_key") or {}
+        return (key.get("best_option") or None)
+
+    def _pick_is_correct(self, name: Optional[str]) -> bool:
+        """True when `name` is the case's best option (M7 correctness gate)."""
+        best = (self._best_option() or "").strip().lower()
+        return bool(best) and best == (name or "").strip().lower()
+
+    def round2_absentees(self) -> List[str]:
+        """Roster names who never spoke in the round-2 discussion (participation flag).
+
+        Only meaningful once the room has reached round 2; before that it is empty.
+        """
+        if self.round < 2:
+            return []
+        spoke = set(self.round2_speakers)
+        return [e.get("name", "") for e in self.roster if e.get("uid") not in spoke]
+
     # ==================================================================
     # SNAPSHOT (`exercise_state` payload)
     # ==================================================================
@@ -249,6 +283,11 @@ class ExerciseState:
                 "you_continued": uid in self.continue_acks,
                 "chosen_candidate": self.chosen_candidate,
                 "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
+                # M7: round/strike surface. `revealed_candidate` is only the answer
+                # AFTER two strikes, at which point showing it is the whole point.
+                "round": self.round,
+                "collective_failed": self.collective_failed,
+                "revealed_candidate": self.revealed_candidate,
             }
 
     # ==================================================================
@@ -479,6 +518,7 @@ class ExerciseState:
             "phase": self._phase,
             "phase_deadline_ts": self.phase_deadline_ts,
             "server_now_ts": time.time(),
+            "round": self.round,   # M7: lets the client show the round without a full snapshot
         })
 
     # ==================================================================
@@ -572,11 +612,24 @@ class ExerciseState:
             self.collective_ballot["open"] = False
             self.collective_ballot["final_call"] = False
             self.forecast_shown_for = winner
-            self._persist({
+
+            # M7: a wrong group pick is a strike. On the SECOND strike the exercise
+            # is over — the un-chosen best option becomes the answer to reveal, and
+            # the collective decision is recorded as failed (surfaced in grading).
+            fields = {
                 "chosen_candidate": self.chosen_candidate,
                 "collective_ballot": self.collective_ballot,
                 "forecast_shown_for": self.forecast_shown_for,
-            })
+            }
+            if winner and not self._pick_is_correct(winner):
+                self.strikes += 1
+                fields["strikes"] = self.strikes
+                if self.strikes >= 2:
+                    self.collective_failed = True
+                    self.revealed_candidate = self._best_option()
+                    fields["collective_failed"] = True
+                    fields["revealed_candidate"] = self.revealed_candidate
+            self._persist(fields)
             from_choose = self._phase == PHASE_CHOOSE
 
         self._emit("collective_result", {
@@ -663,6 +716,41 @@ class ExerciseState:
         self._run_hook("on_pick_resolved")
         self._enter_discuss()
 
+    def begin_next_round(self):
+        """Start a full second round after a wrong first pick (M7).
+
+        Invited by ACTR (the [REOPEN] signal). Unlike the old inline re-choice this
+        is a real round: back to a timed `choose` ballot over the REMAINING
+        candidates, through the kiosk, to a fresh reveal. Guarded to round 2 only —
+        there is no third round; two strikes ends the exercise via the answer reveal.
+        """
+        with self._lock:
+            if self._phase != PHASE_DISCUSS or self.round >= 2 or self.strikes >= 2:
+                return
+            self.round = 2
+            self._phase = PHASE_CHOOSE
+            self.phase_deadline_ts = time.time() + self.choose_seconds
+            self.collective_ballot = {"open": True, "votes": {}, "final_call": False}
+            self.reopen_allowed = False
+            self._kiosk_finishing = False
+            self._persist({
+                "round": self.round,
+                "phase": PHASE_CHOOSE,
+                "phase_deadline_ts": self.phase_deadline_ts,
+                "collective_ballot": self.collective_ballot,
+                "reopen_allowed": False,
+            })
+
+        self._broadcast_phase()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "choose"})
+        self._emit("ballot_update", {
+            "room_id": self.room_id, "open": True, "final_call": False, "tally": {},
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
+        })
+        self._run_hook("on_choose_start")
+        if self._socketio:
+            self._socketio.start_background_task(self._run_choose_window)
+
     def set_reopen_allowed(self, allowed: bool):
         """Record that a re-choice is PERMITTED — not that it is being offered.
 
@@ -731,6 +819,10 @@ class ExerciseState:
                 if uid not in received:
                     received.append(uid)
                     fields["pending_go_around"] = self.pending_go_around
+            # M7: participation flag — who actually talks in the round-2 discussion.
+            if self.round >= 2 and self._phase == PHASE_DISCUSS and uid and uid not in self.round2_speakers:
+                self.round2_speakers.append(uid)
+                fields["round2_speakers"] = self.round2_speakers
             self._persist(fields)
 
     def note_facilitator_spoke(self, go_around: bool):
