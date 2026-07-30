@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed Time-skip animation dwells 4.5s (was 2.6s) so the "Six months later" clock spin reads before it transitions. Prior: transcript bubbles cap on wrapper so short messages don't collapse; hover on options/lobby rooms border/shadow only; M2 verdict reveal; M7 Round 2. */
+/* @language JSX  @updated 2026-07-30  @changed Vote buttons were unclickable: the 250ms countdown re-render remounted the inner Transcript/CountdownChip/CandidateGrid helpers (defined in-component, rendered as JSX elements) 4x/sec, so clicks landed across a rebuild and dropped — now invoked as function calls so React updates in place (also kills the pulsing). Added a "Back to my AIs" escape on the lobby. Prior: time-skip dwell 4.5s; transcript bubble cap on wrapper. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -678,6 +678,15 @@ const ManagerExercisePage = () => {
     return (
       <div className="min-h-screen bg-[#F0F6FB] text-[#222] py-10 px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="max-w-2xl mx-auto">
+          {/* Escape hatch back to the config list — the lobby is otherwise a
+              dead end if a student lands on the wrong exercise. Colour-only
+              hover (no lift) per the house micro-animation rule. */}
+          <button
+            onClick={() => navigate('/config_list')}
+            className="mb-6 inline-flex items-center gap-2 rounded-lg -ml-2 px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
+          >
+            <FaArrowLeft className="text-xs" /> Back to my AIs
+          </button>
           <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
               <FaUsers className="text-3xl text-[#FA6C43]" />
@@ -877,7 +886,7 @@ const ManagerExercisePage = () => {
           <div className="max-w-2xl mx-auto space-y-6">
             {/* ACTR's opener arrives as a normal message even though chat is
                 locked, so the question and the buttons read as one prompt. */}
-            <Transcript />
+            {Transcript()}
 
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
               <div className="flex items-center justify-between gap-3 mb-1">
@@ -888,7 +897,7 @@ const ManagerExercisePage = () => {
                   )}
                 </div>
                 {secsLeft != null && (
-                  <CountdownChip label={finalCall ? 'Final call' : 'Decide'} urgent={finalCall || secsLeft <= 30} />
+                  CountdownChip({ label: finalCall ? 'Final call' : 'Decide', urgent: finalCall || secsLeft <= 30 })
                 )}
               </div>
               <p className="text-sm text-gray-500 mb-5">
@@ -901,7 +910,7 @@ const ManagerExercisePage = () => {
                   Final call — lock in your vote now.
                 </div>
               )}
-              <CandidateGrid />
+              {CandidateGrid({})}
             </section>
           </div>
         </main>
@@ -986,7 +995,7 @@ const ManagerExercisePage = () => {
                 </div>
               );
             })()}
-            <Transcript />
+            {Transcript()}
           </div>
         </main>
       </div>
@@ -1012,7 +1021,7 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {secsLeft != null && <CountdownChip label="Discuss" urgent={secsLeft <= 20} />}
+        {secsLeft != null && CountdownChip({ label: 'Discuss', urgent: secsLeft <= 20 })}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
@@ -1028,7 +1037,7 @@ const ManagerExercisePage = () => {
           </div>
         )}
 
-        <Transcript />
+        {Transcript()}
 
         {/* Re-choice: the ballot reopens inside discuss rather than moving the
             room to a new phase, so the conversation keeps running around it. */}
@@ -1036,7 +1045,7 @@ const ManagerExercisePage = () => {
           <section className="mt-6 max-w-xl rounded-3xl bg-white border-2 border-[#FA6C43]/40 shadow-md p-6 animate-in fade-in slide-in-from-bottom-3 duration-400">
             <h2 className="text-base font-bold text-[#222] mb-1">Choose again</h2>
             <p className="text-sm text-gray-500 mb-4">One of you enters the group's new choice when you're ready.</p>
-            <CandidateGrid compact />
+            {CandidateGrid({ compact: true })}
           </section>
         )}
       </main>
