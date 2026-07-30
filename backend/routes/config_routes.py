@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M7: manager_exercise now requires EXACTLY 3 candidates (two-strike reveal flow).
-#            Also M5: choose_minutes + final_call_seconds (the timed in-app decision window).
+# @changed   M8: manager_exercise accepts grading_rubric (steers the end-of-session grade). Also M7:
+#            require EXACTLY 3 candidates; M5: choose_minutes + final_call_seconds.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -236,6 +236,11 @@ def validate_manager_exercise(source, target):
     if override_err:
         return jsonify({"error": override_err}), 400
 
+    # M8: optional faculty rubric that steers the end-of-session communication grade.
+    # Blank means the grader uses its built-in default rubric.
+    grading_rubric = raw.get('grading_rubric')
+    grading_rubric = grading_rubric.strip() if isinstance(grading_rubric, str) else ""
+
     # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
     # otherwise extract it from the uploaded documents. Tallies are recomputed
     # either way so a hand-edited pack can never disagree with its own items.
@@ -259,6 +264,7 @@ def validate_manager_exercise(source, target):
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),
         "facilitator_prompt_override": prompt_override,
+        "grading_rubric": grading_rubric,
         "general_info": general_info,
         "candidate_summary": candidate_summary,
         "candidates": candidates,

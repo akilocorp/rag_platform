@@ -142,6 +142,7 @@ const ManagerExercisePage = () => {
   const [candidates, setCandidates] = useState([]);    // [{name}]
   const [chosenCandidate, setChosenCandidate] = useState(null);
   const [roundNum, setRoundNum] = useState(1);         // M7: 1 = first pick, 2 = second round
+  const [grades, setGrades] = useState(null);          // M8: {group, students} shown on the done screen
 
   // ---- countdown, server-clock corrected ----
   const [deadlineTs, setDeadlineTs] = useState(null);
@@ -242,6 +243,7 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
     if (typeof s.round === 'number') setRoundNum(s.round);
+    if (s.grades) setGrades(s.grades);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
       ballotWasOpenRef.current = s.collective_open;
@@ -373,6 +375,11 @@ const ManagerExercisePage = () => {
         socket.on('kiosk_update', (d) => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
+        });
+
+        // M8: the scorecard, broadcast when the room reaches `done`.
+        socket.on('grades', (d) => {
+          if (d.grades) setGrades(d.grades);
         });
       } catch (e) {
         console.error('Failed to load manager exercise', e);
@@ -906,6 +913,58 @@ const ManagerExercisePage = () => {
                 <FaArrowLeft className="text-xs" /> Back
               </button>
             </div>
+
+            {/* M8: the scorecard — group outcome + per-student participation and
+                communication. Renders once the `grades` broadcast arrives. */}
+            {grades && (() => {
+              const g = grades.group || {};
+              const rows = Object.values(grades.students || {});
+              const good = g.outcome === 'correct_first' || g.outcome === 'recovered';
+              const label =
+                g.outcome === 'correct_first' ? 'Your group chose the right hire — first time.'
+                : g.outcome === 'recovered' ? 'Your group got there on the second round.'
+                : g.outcome === 'failed' ? `Two wrong decisions. The best hire was ${g.revealed_candidate || '—'}.`
+                : 'Time ran out before a correct pick.';
+              return (
+                <div className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 sm:p-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3">Scorecard</h3>
+                  <div className={`rounded-2xl px-4 py-3 mb-5 text-sm font-bold border ${good ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                    {label}
+                  </div>
+                  <div className="space-y-3">
+                    {rows.map((r, i) => {
+                      const isYou = r.name === displayNameRef.current;
+                      return (
+                        <div key={i} className="rounded-2xl border border-gray-200 p-4">
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <span className="font-bold text-[#222]">
+                              {r.name}
+                              {isYou && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-[#FA6C43]">you</span>}
+                            </span>
+                            {typeof r.communication === 'number' && (
+                              <span className="text-sm font-extrabold text-[#C2410C] tabular-nums">
+                                {r.communication}<span className="text-xs font-semibold text-gray-400">/100</span>
+                              </span>
+                            )}
+                          </div>
+                          {r.note && <p className="text-sm text-gray-600 leading-snug mb-2">{r.note}</p>}
+                          <div className="flex flex-wrap gap-2">
+                            <span className={`inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 ${r.participated ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}>
+                              {r.participated ? 'Took part' : 'Did not speak'}
+                            </span>
+                            {r.participated_round2 === false && (
+                              <span className="inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700">
+                                Did not participate in group discussion part two
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             <Transcript />
           </div>
         </main>

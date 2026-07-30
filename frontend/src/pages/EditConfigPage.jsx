@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-28
-// @changed   Advanced block for editing the facilitator's own system prompt per config — load the stock
-//            text, edit it in place, or clear it to keep following the standard one.
+// @updated   2026-07-30
+// @changed   M8: add the manager-exercise grading-rubric field (advanced) + carry grading_rubric through
+//            the edit round-trip. Prior: advanced block for editing the facilitator's own system prompt.
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -142,6 +142,7 @@ const EditConfigPage = () => {
             // Blank = run the stock facilitator prompt. Only set once a professor
             // has actually loaded and edited it in the advanced block below.
             facilitator_prompt_override: me.facilitator_prompt_override || '',
+            grading_rubric: me.grading_rubric || '',
             general_info: docRef(me.general_info),
             candidate_summary: docRef(me.candidate_summary),
             candidates: Array.isArray(me.candidates)
@@ -1086,6 +1087,18 @@ const EditConfigPage = () => {
                             />
                           </div>
                         )}
+                      </div>
+
+                      {/* M8: optional rubric that steers the end-of-session communication grade. */}
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Grading rubric<InfoTip text="Optional. Steers the communication score each student receives at the end. Leave blank to use the default rubric." /></label>
+                        <textarea
+                          rows="4"
+                          value={me.grading_rubric || ''}
+                          onChange={(e) => setMgr('grading_rubric', e.target.value)}
+                          placeholder="e.g. Reward students who surface evidence from their own sheet, build on peers, and argue fit over raw qualifications."
+                          className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:border-[#FA6C43] transition-all"
+                        />
                       </div>
                     </AdvancedReveal>
 

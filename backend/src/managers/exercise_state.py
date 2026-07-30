@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-07-30
-# @changed   M7: full second round (round/strikes counters), two-strike reveal of the answer, and round-2
-#            participation tracking. Prior: M6 kiosk gate; M5 timed ballot.
+# @changed   M8: session-wide `speakers` tracking + `grades` storage/broadcast (set_grades) + group_outcome();
+#            grading is reintroduced. Prior: M7 second round + two-strike reveal; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -135,6 +135,10 @@ class ExerciseState:
             self.collective_failed: bool = False
             self.revealed_candidate: Optional[str] = None
             self.round2_speakers: List[str] = []
+            # M8: everyone who spoke at least once (any phase) — overall participation
+            # — and the grades produced at `done`.
+            self.speakers: List[str] = []
+            self.grades: Dict = {}
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -185,6 +189,8 @@ class ExerciseState:
         self.collective_failed = bool(doc.get("collective_failed", False))
         self.revealed_candidate = doc.get("revealed_candidate")
         self.round2_speakers = list(doc.get("round2_speakers") or [])
+        self.speakers = list(doc.get("speakers") or [])
+        self.grades = dict(doc.get("grades") or {})
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -247,6 +253,26 @@ class ExerciseState:
         spoke = set(self.round2_speakers)
         return [e.get("name", "") for e in self.roster if e.get("uid") not in spoke]
 
+    def group_outcome(self) -> str:
+        """The collective result for grading (M8).
+
+        `correct_first` (right on the first pick), `recovered` (wrong first, right
+        second), `failed` (two strikes → answer revealed), or `incomplete` (time ran
+        out on a wrong pick without a second strike).
+        """
+        if self.collective_failed:
+            return "failed"
+        if self._pick_is_correct(self.chosen_candidate):
+            return "recovered" if self.round >= 2 else "correct_first"
+        return "incomplete"
+
+    def set_grades(self, grades: Dict):
+        """Persist the grades produced at `done` and broadcast them to the room (M8)."""
+        with self._lock:
+            self.grades = dict(grades or {})
+            self._persist({"grades": self.grades})
+        self._emit("grades", {"room_id": self.room_id, "grades": self.grades})
+
     # ==================================================================
     # SNAPSHOT (`exercise_state` payload)
     # ==================================================================
@@ -288,6 +314,8 @@ class ExerciseState:
                 "round": self.round,
                 "collective_failed": self.collective_failed,
                 "revealed_candidate": self.revealed_candidate,
+                # M8: grades appear once the room reaches `done` (else None).
+                "grades": self.grades or None,
             }
 
     # ==================================================================
@@ -823,6 +851,10 @@ class ExerciseState:
             if self.round >= 2 and self._phase == PHASE_DISCUSS and uid and uid not in self.round2_speakers:
                 self.round2_speakers.append(uid)
                 fields["round2_speakers"] = self.round2_speakers
+            # M8: overall participation — anyone who spoke at least once, any phase.
+            if uid and uid not in self.speakers:
+                self.speakers.append(uid)
+                fields["speakers"] = self.speakers
             self._persist(fields)
 
     def note_facilitator_spoke(self, go_around: bool):

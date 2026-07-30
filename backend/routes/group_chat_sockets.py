@@ -18,6 +18,7 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import ai_manager
+from src.managers import exercise_grader
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -200,7 +201,7 @@ def register_socket_events(socketio, app):
                 _post_facilitator(st, result.get("message"), result.get("go_around", False))
 
     def _wrapup(room_id):
-        """Background: ACTR's closing message when the discuss window ends."""
+        """Background: ACTR's closing message + the M8 scorecard when discuss ends."""
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
@@ -210,6 +211,17 @@ def register_socket_events(socketio, app):
                 st.config, st.roster, st.active_group_size(), summary, st.chosen_candidate,
             )
             _post(st, FACILITATOR_SENDER, text)
+
+            # M8: grade the session and broadcast the scorecard. Fail-soft — a grading
+            # error must not stop the room from closing out.
+            try:
+                rubric = (st.config or {}).get("grading_rubric") or ""
+                grades = exercise_grader.grade_exercise(
+                    st, rubric_text=rubric, transcript_summary=summary,
+                )
+                st.set_grades(grades)
+            except Exception:  # noqa: BLE001
+                logger.exception("grading failed for %s", room_id)
 
     def _silence_watch(room_id, mark_ts):
         """Break an awkward pause: a student spoke, and 8s later nobody has followed.
