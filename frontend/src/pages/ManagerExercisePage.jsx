@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed M2: the reveal frames as a celebration (hire worked) or aftermath (hire failed) on the verdict. Prior: M7 Round 2 indicator; M6 kiosk + time-skip; M5 timed vote. */
+/* @language JSX  @updated 2026-07-30  @changed Hover on candidate options + lobby rooms is border/shadow only now — removed the translate-y lift that shook the element out from under the cursor. Prior: M2 verdict-branched reveal; M7 Round 2; M6 kiosk; M5 timed vote. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -551,6 +551,9 @@ const ManagerExercisePage = () => {
           const selected = pick === c.name;
           const count = tally[c.name] || 0;
           return (
+            // Hover response is border tint + soft shadow only. A translate-y lift
+            // here moved the option out from under the pointer, dropping the hover
+            // state and snapping it back — a shake. active:scale keeps a press feel.
             <button
               key={c.name}
               disabled={!ballotOpen}
@@ -561,7 +564,7 @@ const ManagerExercisePage = () => {
               } ${
                 selected
                   ? 'border-[#FA6C43] bg-[#FA6C43]/5 shadow-sm'
-                  : 'border-gray-200 bg-white hover:border-[#FA6C43]/50 hover:-translate-y-0.5'
+                  : 'border-gray-200 bg-white hover:border-[#FA6C43]/50 hover:shadow-sm hover:bg-[#FA6C43]/[0.03]'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -693,6 +696,8 @@ const ManagerExercisePage = () => {
             {rooms.map((r, i) => {
               const joinable = r.joinable !== false;
               return (
+                // Same rule as the candidate options: hover raises border + shadow,
+                // never position — a translate lift shook the card under the cursor.
                 <button
                   key={r.room_id}
                   onClick={() => joinBreakout(r.index)}
@@ -702,8 +707,8 @@ const ManagerExercisePage = () => {
                     !joinable
                       ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
                       : r.started
-                        ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10 hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
-                        : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
+                        ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10 hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
+                        : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
