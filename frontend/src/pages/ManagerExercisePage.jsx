@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed Transcript bubbles: moved the max-w-[88%] cap onto the flex-col wrapper (bubble is max-w-full) so short messages no longer collapse to a sliver and wrap char-by-char — matches the 1:1 chat's wide, natural feel. Prior: hover on options/lobby rooms border/shadow only; M2 verdict reveal; M7 Round 2; M6 kiosk. */
+/* @language JSX  @updated 2026-07-30  @changed Time-skip animation dwells 4.5s (was 2.6s) so the "Six months later" clock spin reads before it transitions. Prior: transcript bubbles cap on wrapper so short messages don't collapse; hover on options/lobby rooms border/shadow only; M2 verdict reveal; M7 Round 2. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -87,7 +87,7 @@ const TimeSkipAnimation = ({ onDone }) => {
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
   useEffect(() => {
-    const id = setTimeout(() => doneRef.current && doneRef.current(), 2600);
+    const id = setTimeout(() => doneRef.current && doneRef.current(), 4500);
     return () => clearTimeout(id);
   }, []);
   return (
