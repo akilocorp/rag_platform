@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed Vote buttons were unclickable: the 250ms countdown re-render remounted the inner Transcript/CountdownChip/CandidateGrid helpers (defined in-component, rendered as JSX elements) 4x/sec, so clicks landed across a rebuild and dropped — now invoked as function calls so React updates in place (also kills the pulsing). Added a "Back to my AIs" escape on the lobby. Prior: time-skip dwell 4.5s; transcript bubble cap on wrapper. */
+/* @language JSX  @updated 2026-07-30  @changed Candidate vote count now renders as an orange app-icon badge on the option's top-right corner (white number, white ring, re-pops on each tick up) instead of a muted inline pill. Prior: fixed unclickable vote buttons (helpers invoked as function calls, not remounted JSX); "Back to my AIs" lobby escape; time-skip dwell 4.5s. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -559,7 +559,7 @@ const ManagerExercisePage = () => {
               disabled={!ballotOpen}
               onClick={() => setPick(c.name)}
               style={{ animationDelay: `${i * 50}ms` }}
-              className={`text-left rounded-2xl border-2 transition-all animate-in fade-in slide-in-from-bottom-1 disabled:cursor-default active:scale-[0.99] ${
+              className={`relative text-left rounded-2xl border-2 transition-all animate-in fade-in slide-in-from-bottom-1 disabled:cursor-default active:scale-[0.99] ${
                 compact ? 'px-4 py-3' : 'px-5 py-4'
               } ${
                 selected
@@ -574,12 +574,21 @@ const ManagerExercisePage = () => {
                   {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                 </span>
                 <span className="flex-1 font-semibold text-[#222]">{c.name}</span>
-                {count > 0 && (
-                  <span className="flex-shrink-0 inline-flex items-center text-xs font-extrabold text-[#C2410C] bg-[#F9D0C4]/50 rounded-full px-2.5 py-0.5 tabular-nums animate-in zoom-in-75 duration-200">
-                    {count}
-                  </span>
-                )}
               </div>
+              {/* App-style vote badge: how many of the group have voted for this
+                  option. Keyed on `count` so it re-pops (zoom-in) each time it
+                  ticks up; ring-2 ring-white floats it over the card edge like an
+                  app-icon badge. Hidden at 0, matching app-badge behaviour. */}
+              {count > 0 && (
+                <span
+                  key={count}
+                  title={`${count} ${count === 1 ? 'vote' : 'votes'}`}
+                  aria-label={`${count} ${count === 1 ? 'vote' : 'votes'}`}
+                  className="absolute -top-2 -right-2 min-w-[1.375rem] h-[1.375rem] px-1 flex items-center justify-center rounded-full bg-[#FA6C43] text-white text-xs font-extrabold tabular-nums ring-2 ring-white shadow-md animate-in zoom-in-50 duration-200"
+                >
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
