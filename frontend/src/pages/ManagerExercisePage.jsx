@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-31  @changed Faculty (config owner) can reset a breakout room from the lobby — owner-only per-room "Reset" control with inline confirm, `reset_breakout_room` emit (JWT), and `room_reset` bounce for anyone still inside. Prior: candidate vote count as an orange app-icon badge; fixed unclickable vote buttons; "Back to my AIs" lobby escape. */
+/* @language JSX  @updated 2026-07-31  @changed Time-skip clock screen now has a white background (dark-navy face/hands/pin, orange minute hand stays). Prior: faculty (config owner) breakout-room reset — owner-only per-room control with inline confirm, `reset_breakout_room` emit (JWT), `room_reset` bounce; candidate vote count as an orange app-icon badge. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -92,13 +92,15 @@ const TimeSkipAnimation = ({ onDone }) => {
     return () => clearTimeout(id);
   }, []);
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0B1220] text-white animate-in fade-in duration-500">
-      <div className="relative w-28 h-28 rounded-full border-4 border-white/80 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white text-[#0B1220] animate-in fade-in duration-500">
+      {/* On the white screen the face, border, hour hand and centre pin all flip to
+          dark navy so they stay legible; the minute hand keeps its brand orange. */}
+      <div className="relative w-28 h-28 rounded-full border-4 border-[#0B1220]/80 shadow-2xl">
         {/* hour + minute hands rotate about the clock centre (transform-origin at
             bottom); animate-spin owns the transform, so positioning uses left/bottom. */}
-        <div className="absolute animate-spin" style={{ left: 'calc(50% - 1.5px)', bottom: '50%', width: '3px', height: '30px', background: 'white', transformOrigin: 'bottom center', animationDuration: '1.6s' }} />
+        <div className="absolute animate-spin" style={{ left: 'calc(50% - 1.5px)', bottom: '50%', width: '3px', height: '30px', background: '#0B1220', transformOrigin: 'bottom center', animationDuration: '1.6s' }} />
         <div className="absolute animate-spin" style={{ left: 'calc(50% - 1px)', bottom: '50%', width: '2px', height: '42px', background: '#FA6C43', transformOrigin: 'bottom center', animationDuration: '0.6s' }} />
-        <div className="absolute rounded-full bg-white" style={{ left: 'calc(50% - 4px)', top: 'calc(50% - 4px)', width: '8px', height: '8px' }} />
+        <div className="absolute rounded-full" style={{ left: 'calc(50% - 4px)', top: 'calc(50% - 4px)', width: '8px', height: '8px', background: '#0B1220' }} />
       </div>
       <p className="mt-8 text-lg font-bold tracking-wide animate-in fade-in slide-in-from-bottom-2 duration-1000">Six months later…</p>
     </div>
