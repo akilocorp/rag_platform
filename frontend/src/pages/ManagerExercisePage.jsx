@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-31  @changed Time-skip clock screen now has a white background (dark-navy face/hands/pin, orange minute hand stays). Prior: faculty (config owner) breakout-room reset — owner-only per-room control with inline confirm, `reset_breakout_room` emit (JWT), `room_reset` bounce; candidate vote count as an orange app-icon badge. */
+/* @language JSX  @updated 2026-07-31  @changed Kiosk gate ("Your group has decided") screen now white too (peach icon chip, grey body, orange Continue kept) — matches the now-white time-skip clock screen. Prior: faculty (config owner) breakout-room reset — owner-only per-room control with inline confirm, `reset_breakout_room` emit (JWT), `room_reset` bounce. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -111,11 +111,13 @@ const TimeSkipAnimation = ({ onDone }) => {
 // instructor. Pressing Continue advances only THIS student (the phase machine
 // holds the shared discussion until everyone has).
 const KioskGate = ({ onContinue }) => (
-  <div className="h-screen flex flex-col items-center justify-center bg-[#0B1220] text-white p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+  <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
     <div className="max-w-md">
-      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center"><FaRegClock className="text-2xl" /></div>
+      {/* On the white screen the icon chip flips to the brand-peach tile + orange
+          glyph used on the other light screens, and the body copy to muted grey. */}
+      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center"><FaRegClock className="text-2xl text-[#FA6C43]" /></div>
       <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
-      <p className="text-white/70 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. Press Continue when you're ready to see how the hire played out.</p>
+      <p className="text-gray-500 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. Press Continue when you're ready to see how the hire played out.</p>
       <button onClick={onContinue} className="rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-10 py-4 shadow-lg transition-all active:scale-[0.97]">Continue</button>
     </div>
   </div>
