@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-30
-// @changed   M8: add the manager-exercise grading-rubric field (advanced) + carry grading_rubric through
-//            the edit round-trip. Prior: advanced block for editing the facilitator's own system prompt.
+// @updated   2026-07-31
+// @changed   "Counted as one item" merges now group into Strengths / Concerns sections (section header
+//            carries the category, per-row field tag dropped). Prior: M8 grading-rubric field + round-trip.
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -1242,23 +1242,45 @@ const EditConfigPage = () => {
                           <div className="bg-white p-5 rounded-2xl border border-gray-200">
                             <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">Counted as one item</h4>
                             <p className="text-[11px] text-gray-400 mb-3">Untick anything that is really two separate facts — the count updates as you go.</p>
-                            {(mePack.options || []).map((o, i) => (o.merges || []).map(m => (
-                              <label key={m.id} className="flex items-start gap-3 py-2 border-t border-gray-100 first:border-t-0 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={!!m.confirmed}
-                                  onChange={(e) => setMergeConfirmed(i, m.id, e.target.checked)}
-                                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#FA6C43] cursor-pointer"
-                                />
-                                <span className="min-w-0">
-                                  <span className="text-[11px] font-bold text-[#222]">{o.name}</span>
-                                  <span className="text-[10px] font-semibold text-gray-400 ml-2 uppercase tracking-wider">{m.field}</span>
-                                  <span className="block text-[11px] text-gray-500">• {m.a}</span>
-                                  <span className="block text-[11px] text-gray-500">• {m.b}</span>
-                                  {m.note && <span className="block text-[10px] text-gray-400 italic mt-0.5">{m.note}</span>}
-                                </span>
-                              </label>
-                            )))}
+                            {/* Grouped by field so Strengths and Concerns read as
+                                separate sections instead of one bundled list. Flatten
+                                first, keeping each merge's option + index (the index
+                                drives setMergeConfirmed); the section header carries the
+                                category, so the per-row field tag is dropped. */}
+                            {(() => {
+                              const rows = [];
+                              (mePack.options || []).forEach((o, i) =>
+                                (o.merges || []).forEach(m => rows.push({ o, i, m }))
+                              );
+                              return [
+                                { field: 'strengths', label: 'Strengths' },
+                                { field: 'concerns', label: 'Concerns' },
+                              ].map(g => {
+                                const items = rows.filter(r => r.m.field === g.field);
+                                if (!items.length) return null;
+                                return (
+                                  <div key={g.field} className="mt-4">
+                                    <h5 className="text-[10px] font-bold uppercase tracking-wider text-[#C2410C] mb-1">{g.label}</h5>
+                                    {items.map(({ o, i, m }) => (
+                                      <label key={m.id} className="flex items-start gap-3 py-2 border-t border-gray-100 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!m.confirmed}
+                                          onChange={(e) => setMergeConfirmed(i, m.id, e.target.checked)}
+                                          className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#FA6C43] cursor-pointer"
+                                        />
+                                        <span className="min-w-0">
+                                          <span className="text-[11px] font-bold text-[#222]">{o.name}</span>
+                                          <span className="block text-[11px] text-gray-500">• {m.a}</span>
+                                          <span className="block text-[11px] text-gray-500">• {m.b}</span>
+                                          {m.note && <span className="block text-[10px] text-gray-400 italic mt-0.5">{m.note}</span>}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                );
+                              });
+                            })()}
                           </div>
                         )}
 
