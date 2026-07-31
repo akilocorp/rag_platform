@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-30
-# @changed   M8: manager_exercise accepts grading_rubric (steers the end-of-session grade). Also M7:
-#            require EXACTLY 3 candidates; M5: choose_minutes + final_call_seconds.
+# @updated   2026-07-31
+# @changed   GET /config/<id> now returns an `owned` flag (best-effort JWT read on public configs) so the client can surface owner-only controls like the manager-exercise lobby reset.
+#            Prior: M8 grading_rubric; M7 exactly-3 candidates; M5 choose_minutes + final_call_seconds.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -502,10 +502,20 @@ def get_single_config(config_id):
         if config_document is None:
             return jsonify({"message": "Configuration not found"}), 404
 
-        # If the chat is public, return it immediately
+        # If the chat is public, return it immediately. We still make a best-effort,
+        # optional read of the caller's JWT so the owner gets an `owned` flag — that
+        # flag is what surfaces owner-only controls in the client (e.g. resetting a
+        # manager-exercise breakout lobby). Security is NOT enforced here: the reset
+        # socket handler re-verifies ownership authoritatively.
         if config_document.get("is_public") is True:
             config_document["config_id"] = str(config_document.pop("_id"))
             config_document['collection_name'] = config_document.get('collection_name', '')
+            try:
+                verify_jwt_in_request(optional=True)
+                caller_id = get_jwt_identity()
+            except Exception:
+                caller_id = None
+            config_document["owned"] = bool(caller_id) and caller_id == config_document.get("user_id")
             return jsonify({"config": config_document}), 200
 
         # If we're here, the chat is private, so a valid JWT is required
@@ -521,9 +531,11 @@ def get_single_config(config_id):
         if config_document.get("user_id") != user_id:
             return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
 
-        # 5. Serialize the document for the JSON response
+        # 5. Serialize the document for the JSON response. Reaching here means the
+        # caller passed the ownership check above, so `owned` is unconditionally true.
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
+        config_document["owned"] = True
         return jsonify({"config": config_document}), 200
         
     except Exception as e:

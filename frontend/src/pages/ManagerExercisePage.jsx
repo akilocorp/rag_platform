@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-07-30  @changed Candidate vote count now renders as an orange app-icon badge on the option's top-right corner (white number, white ring, re-pops on each tick up) instead of a muted inline pill. Prior: fixed unclickable vote buttons (helpers invoked as function calls, not remounted JSX); "Back to my AIs" lobby escape; time-skip dwell 4.5s. */
+/* @language JSX  @updated 2026-07-31  @changed Faculty (config owner) can reset a breakout room from the lobby — owner-only per-room "Reset" control with inline confirm, `reset_breakout_room` emit (JWT), and `room_reset` bounce for anyone still inside. Prior: candidate vote count as an orange app-icon badge; fixed unclickable vote buttons; "Back to my AIs" lobby escape. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -22,6 +22,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft, FaLock,
   FaUserTie, FaCheckCircle, FaRegClock, FaChartLine, FaComments,
+  FaRedo, FaTimes,
 } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
@@ -134,6 +135,11 @@ const ManagerExercisePage = () => {
   // ---- breakout lobby ----
   const [rooms, setRooms] = useState([]);              // [{room_id,index,label,names,occupants,capacity,started}]
   const [roomError, setRoomError] = useState('');
+  // Faculty-only lobby reset. `confirmReset` holds the room index awaiting a second
+  // click (inline confirm, so a mis-tap never wipes a group); `resettingRoom` is the
+  // index whose reset is in flight, cleared on the `breakout_reset` / error reply.
+  const [confirmReset, setConfirmReset] = useState(null);
+  const [resettingRoom, setResettingRoom] = useState(null);
 
   // ---- exercise snapshot (from `exercise_state`) ----
   const [capacity, setCapacity] = useState(0);
@@ -313,9 +319,41 @@ const ManagerExercisePage = () => {
         });
 
         socket.on('breakout_error', (d) => {
+          // A failed reset unwinds the in-flight/confirm state so the button recovers
+          // rather than spinning forever; join failures keep their existing copy.
+          if (d.reason === 'unauthorized' || d.reason === 'reset_failed') {
+            setResettingRoom(null);
+            setConfirmReset(null);
+            setRoomError(d.reason === 'unauthorized'
+              ? "You don't have permission to reset that group."
+              : 'Could not reset that group — try again.');
+            return;
+          }
           setRoomError(d.reason === 'finished'
             ? 'That group has already finished — pick another.'
             : 'That group is full — pick another.');
+        });
+
+        // Faculty reset landed: the lobby is re-broadcast by the server, so just
+        // clear this client's transient reset state.
+        socket.on('breakout_reset', () => {
+          setResettingRoom(null);
+          setConfirmReset(null);
+          setRoomError('');
+        });
+
+        // The owner reset the room this client is sitting in — bounce back to the
+        // lobby so nobody stares at state the server has just wiped.
+        socket.on('room_reset', (d) => {
+          if (roomIdRef.current && d.room_id === roomIdRef.current) {
+            setRoomId(null);
+            roomIdRef.current = null;
+            setRoster([]);
+            setMessages([]);
+            setPhase('lobby');
+            setRoomError('This group was reset by your instructor.');
+            socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
+          }
         });
 
         // We're in a room. Not started yet: the room screen shows who else is here.
@@ -441,6 +479,22 @@ const ManagerExercisePage = () => {
     setRoster([]);
     setPhase('lobby');
     socketRef.current?.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
+  };
+
+  // Faculty-only: wipe a breakout room back to an empty slot. First click on a room
+  // arms the inline confirm; the second click fires. The JWT rides along so the
+  // server can authorize (owner-only) — the client-sent uid is never trusted for a
+  // destructive action. `config.owned` gates whether the control is even rendered.
+  const resetBreakout = (index) => {
+    if (confirmReset !== index) { setConfirmReset(index); return; }
+    setConfirmReset(null);
+    setResettingRoom(index);
+    setRoomError('');
+    socketRef.current?.emit('reset_breakout_room', {
+      config_id: configId,
+      room_index: index,
+      token: getToken(),
+    });
   };
 
   // Begin with whoever is currently in the room. Whatever the configured capacity,
@@ -713,43 +767,86 @@ const ManagerExercisePage = () => {
                 on the way in. Only full or finished rooms are closed. */}
             {rooms.map((r, i) => {
               const joinable = r.joinable !== false;
+              // Owner-only reset only makes sense for a room that holds state — one
+              // that has begun, finished, or still has someone sitting in it. A fresh
+              // empty slot has nothing to wipe, so the control stays hidden.
+              const resettable = config?.owned && (r.phase === 'done' || r.started || r.occupants > 0);
+              const isResetting = resettingRoom === r.index;
+              const isConfirming = confirmReset === r.index;
               return (
-                // Same rule as the candidate options: hover raises border + shadow,
-                // never position — a translate lift shook the card under the cursor.
-                <button
-                  key={r.room_id}
-                  onClick={() => joinBreakout(r.index)}
-                  disabled={!joinable}
-                  style={{ animationDelay: `${i * 50}ms` }}
-                  className={`w-full text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 ${
-                    !joinable
-                      ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
-                      : r.started
-                        ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10 hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
-                        : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-bold text-[#222] flex items-center gap-2">
-                        {r.label}
-                        {r.started && joinable && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/60 px-1.5 py-0.5 rounded-full">
-                            In progress — you can still join
-                          </span>
-                        )}
+                <div key={r.room_id} className="space-y-1.5">
+                  {/* Same rule as the candidate options: hover raises border + shadow,
+                      never position — a translate lift shook the card under the cursor. */}
+                  <button
+                    onClick={() => joinBreakout(r.index)}
+                    disabled={!joinable}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                    className={`w-full text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 ${
+                      !joinable
+                        ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
+                        : r.started
+                          ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10 hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
+                          : 'border-gray-200 bg-white hover:border-[#FA6C43] hover:shadow-md active:scale-[0.99]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-bold text-[#222] flex items-center gap-2">
+                          {r.label}
+                          {r.started && joinable && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/60 px-1.5 py-0.5 rounded-full">
+                              In progress — you can still join
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-gray-500 truncate">
+                          {r.names.length ? r.names.join(', ') : 'Empty — be the first'}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-gray-500 truncate">
-                        {r.names.length ? r.names.join(', ') : 'Empty — be the first'}
-                      </div>
+                      <span className={`flex-shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
+                        joinable ? 'bg-[#FA6C43]/10 text-[#C2410C]' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {r.phase === 'done' ? 'Finished' : `${r.occupants} / ${r.capacity}`}
+                      </span>
                     </div>
-                    <span className={`flex-shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                      joinable ? 'bg-[#FA6C43]/10 text-[#C2410C]' : 'bg-gray-200 text-gray-500'
-                    }`}>
-                      {r.phase === 'done' ? 'Finished' : `${r.occupants} / ${r.capacity}`}
-                    </span>
-                  </div>
-                </button>
+                  </button>
+
+                  {/* Faculty control, rendered as a sibling (not nested in the join
+                      button, which would be invalid HTML). Arms an inline confirm on
+                      the first click so a mis-tap can't erase a group. */}
+                  {resettable && (
+                    <div className="flex items-center justify-end gap-2 pr-1 text-xs animate-in fade-in">
+                      {isResetting ? (
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-gray-400">
+                          <FaSpinner className="animate-spin" /> Resetting…
+                        </span>
+                      ) : isConfirming ? (
+                        <>
+                          <span className="font-semibold text-gray-500">Erase this group?</span>
+                          <button
+                            onClick={() => resetBreakout(r.index)}
+                            className="inline-flex items-center gap-1 rounded-full bg-red-500 px-3 py-1 font-bold text-white shadow-sm transition-colors hover:bg-red-600 active:scale-95"
+                          >
+                            <FaCheckCircle /> Reset
+                          </button>
+                          <button
+                            onClick={() => setConfirmReset(null)}
+                            className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 font-semibold text-gray-500 transition-colors hover:bg-gray-200 active:scale-95"
+                          >
+                            <FaTimes /> Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => resetBreakout(r.index)}
+                          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 active:scale-95"
+                        >
+                          <FaRedo className="text-[10px]" /> Reset group
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

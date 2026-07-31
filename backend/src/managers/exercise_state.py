@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-30
-# @changed   M2: expose `chosen_verdict` (success/failure) so the reveal frames as celebration vs aftermath.
-#            Prior: M8 grading (speakers/grades/group_outcome); M7 second round; M6 kiosk; M5 timed ballot.
+# @updated   2026-07-31
+# @changed   Added `abandon()` + `_abandoned` guard so a faculty lobby reset (remove_exercise) can't have a lingering timer re-persist a wiped room's session doc.
+#            Prior: M2 chosen_verdict (success/failure) reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -88,6 +88,11 @@ class ExerciseState:
         self._socketio = None
         self._app = None
         self._started = False
+        # Set when the room is torn down (e.g. a faculty lobby reset). A background
+        # timer sleeping through a discuss/ballot window still holds a reference to
+        # this instance; the flag stops it from persisting a resurrected session doc
+        # for a room that has just been wiped.
+        self._abandoned = False
 
         # True while a facilitator turn is in flight. Two messages arriving close
         # together can both clear the gates, and a model call takes seconds — the
@@ -336,8 +341,14 @@ class ExerciseState:
     # ==================================================================
     # PERSISTENCE (write-through)
     # ==================================================================
+    def abandon(self):
+        """Mark this state as torn down so lingering timers stop persisting it."""
+        self._abandoned = True
+
     def _persist(self, fields: Dict):
         """Write mutated fields through to Mongo. Never raises into a handler/timer."""
+        if self._abandoned:
+            return
         try:
             ManagerExerciseSession.upsert(self.room_id, fields)
         except Exception as e:  # noqa: BLE001
@@ -1001,9 +1012,15 @@ def get_exercise(room_id: str) -> Optional[ExerciseState]:
 
 
 def remove_exercise(room_id: str):
-    """Drop a room's in-memory state (durable copy stays in Mongo)."""
+    """Drop a room's in-memory state (durable copy stays in Mongo).
+
+    Marks the dropped state abandoned first, so a background timer still sleeping
+    through a discuss/ballot window can't persist a resurrected doc for the room.
+    """
     with _registry_lock:
-        _exercises.pop(room_id, None)
+        state = _exercises.pop(room_id, None)
+    if state is not None:
+        state.abandon()
 
 
 def _config_id_from_room(room_id: str) -> str:

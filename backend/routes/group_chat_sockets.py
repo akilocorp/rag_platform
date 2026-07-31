@@ -1,9 +1,10 @@
 # @language  Python
-# @updated   2026-07-30
-# @changed   M7: [REOPEN] now starts a full second round; two wrong picks trigger the answer reveal.
-#            Prior: M6 `continue_ack` kiosk handler; M5 `early_decision` finalize.
+# @updated   2026-07-31
+# @changed   Owner-only `reset_breakout_room` socket handler: JWT-verified config owner can wipe a finished/stale breakout room back to an empty lobby slot.
+#            Prior: M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`; M5 `early_decision`.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
+from flask_jwt_extended import decode_token
 import logging
 import json
 import time
@@ -565,6 +566,61 @@ def register_socket_events(socketio, app):
         config_doc = _load_config_doc(config_id)
         if config_doc:
             _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+
+    @socketio.on('reset_breakout_room')
+    def handle_reset_breakout_room(data):
+        """Owner-only: wipe a finished/stale breakout room back to an empty lobby slot.
+
+        This is destructive, so — unlike the student handlers, which trust the
+        client-sent uid — it does NOT trust a self-declared identity. It decodes a
+        real JWT and requires the caller to own the config (the same ownership rule
+        as GET /api/config/<id>). A student who spoofed a room_index could otherwise
+        wipe a live group. Clears all four places a room's state lives: live
+        occupancy, the in-memory phase machine, the durable session doc, and the
+        persisted transcript, then re-broadcasts the lobby so every list updates.
+        """
+        d = data or {}
+        config_id, index, token = d.get('config_id'), d.get('room_index'), d.get('token')
+        if not config_id or not index or not token:
+            emit('breakout_error', {'reason': 'reset_failed'}, to=request.sid)
+            return
+
+        # Authenticate + authorize before touching anything: decode the JWT (identity
+        # rides in the `sub` claim) and require config ownership.
+        try:
+            identity = decode_token(token).get('sub')
+        except Exception as e:  # noqa: BLE001 — malformed / expired token
+            logger.warning(f"reset_breakout_room: token decode failed: {e}")
+            emit('breakout_error', {'reason': 'unauthorized'}, to=request.sid)
+            return
+
+        config_doc = _load_config_doc(config_id)
+        if not config_doc or config_doc.get("bot_type") != "manager_exercise":
+            return
+        if not identity or config_doc.get("user_id") != identity:
+            logger.warning(f"reset_breakout_room: {identity} is not the owner of {config_id}")
+            emit('breakout_error', {'reason': 'unauthorized'}, to=request.sid)
+            return
+
+        room_id = _room_id_for(config_id, index)
+
+        # Bounce anyone still sitting in the room back to the lobby before the wipe,
+        # so a reset mid-session doesn't leave a client staring at deleted state.
+        socketio.emit('room_reset', {'room_id': room_id}, room=room_id)
+
+        _room_members.pop(room_id, None)          # live socket occupancy
+        ex_state.remove_exercise(room_id)          # in-memory phase machine
+        try:
+            ManagerExerciseSession.delete_by_room(room_id)                       # durable session doc
+            app.config["MONGO_DB"]['group_chat_messages'].delete_many(          # persisted transcript
+                {"room_id": room_id}
+            )
+        except Exception as e:  # noqa: BLE001 — leave the in-memory reset in place regardless
+            logger.error(f"reset_breakout_room: failed to clear persistence for {room_id}: {e}")
+
+        _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+        emit('breakout_reset', {'room_id': room_id, 'index': index}, to=request.sid)
+        logger.info(f"♻️ {identity} reset breakout {room_id}")
 
     @socketio.on('start_exercise')
     def handle_start_exercise(data):
