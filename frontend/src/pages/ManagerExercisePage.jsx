@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M5: premise screen now renders the case's real general_info scenario (snapshot `premise.scenario`) in a full serif treatment with orange/blue highlights + staggered entry. Prior: M4 premise/card prelude gating (premiseStage). */
+/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M6: credential grid replaced by CandidateDeck — poker-style cards side by side, hover-peek via a fixed slot (no flicker), click brings a card to the front enlarged with full role-sliced credentials. Prior: M5 premise reads real general_info scenario. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -133,7 +133,7 @@ const CredList = ({ label, items, tone }) => {
   const dot = tone === 'pos' ? 'bg-emerald-500' : tone === 'neg' ? 'bg-[#FA6C43]' : 'bg-gray-300';
   const head = tone === 'pos' ? 'text-emerald-700' : tone === 'neg' ? 'text-[#C2410C]' : 'text-gray-400';
   return (
-    <div className="mb-3 last:mb-0">
+    <div className="mb-4 last:mb-0">
       <p className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${head}`}>{label}</p>
       <ul className="space-y-1.5">
         {list.map((t, i) => (
@@ -143,6 +143,105 @@ const CredList = ({ label, items, tone }) => {
           </li>
         ))}
       </ul>
+    </div>
+  );
+};
+
+// M6: the candidate card deck. Three poker-style cards side by side; hovering peeks a
+// card up out of the row; clicking brings it to the front, enlarged, with that
+// candidate's full role-sliced credentials. The hover TARGET is a fixed-size slot that
+// never moves — only the card face inside it translates up — so a peeking card can't
+// slide out from under the cursor and flicker (per the repo's no-hover-lift rule).
+const CandidateDeck = ({ role, credentials, onContinue }) => {
+  const [selected, setSelected] = useState(null);
+  const [seen, setSeen] = useState(() => new Set());
+  const open = (i) => { setSelected(i); setSeen((prev) => { const n = new Set(prev); n.add(i); return n; }); };
+  const active = selected != null ? credentials[selected] : null;
+
+  return (
+    <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#1F1F1F]">
+      <div className="flex-1 overflow-y-auto px-6 py-10 scrollbar-thin flex flex-col items-center justify-center">
+        <div className="max-w-4xl w-full text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your notes</p>
+          <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+            What you know as the <span className="text-[#FA6C43]">{role || 'Hiring'}</span> Manager
+          </h2>
+          <p className="text-sm text-gray-500 mb-10">
+            Tap a card to read it. These are yours alone — memorize them, they're hidden once the discussion starts.
+          </p>
+
+          {credentials.length === 0 ? (
+            <p className="text-gray-500 py-16">No notes were provided for your role.</p>
+          ) : (
+            <div className="flex justify-center items-end mb-10 pt-6">
+              {credentials.map((c, i) => (
+                <button
+                  key={c.name || i}
+                  onClick={() => open(i)}
+                  className="group relative block hover:z-30 focus:z-30 focus:outline-none"
+                  style={{ marginLeft: i === 0 ? 0 : '-1.25rem', zIndex: 10 + i }}
+                  aria-label={`Read ${c.name}`}
+                >
+                  {/* inner face translates up on hover; the button slot stays put */}
+                  <div className="w-40 sm:w-44 h-56 sm:h-60 rounded-2xl bg-white border border-gray-200 shadow-lg flex flex-col items-center justify-between p-4 transition-all duration-300 ease-out group-hover:-translate-y-6 group-hover:shadow-2xl group-hover:border-[#FA6C43]/40">
+                    <span className="self-start text-[11px] font-bold text-gray-300">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="text-lg leading-tight text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{c.name}</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#FA6C43] opacity-0 group-hover:opacity-100 transition-opacity">
+                      {seen.has(i) ? 'Read again' : 'Tap to read'}
+                    </span>
+                  </div>
+                  {seen.has(i) && (
+                    <span className="absolute top-2 right-2 h-5 w-5 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center shadow">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={onContinue}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95"
+          >
+            Continue to discussion →
+          </button>
+          {credentials.length > 0 && seen.size < credentials.length && (
+            <p className="mt-3 text-xs text-gray-400">You've read {seen.size} of {credentials.length}.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Selected card, brought to the front: enlarged, with full credentials. */}
+      {active && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-6 bg-[#0B1220]/40 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="w-full max-w-md max-h-[85vh] overflow-y-auto scrollbar-thin rounded-3xl bg-white border border-gray-200 shadow-2xl p-8 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-5">
+              <div className="text-left">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-300 mb-1">Candidate</p>
+                <h3 className="text-2xl text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{active.name}</h3>
+              </div>
+              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-[#222] text-xl leading-none px-2" aria-label="Back to deck">×</button>
+            </div>
+            <CredList label="Strengths" items={active.strengths} tone="pos" />
+            <CredList label="Concerns" items={active.concerns} tone="neg" />
+            <CredList label="Also noted" items={active.neutral} tone="neutral" />
+            {(!active.strengths?.length && !active.concerns?.length && !active.neutral?.length) && (
+              <p className="text-sm text-gray-400">You have no specific notes on this candidate.</p>
+            )}
+            <button
+              onClick={() => setSelected(null)}
+              className="mt-6 w-full rounded-2xl border border-gray-200 hover:border-[#FA6C43]/40 hover:bg-[#F0F6FB] text-sm font-semibold text-[#222] py-2.5 transition-all"
+            >
+              Back to deck
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1235,47 +1334,7 @@ const ManagerExercisePage = () => {
   }
 
   if (phase === 'discuss' && premiseStage === 'cards') {
-    return (
-      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#1F1F1F]">
-        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
-          <div className="max-w-5xl mx-auto py-4">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2 text-center">Your notes</p>
-            <h2 className="text-2xl sm:text-3xl text-center mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
-              What you know as the <span className="text-[#FA6C43]">{yourRole || 'Hiring'}</span> Manager
-            </h2>
-            <p className="text-center text-sm text-gray-500 mb-8">
-              Only you can see these. Memorize them — they're hidden once the discussion starts.
-            </p>
-            {credentials.length === 0 ? (
-              <p className="text-center text-gray-500 py-16">No notes were provided for your role.</p>
-            ) : (
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {credentials.map((c, i) => (
-                  <div
-                    key={c.name || i}
-                    className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 animate-in fade-in slide-in-from-bottom-2 duration-400"
-                    style={{ animationDelay: `${i * 80}ms` }}
-                  >
-                    <h3 className="text-xl mb-4 text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{c.name}</h3>
-                    <CredList label="Strengths" items={c.strengths} tone="pos" />
-                    <CredList label="Concerns" items={c.concerns} tone="neg" />
-                    <CredList label="Also noted" items={c.neutral} tone="neutral" />
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="text-center mt-10 pb-4">
-              <button
-                onClick={finishPremiseIntro}
-                className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
-              >
-                Continue to discussion →
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} />;
   }
 
   // -------------------------------------------------------------------------
