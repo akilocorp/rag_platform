@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   Hidden-profile M1: assign each student a confidential role from case_pack["roles"] on room entry; surface it as `your_role` in the snapshot.
-#            Prior: `abandon()`+`_abandoned` guard against wiped-room re-persist; M2 chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
+# @changed   Hidden-profile M1+M2: assign each student a confidential role from case_pack["roles"] on entry (`your_role`); send only that role's slice of each candidate's credentials (`your_credentials`), never the distinct-count answer key.
+#            Prior: `abandon()`+`_abandoned` guard against wiped-room re-persist; chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -254,6 +254,33 @@ class ExerciseState:
                 return e.get("role") or None
         return None
 
+    def credentials_for(self, uid: str) -> List[Dict]:
+        """This student's confidential slice of every candidate's credentials.
+
+        Hidden-profile M2: returns ONLY the viewer's own role's view of each
+        candidate — the descriptive strengths / concerns / neutral phrases from
+        `case_pack.options[].per_role[role]`. It deliberately never returns another
+        role's slice, and never the `distinct_strengths` / `distinct_concerns`
+        COUNTS — those counts are the answer key ("students must count them out
+        loud"), so leaking them would hand over the decision. Empty until this
+        student has been assigned a role. Candidates are keyed by name so the client
+        can match them to the roster regardless of order.
+        """
+        role = self.role_for(uid)
+        if not role:
+            return []
+        options = (self.config.get("case_pack") or {}).get("options") or []
+        out: List[Dict] = []
+        for o in options:
+            view = (o.get("per_role") or {}).get(role) or {}
+            out.append({
+                "name": o.get("name", ""),
+                "strengths": list(view.get("strengths") or []),
+                "concerns": list(view.get("concerns") or []),
+                "neutral": list(view.get("neutral") or []),
+            })
+        return out
+
     def _best_option(self) -> Optional[str]:
         """The answer key's best hire (AI-only; from the case pack). None if unset."""
         key = (self.config.get("case_pack") or {}).get("answer_key") or {}
@@ -332,6 +359,9 @@ class ExerciseState:
                 # slice of each candidate's credentials the client is allowed to see.
                 # Only the viewer's OWN role is sent; other seats' roles stay private.
                 "your_role": self.role_for(uid),
+                # M2: this viewer's role-sliced credential cards (own packet only —
+                # never other roles' slices, never the distinct-count answer key).
+                "your_credentials": self.credentials_for(uid),
                 "can_start": self.can_start(),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
