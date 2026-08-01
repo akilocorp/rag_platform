@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   Hidden-profile M5: snapshot now carries a `premise` block (the case's shared general_info scenario) for the premise screen.
-#            Prior: M3 pre-vote flow (waiting → discuss → choose → kiosk → done, vote timer at ballot, auto round-2, no debrief); M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
+# @changed   Hidden-profile M7: discuss clock is now LAZY (arm_discuss_timer) — it starts on the first student message, not when the phase opens, so the premise/card prelude doesn't eat deliberation time; a grace watch arms it if the room stays silent.
+#            Prior: M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -53,6 +53,12 @@ PHASE_ORDER = [PHASE_WAITING, PHASE_DISCUSS, PHASE_CHOOSE, PHASE_KIOSK, PHASE_DO
 # Chat is unlocked ONLY during discuss. In `choose` the group speaks through the
 # ballot buttons, not the chat, so the pick is a single deliberate act.
 _UNLOCKED_PHASES = {PHASE_DISCUSS}
+
+# M7: the discuss clock is LAZY — it starts when discussion actually begins (the
+# first student message), NOT when the phase opens, so the per-student premise/card
+# prelude doesn't eat deliberation time. If a room stays silent this long the clock
+# arms anyway, so a quiet room still advances to the vote instead of hanging.
+PRELUDE_GRACE_SECONDS = 240
 
 # --- Turn-taking ------------------------------------------------------------
 # There are no gates. ACTR is invoked on every student message and decides for
@@ -506,7 +512,12 @@ class ExerciseState:
             elif self._phase == PHASE_DISCUSS:
                 # M3: discuss is the PRE-vote deliberation now, so when its timer
                 # elapses the next thing is the ballot, not the done screen.
-                self._resume_timed(PHASE_DISCUSS, self.begin_choose)
+                # M7: a room rebuilt while still unarmed (nobody has spoken yet) has no
+                # deadline to resume — restart the grace watch instead of expiring now.
+                if self.phase_deadline_ts is None:
+                    self._socketio.start_background_task(self._prelude_grace_watch)
+                else:
+                    self._resume_timed(PHASE_DISCUSS, self.begin_choose)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -628,12 +639,39 @@ class ExerciseState:
             if self._phase not in (PHASE_WAITING, PHASE_KIOSK):
                 return
             self._phase = PHASE_DISCUSS
-            self.phase_deadline_ts = time.time() + self.discuss_seconds
-            self._persist({"phase": PHASE_DISCUSS, "phase_deadline_ts": self.phase_deadline_ts})
+            # M7: leave the clock UNARMED (deadline None). It starts on the first
+            # student message (arm_discuss_timer) so the prelude reading time is free;
+            # the grace watch below arms it anyway if the room stays silent.
+            self.phase_deadline_ts = None
+            self._persist({"phase": PHASE_DISCUSS, "phase_deadline_ts": None})
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
         self._run_hook("on_discuss_start")
+        if self._socketio:
+            self._socketio.start_background_task(self._prelude_grace_watch)
+
+    def _prelude_grace_watch(self):
+        """Fallback: arm the discuss clock after the grace window if it is still
+        unarmed, so a room where nobody types still advances to the vote."""
+        with self._app.app_context():
+            self._socketio.sleep(PRELUDE_GRACE_SECONDS)
+            if self._phase == PHASE_DISCUSS and self.phase_deadline_ts is None:
+                self.arm_discuss_timer()
+
+    def arm_discuss_timer(self):
+        """Start the discuss countdown the first time discussion actually begins (M7).
+
+        Idempotent: only the first call (a student message, or the grace watch) arms
+        it; every later call no-ops. Broadcasts the phase so clients pick up the
+        countdown, then hands off to the window task that opens the ballot on expiry.
+        """
+        with self._lock:
+            if self._phase != PHASE_DISCUSS or self.phase_deadline_ts is not None:
+                return
+            self.phase_deadline_ts = time.time() + self.discuss_seconds
+            self._persist({"phase_deadline_ts": self.phase_deadline_ts})
+        self._broadcast_phase()
         if self._socketio:
             self._socketio.start_background_task(self._run_discuss_window)
 

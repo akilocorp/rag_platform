@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   M3 pre-vote flow: start_exercise opens the deliberation (begin_discuss); new on_discuss_start hook opens it via ACTR; on_choose_start becomes a vote nudge; reveal no longer runs a debrief; reactive turn drops the [REOPEN] re-ballot.
-#            Prior: reset_breakout_room drops the ConversationContext cache; owner-only reset handler; M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`.
+# @changed   M7: the first student message arms the lazy discuss clock (arm_discuss_timer) so the premise/card prelude doesn't eat deliberation time.
+#            Prior: M3 pre-vote flow (start_exercise → begin_discuss, on_discuss_start hook, on_choose_start vote nudge, reveal drops the debrief, reactive turn drops [REOPEN]); reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -693,6 +693,10 @@ def register_socket_events(socketio, app):
                 }, to=request.sid)
                 return
             state.note_participant(uid)
+            # M7: the first student message is what actually starts the discussion, so
+            # it arms the (until now lazy) discuss clock — the prelude reading time
+            # before this doesn't count against deliberation. Idempotent after the first.
+            state.arm_discuss_timer()
             _post(state, state.display_name(uid), text)
             state.note_student_message(uid)
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
