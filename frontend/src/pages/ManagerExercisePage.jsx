@@ -1,17 +1,18 @@
-/* @language JSX  @updated 2026-07-31  @changed Kiosk gate ("Your group has decided") screen now white too (peach icon chip, grey body, orange Continue kept) — matches the now-white time-skip clock screen. Prior: faculty (config owner) breakout-room reset — owner-only per-room control with inline confirm, `reset_breakout_room` emit (JWT), `room_reset` bounce. */
+/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M4: client-local premise + card-deck prelude gating the round-1 discuss phase (premiseStage premise→cards→ready), role/credentials from the M1/M2 snapshot, reconnect/round-2 skip via localStorage. Prior: kiosk gate screen white. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
-// The decision itself happens OFFLINE, on printed packets, before anyone opens
-// this page. What's left is the debrief:
+// Hidden-profile flow (M3+): each student holds a different role's slice of the
+// candidates' credentials and the group decides IN-APP, deliberating before it votes:
 //   loading → local-only, before the lobby has loaded
 //   lobby   → pick a breakout room (Group 1..N) with live occupancy
 //   waiting → in a room; start whenever the team is ready, full or not
-//   choose  → the group enters the candidate it already agreed on (chat locked,
-//             so the pick is one deliberate act rather than a chat negotiation)
-//   discuss → that candidate's outcome document is revealed and ACTR facilitates;
-//             a weak pick reopens the ballot inline so the group can choose again
-//   done    → discuss window closed. No scorecard: nothing here is graded.
+//   discuss → PRE-VOTE. Round 1 opens with a client-local prelude (premise brief →
+//             role-sliced credential cards to memorize), then the facilitated chat
+//             where the group pools what they each saw. Round 2 skips the prelude.
+//   choose  → the timed ballot; the vote clock only starts here, after deliberation
+//   kiosk   → each student presses Continue → time-skip → the pick's outcome reveal
+//   done    → a correct pick or two wrong picks. (Grading handled server-side.)
 //
 // Countdowns derive from the server's `phase_deadline_ts` corrected against
 // `server_now_ts` (clock-skew safe), so a refresh / reconnect stays accurate.
@@ -123,6 +124,29 @@ const KioskGate = ({ onContinue }) => (
   </div>
 );
 
+// M4: one labelled group of credential lines on a candidate card. `tone` colours the
+// marker — strengths read positive, concerns cautionary, "also noted" neutral. Renders
+// nothing when the list is empty so a card only shows the sections it actually has.
+const CredList = ({ label, items, tone }) => {
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (list.length === 0) return null;
+  const dot = tone === 'pos' ? 'bg-emerald-500' : tone === 'neg' ? 'bg-[#FA6C43]' : 'bg-gray-300';
+  const head = tone === 'pos' ? 'text-emerald-700' : tone === 'neg' ? 'text-[#C2410C]' : 'text-gray-400';
+  return (
+    <div className="mb-3 last:mb-0">
+      <p className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${head}`}>{label}</p>
+      <ul className="space-y-1.5">
+        {list.map((t, i) => (
+          <li key={i} className="flex items-start gap-2 text-sm text-[#333] leading-snug">
+            <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${dot}`} />
+            <span>{t}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -193,6 +217,18 @@ const ManagerExercisePage = () => {
   const [chosenVerdict, setChosenVerdict] = useState(null); // M2: 'success' | 'failure'
   const kioskInitedRef = useRef(false);
 
+  // ---- premise + card-deck prelude (M4) ----
+  // A per-student, client-local walkthrough shown at the TOP of the round-1 `discuss`
+  // phase, before the chat opens: the premise/brief, then this student's role-sliced
+  // credential cards to memorize. `premiseStage` gates it; once 'ready' the normal
+  // discussion renders. Round 2 skips it (they have already seen the cards). Completion
+  // is remembered per room+round in localStorage so a refresh mid-deliberation doesn't
+  // replay the intro. `yourRole`/`credentials` come from the M1/M2 snapshot fields.
+  const [premiseStage, setPremiseStage] = useState('ready'); // premise|cards|ready
+  const [yourRole, setYourRole] = useState(null);
+  const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
+  const premiseInitedRef = useRef(false);
+
   const [userInfo, setUserInfo] = useState(null);
 
   // ---- refs ----
@@ -206,6 +242,29 @@ const ManagerExercisePage = () => {
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+
+  // M4: decide the premise/card prelude once per entry into `discuss`. A useEffect
+  // (rather than applyExerciseState) because the waiting→discuss transition arrives
+  // as a bare `phase_change`, not a full snapshot. Round 2 and a refresh that already
+  // finished the intro land straight on the discussion.
+  useEffect(() => {
+    if (phase === 'discuss') {
+      if (!premiseInitedRef.current) {
+        premiseInitedRef.current = true;
+        let seen = roundNum >= 2;
+        try { seen = seen || localStorage.getItem(`me_premise_seen_${roomIdRef.current}_r${roundNum}`) === '1'; } catch { /* localStorage may be unavailable */ }
+        setPremiseStage(seen ? 'ready' : 'premise');
+      }
+    } else {
+      premiseInitedRef.current = false;
+    }
+  }, [phase, roundNum]);
+
+  // M4: mark the intro complete (persisted per room+round) and drop into the chat.
+  const finishPremiseIntro = () => {
+    try { localStorage.setItem(`me_premise_seen_${roomIdRef.current}_r${roundNum}`, '1'); } catch { /* localStorage may be unavailable */ }
+    setPremiseStage('ready');
+  };
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
   // Also derives the DISPLAY NAME, which is what the server stores as the message
@@ -254,6 +313,11 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
     if (typeof s.round === 'number') setRoundNum(s.round);
+    // M1/M2: this viewer's confidential role + their role-sliced credential cards.
+    // Kept in their own state (not `candidates`) so a later ballot_update, which
+    // sends name-only candidate lists, can't wipe the credentials.
+    if (s.your_role !== undefined) setYourRole(s.your_role);
+    if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
     if (s.grades) setGrades(s.grades);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
@@ -1113,7 +1177,87 @@ const ManagerExercisePage = () => {
   }
 
   // -------------------------------------------------------------------------
-  // Phase: discuss (default render — outcome + facilitated chat)
+  // Phase: discuss — round-1 prelude (M4). Before the chat opens, walk this
+  // student through the premise brief, then their role-sliced credential cards.
+  // (Serif premise polish = M5; poker-card deck animation = M6.)
+  // -------------------------------------------------------------------------
+  if (phase === 'discuss' && premiseStage === 'premise') {
+    const names = candidates.map((c) => c.name).filter(Boolean);
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] p-6 text-center">
+        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-500">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4">The brief</p>
+          <h1 className="text-4xl sm:text-5xl mb-6 leading-tight" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+            You are the <span className="text-[#FA6C43]">{yourRole || 'Hiring'}</span> Manager
+          </h1>
+          <p className="text-lg text-[#1F1F1F]/85 leading-relaxed mb-6" style={{ fontFamily: "'Newsreader', serif" }}>
+            {config?.bot_name || 'The committee'} is making a hire, and your group has to choose between{' '}
+            {names.length > 0 ? (
+              <span className="font-semibold text-[#2563EB]">{names.join(', ')}</span>
+            ) : ('the candidates')}
+            . You each hold a different piece of what's known about them. Study your own notes,
+            then pool them with your group to reach the best decision.
+          </p>
+          <p className="text-base italic text-[#1F1F1F]/70 mb-10" style={{ fontFamily: "'Newsreader', serif" }}>
+            Here are their credentials, for your judgement.
+          </p>
+          <button
+            onClick={() => setPremiseStage('cards')}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'discuss' && premiseStage === 'cards') {
+    return (
+      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#1F1F1F]">
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+          <div className="max-w-5xl mx-auto py-4">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2 text-center">Your notes</p>
+            <h2 className="text-2xl sm:text-3xl text-center mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+              What you know as the <span className="text-[#FA6C43]">{yourRole || 'Hiring'}</span> Manager
+            </h2>
+            <p className="text-center text-sm text-gray-500 mb-8">
+              Only you can see these. Memorize them — they're hidden once the discussion starts.
+            </p>
+            {credentials.length === 0 ? (
+              <p className="text-center text-gray-500 py-16">No notes were provided for your role.</p>
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {credentials.map((c, i) => (
+                  <div
+                    key={c.name || i}
+                    className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 animate-in fade-in slide-in-from-bottom-2 duration-400"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
+                    <h3 className="text-xl mb-4 text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{c.name}</h3>
+                    <CredList label="Strengths" items={c.strengths} tone="pos" />
+                    <CredList label="Concerns" items={c.concerns} tone="neg" />
+                    <CredList label="Also noted" items={c.neutral} tone="neutral" />
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-center mt-10 pb-4">
+              <button
+                onClick={finishPremiseIntro}
+                className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+              >
+                Continue to discussion →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase: discuss (default render — pre-vote facilitated chat)
   // -------------------------------------------------------------------------
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
