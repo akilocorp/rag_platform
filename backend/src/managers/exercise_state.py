@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   Hidden-profile M3: PRE-VOTE flow — deliberation now precedes the vote (waiting → discuss → choose → kiosk → done); the vote timer arms at the ballot, not room start; a wrong pick drops straight into a fresh round-2 deliberation; the post-reveal debrief is gone.
-#            Prior: M1+M2 role assignment (`your_role`) + role-sliced credentials (`your_credentials`); `abandon()` guard; chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
+# @changed   Hidden-profile M5: snapshot now carries a `premise` block (the case's shared general_info scenario) for the premise screen.
+#            Prior: M3 pre-vote flow (waiting → discuss → choose → kiosk → done, vote timer at ballot, auto round-2, no debrief); M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -256,6 +256,19 @@ class ExerciseState:
                 return e.get("role") or None
         return None
 
+    def _premise_payload(self) -> Dict:
+        """The shared scenario shown on the premise screen (M5).
+
+        Drawn from the case's `general_info` — the shared brief every role already
+        holds on paper, so it is safe for ALL students (unlike the per-role
+        credential slices or the case_pack answer key, neither of which is ever
+        sent). The viewer's role and the candidate names are already in the
+        snapshot, so this carries only the scenario prose.
+        """
+        gi = self.config.get("general_info") or {}
+        text = (gi.get("text") if isinstance(gi, dict) else "") or ""
+        return {"scenario": text.strip()}
+
     def credentials_for(self, uid: str) -> List[Dict]:
         """This student's confidential slice of every candidate's credentials.
 
@@ -364,6 +377,8 @@ class ExerciseState:
                 # M2: this viewer's role-sliced credential cards (own packet only —
                 # never other roles' slices, never the distinct-count answer key).
                 "your_credentials": self.credentials_for(uid),
+                # M5: the shared scenario prose for the premise screen (general_info).
+                "premise": self._premise_payload(),
                 "can_start": self.can_start(),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),

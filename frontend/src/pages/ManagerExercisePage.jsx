@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M4: client-local premise + card-deck prelude gating the round-1 discuss phase (premiseStage premise→cards→ready), role/credentials from the M1/M2 snapshot, reconnect/round-2 skip via localStorage. Prior: kiosk gate screen white. */
+/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M5: premise screen now renders the case's real general_info scenario (snapshot `premise.scenario`) in a full serif treatment with orange/blue highlights + staggered entry. Prior: M4 premise/card prelude gating (premiseStage). */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -227,6 +227,7 @@ const ManagerExercisePage = () => {
   const [premiseStage, setPremiseStage] = useState('ready'); // premise|cards|ready
   const [yourRole, setYourRole] = useState(null);
   const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
+  const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const premiseInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
@@ -318,6 +319,7 @@ const ManagerExercisePage = () => {
     // sends name-only candidate lists, can't wipe the credentials.
     if (s.your_role !== undefined) setYourRole(s.your_role);
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
+    if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.grades) setGrades(s.grades);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
@@ -1183,27 +1185,47 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'discuss' && premiseStage === 'premise') {
     const names = candidates.map((c) => c.name).filter(Boolean);
+    // General-info prose broken into paragraphs; falls back to a generic brief when
+    // the case has no general_info authored. Serif throughout, with orange/blue used
+    // only to highlight the role and the candidate names.
+    const paras = (scenario || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    // Subtle staggered entry (minimalistic — fade + small rise, no hover lift).
+    const rise = (i) => ({ animationDelay: `${i * 90}ms`, animationFillMode: 'both' });
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] p-6 text-center">
-        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-500">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4">The brief</p>
-          <h1 className="text-4xl sm:text-5xl mb-6 leading-tight" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
+        <div className="max-w-2xl mx-auto w-full text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
+          <h1 className="text-4xl sm:text-5xl mb-8 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600, ...rise(1) }}>
             You are the <span className="text-[#FA6C43]">{yourRole || 'Hiring'}</span> Manager
           </h1>
-          <p className="text-lg text-[#1F1F1F]/85 leading-relaxed mb-6" style={{ fontFamily: "'Newsreader', serif" }}>
-            {config?.bot_name || 'The committee'} is making a hire, and your group has to choose between{' '}
-            {names.length > 0 ? (
+
+          {paras.length > 0 ? (
+            <div className="space-y-4 mb-8 text-left animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(2)}>
+              {paras.map((p, i) => (
+                <p key={i} className="text-lg text-[#1F1F1F]/85 leading-relaxed" style={{ fontFamily: "'Newsreader', serif" }}>{p}</p>
+              ))}
+            </div>
+          ) : (
+            <p className="text-lg text-[#1F1F1F]/85 leading-relaxed mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(2) }}>
+              {config?.bot_name || 'The committee'} is making a hire, and your group has to choose
+              the right person. You each hold a different piece of what's known about the candidates.
+            </p>
+          )}
+
+          {names.length > 0 && (
+            <p className="text-lg mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(3) }}>
+              <span className="text-[#1F1F1F]/70">The candidates: </span>
               <span className="font-semibold text-[#2563EB]">{names.join(', ')}</span>
-            ) : ('the candidates')}
-            . You each hold a different piece of what's known about them. Study your own notes,
-            then pool them with your group to reach the best decision.
-          </p>
-          <p className="text-base italic text-[#1F1F1F]/70 mb-10" style={{ fontFamily: "'Newsreader', serif" }}>
+            </p>
+          )}
+
+          <p className="text-base italic text-[#1F1F1F]/70 mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(4) }}>
             Here are their credentials, for your judgement.
           </p>
           <button
             onClick={() => setPremiseStage('cards')}
-            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95 animate-in fade-in duration-500"
+            style={rise(5)}
           >
             Next →
           </button>
