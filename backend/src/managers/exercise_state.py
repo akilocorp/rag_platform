@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-31
-# @changed   Added `abandon()` + `_abandoned` guard so a faculty lobby reset (remove_exercise) can't have a lingering timer re-persist a wiped room's session doc.
-#            Prior: M2 chosen_verdict (success/failure) reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
+# @updated   2026-08-01
+# @changed   Hidden-profile M1: assign each student a confidential role from case_pack["roles"] on room entry; surface it as `your_role` in the snapshot.
+#            Prior: `abandon()`+`_abandoned` guard against wiped-room re-persist; M2 chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -238,6 +238,22 @@ class ExerciseState:
                 return c.get("forecast_text") or ""
         return ""
 
+    def _role_names(self) -> List[str]:
+        """The confidential role titles for this case (e.g. Marketing / Logistics Manager).
+
+        Hidden-profile M1: these come straight from `case_pack["roles"]` (parsed from
+        the uploaded docs). Each student is bound to one of them on entry so they only
+        ever see that role's slice of the credentials. Empty list ⇒ no roles authored.
+        """
+        return [r for r in ((self.config.get("case_pack") or {}).get("roles") or []) if r]
+
+    def role_for(self, uid: str) -> Optional[str]:
+        """This student's assigned confidential role, or None if unassigned/unknown."""
+        for e in self.roster:
+            if e.get("uid") == uid:
+                return e.get("role") or None
+        return None
+
     def _best_option(self) -> Optional[str]:
         """The answer key's best hire (AI-only; from the case pack). None if unset."""
         key = (self.config.get("case_pack") or {}).get("answer_key") or {}
@@ -311,6 +327,11 @@ class ExerciseState:
                 "capacity": self.capacity,
                 "candidates": [{"name": c.get("name", "")} for c in self.candidates],
                 "roster": [{"name": e.get("name", "")} for e in self.roster],
+                # Hidden-profile M1: this viewer's own confidential role drives the
+                # premise header ("You are the [role] Manager") and — in M2 — which
+                # slice of each candidate's credentials the client is allowed to see.
+                # Only the viewer's OWN role is sent; other seats' roles stay private.
+                "your_role": self.role_for(uid),
                 "can_start": self.can_start(),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
@@ -395,7 +416,16 @@ class ExerciseState:
                         e["name"] = name
                         self._persist({"roster": self.roster})
                     return False
-            self.roster.append({"uid": uid, "name": name or f"Student {len(self.roster) + 1}"})
+            # Hidden-profile M1: bind this seat to a confidential role. Roles are
+            # handed out in join order, wrapping round-robin if more students than
+            # roles (so it never runs dry) and staying empty when none are authored.
+            roles = self._role_names()
+            role = roles[len(self.roster) % len(roles)] if roles else None
+            self.roster.append({
+                "uid": uid,
+                "name": name or f"Student {len(self.roster) + 1}",
+                "role": role,
+            })
             self._persist({"roster": self.roster})
             return True
 
