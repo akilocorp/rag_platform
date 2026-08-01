@@ -1,23 +1,25 @@
 # @language  Python
-# @updated   2026-07-30
-# @changed   M7: add facilitator_reveal_answer — the ONE turn that names the best option (after two wrong
-#            group picks), on a dedicated system prompt so the standard "never name it" rule stays intact.
+# @updated   2026-08-01
+# @changed   M3 pre-vote flow: replace facilitator_open/facilitator_on_pick (post-reveal debrief) with
+#            facilitator_open_discussion + facilitator_call_vote (deliberation opener + vote nudge).
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
-voice in it, and its default is silence. It (a) asks which option the group chose,
-(b) reveals the outcome and enters on the branch that fits, and (c) facilitates
-the discussion reactively.
+voice in it, and its default is silence. It (a) opens the PRE-VOTE deliberation,
+(b) facilitates that discussion reactively while the group pools their role-sliced
+credentials, (c) nudges them to vote when the window closes, and (d) on the second
+wrong pick names the best option outright (the one scoped exception to "never name
+it"). The outcome reveal itself is just the posted outcome document — there is no
+post-reveal debrief phase any more.
 
 Every case-specific fact reaches the model through the rendered case pack in the
 system prompt (`facilitator_prompt.build_facilitator_system`) — nothing about any
 particular case is written here. The pedagogy lives in the prompt; this module is
 call plumbing.
 
-One thing is decided in Python rather than by the model, deliberately: **whether
-a re-choice is permitted at all** (`case_pack.is_top_choice`), so it can never
-drift with the model's mood. WHEN it is offered is the model's call, at step 11 of
-the sequence, once the group has actually pooled and counted.
+Round 2 is no longer invited by ACTR: a wrong group pick drops the room into a
+fresh deliberation automatically (the phase machine, `ExerciseState._finish_kiosk`),
+so there is no `[REOPEN]` handshake here any more.
 
 Turn-taking used to be decided in Python too — a quorum and a cooldown gating
 whether ACTR was invoked. Those bought their guarantees with latency, so they are
@@ -167,65 +169,30 @@ def _system(config, roster, group_size):
 # --------------------------------------------------------------------------- #
 # Public API. Each entry point fails soft; the socket layer decides WHEN to call.
 # --------------------------------------------------------------------------- #
-def facilitator_open(config):
-    """ACTR's first message: ask which option the group chose offline.
+def facilitator_open_discussion(config):
+    """ACTR's first message: open the PRE-VOTE deliberation (M3).
 
-    Deliberately not model-generated — it is the same question every session, the
-    ballot is already on screen beside it, and a fixed opener means a room can
-    always start even with no API key.
+    Deliberately not model-generated — it is the same invitation every session and a
+    fixed opener means a room can always start even with no API key. It sets the task
+    (pool what each of you was given, then decide together) without hinting at any
+    answer; the reactive turns carry the facilitation from there.
     """
     cfg = config or {}
     pack = cfg.get("case_pack") or {}
     case_name = (pack.get("case_name") or "").strip()
     subject = f" for {case_name}" if case_name else ""
     return (
-        f"Before we get into it — which candidate did your group choose{subject}? "
-        "Enter it below and I'll show you how it went."
+        f"You've each seen a different slice of what's known about the candidates{subject}. "
+        "Talk it through together. Put what you were given on the table, and work out who your "
+        "group wants to hire. You'll vote once you've had a chance to compare notes."
     )
 
 
-def facilitator_on_pick(config, roster, group_size, chosen_name, forecast_text, transcript_summary=""):
-    """ACTR's entry after the group's pick and its outcome have been revealed.
-
-    Returns `{"message": str, "reopen_allowed": bool, "go_around": bool}`.
-
-    `reopen_allowed` is computed in Python from the case pack and only records
-    that a re-choice is *permitted*. It must NOT reopen the ballot here: a ballot
-    appearing beside this message reads as "your answer was wrong" however gently
-    the message is worded, which is the opposite of what step 1 is for. The offer
-    comes later, from ACTR, once the group has pooled and counted.
-    """
-    cfg = config or {}
-    pack = cfg.get("case_pack") or {}
-    option = case_pack_mod.option_by_name(pack, chosen_name) or {}
-    verdict = option.get("outcome_verdict") or "failure"
-    reopen_allowed = not case_pack_mod.is_top_choice(pack, chosen_name)
-
-    fallback = (
-        f"So — {chosen_name}. Before we look at why, what question did you three think "
-        "you were answering when you sat down to decide?"
+def facilitator_call_vote(config):
+    """ACTR's short nudge when the deliberation window closes and the ballot opens (M3)."""
+    return (
+        "Alright, time to lock it in. Cast your vote for the candidate your group wants to hire."
     )
-
-    user = "\n\n".join([
-        f"The group chose: {chosen_name}",
-        f"Its outcome verdict: {verdict}",
-        "The outcome document has just been posted in the chat. Its text:\n"
-        + ((forecast_text or "").strip()[:6000] or "(not available)"),
-        f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}",
-        "TASK: This is your first message after the reveal. This is step 1 — ask the opener that "
-        "matches this option's outcome verdict (it failed: \"could you have seen that coming?\"; it "
-        "succeeded: \"why did you choose them?\"), and read CHOOSING YOUR ENTRY for where to go "
-        "next. One short message. Do not state any tally, do not name the best option, do not "
-        "explain the mechanism, and do NOT suggest they choose again — that comes much later, "
-        "and only after they have pooled and counted."
-        f" If your message asks every student in turn for an item, end it with {GO_AROUND_MARKER}.",
-    ])
-
-    text = _call(_system(cfg, roster, group_size), user, fallback=fallback)
-    if _is_silent(text):
-        text = fallback
-    message, go_around, _ = _split_markers(text)
-    return {"message": message or fallback, "reopen_allowed": reopen_allowed, "go_around": go_around}
 
 
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,

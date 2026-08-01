@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   Hidden-profile M1+M2: assign each student a confidential role from case_pack["roles"] on entry (`your_role`); send only that role's slice of each candidate's credentials (`your_credentials`), never the distinct-count answer key.
-#            Prior: `abandon()`+`_abandoned` guard against wiped-room re-persist; chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
+# @changed   Hidden-profile M3: PRE-VOTE flow — deliberation now precedes the vote (waiting → discuss → choose → kiosk → done); the vote timer arms at the ballot, not room start; a wrong pick drops straight into a fresh round-2 deliberation; the post-reveal debrief is gone.
+#            Prior: M1+M2 role assignment (`your_role`) + role-sliced credentials (`your_credentials`); `abandon()` guard; chosen_verdict reveal framing; M8 grading; M7 second round; M6 kiosk; M5 timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -45,8 +45,10 @@ PHASE_KIOSK = "kiosk"
 PHASE_DISCUSS = "discuss"
 PHASE_DONE = "done"
 
-# Ordered flow; used to fast-forward on rehydration.
-PHASE_ORDER = [PHASE_WAITING, PHASE_CHOOSE, PHASE_KIOSK, PHASE_DISCUSS, PHASE_DONE]
+# Ordered flow; used to fast-forward on rehydration. Hidden-profile M3: deliberation
+# comes BEFORE the vote now — students pool their role-sliced credentials in `discuss`,
+# then the ballot opens. A wrong pick loops back to `discuss` for round 2.
+PHASE_ORDER = [PHASE_WAITING, PHASE_DISCUSS, PHASE_CHOOSE, PHASE_KIOSK, PHASE_DONE]
 
 # Chat is unlocked ONLY during discuss. In `choose` the group speaks through the
 # ballot buttons, not the chat, so the pick is a single deliberate act.
@@ -487,7 +489,9 @@ class ExerciseState:
                 if self._all_continued():
                     self._finish_kiosk()
             elif self._phase == PHASE_DISCUSS:
-                self._resume_timed(PHASE_DISCUSS, self._enter_done)
+                # M3: discuss is the PRE-vote deliberation now, so when its timer
+                # elapses the next thing is the ballot, not the done screen.
+                self._resume_timed(PHASE_DISCUSS, self.begin_choose)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -515,15 +519,15 @@ class ExerciseState:
         return self._phase == PHASE_WAITING and len(self.roster) >= 1
 
     def begin_choose(self):
-        """Enter `choose`: open the ballot, keep chat locked, ask for the group's pick.
+        """Enter `choose`: open the timed ballot and lock chat for the vote.
 
-        Started explicitly by a student, NOT by the room filling up. Groups rarely
-        arrive complete, and waiting on absent classmates strands the ones who did
-        turn up. Whoever is in the room when this fires is the group, and the
-        facilitator is told that headcount.
+        M3: this now follows the pre-vote deliberation rather than the lobby — it is
+        reached when the `discuss` timer lapses (`_run_discuss_window`), so the vote
+        clock only starts once the group has actually deliberated. Whoever is in the
+        room at that point is the group.
         """
         with self._lock:
-            if self._phase != PHASE_WAITING:
+            if self._phase != PHASE_DISCUSS:
                 return
             self._phase = PHASE_CHOOSE
             # M5: the ballot is timed. Arm the main window here; the background
@@ -594,12 +598,19 @@ class ExerciseState:
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
 
-    def _enter_discuss(self):
-        """Kiosk cleared (or re-choice) → unlock chat and arm the single discuss timer."""
+    def begin_discuss(self):
+        """Enter the PRE-VOTE deliberation: unlock chat, arm the discuss timer, ACTR opens.
+
+        M3: this is where the group pools their role-sliced credentials and reasons
+        toward a hire — BEFORE any vote. Round 1 arrives from `waiting` (a student
+        pressed Start); round 2 arrives from `kiosk` (the group's first pick was
+        wrong). When the timer lapses the ballot opens (`begin_choose`).
+
+        Non-blocking: the countdown runs on a background task like the choose window,
+        so this is safe to call straight from the `start_exercise` socket handler.
+        """
         with self._lock:
-            # M6: the first pick now reaches discuss via the kiosk gate, so accept
-            # the transition from either `choose` (legacy/re-choice) or `kiosk`.
-            if self._phase not in (PHASE_CHOOSE, PHASE_KIOSK):
+            if self._phase not in (PHASE_WAITING, PHASE_KIOSK):
                 return
             self._phase = PHASE_DISCUSS
             self.phase_deadline_ts = time.time() + self.discuss_seconds
@@ -607,10 +618,16 @@ class ExerciseState:
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
+        self._run_hook("on_discuss_start")
+        if self._socketio:
+            self._socketio.start_background_task(self._run_discuss_window)
 
-        self._sleep_until(self.phase_deadline_ts)
-        if self._phase == PHASE_DISCUSS:
-            self._enter_done()
+    def _run_discuss_window(self):
+        """Background timer for the pre-vote deliberation → open the ballot on expiry."""
+        with self._app.app_context():
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase == PHASE_DISCUSS:
+                self.begin_choose()
 
     def _enter_done(self):
         """Discuss expired → wrap up. No scorecard: this exercise is not graded."""
@@ -822,48 +839,41 @@ class ExerciseState:
         return True
 
     def _finish_kiosk(self):
-        """Everyone has continued → run the shared reveal, then open discussion."""
+        """Everyone continued → run the shared reveal, then branch on the pick (M3).
+
+        A correct pick — or the SECOND wrong pick, whose answer the reveal has just
+        named — ends the exercise. A first wrong pick drops the room into a fresh
+        round-2 deliberation over the remaining candidates. There is no post-reveal
+        debrief phase any more; the discussion all happens before each vote.
+        """
         with self._lock:
             if self._phase != PHASE_KIOSK or self._kiosk_finishing:
                 return
             self._kiosk_finishing = True
         self._run_hook("on_pick_resolved")
-        self._enter_discuss()
+        if self._pick_is_correct(self.chosen_candidate) or self.strikes >= 2:
+            self._enter_done()
+        else:
+            self.begin_next_round()
 
     def begin_next_round(self):
-        """Start a full second round after a wrong first pick (M7).
+        """Open a full second round after a wrong first pick (M3/M7).
 
-        Invited by ACTR (the [REOPEN] signal). Unlike the old inline re-choice this
-        is a real round: back to a timed `choose` ballot over the REMAINING
-        candidates, through the kiosk, to a fresh reveal. Guarded to round 2 only —
-        there is no third round; two strikes ends the exercise via the answer reveal.
+        Reached automatically from `_finish_kiosk` when the first pick was wrong — no
+        ACTR `[REOPEN]` signal any more. Unlike the old inline re-choice this is a real
+        round: back to a fresh PRE-VOTE deliberation over the REMAINING candidates,
+        then a new ballot, kiosk, and reveal. Guarded to round 2 only — there is no
+        third round; two strikes ends the exercise via the answer reveal instead.
         """
         with self._lock:
-            if self._phase != PHASE_DISCUSS or self.round >= 2 or self.strikes >= 2:
+            if self._phase != PHASE_KIOSK or self.round >= 2 or self.strikes >= 2:
                 return
             self.round = 2
-            self._phase = PHASE_CHOOSE
-            self.phase_deadline_ts = time.time() + self.choose_seconds
-            self.collective_ballot = {"open": True, "votes": {}, "final_call": False}
-            self.reopen_allowed = False
             self._kiosk_finishing = False
-            self._persist({
-                "round": self.round,
-                "phase": PHASE_CHOOSE,
-                "phase_deadline_ts": self.phase_deadline_ts,
-                "collective_ballot": self.collective_ballot,
-                "reopen_allowed": False,
-            })
-
-        self._broadcast_phase()
-        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "choose"})
-        self._emit("ballot_update", {
-            "room_id": self.room_id, "open": True, "final_call": False, "tally": {},
-            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
-        })
-        self._run_hook("on_choose_start")
-        if self._socketio:
-            self._socketio.start_background_task(self._run_choose_window)
+            self._persist({"round": self.round})
+        # begin_discuss accepts the kiosk→discuss transition and arms its own timer,
+        # which then rolls into begin_choose exactly like round 1.
+        self.begin_discuss()
 
     def set_reopen_allowed(self, allowed: bool):
         """Record that a re-choice is PERMITTED — not that it is being offered.

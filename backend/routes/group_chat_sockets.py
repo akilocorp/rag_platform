@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-01
-# @changed   reset_breakout_room now also drops the in-memory ConversationContext cache, so a reset room no longer replays the previous session's transcript.
-#            Prior: owner-only `reset_breakout_room` socket handler (JWT-verified config owner); M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`.
+# @changed   M3 pre-vote flow: start_exercise opens the deliberation (begin_discuss); new on_discuss_start hook opens it via ACTR; on_choose_start becomes a vote nudge; reveal no longer runs a debrief; reactive turn drops the [REOPEN] re-ballot.
+#            Prior: reset_breakout_room drops the ConversationContext cache; owner-only reset handler; M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -138,35 +138,39 @@ def register_socket_events(socketio, app):
         """
         me_config = _exercise_runtime_config(config_doc)
 
+        def on_discuss_start(st):
+            """Pre-vote deliberation opened → ACTR invites the group to pool what they know."""
+            _post_facilitator(st, ai_manager.facilitator_open_discussion(me_config))
+
         def on_choose_start(st):
-            """Ballot opened → ACTR asks which candidate the group chose offline."""
-            _post_facilitator(st, ai_manager.facilitator_open(me_config))
+            """Deliberation over, ballot opened → ACTR's short nudge to lock in the vote."""
+            _post_facilitator(st, ai_manager.facilitator_call_vote(me_config))
 
         def on_pick_resolved(st):
-            """Pick entered → reveal that candidate's outcome, then ACTR's branch entry."""
+            """Pick entered → reveal that candidate's outcome (and, on strike two, the answer)."""
             socketio.start_background_task(_reveal_and_enter, st.room_id)
 
         def on_wrapup(st):
-            """Discuss timer expired → ACTR's closing ask. Nothing is scored."""
+            """Exercise reached `done` → ACTR's closing ask + the M8 scorecard."""
             socketio.start_background_task(_wrapup, st.room_id)
 
         state.hooks = {
+            "on_discuss_start": on_discuss_start,
             "on_choose_start": on_choose_start,
             "on_pick_resolved": on_pick_resolved,
             "on_wrapup": on_wrapup,
         }
 
     def _reveal_and_enter(room_id):
-        """Background: post the chosen candidate's outcome document, then ACTR's entry.
+        """Background: post the chosen candidate's outcome document (the shared reveal).
 
-        Ordering matters — the outcome lands first so the group reads it before
-        being asked anything.
-
-        A below-top-tally pick only records that a re-choice is PERMITTED. The
-        ballot is not reopened here: buttons appearing beside the disarm message
-        read as "your answer was wrong" however gently the message is worded, and
-        that is the opposite of the move ACTR is making. The offer comes later,
-        from ACTR, at MOVE 5.
+        M3: there is no post-reveal debrief any more, so this no longer opens a
+        facilitated conversation. It posts the outcome document, and — only on the
+        SECOND wrong pick, where the exercise is over — ACTR names the un-chosen best
+        option outright (the scoped exception to "never name the best option"; see
+        ai_manager.facilitator_reveal_answer). A correct pick or a first wrong pick
+        posts only the outcome; the phase machine then routes to the done screen or a
+        fresh round-2 deliberation respectively.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
@@ -177,29 +181,13 @@ def register_socket_events(socketio, app):
             if forecast:
                 _post(st, f"📊 {chosen} — Outcome", forecast)
 
-            summary = get_or_create_context(room_id).summary_for_nudge()
-            result = ai_manager.facilitator_on_pick(
-                st.config, st.roster, st.active_group_size(), chosen, forecast,
-                transcript_summary=summary,
-            )
-
-            # M7 two-strike: the group has now made two wrong picks, so there is no
-            # third round. ACTR gives its normal entry on THIS outcome, then reveals
-            # the un-chosen answer outright (a scoped exception to "never name the
-            # best option" — see ai_manager.facilitator_reveal_answer).
-            if st.strikes >= 2:
-                st.set_reopen_allowed(False)
-                _post_facilitator(st, result.get("message"), result.get("go_around", False))
-                answer = st.revealed_candidate or ""
-                if answer:
-                    reveal = ai_manager.facilitator_reveal_answer(
-                        st.config, st.roster, st.active_group_size(), answer,
-                        transcript_summary=summary,
-                    )
-                    _post_facilitator(st, reveal)
-            else:
-                st.set_reopen_allowed(result.get("reopen_allowed", False))
-                _post_facilitator(st, result.get("message"), result.get("go_around", False))
+            if st.strikes >= 2 and st.revealed_candidate:
+                summary = get_or_create_context(room_id).summary_for_nudge()
+                reveal = ai_manager.facilitator_reveal_answer(
+                    st.config, st.roster, st.active_group_size(), st.revealed_candidate,
+                    transcript_summary=summary,
+                )
+                _post_facilitator(st, reveal)
 
     def _wrapup(room_id):
         """Background: ACTR's closing message + the M8 scorecard when discuss ends."""
@@ -271,7 +259,6 @@ def register_socket_events(socketio, app):
                     ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
                     chosen_name=st.chosen_candidate,
                     turn_context=st.turn_context(addressed=addressed, silence=silence),
-                    reopen_allowed=st.reopen_allowed,
                 )
                 message = result.get("message")
                 if not message:
@@ -286,11 +273,9 @@ def register_socket_events(socketio, app):
                 # waiting on anyone.
                 st.clear_go_around()
                 _post_facilitator(st, message, result.get("go_around", False))
-                # MOVE 5: ACTR decided the group has pooled and counted enough to be
-                # invited to choose again. M7: this now starts a FULL second round
-                # (timed choose → kiosk → reveal), not an inline re-ballot.
-                if result.get("offer_reopen"):
-                    st.begin_next_round()
+                # M3: no ACTR-triggered re-ballot any more. Round 2 is opened
+                # automatically by the phase machine on a wrong pick, so a reactive
+                # turn just speaks and stops.
             finally:
                 st = ex_state.get_exercise(room_id)
                 if st is not None:
@@ -641,7 +626,9 @@ def register_socket_events(socketio, app):
         if state is None or not state.can_start():
             return
         logger.info(f"▶️  Exercise starting in {room_id} with {state.active_group_size()} student(s)")
-        state.begin_choose()
+        # M3: a room now opens on the PRE-vote deliberation, not the ballot. The vote
+        # opens (begin_choose) only after the discuss timer lapses.
+        state.begin_discuss()
         config_id = room_id.rsplit("_", 1)[0]
         config_doc = _load_config_doc(config_id)
         if config_doc:
