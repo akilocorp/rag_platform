@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-07-31
-# @changed   Owner-only `reset_breakout_room` socket handler: JWT-verified config owner can wipe a finished/stale breakout room back to an empty lobby slot.
-#            Prior: M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`; M5 `early_decision`.
+# @updated   2026-08-01
+# @changed   reset_breakout_room now also drops the in-memory ConversationContext cache, so a reset room no longer replays the previous session's transcript.
+#            Prior: owner-only `reset_breakout_room` socket handler (JWT-verified config owner); M7 [REOPEN] second round + answer reveal; M6 kiosk `continue_ack`.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -12,7 +12,7 @@ from bson import ObjectId
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 
 from src.managers.match_manager import match_manager
-from src.managers.context_manager import get_or_create_context
+from src.managers.context_manager import get_or_create_context, remove_context
 from src.managers.bot_manager import analyze_intent, get_or_create_bot
 
 # Manager Exercise collaborators. ExerciseState owns the phase machine and the
@@ -576,8 +576,9 @@ def register_socket_events(socketio, app):
         real JWT and requires the caller to own the config (the same ownership rule
         as GET /api/config/<id>). A student who spoofed a room_index could otherwise
         wipe a live group. Clears all four places a room's state lives: live
-        occupancy, the in-memory phase machine, the durable session doc, and the
-        persisted transcript, then re-broadcasts the lobby so every list updates.
+        occupancy, the in-memory phase machine, the cached conversation context,
+        the durable session doc, and the persisted transcript, then re-broadcasts
+        the lobby so every list updates.
         """
         d = data or {}
         config_id, index, token = d.get('config_id'), d.get('room_index'), d.get('token')
@@ -610,6 +611,10 @@ def register_socket_events(socketio, app):
 
         _room_members.pop(room_id, None)          # live socket occupancy
         ex_state.remove_exercise(room_id)          # in-memory phase machine
+        # Drop the cached ConversationContext too: get_or_create_context only reloads
+        # from Mongo on first access for a room_id, so without this the stale in-memory
+        # ctx.messages survive the wipe and get replayed to the next session.
+        remove_context(room_id)                    # cached chat transcript
         try:
             ManagerExerciseSession.delete_by_room(room_id)                       # durable session doc
             app.config["MONGO_DB"]['group_chat_messages'].delete_many(          # persisted transcript
