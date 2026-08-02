@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-08-01
-# @changed   M7: the first student message arms the lazy discuss clock (arm_discuss_timer) so the premise/card prelude doesn't eat deliberation time.
-#            Prior: M3 pre-vote flow (start_exercise → begin_discuss, on_discuss_start hook, on_choose_start vote nudge, reveal drops the debrief, reactive turn drops [REOPEN]); reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
+# @updated   2026-08-02
+# @changed   on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed) instead of the round-1 text.
+#            Prior: M7 first student message arms the lazy discuss clock (arm_discuss_timer) so the premise/card prelude doesn't eat deliberation time; M3 pre-vote flow (start_exercise → begin_discuss, on_discuss_start hook, on_choose_start vote nudge, reveal drops the debrief, reactive turn drops [REOPEN]); reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -139,8 +139,11 @@ def register_socket_events(socketio, app):
         me_config = _exercise_runtime_config(config_doc)
 
         def on_discuss_start(st):
-            """Pre-vote deliberation opened → ACTR invites the group to pool what they know."""
-            _post_facilitator(st, ai_manager.facilitator_open_discussion(me_config))
+            """Pre-vote deliberation opened → ACTR invites the group to pool what they know.
+
+            Passes the round so round 2 opens with the second-decision framing (the first
+            hire failed) rather than repeating the round-1 "compare notes" opener."""
+            _post_facilitator(st, ai_manager.facilitator_open_discussion(me_config, st.round))
 
         def on_choose_start(st):
             """Deliberation over, ballot opened → ACTR's short nudge to lock in the vote."""

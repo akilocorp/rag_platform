@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-08-01
-# @changed   M3 pre-vote flow: replace facilitator_open/facilitator_on_pick (post-reveal debrief) with
-#            facilitator_open_discussion + facilitator_call_vote (deliberation opener + vote nudge).
+# @updated   2026-08-02
+# @changed   facilitator_open_discussion is now round-aware: round 2 opens with a "first hire failed,
+#            choose from the remaining candidates" invitation instead of repeating the round-1 opener.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -169,14 +169,24 @@ def _system(config, roster, group_size):
 # --------------------------------------------------------------------------- #
 # Public API. Each entry point fails soft; the socket layer decides WHEN to call.
 # --------------------------------------------------------------------------- #
-def facilitator_open_discussion(config):
+def facilitator_open_discussion(config, round_num=1):
     """ACTR's first message: open the PRE-VOTE deliberation (M3).
 
     Deliberately not model-generated — it is the same invitation every session and a
     fixed opener means a room can always start even with no API key. It sets the task
     (pool what each of you was given, then decide together) without hinting at any
     answer; the reactive turns carry the facilitation from there.
+
+    Round-aware: round 2 arrives after a failed first hire, so the opener acknowledges
+    that and points the group at the REMAINING candidates instead of repeating the
+    round-1 "compare notes for the first time" framing. Still answer-neutral.
     """
+    if round_num and round_num >= 2:
+        return (
+            "That first hire didn't work out. Now you're choosing from the candidates you "
+            "haven't tried yet. Put together what you each know about them and decide who "
+            "your group wants to hire this time."
+        )
     cfg = config or {}
     pack = cfg.get("case_pack") or {}
     case_name = (pack.get("case_name") or "").strip()
