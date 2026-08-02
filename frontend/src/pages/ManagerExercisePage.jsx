@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed Kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-02  @changed enterRoom now sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -525,10 +525,13 @@ const ManagerExercisePage = () => {
         socketRef.current = io('/', { path: '/socket.io' });
         const socket = socketRef.current;
 
-        // The display name rides along on every room entry so the server can seed
-        // the roster ACTR addresses and the go-around quorum is measured against.
+        // The uid + display name ride along on every room entry so the server can
+        // (re)seed the roster ACTR addresses and the kiosk/go-around quorum is
+        // measured against. Sending the uid — not relying on the sid→uid map — keeps
+        // the roster correct across reconnects (a new socket sid has no map entry),
+        // which is what otherwise stranded a student at "0 of N ready".
         const enterRoom = (rid) => socket.emit('get_history', {
-          room_id: rid, display_name: displayNameRef.current,
+          room_id: rid, uid: userIdRef.current, display_name: displayNameRef.current,
         });
 
         // Already in a room → rejoin it. Otherwise watch the breakout lobby.
