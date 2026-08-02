@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed M4 fix: clear the per-room "premise seen" localStorage flag while in the `waiting` phase, so the premise+cards prelude replays on every fresh run of a (deterministic-id) breakout room instead of being skipped forever after the first run. Prior: M6 CandidateDeck poker-card deck. */
+/* @language JSX  @updated 2026-08-02  @changed CandidateDeck seen-badge now lives inside the card face so it rides up with the card on hover. Prior: M4 fix clears the per-room "premise seen" localStorage flag while in `waiting` so the prelude replays on every fresh run of a (deterministic-id) breakout room. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -182,17 +182,19 @@ const CandidateDeck = ({ role, credentials, onContinue }) => {
                   style={{ marginLeft: i === 0 ? 0 : '-1.25rem', zIndex: 10 + i }}
                   aria-label={`Read ${c.name}`}
                 >
-                  {/* inner face translates up on hover; the button slot stays put */}
-                  <div className="w-40 sm:w-44 h-56 sm:h-60 rounded-2xl bg-white border border-gray-200 shadow-lg flex flex-col items-center justify-between p-4 transition-all duration-300 ease-out group-hover:-translate-y-6 group-hover:shadow-2xl group-hover:border-[#FA6C43]/40">
+                  {/* inner face translates up on hover; the button slot stays put. The
+                      seen-badge lives INSIDE this face (anchored to it via `relative`)
+                      so it rides up with the card on hover instead of lagging behind. */}
+                  <div className="relative w-40 sm:w-44 h-56 sm:h-60 rounded-2xl bg-white border border-gray-200 shadow-lg flex flex-col items-center justify-between p-4 transition-all duration-300 ease-out group-hover:-translate-y-6 group-hover:shadow-2xl group-hover:border-[#FA6C43]/40">
                     <span className="self-start text-[11px] font-bold text-gray-300">{String(i + 1).padStart(2, '0')}</span>
                     <span className="text-lg leading-tight text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{c.name}</span>
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[#FA6C43] opacity-0 group-hover:opacity-100 transition-opacity">
                       {seen.has(i) ? 'Read again' : 'Tap to read'}
                     </span>
+                    {seen.has(i) && (
+                      <span className="absolute top-2 right-2 h-5 w-5 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center shadow">✓</span>
+                    )}
                   </div>
-                  {seen.has(i) && (
-                    <span className="absolute top-2 right-2 h-5 w-5 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center shadow">✓</span>
-                  )}
                 </button>
               ))}
             </div>
