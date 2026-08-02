@@ -1,6 +1,6 @@
 # @language  Python
 # @updated   2026-08-02
-# @changed   Kiosk entry now broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
+# @changed   Premise scenario is trimmed to the student narrative (_student_scenario) — the raw general_info doc's structural appendix (org chart, committee, finalists, current roles) is no longer dumped on the student screen. Also: kiosk entry broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
 #            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
@@ -27,6 +27,7 @@ This module depends ONLY on the session-model API. The AI-side work lives in
 below, keeping this file free of those imports.
 """
 import logging
+import re
 import time
 from threading import RLock
 from typing import Callable, Dict, List, Optional, Tuple
@@ -34,6 +35,32 @@ from typing import Callable, Dict, List, Optional, Tuple
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
+
+# The uploaded general-information doc usually continues past the student-facing
+# narrative into structural / setup material — an org chart, the selection-committee
+# roster, the finalist list, each candidate's current role. None of that belongs on
+# the student premise screen: it's context for setting up the case (and some of it
+# borders on the answer key). Trim the scenario at the first such section heading.
+_BRIEF_CUTOFF = re.compile(
+    r"^(organi[sz]ation chart|org chart|selection committee|finalists?\b|"
+    r"current role|other direct reports|candidate profiles?)\b",
+    re.IGNORECASE,
+)
+
+
+def _student_scenario(text: str) -> str:
+    """Keep only the student-facing narrative: everything before the first structural
+    section heading (org chart, committee, finalists, current roles). A doc with none
+    of those markers is returned whole, so this never truncates a plain narrative."""
+    lines = (text or "").split("\n")
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        # A heading line is short and standalone; the length guard stops a stray
+        # in-prose mention of e.g. "organisation chart" from cutting the brief.
+        if 0 < len(s) <= 60 and _BRIEF_CUTOFF.match(s):
+            return "\n".join(lines[:i]).strip()
+    return (text or "").strip()
+
 
 # --- Phase constants --------------------------------------------------------
 PHASE_WAITING = "waiting"
@@ -274,11 +301,13 @@ class ExerciseState:
         holds on paper, so it is safe for ALL students (unlike the per-role
         credential slices or the case_pack answer key, neither of which is ever
         sent). The viewer's role and the candidate names are already in the
-        snapshot, so this carries only the scenario prose.
+        snapshot, so this carries only the scenario prose — trimmed to the student
+        narrative (see `_student_scenario`); the raw doc's structural appendix is
+        setup context, not something to put on the student's screen.
         """
         gi = self.config.get("general_info") or {}
         text = (gi.get("text") if isinstance(gi, dict) else "") or ""
-        return {"scenario": text.strip()}
+        return {"scenario": _student_scenario(text.strip())}
 
     def credentials_for(self, uid: str) -> List[Dict]:
         """This student's confidential slice of every candidate's credentials.
