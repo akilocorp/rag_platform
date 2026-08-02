@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed Premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-02  @changed Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -415,18 +415,23 @@ const ManagerExercisePage = () => {
   // M4 fix: breakout room ids are deterministic (`{config_id}_g{index}`), so the
   // per-room "premise seen" flag written below would otherwise stick forever and
   // skip the prelude on every later run of that group — even after an instructor
-  // reset (which clears server state but not this browser's localStorage). Clear
-  // the flags whenever this client is in the pre-start `waiting` phase: every fresh
-  // run passes through `waiting` before `discuss`, so the prelude replays each run,
-  // while a mid-discussion refresh (which lands straight in `discuss`, never
-  // `waiting`) still honours the flag set during that run and doesn't replay.
+  // reset (which clears server state but not this browser's localStorage).
+  const clearPremiseSeen = (rid) => {
+    if (!rid) return;
+    try {
+      localStorage.removeItem(`me_premise_seen_${rid}_r1`);
+      localStorage.removeItem(`me_premise_seen_${rid}_r2`);
+    } catch { /* localStorage may be unavailable */ }
+  };
+
+  // Clear the flags whenever this client is in the pre-start `waiting` phase: every
+  // fresh run passes through `waiting` before `discuss`, so the prelude replays each
+  // run, while a mid-discussion refresh (which lands straight in `discuss`, never
+  // `waiting`) still honours the flag set during that run and doesn't replay. Reset
+  // also clears them directly (see resetBreakout / room_reset), since the resetting
+  // owner sits in the lobby and never passes through `waiting`.
   useEffect(() => {
-    if (phase === 'waiting' && roomIdRef.current) {
-      try {
-        localStorage.removeItem(`me_premise_seen_${roomIdRef.current}_r1`);
-        localStorage.removeItem(`me_premise_seen_${roomIdRef.current}_r2`);
-      } catch { /* localStorage may be unavailable */ }
-    }
+    if (phase === 'waiting') clearPremiseSeen(roomIdRef.current);
   }, [phase]);
 
   // M4: mark the intro complete (persisted per room+round) and drop into the chat.
@@ -588,6 +593,12 @@ const ManagerExercisePage = () => {
         // lobby so nobody stares at state the server has just wiped.
         socket.on('room_reset', (d) => {
           if (roomIdRef.current && d.room_id === roomIdRef.current) {
+            // The room is starting over: drop its premise-seen flags and the stale
+            // round so the next run replays the prelude from round 1.
+            clearPremiseSeen(d.room_id);
+            premiseInitedRef.current = false;
+            setRoundNum(1);
+            setPremiseStage('ready');
             setRoomId(null);
             roomIdRef.current = null;
             setRoster([]);
@@ -737,6 +748,10 @@ const ManagerExercisePage = () => {
     setConfirmReset(null);
     setResettingRoom(index);
     setRoomError('');
+    // The room is being wiped, so drop its premise-seen flags now: the owner resets
+    // from the lobby and never passes through `waiting`, so the next run would
+    // otherwise skip the prelude. Room ids are deterministic (`{config_id}_g{index}`).
+    clearPremiseSeen(`${configId}_g${index}`);
     socketRef.current?.emit('reset_breakout_room', {
       config_id: configId,
       room_index: index,
