@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-08-01
-# @changed   Hidden-profile M7: discuss clock is now LAZY (arm_discuss_timer) — it starts on the first student message, not when the phase opens, so the premise/card prelude doesn't eat deliberation time; a grace watch arms it if the room stays silent.
-#            Prior: M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
+# @updated   2026-08-02
+# @changed   Kiosk entry now broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
+#            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
@@ -240,9 +240,14 @@ class ExerciseState:
         return f"Student {str(uid)[:4]}"
 
     def forecast_text_for(self, name: Optional[str]) -> str:
-        """The uploaded outcome document for a candidate name ("" if unknown)."""
+        """The uploaded outcome document for a candidate name ("" if unknown).
+
+        Matches on a trimmed/case-folded name so a casing or whitespace difference
+        between the chosen candidate and the authored candidate list can't silently
+        drop the outcome (mirrors the normalization `_verdict_for` already uses)."""
+        target = (name or "").strip().casefold()
         for c in self.candidates:
-            if (c.get("name") or "") == (name or ""):
+            if (c.get("name") or "").strip().casefold() == target:
                 return c.get("forecast_text") or ""
         return ""
 
@@ -862,8 +867,15 @@ class ExerciseState:
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "kiosk"})
+        # Carry the reveal payload on the kiosk broadcast. It is viewer-independent
+        # (keyed on the chosen candidate), and no full snapshot is pushed on a live
+        # phase change, so without this a client that doesn't refresh sits forever on
+        # "Loading the outcome…" — the snapshot's forecast_text never reaches it.
         self._emit("kiosk_update", {
             "room_id": self.room_id, "acked": 0, "total": len(self.roster),
+            "chosen_candidate": self.chosen_candidate,
+            "chosen_verdict": self._verdict_for(self.chosen_candidate),
+            "forecast_text": self.forecast_text_for(self.chosen_candidate),
         })
 
     def record_continue(self, uid: str) -> bool:

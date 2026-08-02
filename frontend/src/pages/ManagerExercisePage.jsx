@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed CandidateDeck seen-badge now lives inside the card face so it rides up with the card on hover. Prior: M4 fix clears the per-room "premise seen" localStorage flag while in `waiting` so the prelude replays on every fresh run of a (deterministic-id) breakout room. */
+/* @language JSX  @updated 2026-08-02  @changed Kiosk reveal loads the outcome live via kiosk_update (no refresh needed) + graceful empty-doc fallback; failed-hire callout uses the brand palette; premise brief rendered as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" role suffix fixed. Prior: CandidateDeck seen-badge rides up with the card on hover; M4 premise-seen localStorage flag cleared in `waiting` so the prelude replays each fresh run. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -54,6 +54,34 @@ const MessageBody = React.memo(({ text, isMe }) => {
   if (isMe) return <p className="whitespace-pre-wrap">{text}</p>;
   return <div ref={mdRef} className="chat-message-md chat-message-md--light max-w-none" />;
 });
+
+// Role titles in the case pack are sometimes authored bare ("Logistics") and
+// sometimes with the suffix ("Logistics Manager"). Strip a trailing "Manager" so
+// the UI can append its own " Manager" without doubling it ("... Manager Manager").
+const roleLabel = (role) => ((role || '').replace(/\s*managers?\s*$/i, '').trim() || 'Hiring');
+
+// Turn the raw general_info extraction into a structured brief. Full-sentence chunks
+// are body paragraphs; short label/title lines (ALL-CAPS, ending in ':', or ≤8 words
+// with no terminal punctuation) become tracked subheads. Consecutive duplicate labels
+// collapse (comparing only the part before a ':'), so a doc that repeats a section
+// title — e.g. "General Information: ..." then a bare "General Information" — shows it
+// once instead of dumping the document's boilerplate as flat paragraphs.
+const parseBrief = (scenario) => {
+  const chunks = (scenario || '').split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
+  const isHeading = (t) => {
+    if (t.length > 70 || /[.!?]$/.test(t)) return false;
+    return /:$/.test(t) || t === t.toUpperCase() || t.split(/\s+/).length <= 8;
+  };
+  const key = (s) => s.toLowerCase().split(':')[0].trim();
+  const out = [];
+  for (const c of chunks) {
+    const heading = isHeading(c);
+    const prev = out[out.length - 1];
+    if (heading && prev && prev.heading && key(prev.text) === key(c)) continue;
+    out.push({ heading, text: c });
+  }
+  return out;
+};
 
 // Format a whole-second remaining count as m:ss.
 const fmtClock = (secs) => {
@@ -164,7 +192,7 @@ const CandidateDeck = ({ role, credentials, onContinue }) => {
         <div className="max-w-4xl w-full text-center">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your notes</p>
           <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
-            What you know as the <span className="text-[#FA6C43]">{role || 'Hiring'}</span> Manager
+            What you know as the <span className="text-[#FA6C43]">{roleLabel(role)}</span> Manager
           </h2>
           <p className="text-sm text-gray-500 mb-10">
             Tap a card to read it. These are yours alone — memorize them, they're hidden once the discussion starts.
@@ -599,10 +627,15 @@ const ManagerExercisePage = () => {
           if (d.tally) setTally(d.tally);
         });
 
-        // M6: live kiosk tally — how many of the room have pressed Continue.
+        // M6: live kiosk tally — how many of the room have pressed Continue. Kiosk
+        // entry also carries the reveal payload (chosen candidate/verdict/outcome)
+        // so the per-student reveal loads live; no full snapshot is pushed here.
         socket.on('kiosk_update', (d) => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
+          if (typeof d.forecast_text === 'string') setForecastText(d.forecast_text);
+          if (d.chosen_verdict !== undefined) setChosenVerdict(d.chosen_verdict);
+          if (d.chosen_candidate !== undefined && d.chosen_candidate) setChosenCandidate(d.chosen_candidate);
         });
 
         // M8: the scorecard, broadcast when the room reaches `done`.
@@ -1134,12 +1167,14 @@ const ManagerExercisePage = () => {
                 aftermath (it went badly), branched on the pick's outcome verdict. */}
             {(() => {
               const win = chosenVerdict === 'success';
+              // Success stays emerald (a meaningful "it worked out" signal); a failed
+              // hire uses the brand palette instead of the old off-brand amber/cream.
               return (
                 <div className={`rounded-2xl px-5 py-4 text-center border animate-in fade-in slide-in-from-bottom-2 duration-500 ${
-                  win ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+                  win ? 'bg-emerald-50 border-emerald-200' : 'bg-[#F9D0C4]/25 border-[#FA6C43]/40'
                 }`}>
                   <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
-                  <div className={`text-lg font-extrabold ${win ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  <div className={`text-lg font-extrabold ${win ? 'text-emerald-700' : 'text-[#C2410C]'}`}>
                     {win
                       ? `Hiring ${chosenCandidate || 'them'} paid off.`
                       : `Hiring ${chosenCandidate || 'them'} went badly.`}
@@ -1147,9 +1182,13 @@ const ManagerExercisePage = () => {
                 </div>
               );
             })()}
+            {/* null = outcome not received yet (loading); '' = revealed but no document
+                authored (graceful fallback, never a perpetual spinner); text = show it. */}
             {forecastText
               ? <OutcomeCard title={`${chosenCandidate || 'Your hire'} — Outcome`} text={forecastText} />
-              : <p className="text-center text-gray-500">Loading the outcome…</p>}
+              : forecastText === ''
+                ? <p className="text-center text-gray-500">No outcome document was recorded for this hire.</p>
+                : <p className="text-center text-gray-500">Loading the outcome…</p>}
             <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm animate-in fade-in duration-500">
               {everyoneReady
                 ? <p className="text-sm font-semibold text-emerald-600">Everyone's ready — opening the discussion…</p>
@@ -1303,10 +1342,10 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'discuss' && premiseStage === 'premise') {
     const names = candidates.map((c) => c.name).filter(Boolean);
-    // General-info prose broken into paragraphs; falls back to a generic brief when
-    // the case has no general_info authored. Serif throughout, with orange/blue used
-    // only to highlight the role and the candidate names.
-    const paras = (scenario || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    // Structured brief from the raw general_info extraction (see parseBrief); falls
+    // back to a generic line when the case has no general_info authored.
+    const brief = parseBrief(scenario);
+    const firstBodyIdx = brief.findIndex((b) => !b.heading);
     // Subtle staggered entry (minimalistic — fade + small rise, no hover lift).
     const rise = (i) => ({ animationDelay: `${i * 90}ms`, animationFillMode: 'both' });
     return (
@@ -1314,13 +1353,24 @@ const ManagerExercisePage = () => {
         <div className="max-w-2xl mx-auto w-full text-center">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
           <h1 className="text-4xl sm:text-5xl mb-8 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600, ...rise(1) }}>
-            You are the <span className="text-[#FA6C43]">{yourRole || 'Hiring'}</span> Manager
+            You are the <span className="text-[#FA6C43]">{roleLabel(yourRole)}</span> Manager
           </h1>
 
-          {paras.length > 0 ? (
-            <div className="space-y-4 mb-8 text-left animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(2)}>
-              {paras.map((p, i) => (
-                <p key={i} className="text-lg text-[#1F1F1F]/85 leading-relaxed" style={{ fontFamily: "'Newsreader', serif" }}>{p}</p>
+          {/* The brief reads as a case document: a white card with tracked orange
+              subheads for the source's label lines and relaxed serif prose for the
+              body, a drop-cap opening the first paragraph — not the raw doc dump. */}
+          {brief.length > 0 ? (
+            <div className="rounded-3xl bg-white border border-gray-200 shadow-sm p-8 sm:p-10 text-left mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(2)}>
+              {brief.map((b, i) => (
+                b.heading ? (
+                  <p key={i} className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#C2410C] mt-7 first:mt-0 mb-2.5">{b.text}</p>
+                ) : (
+                  <p
+                    key={i}
+                    className={`text-[17px] leading-[1.75] text-[#1F1F1F]/85 mb-4 last:mb-0 ${i === firstBodyIdx ? 'first-letter:float-left first-letter:mr-2.5 first-letter:text-5xl first-letter:font-semibold first-letter:leading-[0.85] first-letter:text-[#FA6C43]' : ''}`}
+                    style={{ fontFamily: "'Newsreader', serif" }}
+                  >{b.text}</p>
+                )
               ))}
             </div>
           ) : (
