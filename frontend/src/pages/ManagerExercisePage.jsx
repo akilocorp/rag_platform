@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-02  @changed Kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -1202,6 +1202,16 @@ const ManagerExercisePage = () => {
               {everyoneReady
                 ? <p className="text-sm font-semibold text-emerald-600">Everyone's ready — opening the discussion…</p>
                 : <p className="text-sm font-semibold text-gray-600">Waiting for your group — {kioskAcked} of {kioskTotal} ready.</p>}
+              {/* Escape hatch: the gate holds until everyone presses Continue, so a
+                  dropped/uncounted ack could otherwise strand a student here. */}
+              {!everyoneReady && (
+                <button
+                  onClick={leaveBreakout}
+                  className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
+                >
+                  <FaArrowLeft className="text-xs" /> Back to lobby
+                </button>
+              )}
             </div>
           </div>
         </main>
