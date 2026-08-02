@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed enterRoom now sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-02  @changed Premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -79,6 +79,20 @@ const parseBrief = (scenario) => {
     const prev = out[out.length - 1];
     if (heading && prev && prev.heading && key(prev.text) === key(c)) continue;
     out.push({ heading, text: c });
+  }
+  // Drop a masthead heading the opening body paragraph just restates — e.g. the
+  // company-name title above a first line that names the company again. Scoped to
+  // headings BEFORE the first body block (the title zone), and requires 2+ shared
+  // significant words, so real mid-body section headings are never removed.
+  const firstBody = out.find((b) => !b.heading);
+  if (firstBody) {
+    const tokens = (s) => s.toLowerCase().match(/[a-z]{3,}/g) || [];
+    const bodyOpen = new Set(tokens(firstBody.text).slice(0, 12));
+    for (let i = out.indexOf(firstBody) - 1; i >= 0; i--) {
+      if (out[i].heading && tokens(out[i].text).filter((t) => bodyOpen.has(t)).length >= 2) {
+        out.splice(i, 1);
+      }
+    }
   }
   return out;
 };
@@ -1389,7 +1403,7 @@ const ManagerExercisePage = () => {
                 ) : (
                   <p
                     key={i}
-                    className={`text-[17px] leading-[1.75] text-[#1F1F1F]/85 mb-4 last:mb-0 ${i === firstBodyIdx ? 'first-letter:float-left first-letter:mr-2.5 first-letter:text-5xl first-letter:font-semibold first-letter:leading-[0.85] first-letter:text-[#FA6C43]' : ''}`}
+                    className={`text-[17px] leading-[1.75] text-[#1F1F1F]/85 mb-4 last:mb-0 ${i === firstBodyIdx ? 'first-letter:float-left first-letter:text-[2.9rem] first-letter:leading-[0.7] first-letter:pr-2 first-letter:mt-1 first-letter:font-semibold first-letter:text-[#FA6C43]' : ''}`}
                     style={{ fontFamily: "'Newsreader', serif" }}
                   >{b.text}</p>
                 )
