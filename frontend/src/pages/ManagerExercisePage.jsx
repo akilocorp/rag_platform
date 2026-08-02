@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed Premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-02  @changed OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -94,10 +94,17 @@ const fmtClock = (secs) => {
 // The outcome document, rendered as a full-width report card rather than a chat
 // bubble — it is the pivot of the session and needs to read as evidence, not as
 // something someone said.
+// The outcome document is plain prose whose paragraphs are separated by single
+// newlines. The markdown renderer runs with `breaks: true`, so single newlines
+// become <br> and the whole thing collapses into one dense block. Re-flow it into
+// blank-line-separated paragraphs first so each renders as its own spaced <p>.
+const paragraphize = (t) =>
+  (t || '').split(/\n+/).map((s) => s.trim()).filter(Boolean).join('\n\n');
+
 const OutcomeCard = ({ title, text }) => {
   const mdRef = useRef(null);
   useLayoutEffect(() => {
-    if (mdRef.current) mdRef.current.innerHTML = renderMarkdown(text);
+    if (mdRef.current) mdRef.current.innerHTML = renderMarkdown(paragraphize(text));
   }, [text]);
   return (
     <div className="rounded-3xl border-2 border-[#FA6C43]/40 bg-gradient-to-br from-[#F9D0C4]/25 to-white shadow-md p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-500">
