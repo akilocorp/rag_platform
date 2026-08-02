@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-01  @changed Hidden-profile M6: credential grid replaced by CandidateDeck — poker-style cards side by side, hover-peek via a fixed slot (no flicker), click brings a card to the front enlarged with full role-sliced credentials. Prior: M5 premise reads real general_info scenario. */
+/* @language JSX  @updated 2026-08-02  @changed M4 fix: clear the per-room "premise seen" localStorage flag while in the `waiting` phase, so the premise+cards prelude replays on every fresh run of a (deterministic-id) breakout room instead of being skipped forever after the first run. Prior: M6 CandidateDeck poker-card deck. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -359,6 +359,23 @@ const ManagerExercisePage = () => {
       premiseInitedRef.current = false;
     }
   }, [phase, roundNum]);
+
+  // M4 fix: breakout room ids are deterministic (`{config_id}_g{index}`), so the
+  // per-room "premise seen" flag written below would otherwise stick forever and
+  // skip the prelude on every later run of that group — even after an instructor
+  // reset (which clears server state but not this browser's localStorage). Clear
+  // the flags whenever this client is in the pre-start `waiting` phase: every fresh
+  // run passes through `waiting` before `discuss`, so the prelude replays each run,
+  // while a mid-discussion refresh (which lands straight in `discuss`, never
+  // `waiting`) still honours the flag set during that run and doesn't replay.
+  useEffect(() => {
+    if (phase === 'waiting' && roomIdRef.current) {
+      try {
+        localStorage.removeItem(`me_premise_seen_${roomIdRef.current}_r1`);
+        localStorage.removeItem(`me_premise_seen_${roomIdRef.current}_r2`);
+      } catch { /* localStorage may be unavailable */ }
+    }
+  }, [phase]);
 
   // M4: mark the intro complete (persisted per room+round) and drop into the chat.
   const finishPremiseIntro = () => {
