@@ -1,6 +1,6 @@
 # @language  Python
 # @updated   2026-08-02
-# @changed   Premise scenario is trimmed to the student narrative (_student_scenario) — the raw general_info doc's structural appendix (org chart, committee, finalists, current roles) is no longer dumped on the student screen. Also: kiosk entry broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
+# @changed   Premise splits the general_info doc into student narrative + a credits/attribution block (_student_scenario trims the structural appendix; _split_scenario_credits pulls the byline/timing/institution lines into `credits` for a tiny footer). Also: kiosk entry broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
 #            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
@@ -60,6 +60,33 @@ def _student_scenario(text: str) -> str:
         if 0 < len(s) <= 60 and _BRIEF_CUTOFF.match(s):
             return "\n".join(lines[:i]).strip()
     return (text or "").strip()
+
+
+# The doc also carries a teaching-note / attribution block — the author byline,
+# suggested timing, course + institution + brand lines, copyright. That is credit
+# and instructor metadata, not the student brief, so it is split off and shown tiny
+# and grey at the very bottom (a copyright line), not as scenario body.
+_CREDIT_LINE = re.compile(
+    r"^\s*by\s+[A-Z]"                     # author byline ("By Yaping Gong, ...")
+    r"|suggested\s+timing"               # teaching-note logistics
+    r"|©|\bcopyright\b|all rights reserved"
+    r"|\bHKUST\b|ACTR\s+LABS",           # institution / brand attribution
+    re.IGNORECASE,
+)
+
+
+def _split_scenario_credits(text: str):
+    """Partition the (already structurally-trimmed) scenario into (narrative, credits).
+
+    Blank-line chunks matching a credit/attribution signal go to `credits`; everything
+    else stays narrative, in document order. Returns ("", "") safely on empty input."""
+    narrative, credits = [], []
+    for chunk in re.split(r"\n{2,}", text or ""):
+        cs = chunk.strip()
+        if not cs:
+            continue
+        (credits if _CREDIT_LINE.search(cs) else narrative).append(cs)
+    return "\n\n".join(narrative).strip(), "\n".join(credits).strip()
 
 
 # --- Phase constants --------------------------------------------------------
@@ -307,7 +334,8 @@ class ExerciseState:
         """
         gi = self.config.get("general_info") or {}
         text = (gi.get("text") if isinstance(gi, dict) else "") or ""
-        return {"scenario": _student_scenario(text.strip())}
+        scenario, credits = _split_scenario_credits(_student_scenario(text.strip()))
+        return {"scenario": scenario, "credits": credits}
 
     def credentials_for(self, uid: str) -> List[Dict]:
         """This student's confidential slice of every candidate's credentials.

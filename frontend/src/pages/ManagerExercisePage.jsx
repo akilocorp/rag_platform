@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed Kiosk reveal loads the outcome live via kiosk_update (no refresh needed) + graceful empty-doc fallback; failed-hire callout uses the brand palette; premise brief rendered as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" role suffix fixed. Prior: CandidateDeck seen-badge rides up with the card on hover; M4 premise-seen localStorage flag cleared in `waiting` so the prelude replays each fresh run. */
+/* @language JSX  @updated 2026-08-02  @changed Premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -357,6 +357,7 @@ const ManagerExercisePage = () => {
   const [yourRole, setYourRole] = useState(null);
   const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
+  const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
   const premiseInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
@@ -466,6 +467,7 @@ const ManagerExercisePage = () => {
     if (s.your_role !== undefined) setYourRole(s.your_role);
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
+    if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
     if (s.grades) setGrades(s.grades);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
@@ -1397,6 +1399,17 @@ const ManagerExercisePage = () => {
           >
             Next →
           </button>
+
+          {/* Author byline / attribution — a tiny grey copyright-style footer at the
+              very bottom, split out of the brief on the backend so it never reads as
+              student content. */}
+          {credits && (
+            <p className="mt-14 text-[8px] leading-relaxed text-gray-400">
+              {credits.split('\n').map((line, i) => (
+                <span key={i} className="block">{line}</span>
+              ))}
+            </p>
+          )}
         </div>
       </div>
     );
