@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-02
-# @changed   on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed) instead of the round-1 text.
-#            Prior: M7 first student message arms the lazy discuss clock (arm_discuss_timer) so the premise/card prelude doesn't eat deliberation time; M3 pre-vote flow (start_exercise → begin_discuss, on_discuss_start hook, on_choose_start vote nudge, reveal drops the debrief, reactive turn drops [REOPEN]); reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
+# @changed   on_pick_resolved posts the outcome document SYNCHRONOUSLY so it always precedes the round-2 opener (was a backgrounded task that raced it); only the strike-two AI answer-reveal (_reveal_answer) stays backgrounded.
+#            Prior: on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed); M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M3 pre-vote flow; reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -150,8 +150,22 @@ def register_socket_events(socketio, app):
             _post_facilitator(st, ai_manager.facilitator_call_vote(me_config))
 
         def on_pick_resolved(st):
-            """Pick entered → reveal that candidate's outcome (and, on strike two, the answer)."""
-            socketio.start_background_task(_reveal_and_enter, st.room_id)
+            """Pick entered → post the outcome document, then (only on strike two) the answer.
+
+            The outcome post is SYNCHRONOUS: `_finish_kiosk` runs this hook and then
+            immediately calls `begin_next_round`, whose `on_discuss_start` posts the
+            round-2 opener. Backgrounding the outcome (as before) raced that opener, so
+            round 2 could open with "that first hire didn't work out" while the outcome
+            card explaining WHY hadn't landed yet. Posting inline guarantees the outcome
+            precedes the opener. Only the slow strike-two answer reveal (an AI call)
+            stays backgrounded, so it never stalls the phase machine."""
+            with app.app_context():
+                chosen = st.chosen_candidate
+                forecast = st.forecast_text_for(chosen) if chosen else ""
+                if forecast:
+                    _post(st, f"📊 {chosen} — Outcome", forecast)
+            if st.strikes >= 2 and st.revealed_candidate:
+                socketio.start_background_task(_reveal_answer, st.room_id)
 
         def on_wrapup(st):
             """Exercise reached `done` → ACTR's closing ask + the M8 scorecard."""
@@ -164,33 +178,23 @@ def register_socket_events(socketio, app):
             "on_wrapup": on_wrapup,
         }
 
-    def _reveal_and_enter(room_id):
-        """Background: post the chosen candidate's outcome document (the shared reveal).
-
-        M3: there is no post-reveal debrief any more, so this no longer opens a
-        facilitated conversation. It posts the outcome document, and — only on the
-        SECOND wrong pick, where the exercise is over — ACTR names the un-chosen best
-        option outright (the scoped exception to "never name the best option"; see
-        ai_manager.facilitator_reveal_answer). A correct pick or a first wrong pick
-        posts only the outcome; the phase machine then routes to the done screen or a
-        fresh round-2 deliberation respectively.
+    def _reveal_answer(room_id):
+        """Background: on the SECOND wrong pick (exercise over), ACTR names the un-chosen
+        best option outright — the scoped exception to "never name the best option" (see
+        ai_manager.facilitator_reveal_answer). The outcome document itself is posted
+        synchronously by `on_pick_resolved`; this is only the slow AI answer-reveal, kept
+        off the phase-machine thread so it never stalls it.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
-            if st is None or not st.chosen_candidate:
+            if st is None or not (st.strikes >= 2 and st.revealed_candidate):
                 return
-            chosen = st.chosen_candidate
-            forecast = st.forecast_text_for(chosen)
-            if forecast:
-                _post(st, f"📊 {chosen} — Outcome", forecast)
-
-            if st.strikes >= 2 and st.revealed_candidate:
-                summary = get_or_create_context(room_id).summary_for_nudge()
-                reveal = ai_manager.facilitator_reveal_answer(
-                    st.config, st.roster, st.active_group_size(), st.revealed_candidate,
-                    transcript_summary=summary,
-                )
-                _post_facilitator(st, reveal)
+            summary = get_or_create_context(room_id).summary_for_nudge()
+            reveal = ai_manager.facilitator_reveal_answer(
+                st.config, st.roster, st.active_group_size(), st.revealed_candidate,
+                transcript_summary=summary,
+            )
+            _post_facilitator(st, reveal)
 
     def _wrapup(room_id):
         """Background: ACTR's closing message + the M8 scorecard when discuss ends."""
