@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-03
-// @changed   Copy/paste an assistant: Ctrl+C on a card, Ctrl+V or right-click → Paste on any professor's
-//            list, with a dialog for the new name + class code. Paste always creates a fresh class.
+// @changed   Card body click now selects the card (Ctrl+C copy target) instead of opening the bot;
+//            the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -368,7 +368,7 @@ const ShareModal = ({ isOpen, onClose, config }) => {
   );
 };
 
-const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete, onCopy, onHover, onCardMenu, isSelected }) => {
+const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onHover, onCardMenu, isSelected }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -427,9 +427,11 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
         isSelected ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/30' : 'border-gray-200'
       } ${isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'}`}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-      onClick={() => onOpen(config)}
-      // Hover marks the Ctrl+C target; right-click both selects the card and
-      // opens its menu, so the target is unambiguous once the pointer moves.
+      // Clicking the card body selects it as the Ctrl+C copy target (the orange
+      // ring). Opening the bot is the primary button's job (Chat Now, etc.).
+      onClick={() => onSelect(config)}
+      // Hover is a fallback Ctrl+C target when nothing is selected; right-click
+      // both selects the card and opens its menu.
       onMouseEnter={() => onHover(config)}
       onMouseLeave={() => onHover(null)}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onCardMenu(e, config); }}
@@ -974,6 +976,7 @@ const ConfigListPage = () => {
                           index={idx}
                           view={view}
                           onOpen={handleOpen}
+                          onSelect={(c) => setSelectedId(c.config_id || c._id)}
                           onResponses={handleResponses}
                           onEdit={onEdit}
                           onDelete={handleDelete}
