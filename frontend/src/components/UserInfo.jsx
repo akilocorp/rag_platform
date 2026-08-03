@@ -1,11 +1,11 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-03
-// @changed   Account dropdown gets a Change password entry — the /change-password page existed but
-//            nothing in the UI linked to it.
+// @changed   Account dropdown gets a User guide entry; username darkened to gray-600 now that this
+//            menu also renders on the light student dashboard.
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/apiClient';
 import { clearRememberMe } from '../utils/auth';
-import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt, FaKey } from 'react-icons/fa';
+import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt, FaKey, FaBook } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
 const UserInfo = () => {
@@ -55,7 +55,7 @@ const UserInfo = () => {
 
   return (
     <div className="relative">
-      <div className="flex items-center text-sm text-gray-400 cursor-pointer" onClick={(e) => {
+      <div className="flex items-center text-sm text-gray-600 cursor-pointer" onClick={(e) => {
         e.stopPropagation();
         setShowDropdown(!showDropdown);
       }}>
@@ -79,6 +79,19 @@ const UserInfo = () => {
               Admin Panel
             </button>
           )}
+          {/* Drop the reader into their own track rather than the guide's landing page —
+              a student has no use for the eleven professor pages. */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDropdown(false);
+              navigate(userInfo.role === 'student' ? '/userguide/student-join' : '/userguide/prof-start');
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-gray-900 bg-white flex items-center gap-2 hover:bg-gray-50 rounded-md border-0"
+          >
+            <FaBook className="w-4 h-4" />
+            User guide
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();

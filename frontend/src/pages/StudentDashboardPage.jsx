@@ -1,7 +1,12 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-03
+// @changed   Header gets the account menu (change password / logout / guide) — this is a student's
+//            only page and it previously offered no way to do any of the three.
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FaSpinner, FaFilm, FaArrowRight } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import UserInfo from '../components/UserInfo';
 
 const C = v => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
 const fmt = v => v != null ? (v / 10).toFixed(1) : null;
@@ -44,9 +49,12 @@ export default function StudentDashboardPage() {
           </div>
         )}
 
-        <div className="mb-8">
-          <h1 className="text-2xl font-extrabold text-[#222]">My Assignments</h1>
-          <p className="text-sm text-gray-500 mt-1">Your enrolled video assignments</p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-[#222]">My Assignments</h1>
+            <p className="text-sm text-gray-500 mt-1">Your enrolled video assignments</p>
+          </div>
+          <UserInfo />
         </div>
 
         {error && (
@@ -60,6 +68,9 @@ export default function StudentDashboardPage() {
             <FaFilm className="text-4xl text-gray-300 mx-auto mb-4" />
             <h2 className="text-lg font-bold text-[#222] mb-2">No assignments yet</h2>
             <p className="text-sm text-gray-500">Ask your professor for an invite link to join a class.</p>
+            <Link to="/userguide/student-join" className="inline-block mt-3 text-sm font-semibold text-[#FA6C43]">
+              Read the student guide →
+            </Link>
           </div>
         )}
 

@@ -1,7 +1,7 @@
 /*
  * @language  CSS
- * @updated   2026-07-19
- * @changed   Add .rmi-field / .rmi-mathfield styling for inline MathQuill fields in the chat composer.
+ * @updated   2026-08-03
+ * @changed   Add .guide-md prose styles + .guide-shot screenshot slots for the /userguide site.
  */
 @tailwind base;
 @tailwind components;
@@ -799,5 +799,175 @@ a:focus-visible {
 .rmi-mathfield .mq-root-block { color: #2F6FED; }
 @media (prefers-reduced-motion: reduce) {
   .rmi-field { animation: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+   User guide (/userguide) — prose styles for markdown rendered by GuideMarkdown.
+   Separate from .chat-message-md: that one is serif and tuned for chat bubbles,
+   this is a sans-serif documentation column on a white card.
+   --------------------------------------------------------------------------- */
+.guide-md {
+  color: #374151;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.guide-md > *:first-child { margin-top: 0; }
+.guide-md > *:last-child { margin-bottom: 0; }
+
+.guide-md h1 {
+  font-size: 1.875rem;
+  font-weight: 800;
+  color: #222;
+  line-height: 1.25;
+  margin: 0 0 0.75rem;
+}
+.guide-md h2 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #222;
+  margin: 2.25rem 0 0.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #f1f3f5;
+}
+/* The first h2 sits right under the page intro, where a divider reads as a stray rule. */
+.guide-md > h1 + h2 { border-top: none; padding-top: 0; margin-top: 1.5rem; }
+.guide-md h3 {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #222;
+  margin: 1.75rem 0 0.5rem;
+}
+.guide-md h4 {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #4b5563;
+  margin: 1.25rem 0 0.4rem;
+}
+
+.guide-md p { margin: 0 0 1rem; }
+.guide-md ul, .guide-md ol { margin: 0 0 1.15rem; padding-left: 1.35rem; }
+.guide-md ul { list-style: disc; }
+.guide-md ol { list-style: decimal; }
+.guide-md li { margin-bottom: 0.5rem; }
+.guide-md li::marker { color: #FA6C43; font-weight: 600; }
+.guide-md li > ul, .guide-md li > ol { margin: 0.5rem 0 0.25rem; }
+.guide-md hr { border: 0; border-top: 1px solid #eef0f2; margin: 2rem 0; }
+
+.guide-md a { color: #FA6C43; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.guide-md a:hover { color: #d9542f; }
+
+.guide-md strong { color: #1f2937; font-weight: 700; }
+
+.guide-md code {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  padding: 0.1em 0.38em;
+  font-size: 0.86em;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: #b4451f;
+  white-space: nowrap;
+}
+.guide-md pre {
+  background: #1f2430;
+  color: #e6e9ef;
+  border-radius: 0.75rem;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.guide-md pre code {
+  background: none; border: 0; padding: 0; color: inherit;
+  font-size: inherit; white-space: pre;
+}
+
+/* Tables carry most of the reference detail (field -> meaning), so they get a real
+   frame and horizontal scroll rather than squashing on narrow screens. */
+.guide-md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.25rem;
+  font-size: 0.87rem;
+  display: block;
+  overflow-x: auto;
+}
+.guide-md thead { background: #f8fafc; }
+.guide-md th, .guide-md td {
+  border: 1px solid #e5e7eb;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.guide-md th { font-weight: 700; color: #374151; white-space: nowrap; }
+
+/* `> ` callouts — used for warnings and gotchas throughout the guide. */
+.guide-md blockquote {
+  margin: 1.25rem 0;
+  padding: 0.9rem 1.1rem;
+  background: rgba(250, 108, 67, 0.06);
+  border: 1px solid rgba(250, 108, 67, 0.18);
+  border-left: 4px solid #FA6C43;
+  border-radius: 0.75rem;
+}
+.guide-md blockquote p { margin-bottom: 0.5rem; }
+.guide-md blockquote p:last-child { margin-bottom: 0; }
+.guide-md blockquote strong:first-child { color: #FA6C43; }
+
+/* Screenshot slots, built by GuideMarkdown.decorateScreenshots(). */
+.guide-shot { margin: 1.5rem 0; }
+.guide-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+.guide-shot figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+  text-align: center;
+}
+/* Stand-in for a screenshot that hasn't been captured yet — names the expected file so
+   the guide doubles as a capture checklist. */
+.guide-shot__pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 150px;
+  padding: 1.5rem;
+  border: 2px dashed #d7dee7;
+  border-radius: 0.75rem;
+  background: #f9fafb;
+}
+.guide-shot__pending-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.guide-shot__pending-file {
+  font-size: 0.78rem;
+  color: #6b7280;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  padding: 0.15rem 0.5rem;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+
+/* Printing: the card chrome and dark code blocks waste ink; flatten them. */
+@media print {
+  .guide-md pre { background: #f4f4f5; color: #111; border: 1px solid #ddd; }
+  .guide-md h2 { break-after: avoid; }
+  .guide-shot { break-inside: avoid; }
+  .guide-shot__pending { display: none; }
 }
 

@@ -1,6 +1,6 @@
-/* @language JSX  @updated 2026-07-20  @changed Added the /manager-exercise/:configId student route + import. */
+/* @language JSX  @updated 2026-08-03  @changed Added the public /userguide routes and exempted them from the mobile block. */
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
 import MobileBlockPage from './pages/MobileBlockPage';
 
@@ -33,6 +33,7 @@ import StudentDashboardPage from './pages/StudentDashboardPage';
 import ExperientialPage from './pages/ExperientialPage';
 import ExperientialSessionPage from './pages/ExperientialSessionPage';
 import ExperientialDashboardPage from './pages/ExperientialDashboardPage';
+import UserGuidePage from './pages/UserGuidePage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -63,21 +64,24 @@ function useIsMobile() {
   return isMobile;
 }
 
+// The app is desktop-only, but the user guide is the one exception — a student who opens
+// an invite link on their phone needs to be able to read why they're being told to switch
+// devices. Lives inside the Router (not in App) so the block re-applies on client-side
+// navigation off the guide, which a pathname read at mount would miss.
+function MobileGate({ isMobile, children }) {
+  const { pathname } = useLocation();
+  if (isMobile && !pathname.startsWith('/userguide')) return <MobileBlockPage />;
+  return children;
+}
+
 function App() {
   const isMobile = useIsMobile();
-
-  if (isMobile) {
-    return (
-      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
-        <MobileBlockPage />
-      </div>
-    );
-  }
 
   return (
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
+        <MobileGate isMobile={isMobile}>
         <PageTransition>
         <Routes>
 
@@ -88,6 +92,10 @@ function App() {
           <Route path="/home" element={<HomePage />} />
           <Route path="/v2" element={<LandingV2 />} />
           <Route path="/about" element={<AboutPage />} />
+          {/* User guide — public and unauthenticated on purpose: a locked-out user needs
+              to read the password pages, and students hit it before they have an account. */}
+          <Route path="/userguide" element={<UserGuidePage />} />
+          <Route path="/userguide/:pageId" element={<UserGuidePage />} />
 
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />
@@ -147,6 +155,7 @@ function App() {
 
         </Routes>
         </PageTransition>
+        </MobileGate>
       </div>
     </Router>
   );
