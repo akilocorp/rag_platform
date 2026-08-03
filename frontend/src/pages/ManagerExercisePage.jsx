@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-03  @changed New prelude stage: after the cards, each student makes a PRIVATE individual pick (premiseStage 'decide') before round-1 discussion. Prior: own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-03  @changed Discussion clock is visible the whole window again; a 1s beep only fires in the final 10 seconds (playBeep extracted, reused by the choose final-call). Prior: new prelude stage — after the cards, each student makes a PRIVATE individual pick (premiseStage 'decide') before round-1 discussion. Prior: own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -808,38 +808,52 @@ const ManagerExercisePage = () => {
 
   const secsLeft = remaining == null ? null : Math.max(0, remaining);
 
-  // M5: beep once a second through the final-call window to induce decision anxiety.
-  // The AudioContext is created lazily off the student's earlier click (start/vote),
-  // which satisfies the browser autoplay gesture requirement.
+  // A short 880Hz blip. The AudioContext is created lazily off the student's earlier
+  // click (start / vote / individual pick), which satisfies the browser autoplay
+  // gesture requirement.
+  const playBeep = useCallback(() => {
+    try {
+      let ctx = audioCtxRef.current;
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        ctx = new AC();
+        audioCtxRef.current = ctx;
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.2);
+    } catch { /* audio is a nice-to-have; never let it break the phase */ }
+  }, []);
+
+  // M5: beep once a second through the choose final-call window to induce decision anxiety.
   useEffect(() => {
     if (phase !== 'choose' || !finalCall) return;
-    const beep = () => {
-      try {
-        let ctx = audioCtxRef.current;
-        if (!ctx) {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          if (!AC) return;
-          ctx = new AC();
-          audioCtxRef.current = ctx;
-        }
-        if (ctx.state === 'suspended') ctx.resume();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2);
-      } catch { /* audio is a nice-to-have; never let it break the phase */ }
-    };
-    beep();
-    const id = setInterval(beep, 1000);
+    playBeep();
+    const id = setInterval(playBeep, 1000);
     return () => clearInterval(id);
-  }, [phase, finalCall]);
+  }, [phase, finalCall, playBeep]);
+
+  // The discussion/codify clock is visible the whole window, but the beep only kicks
+  // in for the final 10 seconds. Gated on a boolean (not raw secsLeft) so the 1s
+  // interval isn't torn down and restarted on every 250ms tick.
+  const discussBeepOn =
+    (phase === 'discuss' || phase === 'codify') && secsLeft != null && secsLeft > 0 && secsLeft <= 10;
+  useEffect(() => {
+    if (!discussBeepOn) return;
+    playBeep();
+    const id = setInterval(playBeep, 1000);
+    return () => clearInterval(id);
+  }, [discussBeepOn, playBeep]);
 
   // -------------------------------------------------------------------------
   // Shared UI fragments
@@ -1514,9 +1528,9 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {/* Only surface the discussion clock in the final 10 seconds — a full-length
-            countdown just pressures the room the whole time. */}
-        {secsLeft != null && secsLeft <= 10 && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: true })}
+        {/* Clock stays visible the whole window; it turns urgent (and the beep starts)
+            only in the final 10 seconds. */}
+        {secsLeft != null && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: secsLeft <= 10 })}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
