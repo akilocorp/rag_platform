@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: editing, copying between accounts, and deleting assistants. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Manage your assistants
 
@@ -7,7 +7,7 @@
 Click **Customize** (the gear) on any card. Unlike the wizard, this is a single scrolling
 form rather than steps.
 
-Almost everything is editable — name, model, instructions, avatar, introduction, access,
+Almost everything is editable: name, model, instructions, avatar, introduction, access,
 knowledge base, class code, and all the per-type settings.
 
 > **The Space Type cannot be changed.** There's no type picker on the edit page, by design.
@@ -26,7 +26,7 @@ Useful for handing a colleague a working setup, or duplicating one of your own.
 
 1. Hover the card and press **Ctrl+C**, or click the **clone icon**.
 2. Your clipboard now holds a short message with a copy token in it. Send it to whoever
-   needs it — email, chat, anything.
+   needs it via email, chat, anything.
 
 **To paste:**
 
@@ -37,7 +37,7 @@ Useful for handing a colleague a working setup, or duplicating one of your own.
 
 ### What comes across
 
-**Copied:** every setting, and the whole knowledge base — files and their indexed content.
+**Copied:** every setting, and the whole knowledge base (files and their indexed content).
 
 **Not copied:** student chats, responses, video submissions, usage counters, and the class
 code. The original's class code stays with the original class, so the copy needs its own.
@@ -66,7 +66,7 @@ Two routes:
 Deleting cascades: the Space, its indexed documents, its chat sessions, and all the
 messages in them. **It cannot be undone.**
 
-Export first if you need the data — the Responses CSV, or the video dashboard's
+Export first if you need the data: the Responses CSV, or the video dashboard's
 **Export PDF**. See [Read the results](/userguide/prof-results).
 
 ## Saved cases (Manager Exercise)

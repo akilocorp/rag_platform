@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: how a student joins a class. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Join your class
 
@@ -8,7 +8,7 @@ Your professor will send you a link. It looks like this:
 https://yoursite.com/join/MGMT5110
 ```
 
-Open it. That's the whole thing — the link enrolls you and takes you where you need to be.
+Open it. That's the whole thing: the link enrolls you and takes you where you need to be.
 
 ![The join page](/guide-media/join-page.png)
 
@@ -23,8 +23,8 @@ The page shows the class name and two buttons:
 Fill in your **University**, **Email Address**, **Username** and **Password**, then click
 **Register**.
 
-Your password needs **at least 8 characters including a letter, a number, and a special
-character** (like `!` or `-`).
+Your password needs at least 8 characters including a letter, a number, and a special
+character (like `!` or `-`).
 
 ## Verify your email
 
@@ -69,5 +69,5 @@ More in [Troubleshooting](/userguide/student-troubleshooting).
 ## One thing to know upfront
 
 **The platform is built for a laptop or desktop.** On a phone you'll see a message asking
-you to switch devices — this guide is the only part that works on mobile. Plan to do the
+you to switch devices. This guide is the only part that works on mobile. Plan to do the
 actual work on a computer.

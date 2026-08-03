@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: student troubleshooting. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Troubleshooting
 
@@ -9,15 +9,15 @@ The platform is desktop and laptop only. On a phone you get a block screen on ev
 except this guide. Switch to a computer.
 
 **"Invalid username/email or password."**
-1. Retype your password rather than pasting it — a trailing space breaks it.
+1. Retype your password rather than pasting it. A trailing space breaks it.
 2. Try your username instead of your email, or the other way round. Both work.
-3. Still stuck? Use **Forgot Password?** on the login page. Note that it works differently
+3. Still stuck? Use **Forgot Password?** on the login page. It works differently
    from most sites: you type your **new** password first, then click the emailed link to
    confirm it. See [Passwords](/userguide/account-password).
 
 **"I never got the verification email."**
 Check spam first. If it's genuinely missing, register again with the same details for a
-fresh link — the links expire after an hour.
+fresh link. The links expire after an hour.
 
 You can still sign in and use everything without verifying; you'll just see an amber
 reminder banner.
@@ -28,7 +28,7 @@ the end, then ask your professor to resend.
 
 **"It says I need to be logged in, but I have an account."**
 You've probably been given a direct link to a private space rather than a class link. Sign
-in first in another tab, then reopen the link — or ask your professor for the `/join/...`
+in first in another tab, then reopen the link, or ask your professor for the `/join/...`
 version.
 
 ## Your dashboard
@@ -38,7 +38,7 @@ You're not enrolled in anything. Open your professor's invite link
 (`yoursite.com/join/CODE`) and the assignment will appear. See
 [Join your class](/userguide/student-join).
 
-Also worth knowing: not everything appears here. Chat assistants, simulation labs and group
+Not everything appears here. Chat assistants, simulation labs and group
 exercises are opened from the link your professor sends. The dashboard tracks video
 assignments.
 
@@ -49,7 +49,7 @@ are all in that menu.
 ## Video submissions
 
 **"My video won't upload."**
-Check the format — **MP4, MOV, WEBM or M4V** — and that it's under **1 GB**. Converting a
+Check the format (**MP4, MOV, WEBM or M4V**) and that it's under **1 GB**. Converting a
 file to MP4 usually solves it.
 
 **"It says Failed."**
@@ -68,7 +68,7 @@ results link, or reload your dashboard and look for **View Results**.
 **"I've run out of replies in Shock World."**
 The budget is intentionally tight. Asking for help doesn't cost you a reply, so use that
 rather than guessing. Once it ends you're graded on how you reasoned, not on whether you
-finished — and you can usually **Play again**.
+finished. You can usually **Play again**.
 
 **"I committed a prediction by accident."**
 Predictions lock on purpose — the exercise is measuring what you actually believed before
@@ -87,5 +87,5 @@ teammates — it'll join in.
 
 ## Still stuck
 
-Ask your professor. Tell them which class, what you were doing, and what the screen said —
-that's usually enough for them to sort it out quickly.
+Ask your professor. Tell them which class, what you were doing, and what the screen said.
+That's usually enough for them to sort it out quickly.

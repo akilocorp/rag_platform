@@ -1,8 +1,8 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: creating an account (professor and student paths). -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Create your account
 
-Everyone signs up at **`/register`** — professors and students use the same form, with one
+Everyone signs up at **`/register`**. Professors and students use the same form, with one
 toggle deciding which you get.
 
 ![The registration page, with the "I am a" role toggle](/guide-media/register-page.png)
@@ -21,7 +21,7 @@ toggle deciding which you get.
 
 Your password must be **at least 8 characters and contain a letter, a number, and a
 special character**. The strength meter under the field shows *Weak*, *Medium*, or
-*Strong* as you type — aim for Medium or better.
+*Strong* as you type. Aim for Medium or better.
 
 If the form rejects your password, the message is always the same:
 

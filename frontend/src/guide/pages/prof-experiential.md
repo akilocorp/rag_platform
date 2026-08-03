@@ -1,18 +1,18 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: Experiential Lab generation and the three pedagogical methods. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Create an Experiential Lab
 
 An Experiential Lab is a simulation built from your lecture files. Students reason through
-a scenario rather than reading about it — they commit to a prediction, then find out what
+a scenario rather than reading about it. They commit to a prediction, then find out what
 actually happens and why.
 
-**Steps:** 2 — the shortest of the four types.
+**Steps:** 2, the shortest of the four types.
 
-## Step 1 — Name, type, and your course materials
+## Step 1: Name, type, and your course materials
 
 1. Name the Space.
 2. Choose **Experiential Lab** (*"Scripted Simulation"*).
-3. A **Course materials** block appears. **Upload your lecture files here** — the next step
+3. A **Course materials** block appears. Upload your lecture files here; the next step
    builds the lab out of them.
 
 This upload is the whole point of step 1. A lab generated without materials will be
@@ -21,7 +21,7 @@ sequence.
 
 Click **Next**.
 
-## Step 2 — "Generate the Lab"
+## Step 2: "Generate the Lab"
 
 ![The lab generator](/guide-media/lab-generator.png)
 
@@ -35,7 +35,7 @@ Three methods ship today. In Simple mode this is chosen for you.
 | **Generic (any discipline)** | The same predict-and-reveal shape, discipline-agnostic, with a flexible 2–4 layers |
 | **Shock World (Socratic shock immersion)** | Drops a student into a country hit by a shock; a tutor guides them to your end goal within a set reply budget, and scores their effort to learn |
 
-The first two produce the same student experience — **predict → commit → reveal →
+The first two produce the same student experience: **predict → commit → reveal →
 explain**. Shock World is a different thing entirely; see below.
 
 ### Lab design prompt
@@ -52,11 +52,11 @@ Track output, inflation and the real exchange rate.
 
 ### Generate
 
-Click **Generate lab**. This takes **30–60 seconds** — it's writing the whole lab. When it
+Click **Generate lab**. This takes **30–60 seconds**; it's writing the whole lab. When it
 finishes you get a green **"Lab ready — preview"** card, with a *grounded in lectures* chip
 if it used your uploads.
 
-> If it times out, wait a few seconds and check before regenerating — the message says as
+> If it times out, wait a few seconds and check before regenerating. The message says as
 > much, and the lab has often generated anyway.
 
 Not right? Edit the prompt and click **Regenerate lab**.
@@ -81,13 +81,13 @@ If you chose Shock World, its own settings appear:
 
 ### The Facilitator
 
-The same toggle as on chat bots — after each reply the lab can offer a chart or a
+The same toggle as on chat bots. After each reply the lab can offer a chart or a
 multiple-choice question instead of only text. Optional.
 
 ## Publishing
 
 > **The last button says "Next", not "Publish".** Because this type only has two steps, the
-> button never relabels itself. Clicking **Next** on step 2 does publish the lab — this is
+> button never relabels itself. Clicking **Next** on step 2 does publish the lab. This is
 > a known cosmetic quirk, not a sign that something is missing.
 
 You can't save until a lab has been generated; you'll see *"Generate the lab before
@@ -102,7 +102,7 @@ They finish with a written synthesis and get a scorecard splitting **Prediction*
 calls were right) from **Synthesis** (graded against a rubric).
 
 **Shock World**: pick a country, optionally ask for an analogy, then work through adaptive
-multiple-choice questions — each answer followed by a **"Why?"** box. Asking for help
+multiple-choice questions, each answer followed by a **"Why?"** box. Asking for help
 doesn't spend budget. It ends with a debrief scored out of 100 across **Engagement**
 (35%), **Self-correction** (20%) and **Demonstrated understanding** (45%).
 

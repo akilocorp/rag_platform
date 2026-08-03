@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: core concepts — Spaces, the four types, class codes, access. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Key ideas
 
@@ -12,7 +12,7 @@ bundles a name, a type, an AI model, your instructions, any uploaded documents, 
 settings for whichever exercise it runs.
 
 The **Space Type** is chosen on step 1 and **cannot be changed afterwards**. If you pick
-wrong, build a new one — everything else is editable, but not this.
+wrong, build a new one. Everything else is editable, but not this.
 
 ## The four Space Types
 
@@ -22,7 +22,7 @@ wrong, build a new one — everything else is editable, but not this.
 |---|---|---|
 | **Chat Bot** | A 1-on-1 text assistant that answers from your uploaded documents, and optionally the web | Study support, a Socratic tutor, interview or negotiation practice |
 | **Video Analysis** | Students upload a video; it's scored against a rubric you define | Elevator pitches, research defenses, any spoken assessment |
-| **Experiential Lab** | An AI-generated simulation, built from your lecture files, that students reason through | Teaching a mechanism — students predict, commit, then see what happens |
+| **Experiential Lab** | An AI-generated simulation, built from your lecture files, that students reason through | Teaching a mechanism: students predict, commit, then see what happens |
 | **Manager Exercise** | A hidden-profile group decision game with a facilitated debrief | Showing a class how groups under-share information |
 
 Each has its own walkthrough:
@@ -49,7 +49,7 @@ See [Knowledge base & files](/userguide/prof-knowledge-base).
 
 ## Class codes
 
-A **class code** turns a Space into a class. It's a short string like `MGMT5110` —
+A **class code** turns a Space into a class. It's a short string like `MGMT5110`:
 3 to 20 characters, letters, numbers and hyphens, and unique across the whole platform.
 
 Give a Space a class code and you get a link like:

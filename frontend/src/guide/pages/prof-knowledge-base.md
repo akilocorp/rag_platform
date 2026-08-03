@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: knowledge base, file library, folders, URL ingestion. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Knowledge base & files
 
@@ -23,8 +23,8 @@ to have uploaded, check the extension first.
 | The creation wizard (step 3) | 500 MB per file, as stated on screen |
 | The file library in the chat sidebar | **50 MB per file** |
 
-> These genuinely differ. If you're uploading anything large, do it in the wizard — or
-> better, keep documents under 50 MB so it never matters which route you used.
+> These genuinely differ. If you're uploading anything large, do it in the wizard. Better
+> yet, keep documents under 50 MB so it never matters which route you used.
 
 ## Adding files after publishing
 
@@ -44,7 +44,7 @@ A file isn't usable until that finishes.
 ### Add folder
 
 Name a folder and organise documents into it. Navigate with the breadcrumb at the top of
-the panel — the root is **Files**.
+the panel. The root is **Files**.
 
 There's also a virtual **Bot Files** folder holding one sub-folder per assistant you've
 chatted with, so material attached to a specific bot stays findable.

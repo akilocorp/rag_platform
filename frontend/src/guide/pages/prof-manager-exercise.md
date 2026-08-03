@@ -1,10 +1,10 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: Manager Exercise setup, case materials, and reviewing the answer key. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Create a Manager Exercise
 
 A hidden-profile game. Groups of students each hold a different slice of the information
 about three job candidates. No one has the full picture, and the right answer only appears
-if the group pools what they know. Most groups don't — which is the lesson.
+if the group pools what they know. Most groups don't, which is the lesson.
 
 After they decide, they see how their hire actually worked out, and an AI facilitator runs
 a timed debrief.
@@ -34,7 +34,7 @@ is fixed to Claude for this type, so there's no model picker.
 
 ### Start from a saved case
 
-If a case has been shared before — by you or a colleague — pick it here. It reuses the
+If a case has been shared before, by you or a colleague, pick it here. It reuses the
 documents *and* the approved answer key, so you skip the upload and the analysis entirely.
 Jump straight to setting group size and rooms.
 
@@ -42,7 +42,7 @@ Jump straight to setting group size and rooms.
 
 - **Students per group** (2–10, default 3) — the capacity of one breakout room, not a
   requirement. A group can start short-handed; the facilitator is told how many actually
-  showed up. There are no AI players — every participant is a real student.
+  showed up. There are no AI players; every participant is a real student.
 - **Breakout groups** (1–20, default 5) — how many rooms exist. The line underneath shows
   your total capacity: *"Room for up to 15 students."*
 - **Discussion window (minutes)** — how long the facilitated debrief runs after the outcome
@@ -141,8 +141,8 @@ Introduction message and access permissions, then **Publish**.
 
 Under **Customize**, an Advanced-only **"Facilitator instructions"** panel holds everything
 the AI is told before a session. Leave it empty to run the standard prompt and pick up
-future improvements automatically. Click **Load standard prompt** to make your own copy —
+future improvements automatically. Click **Load standard prompt** to make your own copy,
 which then stays frozen exactly as you edited it.
 
-If you do edit it, **keep the `<<CASE_PACK>>` marker** — that's where your case is injected.
+If you do edit it, **keep the `<<CASE_PACK>>` marker**: that's where your case is injected.
 `<<ROSTER>>`, `<<LEARNING_OBJECTIVES>>` and `<<GROUP_SIZE>>` are optional.

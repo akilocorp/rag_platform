@@ -1,15 +1,15 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: full Chat Bot wizard walkthrough. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Create a Chat Bot
 
-A Chat Bot is a 1-on-1 text assistant. It answers from documents you upload, and — unless
-you turn it off — can also search the web.
+A Chat Bot is a 1-on-1 text assistant. It answers from documents you upload, and unless
+you turn it off, it can also search the web.
 
 **Steps:** 4 in Simple mode, 5 in Advanced (Advanced adds the model picker).
 
 Start by clicking **New Assistant** on your assistant list.
 
-## Step 1 — "What do we call your Space?"
+## Step 1: "What do we call your Space?"
 
 ![Step 1](/guide-media/wizard-step1-types.png)
 
@@ -18,7 +18,7 @@ Start by clicking **New Assistant** on your assistant list.
 
 Click **Next**.
 
-## Step 2 — "Pick the Base AI Model"
+## Step 2: "Pick the Base AI Model"
 
 *Advanced mode only. In Simple mode this step doesn't appear and you get Claude Sonnet 4.6.*
 
@@ -26,7 +26,7 @@ Click **Next**.
 
 | Model | Notes |
 |---|---|
-| **Claude Sonnet 4.6** | The default. Balanced quality and speed — a good choice unless you have a reason otherwise |
+| **Claude Sonnet 4.6** | The default. Balanced quality and speed; a good choice unless you have a reason otherwise |
 | **Claude Haiku 4.5** | Faster and cheaper; fine for straightforward Q&A |
 | **Gemini 2.5 pro** | Advanced reasoning |
 | **Gemini 2.5 flash** | Fast and accurate |
@@ -36,23 +36,23 @@ Click **Next**.
 > Deepseek, the assistant answers from your uploaded documents alone regardless of the web
 > access toggle.
 
-## Step 3 — "Upload Knowledge Base"
+## Step 3: "Upload Knowledge Base"
 
 ![The upload step](/guide-media/wizard-step3-files.png)
 
 Drag files in or click to browse. Accepted: **TXT, DOCX, MD, PDF, PPTX**.
 
-You can skip this entirely and add files later — the note under the dropzone says as much
+You can skip this entirely and add files later. The note under the dropzone says as much
 (*"More files can be uploaded after publishing"*).
 
 > **On file size:** this screen says 500 MB, but files added later through the chat sidebar
 > are capped at **50 MB**. If you plan to add material after publishing, keep documents
 > under 50 MB and you'll never hit the difference.
 
-Scanned PDFs are fine — pages without a text layer are read with OCR automatically. Large
+Scanned PDFs are fine. Pages without a text layer are read with OCR automatically. Large
 scanned documents take a few minutes.
 
-## Step 4 — "Customize AI Behavior"
+## Step 4: "Customize AI Behavior"
 
 ![Step 4](/guide-media/wizard-step4-behavior.png)
 
@@ -71,7 +71,7 @@ Five presets fill in the instructions and tone for you:
 Picking one fills the Instructions box, which you can then edit. **Write from scratch**
 clears it again.
 
-### Instructions — required
+### Instructions (required)
 
 Describe how the bot should behave: its persona, what it should and shouldn't do, how long
 its answers should be, what to do when it doesn't know something.
@@ -101,7 +101,7 @@ You are a teaching assistant for an undergraduate macroeconomics course.
 ### The Facilitator
 
 Switch this on and the bot can follow a reply with an interactive element instead of only
-text — a multiple-choice question, a chart, flashcards, a timeline, a comparison table, a
+text: a multiple-choice question, a chart, flashcards, a timeline, a comparison table, a
 mind map, or an impact map.
 
 You control when, using the **"What should the facilitator do?"** box:
@@ -114,7 +114,7 @@ question to check it landed.
 
 Leave it off if you just want a conversation.
 
-## Step 5 — "Final Polish"
+## Step 5: "Final Polish"
 
 ![Step 5](/guide-media/wizard-step5-polish.png)
 
@@ -127,7 +127,7 @@ Click **Publish**. You're taken straight into a chat with your new bot.
 
 ## After publishing
 
-- Test it yourself first — click **Chat Now** on its card and try the questions you expect
+- Test it yourself first: click **Chat Now** on its card and try the questions you expect
   students to ask.
 - To change anything, use **Customize** on the card. Everything is editable except the
   Space Type.

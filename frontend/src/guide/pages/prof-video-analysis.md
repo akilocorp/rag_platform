@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: Video Analysis setup and the rubric editor. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Create a Video Analysis
 
@@ -6,26 +6,26 @@ Students upload a video; it's transcribed, analysed for delivery and body langua
 scored against a rubric you define. Each scoring box produces **a score out of 10 plus a
 written paragraph** explaining it.
 
-**Steps:** 3 — this type skips the model picker and the knowledge base.
+**Steps:** 3. This type skips the model picker and the knowledge base.
 
-## Step 1 — Name and type
+## Step 1: Name and type
 
 Give it a name, then choose **Video Analysis** (*"Upload & Score"*). Click **Next**.
 
-## Step 2 — "Define the Rubric"
+## Step 2: "Define the Rubric"
 
 ![The rubric editor](/guide-media/video-rubric-editor.png)
 
 ### The fastest route: drop in your rubric
 
 At the top is a dropzone: **"Drop your rubric or metrics document here"**. Give it the
-marking guide you already have — `docx`, `pdf`, `txt` or `md` — and it builds the scoring
+marking guide you already have (`docx`, `pdf`, `txt` or `md`), and it builds the scoring
 boxes, content checks and grading prompt for you.
 
 It also fills in the assistant's name and introduction if you haven't typed them yet. You
 then review and edit everything below, which is far quicker than starting from blank.
 
-### Assignment Type — required
+### Assignment Type (required)
 
 | Preset | What it's tuned for |
 |---|---|
@@ -40,7 +40,7 @@ Each box is **scored out of 10 with a short written rationale**. Add one per dim
 care about. The defaults are **Confidence**, **Competence** and **Passion**.
 
 For each box you give a **name** and a **description of what it measures**. The description
-is doing real work — it's how the evaluator decides which signals (posture, gaze, voice,
+is doing real work: it's how the evaluator decides which signals (posture, gaze, voice,
 transcript) to draw on. Be concrete:
 
 > **Confidence** — How composed and assured the speaker appears: steady gaze, grounded
@@ -50,7 +50,7 @@ Vague descriptions ("how good they are") produce vague scores.
 
 ### Grading Prompt *(Advanced)*
 
-Your grading philosophy — how strict to be and what matters most. This steers the final
+Your grading philosophy: how strict to be and what matters most. This steers the final
 evaluator across every box and check.
 
 ```
@@ -72,10 +72,10 @@ has a label and a description of what satisfies it.
 
 ### Class Code *(Advanced)*
 
-Optional, and worth setting for a real class — it's what puts the assignment on students'
+Optional, and worth setting for a real class. It's what puts the assignment on students'
 dashboards. See [Invite your students](/userguide/prof-invite).
 
-## Step 3 — "Final Polish"
+## Step 3: "Final Polish"
 
 Set the **Introduction Message** students see on the upload page, and choose **Public** or
 **Private** access. Click **Publish**.
@@ -85,13 +85,13 @@ You land on the **Video Analysis Dashboard**.
 ## What students do
 
 They open the upload page, enter their name and email, and drop in a video (**MP4, MOV,
-WEBM, M4V, up to 1 GB**). Processing takes about **2–4 minutes** and shows live progress —
-*"Analyzing your delivery & speech…"*, *"Grading your pitch…"* — with a pitch tip carousel
+WEBM, M4V, up to 1 GB**). Processing takes about **2–4 minutes** and shows live progress
+(*"Analyzing your delivery & speech…"*, *"Grading your pitch…"*) with a pitch tip carousel
 while they wait. They get a private results link by email.
 
 ## What you get
 
-On **`/video-dashboard/:id`** — reachable via **Open Dashboard** on the card:
+On **`/video-dashboard/:id`**, reachable via **Open Dashboard** on the card:
 
 - Your **Upload link** and **Invite link**, ready to copy
 - A card per scoring box with the class average and an *Excellent / Strong / Developing /

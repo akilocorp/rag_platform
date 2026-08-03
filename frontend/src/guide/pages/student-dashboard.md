@@ -1,8 +1,8 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New page: the student dashboard and its account menu. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
 
 # Your dashboard
 
-After signing in you land on **My Assignments** — everything you've been enrolled in.
+After signing in you land on **My Assignments**, everything you've been enrolled in.
 
 ![The student dashboard](/guide-media/student-dashboard.png)
 
@@ -21,7 +21,7 @@ If you've used all your attempts, the buttons are replaced with a note saying so
 
 This means you're not enrolled in anything yet. It doesn't mean something is broken.
 
-Ask your professor for the invite link — it looks like `yoursite.com/join/SOMECODE`.
+Ask your professor for the invite link. It looks like `yoursite.com/join/SOMECODE`.
 Opening it enrols you and the card appears here. See
 [Join your class](/userguide/student-join).
 
@@ -32,7 +32,7 @@ tracks video assignments.
 ## The "Email not verified" banner
 
 An amber banner means you never clicked the link in your welcome email. Everything still
-works — but find that email and click the link when you get a chance. If you can't find it,
+works, but find that email and click the link when you get a chance. If you can't find it,
 register again with the same details to get a fresh one.
 
 ## Your account menu
@@ -49,5 +49,5 @@ Full details in [Passwords](/userguide/account-password).
 
 ## Where results come from
 
-Video results also arrive by **email**, with a private link — so you don't have to sit and
+Video results also arrive by **email**, with a private link, so you don't have to sit and
 wait on the dashboard. Scoring takes about 2–4 minutes.
