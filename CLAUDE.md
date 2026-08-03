@@ -43,6 +43,69 @@ Configurable chatbot research platform. Professors set persona, system prompt, a
 
 ---
 
+## Config Reuse: simulation templates and copy/paste
+
+Two separate features that both exist so a professor doesn't start from a blank config.
+Neither is documented elsewhere in this file; both are covered end-to-end in the user
+guide (`prof-chat-bot.md` and `prof-manage.md`).
+
+### Simulation templates — wizard step 4, "Customize AI Behavior"
+
+Defined in `frontend/src/data/simulationTemplates.js`. Rendered as a card grid under the
+heading **"Start from a template"** `(optional)`, above the Instructions textarea.
+
+| key | Card title | What it sets up |
+|---|---|---|
+| `hr_interview` | **HR Interview** | Practice behavioral interviews with a neutral HR evaluator |
+| `sales_negotiation` | **Sales / Negotiation** | Pitch to a skeptical buyer and practice closing deals |
+| `debate_partner` | **Debate Partner** | Defend any position against a rigorous opposing argument |
+| `macro_shock` | **Macro Shock Simulator** | Reason through the downstream effects of an economic shock |
+| `socratic_tutor` | **Socratic Tutor / TA** | Guide students to answers through questions, never giving them directly |
+
+Applying one fills `instructions` and `temperature`, and fills `bot_name` / `introduction`
+**only if those are still blank** — so it never clobbers something the professor typed. The
+active card shows an `Active` pill, and a **"Write from scratch"** link clears the
+selection. Available on both create and edit (edit renders it as a collapsible
+**"▸ Apply a simulation template"**).
+
+Not to be confused with the **quick templates** on `/responses/:id` (HR Interview,
+Participation, Critical Thinking, Sales & Negotiation, Presentation Skills, Socratic
+Dialogue) — those steer a grading analysis, not a bot's persona.
+
+### Copy/paste an assistant between professor accounts
+
+Transfers a whole assistant, including its knowledge base, to another professor — or
+duplicates one of your own. Implemented in `ConfigList.jsx` + `config_routes.py`.
+
+**Copy** — `Ctrl+C` on the hovered card, the clone icon, or right-click → Copy. Calls
+`POST /config/{id}/copy`, which mints a `secrets.token_urlsafe(12)` token into
+`config_transfers` with a **7-day** expiry (`CONFIG_TRANSFER_TTL_DAYS`, `config_routes.py:900`).
+That collection carries a TTL index so Mongo reaps expired tokens, but reads still check
+`expires_at` because the TTL monitor only sweeps about once a minute. The clipboard gets a
+human-readable line carrying `actr-config:<token>` (`CLIPBOARD_PREFIX`, `ConfigList.jsx:48`),
+so it survives being pasted into email or chat.
+
+**Paste** — `Ctrl+V` anywhere on the list, the **Paste** button, or right-click → Paste.
+Opens `PasteConfigModal` (name pre-filled `"<original> (copy)"`, optional class code).
+`POST /config/paste/<token>` deep-copies the source doc minus `_COPY_EXCLUDED_FIELDS`,
+reassigns `user_id`, mints a fresh `collection_name`, and clones the knowledge base — both
+the file records and the vector chunks.
+
+**Fields dropped on copy** (`_COPY_EXCLUDED_FIELDS`, `config_routes.py:907`) — and the
+comment above it explains each: `_id`; `class_code` (globally unique, must be re-typed);
+`usage_tier` / `student_count` / `usage_pool` (they describe the class that was copied, and
+the new counter restarts at zero, so inheriting the label would lie); `is_playground` /
+`is_personal` (singleton markers that would hijack `get_playground_config` and
+`/student/personal-config`); and `upload_locked_until`.
+
+**Student activity is never touched** — chat sessions, messages, group-chat messages,
+video submissions and usage counters live in separate collections, and the copy only walks
+the config doc plus its knowledge base.
+
+If the browser blocks clipboard reads, the modal falls back to a manual paste box.
+
+---
+
 ## Group Chat Matching System
 
 ### Goal
