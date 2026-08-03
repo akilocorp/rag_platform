@@ -1,7 +1,8 @@
 # @language  Python
-# @updated   2026-07-31
-# @changed   GET /config/<id> now returns an `owned` flag (best-effort JWT read on public configs) so the client can surface owner-only controls like the manager-exercise lobby reset.
-#            Prior: M8 grading_rubric; M7 exactly-3 candidates; M5 choose_minutes + final_call_seconds.
+# @updated   2026-08-03
+# @changed   Config copy/paste: POST /config/<id>/copy mints a clipboard token, GET+POST /config/paste/<token>
+#            preview and clone a config (plus its knowledge base) into any professor's account as a fresh class.
+#            Prior: GET /config/<id> returns an `owned` flag so the client can surface owner-only controls.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -21,6 +22,9 @@ from src.managers import facilitator_prompt
 
 import re
 import json
+import copy as copy_module
+import secrets
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 
 # --- Setup and Configuration ---
@@ -877,4 +881,263 @@ def get_config_by_class(class_code):
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+# --- Config copy / paste ------------------------------------------------------
+# A professor copies an assistant (Ctrl+C) and pastes it into any professor's
+# assistant list (Ctrl+V) — their own account or a colleague's. The clipboard
+# never carries the config itself, only a short-lived token: the part that
+# actually matters, the embedded knowledge base, exists only server-side and has
+# to be cloned there.
+#
+# A paste always produces a NEW CLASS. Every student-generated record is keyed
+# on the config's _id (transcripts, group rooms, video submissions, sessions,
+# usage counters) or on class_code (enrollment), and the copy gets a fresh value
+# for both — so nothing a student ever did can follow the copy, and the source
+# class keeps everything it had.
+
+CONFIG_TRANSFER_TTL_DAYS = 7
+
+# Never survives a copy. class_code is globally unique and must be re-typed;
+# the roster/usage numbers describe the class that was copied, not the new one
+# (its counter restarts at zero, so inheriting the label would lie); the
+# playground/personal flags are singleton markers that would hijack the lookups
+# in get_playground_config and /student/personal-config.
+_COPY_EXCLUDED_FIELDS = (
+    '_id', 'class_code', 'usage_tier', 'student_count', 'usage_pool',
+    'is_playground', 'is_personal', 'upload_locked_until',
+)
+
+_transfer_indexes_ready = False
+
+
+def _transfers_collection():
+    """`config_transfers` with its indexes, created once per process.
+
+    The TTL index lets Mongo reap expired tokens on its own; reads still check
+    `expires_at` because the TTL monitor only sweeps about once a minute.
+    """
+    global _transfer_indexes_ready
+    col = current_app.config['MONGO_DB']['config_transfers']
+    if not _transfer_indexes_ready:
+        try:
+            col.create_index('token', unique=True)
+            col.create_index('expires_at', expireAfterSeconds=0)
+        except Exception as e:
+            current_app.logger.warning(f"config_transfers index setup failed: {e}")
+        _transfer_indexes_ready = True
+    return col
+
+
+def _load_transfer(token):
+    """Resolve a clipboard token to its still-valid transfer doc, else None."""
+    doc = _transfers_collection().find_one({'token': (token or '').strip()})
+    if not doc:
+        return None
+    expires_at = doc.get('expires_at')
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            return None
+    return doc
+
+
+def _count_kb_files(db, config_id_str, source_config):
+    """How many knowledge-base files a paste would carry over.
+
+    Configs built through the Files panel have `user_files` rows; ones built in
+    the old create wizard only have filenames on the config doc until the
+    backfill in user_files.py runs, so fall back to that list.
+    """
+    count = db['user_files'].count_documents({'config_id': config_id_str})
+    if count:
+        return count
+    return len(source_config.get('documents') or [])
+
+
+def _clone_knowledge_base(db, old_config_id, new_config_id, new_user_id, new_collection_name):
+    """Re-point a copy of the source config's documents and embeddings at the new config.
+
+    Retrieval filters on `config_id` alone (chat_routes.py, agentic knowledge_base
+    tool), so a copied config with no cloned vectors would list files it cannot
+    read. Chunks are copied verbatim — the embeddings come along, so this costs
+    no embedding API calls.
+
+    `user_files` rows keep the source's `storage_key`: the S3 object is shared
+    read-only. If the original owner later deletes that file, the copy loses the
+    download but keeps retrieval, because the vectors are its own.
+
+    Returns (files_copied, chunks_copied).
+    """
+    files_col = db['user_files']
+    vectors_col = db['vector_collection']
+
+    # File rows first, so the id map is ready to rewrite each chunk's back-pointer.
+    file_id_map = {}
+    for file_doc in list(files_col.find({'config_id': old_config_id})):
+        old_file_id = str(file_doc.pop('_id'))
+        file_doc['user_id'] = new_user_id
+        file_doc['config_id'] = new_config_id
+        file_doc['copied_from_file_id'] = old_file_id
+        file_id_map[old_file_id] = str(files_col.insert_one(file_doc).inserted_id)
+
+    chunks_copied = 0
+    batch = []
+    for chunk in vectors_col.find({'config_id': old_config_id}):
+        chunk.pop('_id', None)
+        chunk['config_id'] = new_config_id
+        chunk['user_id'] = new_user_id
+        if chunk.get('owner_user_id'):
+            chunk['owner_user_id'] = new_user_id
+        if chunk.get('collection_name'):
+            chunk['collection_name'] = new_collection_name
+        mapped = file_id_map.get(chunk.get('source_file_id'))
+        if mapped:
+            chunk['source_file_id'] = mapped
+        batch.append(chunk)
+        if len(batch) >= 500:
+            vectors_col.insert_many(batch)
+            chunks_copied += len(batch)
+            batch = []
+    if batch:
+        vectors_col.insert_many(batch)
+        chunks_copied += len(batch)
+
+    return len(file_id_map), chunks_copied
+
+
+@config_bp.route('/config/<string:config_id>/copy', methods=['POST'])
+@jwt_required()
+def copy_config(config_id):
+    """Mint the clipboard token for one of the caller's own assistants (Ctrl+C)."""
+    try:
+        user_id = get_jwt_identity()
+        if not ObjectId.is_valid(config_id):
+            return jsonify({"message": "Invalid configuration ID format"}), 400
+
+        source = Config.get_collection().find_one(
+            {"_id": ObjectId(config_id), "user_id": user_id},
+            {"bot_name": 1, "bot_type": 1},
+        )
+        if not source:
+            return jsonify({"message": "Configuration not found or access denied"}), 404
+
+        token = secrets.token_urlsafe(12)
+        now = datetime.now(timezone.utc)
+        _transfers_collection().insert_one({
+            "token": token,
+            "config_id": config_id,
+            "owner_user_id": user_id,
+            "bot_name": source.get("bot_name", "Assistant"),
+            "bot_type": source.get("bot_type", "chat"),
+            "created_at": now,
+            "expires_at": now + timedelta(days=CONFIG_TRANSFER_TTL_DAYS),
+        })
+
+        return jsonify({
+            "token": token,
+            "bot_name": source.get("bot_name", "Assistant"),
+            "expires_in_days": CONFIG_TRANSFER_TTL_DAYS,
+        }), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error minting copy token for config {config_id}: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/paste/<string:token>', methods=['GET'])
+@jwt_required()
+def preview_pasted_config(token):
+    """What the paste dialog shows before the professor commits: which assistant
+    the token points at, and how much comes with it."""
+    try:
+        transfer = _load_transfer(token)
+        if not transfer:
+            return jsonify({"message": "This copy has expired or is no longer valid."}), 404
+
+        source = Config.get_collection().find_one({"_id": ObjectId(transfer['config_id'])})
+        if not source:
+            return jsonify({"message": "The original assistant no longer exists."}), 404
+
+        db = current_app.config['MONGO_DB']
+        return jsonify({
+            "bot_name": source.get("bot_name", "Assistant"),
+            "bot_type": source.get("bot_type", "chat"),
+            "model_name": source.get("model_name", ""),
+            "file_count": _count_kb_files(db, transfer['config_id'], source),
+            "is_own": source.get("user_id") == get_jwt_identity(),
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error previewing copy token: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/paste/<string:token>', methods=['POST'])
+@jwt_required()
+def paste_config(token):
+    """Clone the token's assistant into the caller's account under a new name
+    and class code (Ctrl+V).
+
+    Copies exactly two things: the config document and its knowledge base. It
+    runs no query against chat_session_metadata, message_store,
+    group_chat_messages, video_submissions, the session collections or
+    usage_counters — the copy opens as an empty class, and the source keeps
+    every transcript, score and enrolled student.
+    """
+    try:
+        user_id = get_jwt_identity()
+        payload = request.get_json(silent=True) or {}
+
+        transfer = _load_transfer(token)
+        if not transfer:
+            return jsonify({"error": "This copy has expired or is no longer valid."}), 404
+
+        source = Config.get_collection().find_one({"_id": ObjectId(transfer['config_id'])})
+        if not source:
+            return jsonify({"error": "The original assistant no longer exists."}), 404
+
+        bot_name = (payload.get('bot_name') or '').strip()
+        if not bot_name:
+            return jsonify({"error": "Give the copy a name."}), 400
+
+        new_config = {k: copy_module.deepcopy(v) for k, v in source.items()
+                      if k not in _COPY_EXCLUDED_FIELDS}
+        new_config['user_id'] = user_id
+        new_config['bot_name'] = bot_name
+
+        # Same regex, same 409 message, same uniqueness check as create/edit.
+        err = validate_class_usage({'class_code': payload.get('class_code')}, new_config)
+        if err:
+            return err
+
+        new_id = Config.get_collection().insert_one(new_config).inserted_id
+        collection_name = f"config_{new_id}"
+        Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
+        new_config['collection_name'] = collection_name
+
+        files_copied, chunks_copied = _clone_knowledge_base(
+            current_app.config['MONGO_DB'],
+            transfer['config_id'], str(new_id), user_id, collection_name,
+        )
+        current_app.logger.info(
+            "Config pasted | source=%s new=%s user=%s files=%d chunks=%d",
+            transfer['config_id'], new_id, user_id, files_copied, chunks_copied,
+        )
+
+        # Same shape as a /config_list item, so the list can prepend it directly.
+        # insert_one stamps the raw ObjectId back onto the dict, which jsonify
+        # cannot serialize — swap it for the string id the frontend expects.
+        new_config.pop('_id', None)
+        new_config['config_id'] = str(new_id)
+        return jsonify({
+            "message": "Assistant copied.",
+            "config": new_config,
+            "files_copied": files_copied,
+        }), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error pasting config: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
