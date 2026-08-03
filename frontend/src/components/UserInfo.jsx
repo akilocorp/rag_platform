@@ -1,7 +1,11 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-03
+// @changed   Account dropdown gets a Change password entry — the /change-password page existed but
+//            nothing in the UI linked to it.
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/apiClient';
 import { clearRememberMe } from '../utils/auth';
-import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt } from 'react-icons/fa';
+import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt, FaKey } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
 const UserInfo = () => {
@@ -75,6 +79,17 @@ const UserInfo = () => {
               Admin Panel
             </button>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDropdown(false);
+              navigate('/change-password');
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-gray-900 bg-white flex items-center gap-2 hover:bg-gray-50 rounded-md border-0"
+          >
+            <FaKey className="w-4 h-4" />
+            Change password
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
