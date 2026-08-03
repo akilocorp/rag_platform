@@ -90,6 +90,12 @@ const LoginPage = () => {
         localStorage.setItem('isVerified', response.data.user?.is_verified ? 'true' : 'false');
         setErrors({});
         setFormError(null);
+        // Signed in on a one-time password an admin issued: the API refuses
+        // everything else until it's replaced, so go straight there.
+        if (response.data.user?.must_change_password) {
+          navigate('/change-password', { replace: true });
+          return;
+        }
         if (userRole === 'student' && classCode) {
           // Route through /join so it enrolls and dispatches into the right bot
           // by bot_type (chat / experiential / group chat / video dashboard).

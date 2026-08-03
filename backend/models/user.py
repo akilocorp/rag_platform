@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-03
+# @changed   Added set_password(), which clears the must_change_password flag an admin-issued
+#            one-time password sets.
 import re
 from flask import current_app
 from bson import ObjectId
@@ -101,6 +105,12 @@ class User:
         """
         Updates the user's password by email.
         Returns True if updated, False if user not found.
+
+        Also clears `must_change_password`: this is the forgot-password route's
+        exit, and a password the user chose themselves retires the admin's
+        one-time password just as surely as the forced screen does. Without
+        this, an admin-created user who went through "Forgot password" would
+        stay locked to the change-password gate with nothing left to change.
         """
         user = User.find_by_email(email)
         if not user:
@@ -108,7 +118,21 @@ class User:
         collection = User.get_collection()
         result = collection.update_one(
             {"_id": user["_id"]},
-            {"$set": {"password": password_hash}}
+            {"$set": {"password": password_hash, "must_change_password": False}}
+        )
+        return result.modified_count > 0
+
+    @staticmethod
+    def set_password(user_id, password_hash):
+        """Sets a password by _id and retires any admin-issued one-time password.
+
+        Clearing `must_change_password` here is what lifts the app-wide gate, so
+        the two always move together.
+        """
+        collection = User.get_collection()
+        result = collection.update_one(
+            {"_id": ObjectId(user_id) if not isinstance(user_id, ObjectId) else user_id},
+            {"$set": {"password": password_hash, "must_change_password": False}}
         )
         return result.modified_count > 0
 

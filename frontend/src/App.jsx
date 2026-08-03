@@ -17,6 +17,7 @@ import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import ChangePasswordPage from './pages/ChangePasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
 import ManagerExercisePage from './pages/ManagerExercisePage';
@@ -96,6 +97,10 @@ function App() {
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          {/* Where an admin-issued one-time password lands, and where anyone can
+              change their own. Auth is checked inside the page, not by a guard,
+              because a gated account can reach nothing else. */}
+          <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route path="/group-chat/:configId" element={<GroupChatPage />}/>
           {/* Manager Exercise — student-facing hidden-profile decision game (public, like group chat) */}
           <Route path="/manager-exercise/:configId" element={<ManagerExercisePage />}/>

@@ -45,6 +45,16 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // The account is still on an admin-issued one-time password, so the API is
+    // refusing everything but the change-password screen. Send them there —
+    // this catches deep links and stale tabs that never passed through login.
+    if (error.response?.status === 403 && error.response?.data?.error === 'password_change_required') {
+      if (!window.location.pathname.startsWith('/change-password')) {
+        window.location.href = '/change-password';
+      }
+      return Promise.reject(error);
+    }
+
     // Check if the error is a 401 (Unauthorized) and we haven't already retried
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true; // Mark this request as retried
