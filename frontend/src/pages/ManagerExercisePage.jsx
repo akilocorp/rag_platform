@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-03  @changed Own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-03  @changed New prelude stage: after the cards, each student makes a PRIVATE individual pick (premiseStage 'decide') before round-1 discussion. Prior: own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -8,11 +8,14 @@
 //   lobby   → pick a breakout room (Group 1..N) with live occupancy
 //   waiting → in a room; start whenever the team is ready, full or not
 //   discuss → PRE-VOTE. Round 1 opens with a client-local prelude (premise brief →
-//             role-sliced credential cards to memorize), then the facilitated chat
-//             where the group pools what they each saw. Round 2 skips the prelude.
+//             role-sliced credential cards → a PRIVATE individual pick), then the
+//             facilitated chat where the group pools what they each saw. ACTR stays
+//             silent in round 1; it facilitates from round 2 on. Round 2 skips the
+//             prelude.
 //   choose  → the timed ballot; the vote clock only starts here, after deliberation
 //   kiosk   → each student presses Continue → time-skip → the pick's outcome reveal
-//   done    → a correct pick or two wrong picks. (Grading handled server-side.)
+//   codify  → after a CORRECT pick: a terminal, chat-open reflection (no vote).
+//   done    → two wrong picks, or after codify. (No grading.)
 //
 // Countdowns derive from the server's `phase_deadline_ts` corrected against
 // `server_now_ts` (clock-skew safe), so a refresh / reconnect stays accurate.
@@ -253,7 +256,7 @@ const CandidateDeck = ({ role, credentials, onContinue }) => {
             onClick={onContinue}
             className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95"
           >
-            Continue to discussion →
+            Continue →
           </button>
           {credentials.length > 0 && seen.size < credentials.length && (
             <p className="mt-3 text-xs text-gray-400">You've read {seen.size} of {credentials.length}.</p>
@@ -373,11 +376,14 @@ const ManagerExercisePage = () => {
   // discussion renders. Round 2 skips it (they have already seen the cards). Completion
   // is remembered per room+round in localStorage so a refresh mid-deliberation doesn't
   // replay the intro. `yourRole`/`credentials` come from the M1/M2 snapshot fields.
-  const [premiseStage, setPremiseStage] = useState('ready'); // premise|cards|ready
+  const [premiseStage, setPremiseStage] = useState('ready'); // premise|cards|decide|ready
   const [yourRole, setYourRole] = useState(null);
   const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
+  // The student's PRIVATE initial pick, made after reading the cards and before the
+  // round-1 discussion opens (kept client-local; the group still decides together).
+  const [individualPick, setIndividualPick] = useState(null);
   const premiseInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
@@ -437,6 +443,13 @@ const ManagerExercisePage = () => {
   const finishPremiseIntro = () => {
     try { localStorage.setItem(`me_premise_seen_${roomIdRef.current}_r${roundNum}`, '1'); } catch { /* localStorage may be unavailable */ }
     setPremiseStage('ready');
+  };
+
+  // Lock in the private initial pick (kept client-local) and enter the discussion.
+  const confirmIndividualPick = () => {
+    if (!individualPick) return;
+    try { localStorage.setItem(`me_individual_pick_${roomIdRef.current}`, individualPick); } catch { /* localStorage may be unavailable */ }
+    finishPremiseIntro();
   };
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
@@ -1415,7 +1428,68 @@ const ManagerExercisePage = () => {
   }
 
   if (phase === 'discuss' && premiseStage === 'cards') {
-    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} />;
+    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={() => setPremiseStage('decide')} />;
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase: discuss — round-1 prelude, INDIVIDUAL decision. After reading the
+  // cards and before the group discussion opens, each student privately commits
+  // to who THEY think the best hire is (hidden-profile: decide alone first, then
+  // compare). Kept client-local; the group still decides together in the ballot.
+  // -------------------------------------------------------------------------
+  if (phase === 'discuss' && premiseStage === 'decide') {
+    const names = candidates.map((c) => c.name).filter(Boolean);
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
+        <div className="max-w-lg mx-auto w-full text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3 animate-in fade-in slide-in-from-bottom-2 duration-500">Your call</p>
+          <h1 className="text-3xl sm:text-4xl mb-3 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+            Who do <span className="text-[#FA6C43]">you</span> think is the best hire?
+          </h1>
+          <p className="text-base text-[#1F1F1F]/70 mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif" }}>
+            Decide on your own first, using only what you were given. You'll compare notes
+            with your group next — no need to share this yet.
+          </p>
+
+          <div className="grid gap-3 mb-8 text-left">
+            {names.map((name, i) => {
+              const selected = individualPick === name;
+              return (
+                // Same hover rule as the ballot: border/shadow only, never a lift.
+                <button
+                  key={name}
+                  onClick={() => setIndividualPick(name)}
+                  style={{ animationDelay: `${i * 50}ms` }}
+                  className={`relative text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 active:scale-[0.99] ${
+                    selected
+                      ? 'border-[#FA6C43] bg-[#FA6C43]/5 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-[#FA6C43]/50 hover:shadow-sm hover:bg-[#FA6C43]/[0.03]'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      selected ? 'border-[#FA6C43] bg-[#FA6C43]' : 'border-gray-300'
+                    }`}>
+                      {selected && <span className="w-2 h-2 rounded-full bg-white" />}
+                    </span>
+                    <span className="flex-1 font-semibold text-[#222]">{name}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={confirmIndividualPick}
+            disabled={!individualPick}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95 disabled:opacity-50 animate-in fade-in duration-500"
+          >
+            Lock in my choice →
+          </button>
+          <p className="mt-3 text-xs text-gray-400">Private for now — your group decides together afterward.</p>
+        </div>
+      </div>
+    );
   }
 
   // -------------------------------------------------------------------------
