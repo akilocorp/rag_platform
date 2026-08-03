@@ -1,6 +1,6 @@
 # @language  Python
 # @updated   2026-08-03
-# @changed   Added the CODIFY phase: a correct pick opens a terminal, chat-unlocked reflection (begin_codify → _run_codify_window → done) so the group codifies its reasoning with no ballot. Prior: premise splits the general_info doc into student narrative + a credits/attribution block; kiosk entry broadcasts the reveal payload so clients load the outcome live; forecast_text_for matches names case/space-insensitively.
+# @changed   note_participant upgrades a "Student N" placeholder to the real display name (roster-name drift fix). Prior: added the CODIFY phase — a correct pick opens a terminal, chat-unlocked reflection (begin_codify → _run_codify_window → done) with no ballot. Prior: premise splits the general_info doc into student narrative + a credits/attribution block; kiosk entry broadcasts the reveal payload so clients load the outcome live; forecast_text_for matches names case/space-insensitively.
 #            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
@@ -539,7 +539,12 @@ class ExerciseState:
         with self._lock:
             for e in self.roster:
                 if e.get("uid") == uid:
-                    if name and not e.get("name"):
+                    # Fill a missing name, and also UPGRADE a "Student N" placeholder
+                    # (seeded by a message that arrived before the real name did) to the
+                    # real display name — otherwise the placeholder stuck and the roster
+                    # name drifted from the client's.
+                    existing = e.get("name") or ""
+                    if name and (not existing or existing.startswith("Student ")):
                         e["name"] = name
                         self._persist({"roster": self.roster})
                     return False

@@ -1,6 +1,6 @@
 # @language  Python
 # @updated   2026-08-03
-# @changed   Registered the on_codify_start hook — a correct pick opens the terminal CODIFY reflection (ACTR posts facilitator_open_codify). Prior: get_history trusts the client-provided uid (fixes the kiosk "0 of N ready" strand); on_pick_resolved posts the outcome document synchronously so it precedes the round-2 opener.
+# @changed   Round 1 gets no reactive ACTR (only the opener; it re-engages from round 2); student posts carry sender_uid so the client marks OWN messages by id; grading/scorecard removed from _wrapup. Prior: on_codify_start hook opens the CODIFY reflection; get_history trusts the client uid (fixes the "0 of N ready" strand); on_pick_resolved posts the outcome synchronously before the round-2 opener.
 #            Prior: on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed); M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M3 pre-vote flow; reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
@@ -101,18 +101,22 @@ def register_socket_events(socketio, app):
 
     FACILITATOR_SENDER = "ACTR"
 
-    def _post(state, sender, text):
+    def _post(state, sender, text, uid=None):
         """Persist + broadcast one room message under a display name.
 
-        The manager exercise stores the DISPLAY NAME as `sender` rather than a uid:
-        the facilitator reads the rendered transcript verbatim and has to see who
-        said what by name, and nothing here is attributed per-uid for grading any
-        more.
+        `sender` stays the DISPLAY NAME (the facilitator reads the transcript by name).
+        `uid`, when given (student messages), rides along as `sender_uid` — persisted
+        and broadcast — so the client marks a viewer's OWN messages by stable id rather
+        than by a display name that can drift from the roster (which rendered your own
+        text as someone else's). ACTR / outcome posts pass no uid.
         """
-        get_or_create_context(state.room_id).add_message(sender, text, sender_role=sender)
+        get_or_create_context(state.room_id).add_message(
+            sender, text, sender_role=sender, sender_uid=uid,
+        )
         socketio.emit("message", {
             "room_id": state.room_id,
             "sender": sender,
+            "sender_uid": uid,
             "text": text,
         }, room=state.room_id)
 
@@ -213,17 +217,7 @@ def register_socket_events(socketio, app):
                 st.config, st.roster, st.active_group_size(), summary, st.chosen_candidate,
             )
             _post(st, FACILITATOR_SENDER, text)
-
-            # M8: grade the session and broadcast the scorecard. Fail-soft — a grading
-            # error must not stop the room from closing out.
-            try:
-                rubric = (st.config or {}).get("grading_rubric") or ""
-                grades = exercise_grader.grade_exercise(
-                    st, rubric_text=rubric, transcript_summary=summary,
-                )
-                st.set_grades(grades)
-            except Exception:  # noqa: BLE001
-                logger.exception("grading failed for %s", room_id)
+            # Grading/scorecard removed: the exercise closes on ACTR's wrap-up alone.
 
     def _silence_watch(room_id, mark_ts):
         """Break an awkward pause: a student spoke, and 8s later nobody has followed.
@@ -260,6 +254,11 @@ def register_socket_events(socketio, app):
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None or not st.in_discussion():
+                return
+            # Round 1 is a pure student deliberation: ACTR posts the one opener that
+            # sets the task and then stays out of it — no reactive replies, no silence
+            # nudges. It re-engages from round 2 onward.
+            if st.round < 2:
                 return
             if not st.claim_facilitator():
                 return   # a turn is already running; the re-run below picks this up
@@ -716,7 +715,7 @@ def register_socket_events(socketio, app):
             # it arms the (until now lazy) discuss clock — the prelude reading time
             # before this doesn't count against deliberation. Idempotent after the first.
             state.arm_discuss_timer()
-            _post(state, state.display_name(uid), text)
+            _post(state, state.display_name(uid), text, uid=uid)
             state.note_student_message(uid)
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
             # Two paths, and they do different jobs. The immediate one asks ACTR

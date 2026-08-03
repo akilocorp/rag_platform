@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-03  @changed CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-03  @changed Own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -326,7 +326,6 @@ const ManagerExercisePage = () => {
   const [candidates, setCandidates] = useState([]);    // [{name}]
   const [chosenCandidate, setChosenCandidate] = useState(null);
   const [roundNum, setRoundNum] = useState(1);         // M7: 1 = first pick, 2 = second round
-  const [grades, setGrades] = useState(null);          // M8: {group, students} shown on the done screen
 
   // ---- countdown, server-clock corrected ----
   const [deadlineTs, setDeadlineTs] = useState(null);
@@ -494,7 +493,6 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
-    if (s.grades) setGrades(s.grades);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
       ballotWasOpenRef.current = s.collective_open;
@@ -636,11 +634,13 @@ const ManagerExercisePage = () => {
 
         socket.on('chat_history', (data) => {
           if (data.messages) {
-            setMessages(data.messages.map((m) => ({ sender: m.sender_role || m.sender, text: m.text })));
+            setMessages(data.messages.map((m) => ({
+              sender: m.sender_role || m.sender, sender_uid: m.sender_uid, text: m.text,
+            })));
           }
         });
         socket.on('message', (data) => {
-          setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
+          setMessages((prev) => [...prev, { sender: data.sender, sender_uid: data.sender_uid, text: data.text }]);
         });
 
         // Ballot opened/closed + live tally (M5). A FRESH open (closed→open) clears
@@ -673,11 +673,6 @@ const ManagerExercisePage = () => {
           if (typeof d.forecast_text === 'string') setForecastText(d.forecast_text);
           if (d.chosen_verdict !== undefined) setChosenVerdict(d.chosen_verdict);
           if (d.chosen_candidate !== undefined && d.chosen_candidate) setChosenCandidate(d.chosen_candidate);
-        });
-
-        // M8: the scorecard, broadcast when the room reaches `done`.
-        socket.on('grades', (d) => {
-          if (d.grades) setGrades(d.grades);
         });
       } catch (e) {
         console.error('Failed to load manager exercise', e);
@@ -949,7 +944,13 @@ const ManagerExercisePage = () => {
           return <OutcomeCard key={i} title={sender.replace(OUTCOME_PREFIX, '').trim()} text={msg.text} />;
         }
         const isFacilitator = sender === FACILITATOR_SENDER;
-        const isMe = !isFacilitator && sender === displayNameRef.current;
+        // Mark my own messages by stable uid when present; fall back to the display
+        // name for legacy messages that predate sender_uid. Comparing by name alone
+        // rendered my text as someone else's whenever the roster name had drifted.
+        const isMe = !isFacilitator && (
+          (msg.sender_uid && msg.sender_uid === userIdRef.current) ||
+          (!msg.sender_uid && sender === displayNameRef.current)
+        );
         return (
           <div key={i} className={`flex gap-4 ${isMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
             {!isMe && (
@@ -1328,57 +1329,6 @@ const ManagerExercisePage = () => {
               </button>
             </div>
 
-            {/* M8: the scorecard — group outcome + per-student participation and
-                communication. Renders once the `grades` broadcast arrives. */}
-            {grades && (() => {
-              const g = grades.group || {};
-              const rows = Object.values(grades.students || {});
-              const good = g.outcome === 'correct_first' || g.outcome === 'recovered';
-              const label =
-                g.outcome === 'correct_first' ? 'Your group chose the right hire — first time.'
-                : g.outcome === 'recovered' ? 'Your group got there on the second round.'
-                : g.outcome === 'failed' ? `Two wrong decisions. The best hire was ${g.revealed_candidate || '—'}.`
-                : 'Time ran out before a correct pick.';
-              return (
-                <div className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 sm:p-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
-                  <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3">Scorecard</h3>
-                  <div className={`rounded-2xl px-4 py-3 mb-5 text-sm font-bold border ${good ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                    {label}
-                  </div>
-                  <div className="space-y-3">
-                    {rows.map((r, i) => {
-                      const isYou = r.name === displayNameRef.current;
-                      return (
-                        <div key={i} className="rounded-2xl border border-gray-200 p-4">
-                          <div className="flex items-center justify-between gap-3 mb-1">
-                            <span className="font-bold text-[#222]">
-                              {r.name}
-                              {isYou && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-[#FA6C43]">you</span>}
-                            </span>
-                            {typeof r.communication === 'number' && (
-                              <span className="text-sm font-extrabold text-[#C2410C] tabular-nums">
-                                {r.communication}<span className="text-xs font-semibold text-gray-400">/100</span>
-                              </span>
-                            )}
-                          </div>
-                          {r.note && <p className="text-sm text-gray-600 leading-snug mb-2">{r.note}</p>}
-                          <div className="flex flex-wrap gap-2">
-                            <span className={`inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 ${r.participated ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}>
-                              {r.participated ? 'Took part' : 'Did not speak'}
-                            </span>
-                            {r.participated_round2 === false && (
-                              <span className="inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700">
-                                Did not participate in group discussion part two
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
             {Transcript()}
           </div>
         </main>
@@ -1490,7 +1440,9 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {secsLeft != null && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: secsLeft <= 20 })}
+        {/* Only surface the discussion clock in the final 10 seconds — a full-length
+            countdown just pressures the room the whole time. */}
+        {secsLeft != null && secsLeft <= 10 && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: true })}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">

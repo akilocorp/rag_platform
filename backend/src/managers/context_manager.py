@@ -1,7 +1,6 @@
 # @language  Python
-# @updated   2026-07-20
-# @changed   Store optional sender_role/sender_seat on messages so the Manager Exercise renders
-#            everyone (human + AI) by role name and hides which seats are AI. Prior: append_manager_message + grading/nudge helpers.
+# @updated   2026-08-03
+# @changed   add_message accepts an optional sender_uid, stamped on the message so the Manager Exercise client marks a viewer's OWN messages by stable id (not a drift-prone display name). Prior: optional sender_role/sender_seat for role-name rendering.
 from datetime import datetime
 from typing import List, Dict, Optional
 from flask import current_app
@@ -30,7 +29,7 @@ class ConversationContext:
         except Exception as e:
             current_app.logger.error(f"Failed to load group chat history for {self.room_id}: {e}")
 
-    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None):
+    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None, sender_uid: str = None):
         """Add message to in-memory history and persist to MongoDB.
 
         `sender` is the attribution key (uid, or "ai:<idx>" for an AI seat) — kept
@@ -53,6 +52,10 @@ class ConversationContext:
             message["sender_role"] = sender_role
         if sender_seat is not None:
             message["sender_seat"] = sender_seat
+        # Stable per-uid key so the client marks a viewer's OWN messages by id, not by
+        # a drift-prone display name. Only student posts carry it; ACTR posts pass None.
+        if sender_uid is not None:
+            message["sender_uid"] = sender_uid
 
         # Sliding window — trim oldest in memory if over limit
         if len(self.messages) >= self.MAX_MESSAGES_PER_ROOM:
