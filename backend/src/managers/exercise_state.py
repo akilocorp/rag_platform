@@ -1,6 +1,6 @@
 # @language  Python
-# @updated   2026-08-02
-# @changed   Premise splits the general_info doc into student narrative + a credits/attribution block (_student_scenario trims the structural appendix; _split_scenario_credits pulls the byline/timing/institution lines into `credits` for a tiny footer). Also: kiosk entry broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
+# @updated   2026-08-03
+# @changed   Added the CODIFY phase: a correct pick opens a terminal, chat-unlocked reflection (begin_codify → _run_codify_window → done) so the group codifies its reasoning with no ballot. Prior: premise splits the general_info doc into student narrative + a credits/attribution block; kiosk entry broadcasts the reveal payload so clients load the outcome live; forecast_text_for matches names case/space-insensitively.
 #            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
@@ -97,16 +97,23 @@ PHASE_CHOOSE = "choose"
 # moves on to the shared discussion once every seated student has pressed it.
 PHASE_KIOSK = "kiosk"
 PHASE_DISCUSS = "discuss"
+# A CORRECT first pick opens a terminal reflection instead of ending outright: the
+# group explains the reasoning behind the right hire and codifies the principles.
+# It is an open, facilitated chat like `discuss` but with NO ballot after — the timer
+# lapses straight to `done`.
+PHASE_CODIFY = "codify"
 PHASE_DONE = "done"
 
 # Ordered flow; used to fast-forward on rehydration. Hidden-profile M3: deliberation
 # comes BEFORE the vote now — students pool their role-sliced credentials in `discuss`,
-# then the ballot opens. A wrong pick loops back to `discuss` for round 2.
-PHASE_ORDER = [PHASE_WAITING, PHASE_DISCUSS, PHASE_CHOOSE, PHASE_KIOSK, PHASE_DONE]
+# then the ballot opens. A wrong pick loops back to `discuss` for round 2; a correct
+# pick opens `codify` (terminal reflection) before `done`.
+PHASE_ORDER = [PHASE_WAITING, PHASE_DISCUSS, PHASE_CHOOSE, PHASE_KIOSK, PHASE_CODIFY, PHASE_DONE]
 
-# Chat is unlocked ONLY during discuss. In `choose` the group speaks through the
-# ballot buttons, not the chat, so the pick is a single deliberate act.
-_UNLOCKED_PHASES = {PHASE_DISCUSS}
+# Chat is unlocked during discuss AND codify (both are open facilitated discussion).
+# In `choose` the group speaks through the ballot buttons, not the chat, so the pick
+# is a single deliberate act.
+_UNLOCKED_PHASES = {PHASE_DISCUSS, PHASE_CODIFY}
 
 # M7: the discuss clock is LAZY — it starts when discussion actually begins (the
 # first student message), NOT when the phase opens, so the per-student premise/card
@@ -179,6 +186,9 @@ class ExerciseState:
         self.capacity: int = cfg["capacity"]
         self.candidates: List[Dict] = cfg["candidates"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
+        # Codify (post-correct-pick reflection) runs for the same window as the main
+        # deliberation unless a distinct `codify_minutes` is configured.
+        self.codify_seconds: float = cfg["codify_seconds"]
         self.choose_seconds: float = cfg["choose_seconds"]
         self.final_call_seconds: float = cfg["final_call_seconds"]
 
@@ -226,6 +236,8 @@ class ExerciseState:
             "capacity": max(2, num or 2),
             "candidates": c.get("candidates") or [],
             "discuss_seconds": float(c.get("discuss_minutes") or 20) * 60.0,
+            # Codify reflection window; defaults to the discuss window when unset.
+            "codify_seconds": float(c.get("codify_minutes") or c.get("discuss_minutes") or 20) * 60.0,
             # M5: the `choose` ballot is timed. The main window runs `choose_seconds`;
             # when it lapses a short `final_call_seconds` window opens (the client
             # beeps) before the pick is force-resolved from whatever votes are in.
@@ -580,6 +592,10 @@ class ExerciseState:
                     self._socketio.start_background_task(self._prelude_grace_watch)
                 else:
                     self._resume_timed(PHASE_DISCUSS, self.begin_choose)
+            elif self._phase == PHASE_CODIFY:
+                # Codify's clock is armed on entry, so a rebuilt room just resumes it;
+                # when it lapses the exercise ends.
+                self._resume_timed(PHASE_CODIFY, self._enter_done)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -743,6 +759,34 @@ class ExerciseState:
             self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_DISCUSS:
                 self.begin_choose()
+
+    def begin_codify(self):
+        """Right pick → open the terminal CODIFY reflection (chat unlocked, no ballot).
+
+        The group made the correct hire; instead of ending outright, they now explain
+        the evidence and reasoning behind it and codify the principles. Unlike discuss,
+        the clock is armed immediately (there is no prelude to read) and its expiry
+        routes straight to `done` — there is no vote at the end.
+        """
+        with self._lock:
+            if self._phase != PHASE_KIOSK:
+                return
+            self._phase = PHASE_CODIFY
+            self.phase_deadline_ts = time.time() + self.codify_seconds
+            self._persist({"phase": PHASE_CODIFY, "phase_deadline_ts": self.phase_deadline_ts})
+
+        self._broadcast_phase()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "codify"})
+        self._run_hook("on_codify_start")
+        if self._socketio:
+            self._socketio.start_background_task(self._run_codify_window)
+
+    def _run_codify_window(self):
+        """Background timer for the codify reflection → end the exercise on expiry."""
+        with self._app.app_context():
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase == PHASE_CODIFY:
+                self._enter_done()
 
     def _enter_done(self):
         """Discuss expired → wrap up. No scorecard: this exercise is not graded."""
@@ -973,7 +1017,10 @@ class ExerciseState:
                 return
             self._kiosk_finishing = True
         self._run_hook("on_pick_resolved")
-        if self._pick_is_correct(self.chosen_candidate) or self.strikes >= 2:
+        if self._pick_is_correct(self.chosen_candidate):
+            # Right hire → open the terminal reflection so the group codifies WHY.
+            self.begin_codify()
+        elif self.strikes >= 2:
             self._enter_done()
         else:
             self.begin_next_round()

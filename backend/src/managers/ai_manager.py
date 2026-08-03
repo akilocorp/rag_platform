@@ -1,7 +1,6 @@
 # @language  Python
-# @updated   2026-08-02
-# @changed   facilitator_open_discussion is now round-aware: round 2 opens with a "first hire failed,
-#            choose from the remaining candidates" invitation instead of repeating the round-1 opener.
+# @updated   2026-08-03
+# @changed   Added facilitator_open_codify — ACTR's opener for the post-correct-pick CODIFY reflection (explain the reasoning, codify the principles, no vote). Prior: facilitator_open_discussion is round-aware (round 2 opens with a "first hire failed, choose from the remaining" invitation).
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 There are no AI players any more. The room is all real students; ACTR is one
@@ -202,6 +201,24 @@ def facilitator_call_vote(config):
     """ACTR's short nudge when the deliberation window closes and the ballot opens (M3)."""
     return (
         "Alright, time to lock it in. Cast your vote for the candidate your group wants to hire."
+    )
+
+
+def facilitator_open_codify(config, chosen_name=None):
+    """ACTR's opener for the CODIFY reflection after a CORRECT pick.
+
+    Not model-generated — a fixed prompt keeps the room able to open with no API key,
+    like the discussion opener. There is no decision to make here: the group already
+    chose right, so this asks them to make the REASONING explicit and codify the
+    principles, so the process transfers to the next hiring team.
+    """
+    who = (chosen_name or "").strip()
+    subject = f"hiring {who}" if who else "this hire"
+    return (
+        f"You landed on the right call. Before we close, let's codify it — walk through "
+        f"why {subject} was the strongest choice. What did each of you see in the evidence "
+        "that mattered, and what principles would you write down so the next team makes this "
+        "call as well? No vote this time — just make the thinking explicit."
     )
 
 

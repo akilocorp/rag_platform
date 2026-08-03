@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-02  @changed Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-03  @changed CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -522,7 +522,7 @@ const ManagerExercisePage = () => {
       kioskInitedRef.current = false;
     }
     // Chat is only unlocked during discuss (server is authoritative; this is cosmetic).
-    setChatLocked(s.phase !== 'discuss');
+    setChatLocked(!(s.phase === 'discuss' || s.phase === 'codify'));
   }, []);
 
   // 1. Fetch config + connect socket + wire every event.
@@ -627,7 +627,7 @@ const ManagerExercisePage = () => {
           setDeadlineTs(typeof p.phase_deadline_ts === 'number' ? p.phase_deadline_ts : null);
           if (p.phase) setPhase(p.phase);
           if (typeof p.round === 'number') setRoundNum(p.round);
-          setChatLocked(p.phase !== 'discuss');
+          setChatLocked(!(p.phase === 'discuss' || p.phase === 'codify'));
         });
 
         socket.on('chat_locked', (d) => {
@@ -1469,7 +1469,10 @@ const ManagerExercisePage = () => {
   }
 
   // -------------------------------------------------------------------------
-  // Phase: discuss (default render — pre-vote facilitated chat)
+  // Phase: discuss / codify (default render — the spacious facilitated chat).
+  // `codify` (post-correct-pick reflection) reuses this exact layout so it never
+  // drops to the cramped column of the choose/done screens; it just has no ballot
+  // section (ballotOpen is never true in codify) and a "Codify" countdown label.
   // -------------------------------------------------------------------------
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -1487,7 +1490,7 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {secsLeft != null && CountdownChip({ label: 'Discuss', urgent: secsLeft <= 20 })}
+        {secsLeft != null && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: secsLeft <= 20 })}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
@@ -1496,9 +1499,13 @@ const ManagerExercisePage = () => {
             <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6 text-[#1F1F1F]">
               <FaUsers className="text-4xl" />
             </div>
-            <h2 className="text-2xl font-bold text-[#222] mb-2">The floor is open</h2>
+            <h2 className="text-2xl font-bold text-[#222] mb-2">
+              {phase === 'codify' ? 'Codify your decision' : 'The floor is open'}
+            </h2>
             <p className="text-gray-500 text-center max-w-sm">
-              Talk it through with your group. ACTR will step in when it's useful.
+              {phase === 'codify'
+                ? 'You made the right hire — walk through why, and name the principles worth keeping. ACTR will guide it.'
+                : 'Talk it through with your group. ACTR will step in when it\'s useful.'}
             </p>
           </div>
         )}

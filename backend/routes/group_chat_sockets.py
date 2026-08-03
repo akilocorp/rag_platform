@@ -1,6 +1,6 @@
 # @language  Python
-# @updated   2026-08-02
-# @changed   get_history trusts the client-provided uid (refreshing sid_to_uid) so a reconnect reseeds the roster + resends the snapshot — fixes the kiosk "0 of N ready" strand. Also: on_pick_resolved posts the outcome document SYNCHRONOUSLY so it always precedes the round-2 opener (was a backgrounded task that raced it); only the strike-two AI answer-reveal (_reveal_answer) stays backgrounded.
+# @updated   2026-08-03
+# @changed   Registered the on_codify_start hook — a correct pick opens the terminal CODIFY reflection (ACTR posts facilitator_open_codify). Prior: get_history trusts the client-provided uid (fixes the kiosk "0 of N ready" strand); on_pick_resolved posts the outcome document synchronously so it precedes the round-2 opener.
 #            Prior: on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed); M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M3 pre-vote flow; reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
@@ -167,6 +167,11 @@ def register_socket_events(socketio, app):
             if st.strikes >= 2 and st.revealed_candidate:
                 socketio.start_background_task(_reveal_answer, st.room_id)
 
+        def on_codify_start(st):
+            """Correct pick → open the terminal CODIFY reflection: ACTR invites the group
+            to make their (correct) reasoning explicit and codify the principles."""
+            _post_facilitator(st, ai_manager.facilitator_open_codify(me_config, st.chosen_candidate))
+
         def on_wrapup(st):
             """Exercise reached `done` → ACTR's closing ask + the M8 scorecard."""
             socketio.start_background_task(_wrapup, st.room_id)
@@ -175,6 +180,7 @@ def register_socket_events(socketio, app):
             "on_discuss_start": on_discuss_start,
             "on_choose_start": on_choose_start,
             "on_pick_resolved": on_pick_resolved,
+            "on_codify_start": on_codify_start,
             "on_wrapup": on_wrapup,
         }
 
