@@ -14,43 +14,65 @@ Each Space Type has its own results view, reached from the assistant's card.
 
 ![The responses page](/guide-media/responses-page.png)
 
-Opens on the **analytics** tab:
+The header shows the assistant's name and a count like *"5 sessions · 1 identified
+student"*, with **Export CSV** on the right. Two tabs: **Analytics** and **Sessions**.
 
-- **Class Overview** — participation and volume across the cohort.
-- **Top Performers**
-- **All Students** — per-student breakdown.
+### Analytics — you run it, it isn't automatic
 
-The **Sessions** tab lists individual conversations. Open one to read the full transcript
-exactly as the student saw it.
+The Analytics tab opens on a **New Analysis** card, not on a finished report. Scoring
+happens when you ask for it:
 
-You can **download a CSV** for your own analysis.
+1. Optionally pick a **quick template** — *HR Interview, Participation, Critical Thinking,
+   Sales & Negotiation, Presentation Skills,* or *Socratic Dialogue*.
+2. Optionally add **Grading criteria** — *"Describe how you want the AI to evaluate
+   students…"*
+3. Click **Generate Analysis**. It takes roughly 8–15 seconds for a handful of sessions.
+
+You get a score per student plus a class summary, shaped by whatever criteria you gave it.
+Run it again with different criteria whenever you want a different lens.
+
+### Sessions
+
+Lists the individual conversations. Open one to read the full transcript exactly as the
+student saw it.
+
+**Export CSV** gives you the raw data for your own analysis.
 
 ## Video Analysis — Dashboard
 
 ![The video dashboard](/guide-media/video-dashboard.png)
 
-The richest of the three.
+The richest of the three. It opens with the submission count and a **Delivery View**
+button.
 
-**Across the class:**
+**At the top** — your **Upload link** and **Invite link**, each with a **Copy** button.
+These are what you send students.
 
-- Average score on the **first 8 seconds** — the opening is where most pitches are won or
-  lost, so it's tracked separately.
-- **Content Checks (Class Avg)** — how many students hit each of your checks.
-- **Common Strengths** and **Common Weaknesses**, including a plain statement of which box
-  is the lowest-scoring for the most students. That line is usually your next lecture.
+**Class averages per scoring box** — one card per box you defined, showing the class
+average and how many students fell into each band: *Excellent / Strong / Developing /
+Weak*. So a box reading `Passion 63 · Excellent 0 · Strong 1 · Developing 2` tells you at a
+glance that nobody excelled and most are mid.
 
-**Per student:** a table with their score, strengths, areas to improve, and
-**Open full results →** for the complete breakdown — every scoring box with its /10 and its
-written rationale, the body-language analysis, and the full transcript.
+**Content Checks (Class Avg)** — each check you defined with its class average out of 10.
+A check sitting at 4.0 while the rest are near 8 is the one your briefing didn't land.
 
-**Also here:**
+**A plain-language callout** naming the weakest area:
 
-- **Export PDF** for the whole class.
-- **Past Analyses** — previous runs are kept.
-- A free-text box: describe something else you want evaluated, and every student card
-  updates against that question. Useful when a pattern occurs to you after the fact.
-- **Rescore** — re-grade existing submissions after you've edited the rubric. Rubric edits
-  otherwise apply only to new submissions.
+> Most common weakness: Pace, Timing & Fluency is the lowest-scoring box for the most
+> students.
+
+That sentence is usually your next lecture.
+
+**Class Analytics** — average speaking pace in words per minute, and average filler-word
+percentage.
+
+**A per-student table** — one row per student with their score in each box and an
+**Overall**. Note this table shows student names and email addresses, so take care if
+you're screen-sharing it in class.
+
+**AI Grading Analysis** at the bottom — a free-text box (*"Describe what you want the AI to
+evaluate"*) and a **Run Analysis** button. The results update the student cards above.
+Useful when a pattern occurs to you after the fact.
 
 There's also a **compare** view at `/video/compare/<id>` for putting submissions
 side by side.

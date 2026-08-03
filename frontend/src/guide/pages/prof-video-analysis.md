@@ -93,16 +93,17 @@ while they wait. They get a private results link by email.
 
 On **`/video-dashboard/:id`** — reachable via **Open Dashboard** on the card:
 
-- The class average for the critical **first 8 seconds**
+- Your **Upload link** and **Invite link**, ready to copy
+- A card per scoring box with the class average and an *Excellent / Strong / Developing /
+  Weak* split
 - **Content Checks (Class Avg)** across the cohort
-- **Common Strengths** and **Common Weaknesses**, including which box is the
-  lowest-scoring for the most students
-- A per-student table with strengths, areas to improve, and a link to each full result
-- **Export PDF**
-- A free-text box to re-analyse everything against a new question, which updates the
-  student cards in place
+- A callout naming the box that is lowest-scoring for the most students
+- **Class Analytics** — average speaking pace and filler-word rate
+- A per-student table with each student's score in every box, plus an overall
+- **AI Grading Analysis** — a free-text box and **Run Analysis**, to re-evaluate everything
+  against a new question
 
 More in [Read the results](/userguide/prof-results).
 
-> **Changing the rubric later** affects new submissions only. To re-grade videos already
-> submitted, use **Rescore** on the dashboard.
+> **Changing the rubric later** applies to new submissions. To re-evaluate what's already
+> in, use **Run Analysis** at the bottom of the dashboard.

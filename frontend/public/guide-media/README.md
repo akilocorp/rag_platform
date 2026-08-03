@@ -1,6 +1,9 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed New file: screenshot drop-zone and capture checklist for /userguide. -->
+<!-- @language Markdown  @updated 2026-08-03  @changed Marked the 19 captured shots; listed the 5 outstanding with what each still needs. -->
 
 # Guide screenshots
+
+**Status: 19 of 24 captured.** The five outstanding ones are listed at the bottom — each
+needs either a different login or data that doesn't exist yet on the dev site.
 
 Drop PNGs here using the exact filenames below. They're served straight from
 `/guide-media/<name>.png` — no build step, no imports, no code change needed. Add a file
@@ -41,3 +44,15 @@ panel rather than the whole desktop.
 | `video-results.png` | A student results page with dimension cards |
 | `shock-world-player.png` | A Shock World question with the "Why?" input open |
 | `me-student-lobby.png` | The breakout group picker with occupancy counts |
+
+## Still outstanding (5)
+
+| File | What it still needs |
+|---|---|
+| `student-dashboard.png` | A **student** login — the dev captures were all done from a professor account |
+| `video-results.png` | The dashboard has no per-student results link until an analysis has been run; needs one scored submission opened from a student's own results email |
+| `me-review-case.png` | Three case documents uploaded and **Analyse the case** run — that writes to the database and costs an LLM call, so it was left alone |
+| `experiential-dashboard.png` | No Experiential Lab exists on the account yet (the shared list has 0 "Open Sessions" spaces) |
+| `shock-world-player.png` | Same — needs a published Shock World lab and a live tutor session |
+
+Until these land, those four pages show the dashed placeholder, which is harmless.
