@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-04  @changed Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-04  @changed Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -430,6 +430,11 @@ const ManagerExercisePage = () => {
   // `kioskAcked/Total` drive the "waiting for your group" line; `forecastText` is
   // the chosen candidate's outcome, shown to each student after their time-skip.
   const [kioskStage, setKioskStage] = useState('gate'); // gate|timeskip|reveal
+  // Latch: once THIS client presses Continue, keep rendering its local kiosk
+  // walkthrough (time-skip clock → outcome reveal) even after the server advances
+  // the phase. In a solo room the phase jumps to 'debrief' the instant you press
+  // Continue, which would otherwise skip the "6 months later" clock entirely.
+  const [inKioskWalkthrough, setInKioskWalkthrough] = useState(false);
   const [kioskAcked, setKioskAcked] = useState(0);
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
@@ -910,7 +915,20 @@ const ManagerExercisePage = () => {
     socketRef.current?.emit('continue_ack', { room_id: roomId, uid: userIdRef.current });
     setYouContinued(true);
     setKioskStage('timeskip');
+    setInKioskWalkthrough(true);
   };
+
+  // Release the kiosk latch once this client is on its outcome reveal AND either
+  // the whole room has continued or the server has already moved past kiosk — a
+  // short beat on "opening the discussion…", then the view falls through to the
+  // debrief chat. Without the latch a solo room skips straight past the time-skip.
+  useEffect(() => {
+    if (!inKioskWalkthrough || kioskStage !== 'reveal') return;
+    const everyoneReady = kioskTotal > 0 && kioskAcked >= kioskTotal;
+    if (!everyoneReady && phase === 'kiosk') return;
+    const t = setTimeout(() => setInKioskWalkthrough(false), 1500);
+    return () => clearTimeout(t);
+  }, [inKioskWalkthrough, kioskStage, kioskAcked, kioskTotal, phase]);
 
   const secsLeft = remaining == null ? null : Math.max(0, remaining);
 
@@ -1330,7 +1348,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   // Phase: kiosk (M6 — instructor-paced gate → time-skip → per-student outcome)
   // -------------------------------------------------------------------------
-  if (phase === 'kiosk') {
+  if (phase === 'kiosk' || inKioskWalkthrough) {
     if (kioskStage === 'timeskip') {
       return <TimeSkipAnimation onDone={() => setKioskStage('reveal')} />;
     }
