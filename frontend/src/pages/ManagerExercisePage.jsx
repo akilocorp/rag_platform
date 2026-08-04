@@ -176,6 +176,53 @@ const KioskGate = ({ onContinue }) => (
   </div>
 );
 
+// M10: the `case` alternative to the card deck. The student reads their own role's
+// uploaded packet as a continuous case document rather than as filtered bullets.
+// Reuses `parseBrief` and the premise screen's document styling so the two things a
+// student reads in round 0 look like one case, not two products.
+const RoleCaseDocument = ({ role, text, onContinue }) => {
+  const blocks = parseBrief(text);
+  const firstBodyIdx = blocks.findIndex((b) => !b.heading);
+  return (
+    <div className="min-h-screen flex flex-col items-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
+      <div className="max-w-2xl mx-auto w-full">
+        <div className="text-center mb-8">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your case</p>
+          <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
+            What you know as the <span className="text-[#FA6C43]">{roleLabel(role)}</span> Manager
+          </h2>
+          <p className="text-sm text-gray-500">
+            This is yours alone. Your teammates are reading something different.
+          </p>
+        </div>
+
+        <div className="rounded-3xl bg-white border border-gray-200 shadow-sm p-8 sm:p-10 text-left mb-8">
+          {blocks.map((b, i) => (
+            b.heading ? (
+              <p key={i} className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#C2410C] mt-7 first:mt-0 mb-2.5">{b.text}</p>
+            ) : (
+              <p
+                key={i}
+                className={`text-[17px] leading-[1.75] text-[#1F1F1F]/85 mb-4 last:mb-0 ${i === firstBodyIdx ? 'first-letter:float-left first-letter:text-[2.9rem] first-letter:leading-[0.7] first-letter:pr-2 first-letter:mt-1 first-letter:font-semibold first-letter:text-[#FA6C43]' : ''}`}
+                style={{ fontFamily: "'Newsreader', serif" }}
+              >{b.text}</p>
+            )
+          ))}
+        </div>
+
+        <div className="text-center">
+          <button
+            onClick={onContinue}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95"
+          >
+            I've read it →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // M9: the round-0 interstitials — a deliberate full-screen stop that names what the
 // student is about to do before they do it. Same shape as KioskGate (icon tile,
 // headline, one line of body, one action), so the three pauses in the exercise read
@@ -406,6 +453,11 @@ const ManagerExercisePage = () => {
   const [soloTotal, setSoloTotal] = useState(0);
   const [yourRole, setYourRole] = useState(null);
   const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
+  // M10: 'cards' (filtered deck) or 'case' (this role's uploaded packet as a
+  // document). `yourCase` is '' when the professor authored no packet for this
+  // role, which is what makes the cards fallback possible.
+  const [studentView, setStudentView] = useState('cards');
+  const [yourCase, setYourCase] = useState('');
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
   const soloInitedRef = useRef(false);
@@ -526,6 +578,9 @@ const ManagerExercisePage = () => {
     // sends name-only candidate lists, can't wipe the credentials.
     if (s.your_role !== undefined) setYourRole(s.your_role);
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
+    // M10: cards vs case, and this viewer's OWN packet (never another role's).
+    if (typeof s.student_view === 'string') setStudentView(s.student_view);
+    if (typeof s.your_case === 'string') setYourCase(s.your_case);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
     // M9 round 0. `your_solo_vote` is this viewer's own pick and the only one they
@@ -1516,7 +1571,13 @@ const ManagerExercisePage = () => {
     );
   }
 
+  // M10: the professor chooses how this material is read. `case` falls back to the
+  // deck when the student's role has no packet uploaded, so switching the toggle on
+  // a config whose packets aren't in yet degrades instead of showing a blank page.
   if (phase === 'solo' && soloStage === 'cards') {
+    if (studentView === 'case' && yourCase.trim()) {
+      return <RoleCaseDocument role={yourRole} text={yourCase} onContinue={finishPremiseIntro} />;
+    }
     return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} />;
   }
 

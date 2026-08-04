@@ -214,6 +214,42 @@ def validate_manager_exercise(source, target):
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
 
+    # M10: how a student reads their own confidential material in round 0.
+    #   'cards' — the extracted per-role strengths/concerns as a card deck (default,
+    #             and what every config built before this field did).
+    #   'case'  — the role's own uploaded packet, read as a case document.
+    # Unknown values fall back to 'cards' rather than erroring: this is a display
+    # choice, and a bad value should not stop a class running.
+    student_view = raw.get('student_view')
+    if student_view not in ('cards', 'case'):
+        student_view = 'cards'
+
+    # M10: the per-role packets — one case document per confidential role, which is
+    # what a student holding that role reads in `case` mode. Optional: a config with
+    # none simply shows cards (see `ExerciseState.case_for`), so this never breaks an
+    # existing exercise. Roles are matched to `case_pack.roles` case-insensitively at
+    # runtime, so casing drift between an upload and the extraction can't blank a
+    # student's screen.
+    role_packets = []
+    seen_roles = set()
+    for p in (raw.get('role_packets') or []):
+        if not isinstance(p, dict):
+            continue
+        role = (p.get('role') or '').strip()
+        text = p.get('text')
+        if not role or not isinstance(text, str) or not text.strip():
+            continue
+        key = role.casefold()
+        if key in seen_roles:
+            return jsonify({"error": f"duplicate role packet for '{role}'"}), 400
+        seen_roles.add(key)
+        file_id = p.get('file_id')
+        role_packets.append({
+            "role": role,
+            "text": text,
+            "file_id": file_id.strip() if isinstance(file_id, str) else "",
+        })
+
     # M9: two or more. This used to demand EXACTLY 3, because the old two-strike
     # flow spent one candidate per wrong pick and revealed the third. There is one
     # group decision now, so nothing depends on the count — and the old rule failed
@@ -272,6 +308,8 @@ def validate_manager_exercise(source, target):
         "choose_minutes": choose_minutes,
         "final_call_seconds": final_call_seconds,
         "debrief_minutes": debrief_minutes,
+        "student_view": student_view,
+        "role_packets": role_packets,
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),

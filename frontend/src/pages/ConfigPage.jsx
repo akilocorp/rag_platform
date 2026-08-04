@@ -202,6 +202,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
       general_info: { file_id: '', text: '' },        // AI-only, optional; what the ROLE requires
       candidate_summary: { file_id: '', text: '' },   // AI-only; the tally derives from this
       candidates: [],                                 // { name, forecast_text, forecast_file_id }
+      student_view: 'cards',                          // how round 0 reads: 'cards' | 'case'
+      role_packets: [],                               // { role, text, file_id } — one per role, 'case' mode
       case_pack: null                                 // derived + reviewed in step 4
     }
   });
@@ -487,6 +489,37 @@ const ConfigModal = ({ isOpen, onClose }) => {
         case_pack: null,
       },
     }));
+  };
+
+  // M10: upload one ROLE's confidential packet — the case document a student holding
+  // that role reads when the exercise is set to "case" mode. The role name is parsed
+  // from the doc header (same helper as the outcome upload) and stays editable,
+  // because it has to match the role the case pack assigns or the student's screen
+  // falls back to cards.
+  const handleRolePacketUpload = async (file) => {
+    if (!file) return;
+    const data = await uploadCaseDoc(file);
+    if (!data) return;
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        role_packets: [
+          ...(prev.manager_exercise.role_packets || []),
+          { role: data.role_name || '', text: data.doc_text || '', file_id: data.file_id || '' },
+        ],
+      },
+    }));
+  };
+
+  const setRolePacketRole = (index, role) => {
+    const role_packets = [...(config.manager_exercise.role_packets || [])];
+    role_packets[index] = { ...role_packets[index], role };
+    setMgr('role_packets', role_packets);
+  };
+
+  const removeRolePacket = (index) => {
+    setMgr('role_packets', (config.manager_exercise.role_packets || []).filter((_, i) => i !== index));
   };
 
   const setCandidateName = (index, name) => {
@@ -1141,6 +1174,55 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <FaPlus className="mr-2" /> Add a candidate outcome
                       <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
                     </label>
+                  </div>
+
+                  {/* M10: how a student reads their own confidential material, and the
+                      per-role packets that make the `case` option possible. */}
+                  <div className="pt-2 border-t border-gray-100">
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> What each student reads</h3>
+                    <div className="grid sm:grid-cols-2 gap-2 mb-3">
+                      {[
+                        { key: 'cards', title: 'Filtered cards', hint: "A card per candidate showing that role's strengths and concerns, pulled out of the Candidate Summary. Nothing extra to upload." },
+                        { key: 'case', title: 'Their own case', hint: 'Each role reads the full packet you upload below, as a case document. Closer to running it on paper.' },
+                      ].map((opt) => {
+                        const active = (config.manager_exercise.student_view || 'cards') === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setMgr('student_view', opt.key)}
+                            className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                              active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
+                            }`}
+                          >
+                            <span className="block text-sm font-bold text-[#222] mb-1">{opt.title}</span>
+                            <span className="block text-[11px] leading-snug text-gray-500">{opt.hint}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {(config.manager_exercise.student_view || 'cards') === 'case' && (
+                      <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                        <p className="text-[11px] text-gray-400 mb-3">
+                          One packet per confidential role. The role name is read from the document header —
+                          it must match the role in the case pack, or that student falls back to cards.
+                        </p>
+                        <div className="space-y-2 mb-3">
+                          {(config.manager_exercise.role_packets || []).map((p, idx) => (
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                              <input type="text" value={p.role} onChange={(e) => setRolePacketRole(idx, e.target.value)} placeholder="Role (e.g. Logistics)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                              <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(p.text || '').trim().length.toLocaleString()} chars</span>
+                              <button type="button" onClick={() => removeRolePacket(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                            </div>
+                          ))}
+                        </div>
+                        <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                          <FaPlus className="mr-2" /> Add a role packet
+                          <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleRolePacketUpload(e.target.files?.[0])} />
+                        </label>
+                      </div>
+                    )}
                   </div>
 
                   {mgrUploading && <p className="text-xs font-medium text-gray-500">Uploading…</p>}

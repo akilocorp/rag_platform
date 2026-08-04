@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-08-04  @changed Documented the three-round flow (private pick, unfacilitated group decision, facilitated debrief), the two timing windows, the cards-vs-case student view toggle and role packets, and the removal of grading. Prior: humanizer copy pass, trimmed em dashes and AI-isms. -->
 
 # Create a Manager Exercise
 
@@ -83,6 +83,26 @@ These documents go to the AI only and are **never shown to a student**.
 > Replacing any document clears the analysis on the next step, so the answer key can never
 > describe files that are no longer loaded. Get the documents right before you analyse.
 
+### What each student reads
+
+Two ways to give a student their confidential half of the case. Pick one here.
+
+- **Filtered cards** (default) — a card per candidate showing just that role's strengths and
+  concerns, pulled out of the Candidate Summary automatically. Nothing extra to upload, and
+  it's what every exercise built before this option did.
+- **Their own case** — each role reads the full packet you upload, as a case document.
+  Closer to running the exercise on paper, and the student sees your wording rather than an
+  extraction of it.
+
+Choosing **Their own case** reveals **Add a role packet**. Upload one document per
+confidential role. The role name is read from the document header and stays editable, and it
+has to match the role the case pack assigns (matching ignores case and spacing). If a role
+has no packet, that student quietly gets cards instead, so turning this on before the
+uploads are in never leaves anyone staring at a blank screen.
+
+A student only ever receives their **own** role's packet. The others are never sent to their
+browser.
+
 ## Step 4 — "Review the case"
 
 ![Reviewing the case](/guide-media/me-review-case.png)
@@ -129,8 +149,9 @@ then as a group, and only then do they meet the facilitator.
    Group 2…*, `2 / 3`). No queue.
 2. **Waiting** — *"2 of 3 here. Start whenever your team is ready."* Anyone can press
    **Start with 2 people**.
-3. **The case** — the shared narrative, then their own **private credential cards**. This
-   is the hidden profile: each student sees a different slice.
+3. **The case** — the shared narrative, then their own confidential material: either the
+   **credential cards** or **their own case document**, depending on what you chose in step
+   3. This is the hidden profile: each student sees a different slice.
 4. **Round 0 — the private decision.** *"First, decide on your own."* Each student picks a
    candidate before speaking to anybody. **Nobody ever sees anyone else's private pick** —
    not the other students, not you, not the facilitator (it is told the anonymous spread,

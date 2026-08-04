@@ -391,6 +391,32 @@ class ExerciseState:
         scenario, credits = _split_scenario_credits(_student_scenario(text.strip()))
         return {"scenario": scenario, "credits": credits}
 
+    def student_view(self) -> str:
+        """How students read their confidential material: 'cards' or 'case' (M10).
+
+        Anything unrecognised (including a config saved before the field existed)
+        reads as 'cards', which is what those configs already did.
+        """
+        return "case" if (self.config.get("student_view") == "case") else "cards"
+
+    def case_for(self, uid: str) -> str:
+        """This student's OWN role packet as a case document ("" if none) (M10).
+
+        The `case` counterpart to `credentials_for`, and it carries the same
+        confidentiality rule: only the viewer's own role's packet is ever returned,
+        never another role's. Matching is case/space-insensitive because the packet's
+        role is typed by the professor while the student's role comes from the case
+        pack extraction, and a casing difference between the two would otherwise
+        blank the screen of everyone holding that role.
+        """
+        role = (self.role_for(uid) or "").strip().casefold()
+        if not role:
+            return ""
+        for p in (self.config.get("role_packets") or []):
+            if (p.get("role") or "").strip().casefold() == role:
+                return p.get("text") or ""
+        return ""
+
     def credentials_for(self, uid: str) -> List[Dict]:
         """This student's confidential slice of every candidate's credentials.
 
@@ -479,6 +505,12 @@ class ExerciseState:
                 # M2: this viewer's role-sliced credential cards (own packet only —
                 # never other roles' slices, never the distinct-count answer key).
                 "your_credentials": self.credentials_for(uid),
+                # M10: how this room presents that material, plus the viewer's OWN
+                # role packet when one is authored. Sent alongside the cards rather
+                # than instead of them, so the client can fall back to the deck when
+                # a role has no packet without another round trip.
+                "student_view": self.student_view(),
+                "your_case": self.case_for(uid),
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
                 "can_start": self.can_start(),
