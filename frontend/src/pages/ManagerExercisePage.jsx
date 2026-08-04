@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-04  @changed M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-04  @changed Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -1068,8 +1068,20 @@ const ManagerExercisePage = () => {
 
   // One transcript entry. Three kinds: the outcome document (a report card), an
   // ACTR turn (accented, never right-aligned), and a student turn.
-  const Transcript = () => (
+  const Transcript = () => {
+    // After round 1 the "six months later" outcome lives only on the transient
+    // kiosk reveal screen, which is replaced the instant the room drops into the
+    // round-2 debrief (in a solo room that happens the moment you press Continue).
+    // Pin it to the top of the debrief chat so it's always visible while the group
+    // discusses "what happened". `forecastText` is only set post-vote (via
+    // kiosk_update), so this never shows during the round-1 discussion. Skip it
+    // when the server already posted the 📊 outcome card, to avoid a duplicate.
+    const hasOutcomeMsg = messages.some((m) => (m.sender || '').startsWith(OUTCOME_PREFIX));
+    return (
     <div className="w-full space-y-6 pb-4">
+      {forecastText && !hasOutcomeMsg && (
+        <OutcomeCard title={`${chosenCandidate || 'Your hire'} — Outcome`} text={forecastText} />
+      )}
       {messages.map((msg, i) => {
         const sender = msg.sender || '';
         if (sender.startsWith(OUTCOME_PREFIX)) {
@@ -1116,7 +1128,8 @@ const ManagerExercisePage = () => {
       })}
       <div ref={messagesEndRef} />
     </div>
-  );
+    );
+  };
 
   // -------------------------------------------------------------------------
   // Phase: loading
