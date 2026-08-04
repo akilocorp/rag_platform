@@ -6,6 +6,12 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
+
+// The bot avatar and the introduction message dress a 1:1 conversation: an icon that
+// sits beside the bot's replies and a line it opens with. Nothing else has either of
+// those surfaces — a group chat, a video assignment, a lab and the manager exercise
+// each open on their own framing — so both fields are chat-only.
+const isChatLike = (t) => t === 'chat' || t === 'avatar';
 import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
@@ -821,8 +827,8 @@ const EditConfigPage = () => {
               )}
             </div>
 
-            {/* Avatar Selection Based on Type */}
-            <div className={`pt-2 ${(config.bot_type === 'audio_call' || config.bot_type === 'video_analysis') ? 'hidden' : ''}`}>
+            {/* Avatar Selection Based on Type — chat-only (see isChatLike). */}
+            <div className={`pt-2 ${isChatLike(config.bot_type) ? '' : 'hidden'}`}>
                 {config.bot_type === 'avatar' ? (
                     <>
                       <label className="block text-[13px] font-semibold text-gray-700 mb-2">Video Avatar</label>
@@ -842,27 +848,24 @@ const EditConfigPage = () => {
                     <AvatarSelector
                         selectedAvatar={config.bot_avatar}
                         onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
-                        label={config.bot_type === 'group_chat' ? 'Lobby / Space Icon' : 'Bot Avatar'}
-                        hint={
-                          config.bot_type === 'group_chat'
-                            ? 'Shown in your list and at the top of this group space.'
-                            : undefined
-                        }
+                        label="Bot Avatar"
                     />
                 )}
             </div>
 
-            {/* Introduction */}
-            <div>
-              <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction <span className="text-gray-400 font-normal ml-1">(Optional)</span></label>
-              <textarea
-                name="introduction"
-                value={config.introduction || ''}
-                onChange={handleChange}
-                rows="2"
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
-              />
-            </div>
+            {/* Introduction — chat-only, same reasoning as the avatar. */}
+            {isChatLike(config.bot_type) && (
+              <div>
+                <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction <span className="text-gray-400 font-normal ml-1">(Optional)</span></label>
+                <textarea
+                  name="introduction"
+                  value={config.introduction || ''}
+                  onChange={handleChange}
+                  rows="2"
+                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
+                />
+              </div>
+            )}
 
             {/* Public Access Toggle */}
             <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">

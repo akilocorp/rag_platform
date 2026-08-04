@@ -7,6 +7,12 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt, FaShareAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
+
+// The bot avatar and the introduction message dress a 1:1 conversation: an icon that
+// sits beside the bot's replies and a line it opens with. Nothing else has either of
+// those surfaces — a group chat, a video assignment, a lab and the manager exercise
+// each open on their own framing — so both fields are chat-only.
+const isChatLike = (t) => t === 'chat' || t === 'avatar';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
@@ -910,16 +916,6 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                {config.bot_type === 'group_chat' && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <AvatarSelector
-                      selectedAvatar={config.bot_avatar}
-                      onSelect={(avatarId) => setConfig((prev) => ({ ...prev, bot_avatar: avatarId }))}
-                      label="Lobby / Space Icon"
-                      hint="Shown in your agent list and at the top of this group space."
-                    />
-                  </div>
-                )}
               </div>
             )}
 
@@ -1702,7 +1698,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                {config.bot_type !== 'group_chat' && config.bot_type !== 'audio_call' && config.bot_type !== 'video_analysis' && (
+                {isChatLike(config.bot_type) && (
                   <div>
                     <label className="block text-[13px] font-semibold text-gray-700 mb-2">
                       {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}
@@ -1723,10 +1719,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction Message</label>
-                  <textarea name="introduction" value={config.introduction} onChange={handleChange} rows="2" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]" placeholder="e.g., Welcome to the class!" />
-                </div>
+                {isChatLike(config.bot_type) && (
+                  <div>
+                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction Message</label>
+                    <textarea name="introduction" value={config.introduction} onChange={handleChange} rows="2" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]" placeholder="e.g., Welcome to the class!" />
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-[13px] font-semibold text-gray-700 mb-2">Access Permissions</label>
