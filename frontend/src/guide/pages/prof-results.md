@@ -94,12 +94,15 @@ Empty list? *"No one has run this lab yet."*
 
 ## Manager Exercise
 
-Grades are broadcast to each group as a scorecard when their session completes:
+**Nothing is graded and there is no results dashboard for this one.** The exercise ends on
+the facilitated debrief, and that conversation is the assessment — it belongs to the room,
+not to a scorecard.
 
-- **Group outcome** — right first time, recovered in round 2, or neither.
-- **Per-student participation** — whether each student took part, per round.
-- **Per-student communication** — only if you set a grading rubric under
-  **Customize → Grading rubric** (Advanced mode).
+Each student's end screen shows their **own** private round-0 pick beside what their group
+hired. Nobody else's private pick is shown to anyone, including you.
+
+If you want to see how a group reasoned, sit in on the debrief or ask them to hand in the
+rule they wrote at the end of it.
 
 ## A note on what's stored
 

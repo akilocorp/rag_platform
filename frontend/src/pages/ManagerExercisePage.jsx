@@ -1,21 +1,21 @@
-/* @language JSX  @updated 2026-08-03  @changed Discussion clock is visible the whole window again; a 1s beep only fires in the final 10 seconds (playBeep extracted, reused by the choose final-call). Prior: new prelude stage — after the cards, each student makes a PRIVATE individual pick (premiseStage 'decide') before round-1 discussion. Prior: own messages marked by sender_uid (fixes own text rendering as another person); discussion countdown only shows in the final 10s; grading scorecard removed. Prior: CODIFY phase reuses the spacious discuss chat (unlocked, "Codify" label, no ballot) so a correct pick opens a roomy reflection instead of the cramped, locked done screen. Prior: reset clears the room's premise-seen flags deterministically (resetBreakout + room_reset) so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-04  @changed M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
-// Hidden-profile flow (M3+): each student holds a different role's slice of the
-// candidates' credentials and the group decides IN-APP, deliberating before it votes:
+// Hidden-profile flow (M9): each student holds a different role's slice of the
+// candidates' credentials, and the exercise runs in three rounds:
 //   loading → local-only, before the lobby has loaded
 //   lobby   → pick a breakout room (Group 1..N) with live occupancy
 //   waiting → in a room; start whenever the team is ready, full or not
-//   discuss → PRE-VOTE. Round 1 opens with a client-local prelude (premise brief →
-//             role-sliced credential cards → a PRIVATE individual pick), then the
-//             facilitated chat where the group pools what they each saw. ACTR stays
-//             silent in round 1; it facilitates from round 2 on. Round 2 skips the
-//             prelude.
+//   solo    → ROUND 0. A client-local walkthrough: premise brief → role-sliced
+//             credential cards → "decide alone" notice → private ballot → "now as
+//             a group" handoff. Nobody sees anyone else's pick, ever.
+//   discuss → ROUND 1. The group's own deliberation. NO FACILITATOR — ACTR is not
+//             invoked at all until round 2 (server-side, `facilitator_active`).
 //   choose  → the timed ballot; the vote clock only starts here, after deliberation
 //   kiosk   → each student presses Continue → time-skip → the pick's outcome reveal
-//   codify  → after a CORRECT pick: a terminal, chat-open reflection (no vote).
-//   done    → two wrong picks, or after codify. (No grading.)
+//   debrief → ROUND 2. ACTR joins for the first and only time. No second ballot.
+//   done    → the session is over. Not graded.
 //
 // Countdowns derive from the server's `phase_deadline_ts` corrected against
 // `server_now_ts` (clock-skew safe), so a refresh / reconnect stays accurate.
@@ -176,6 +176,28 @@ const KioskGate = ({ onContinue }) => (
   </div>
 );
 
+// M9: the round-0 interstitials — a deliberate full-screen stop that names what the
+// student is about to do before they do it. Same shape as KioskGate (icon tile,
+// headline, one line of body, one action), so the three pauses in the exercise read
+// as the same kind of moment. `action` is omitted on the handoff screen, where the
+// room is waiting on other people rather than on this student.
+const NoticeScreen = ({ icon, eyebrow, title, body, action, onAction, footer }) => (
+  <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="max-w-md">
+      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center text-2xl text-[#FA6C43]">{icon}</div>
+      {eyebrow && <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">{eyebrow}</p>}
+      <h1 className="text-2xl font-extrabold mb-3">{title}</h1>
+      <p className="text-gray-500 mb-8 leading-relaxed">{body}</p>
+      {action && (
+        <button onClick={onAction} className="rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-10 py-4 shadow-lg transition-all active:scale-[0.97]">
+          {action}
+        </button>
+      )}
+      {footer}
+    </div>
+  </div>
+);
+
 // M4: one labelled group of credential lines on a candidate card. `tone` colours the
 // marker — strengths read positive, concerns cautionary, "also noted" neutral. Renders
 // nothing when the list is empty so a card only shows the sections it actually has.
@@ -256,7 +278,7 @@ const CandidateDeck = ({ role, credentials, onContinue }) => {
             onClick={onContinue}
             className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95"
           >
-            Continue →
+            Continue to discussion →
           </button>
           {credentials.length > 0 && seen.size < credentials.length && (
             <p className="mt-3 text-xs text-gray-400">You've read {seen.size} of {credentials.length}.</p>
@@ -310,7 +332,7 @@ const ManagerExercisePage = () => {
 
   // ---- lifecycle / identity ----
   const [config, setConfig] = useState(null);
-  const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|choose|kiosk|discuss|done
+  const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|solo|discuss|choose|kiosk|debrief|done
   const [roomId, setRoomId] = useState(null);
 
   // ---- breakout lobby ----
@@ -328,7 +350,6 @@ const ManagerExercisePage = () => {
   const [canStart, setCanStart] = useState(false);
   const [candidates, setCandidates] = useState([]);    // [{name}]
   const [chosenCandidate, setChosenCandidate] = useState(null);
-  const [roundNum, setRoundNum] = useState(1);         // M7: 1 = first pick, 2 = second round
 
   // ---- countdown, server-clock corrected ----
   const [deadlineTs, setDeadlineTs] = useState(null);
@@ -369,22 +390,25 @@ const ManagerExercisePage = () => {
   const [chosenVerdict, setChosenVerdict] = useState(null); // M2: 'success' | 'failure'
   const kioskInitedRef = useRef(false);
 
-  // ---- premise + card-deck prelude (M4) ----
-  // A per-student, client-local walkthrough shown at the TOP of the round-1 `discuss`
-  // phase, before the chat opens: the premise/brief, then this student's role-sliced
-  // credential cards to memorize. `premiseStage` gates it; once 'ready' the normal
-  // discussion renders. Round 2 skips it (they have already seen the cards). Completion
-  // is remembered per room+round in localStorage so a refresh mid-deliberation doesn't
-  // replay the intro. `yourRole`/`credentials` come from the M1/M2 snapshot fields.
-  const [premiseStage, setPremiseStage] = useState('ready'); // premise|cards|decide|ready
+  // ---- round 0: the private decision (M9) ----
+  // A per-student, client-local walkthrough that owns the whole `solo` phase:
+  //   premise → the brief         cards   → this student's role-sliced credentials
+  //   notice  → "decide alone"    decide  → the private ballot
+  //   handoff → "now as a group", waiting on the rest of the room
+  // `soloStage` gates it. `yourRole`/`credentials` come from the M1/M2 snapshot
+  // fields; `yourSoloVote` is this student's own pick, restored on reconnect so a
+  // refresh mid-round-0 doesn't ask them to decide twice. There is deliberately no
+  // solo tally in state — the server never sends one.
+  const [soloStage, setSoloStage] = useState('premise'); // premise|cards|notice|decide|handoff
+  const [soloPick, setSoloPick] = useState(null);        // local selection, pre-submit
+  const [yourSoloVote, setYourSoloVote] = useState(null);
+  const [soloSubmitted, setSoloSubmitted] = useState(0);
+  const [soloTotal, setSoloTotal] = useState(0);
   const [yourRole, setYourRole] = useState(null);
   const [credentials, setCredentials] = useState([]);   // [{name, strengths, concerns, neutral}]
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
-  // The student's PRIVATE initial pick, made after reading the cards and before the
-  // round-1 discussion opens (kept client-local; the group still decides together).
-  const [individualPick, setIndividualPick] = useState(null);
-  const premiseInitedRef = useRef(false);
+  const soloInitedRef = useRef(false);
 
   const [userInfo, setUserInfo] = useState(null);
 
@@ -400,22 +424,24 @@ const ManagerExercisePage = () => {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
 
-  // M4: decide the premise/card prelude once per entry into `discuss`. A useEffect
-  // (rather than applyExerciseState) because the waiting→discuss transition arrives
-  // as a bare `phase_change`, not a full snapshot. Round 2 and a refresh that already
-  // finished the intro land straight on the discussion.
+  // M9: decide where in the round-0 walkthrough this client lands, once per entry
+  // into `solo`. A useEffect (rather than applyExerciseState) because the
+  // waiting→solo transition arrives as a bare `phase_change`, not a full snapshot.
+  // Order matters: a student who has already submitted goes straight to the handoff,
+  // otherwise a refresh that already got past the cards skips back to the ballot.
   useEffect(() => {
-    if (phase === 'discuss') {
-      if (!premiseInitedRef.current) {
-        premiseInitedRef.current = true;
-        let seen = roundNum >= 2;
-        try { seen = seen || localStorage.getItem(`me_premise_seen_${roomIdRef.current}_r${roundNum}`) === '1'; } catch { /* localStorage may be unavailable */ }
-        setPremiseStage(seen ? 'ready' : 'premise');
+    if (phase === 'solo') {
+      if (!soloInitedRef.current) {
+        soloInitedRef.current = true;
+        if (yourSoloVote) { setSoloStage('handoff'); return; }
+        let seen = false;
+        try { seen = localStorage.getItem(`me_premise_seen_${roomIdRef.current}`) === '1'; } catch { /* localStorage may be unavailable */ }
+        setSoloStage(seen ? 'decide' : 'premise');
       }
     } else {
-      premiseInitedRef.current = false;
+      soloInitedRef.current = false;
     }
-  }, [phase, roundNum]);
+  }, [phase, yourSoloVote]);
 
   // M4 fix: breakout room ids are deterministic (`{config_id}_g{index}`), so the
   // per-room "premise seen" flag written below would otherwise stick forever and
@@ -424,32 +450,29 @@ const ManagerExercisePage = () => {
   const clearPremiseSeen = (rid) => {
     if (!rid) return;
     try {
+      localStorage.removeItem(`me_premise_seen_${rid}`);
+      // Keys written by the pre-M9 per-round scheme; cleared so an upgraded client
+      // doesn't leave them behind forever.
       localStorage.removeItem(`me_premise_seen_${rid}_r1`);
       localStorage.removeItem(`me_premise_seen_${rid}_r2`);
     } catch { /* localStorage may be unavailable */ }
   };
 
-  // Clear the flags whenever this client is in the pre-start `waiting` phase: every
-  // fresh run passes through `waiting` before `discuss`, so the prelude replays each
-  // run, while a mid-discussion refresh (which lands straight in `discuss`, never
+  // Clear the flag whenever this client is in the pre-start `waiting` phase: every
+  // fresh run passes through `waiting` before `solo`, so the prelude replays each
+  // run, while a mid-round-0 refresh (which lands straight in `solo`, never
   // `waiting`) still honours the flag set during that run and doesn't replay. Reset
-  // also clears them directly (see resetBreakout / room_reset), since the resetting
+  // also clears it directly (see resetBreakout / room_reset), since the resetting
   // owner sits in the lobby and never passes through `waiting`.
   useEffect(() => {
     if (phase === 'waiting') clearPremiseSeen(roomIdRef.current);
   }, [phase]);
 
-  // M4: mark the intro complete (persisted per room+round) and drop into the chat.
+  // Mark the brief + cards as read (persisted per room) and move to the notice that
+  // tells them they are about to decide on their own.
   const finishPremiseIntro = () => {
-    try { localStorage.setItem(`me_premise_seen_${roomIdRef.current}_r${roundNum}`, '1'); } catch { /* localStorage may be unavailable */ }
-    setPremiseStage('ready');
-  };
-
-  // Lock in the private initial pick (kept client-local) and enter the discussion.
-  const confirmIndividualPick = () => {
-    if (!individualPick) return;
-    try { localStorage.setItem(`me_individual_pick_${roomIdRef.current}`, individualPick); } catch { /* localStorage may be unavailable */ }
-    finishPremiseIntro();
+    try { localStorage.setItem(`me_premise_seen_${roomIdRef.current}`, '1'); } catch { /* localStorage may be unavailable */ }
+    setSoloStage('notice');
   };
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
@@ -498,7 +521,6 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.roster)) setRoster(s.roster);
     if (Array.isArray(s.candidates)) setCandidates(s.candidates);
     if (s.chosen_candidate !== undefined) setChosenCandidate(s.chosen_candidate);
-    if (typeof s.round === 'number') setRoundNum(s.round);
     // M1/M2: this viewer's confidential role + their role-sliced credential cards.
     // Kept in their own state (not `candidates`) so a later ballot_update, which
     // sends name-only candidate lists, can't wipe the credentials.
@@ -506,6 +528,15 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
+    // M9 round 0. `your_solo_vote` is this viewer's own pick and the only one they
+    // will ever see; the counts drive the "waiting for your group" line. The server
+    // sends no solo tally, so there is nothing here to accidentally render.
+    if (s.your_solo_vote !== undefined) {
+      setYourSoloVote(s.your_solo_vote);
+      if (s.your_solo_vote) setSoloPick(s.your_solo_vote);
+    }
+    if (typeof s.solo_submitted === 'number') setSoloSubmitted(s.solo_submitted);
+    if (typeof s.solo_total === 'number') setSoloTotal(s.solo_total);
     if (typeof s.collective_open === 'boolean') {
       setBallotOpen(s.collective_open);
       ballotWasOpenRef.current = s.collective_open;
@@ -532,8 +563,9 @@ const ManagerExercisePage = () => {
     } else {
       kioskInitedRef.current = false;
     }
-    // Chat is only unlocked during discuss (server is authoritative; this is cosmetic).
-    setChatLocked(!(s.phase === 'discuss' || s.phase === 'codify'));
+    // Chat is unlocked for the two conversations only (server is authoritative;
+    // this is cosmetic).
+    setChatLocked(s.phase !== 'discuss' && s.phase !== 'debrief');
   }, []);
 
   // 1. Fetch config + connect socket + wire every event.
@@ -604,12 +636,13 @@ const ManagerExercisePage = () => {
         // lobby so nobody stares at state the server has just wiped.
         socket.on('room_reset', (d) => {
           if (roomIdRef.current && d.room_id === roomIdRef.current) {
-            // The room is starting over: drop its premise-seen flags and the stale
-            // round so the next run replays the prelude from round 1.
+            // The room is starting over: drop its premise-seen flag and every
+            // round-0 answer so the next run replays the walkthrough from the top.
             clearPremiseSeen(d.room_id);
-            premiseInitedRef.current = false;
-            setRoundNum(1);
-            setPremiseStage('ready');
+            soloInitedRef.current = false;
+            setSoloStage('premise');
+            setSoloPick(null);
+            setYourSoloVote(null);
             setRoomId(null);
             roomIdRef.current = null;
             setRoster([]);
@@ -637,8 +670,14 @@ const ManagerExercisePage = () => {
           }
           setDeadlineTs(typeof p.phase_deadline_ts === 'number' ? p.phase_deadline_ts : null);
           if (p.phase) setPhase(p.phase);
-          if (typeof p.round === 'number') setRoundNum(p.round);
-          setChatLocked(!(p.phase === 'discuss' || p.phase === 'codify'));
+          setChatLocked(p.phase !== 'discuss' && p.phase !== 'debrief');
+        });
+
+        // M9: how many of the room have committed privately. Counts only — the
+        // server never sends who picked what, so nothing here can leak a pick.
+        socket.on('solo_update', (d) => {
+          if (typeof d.submitted === 'number') setSoloSubmitted(d.submitted);
+          if (typeof d.total === 'number') setSoloTotal(d.total);
         });
 
         socket.on('chat_locked', (d) => {
@@ -781,6 +820,18 @@ const ManagerExercisePage = () => {
     setInput('');
   };
 
+  // M9 round 0: commit privately. Moves this client to the handoff notice at once;
+  // the room only opens round 1 once every student has submitted, which the handoff
+  // screen shows as a count. Nobody's pick is ever broadcast.
+  const submitSoloPick = () => {
+    if (!soloPick || !socketRef.current) return;
+    socketRef.current.emit('submit_solo_vote', {
+      room_id: roomId, uid: userIdRef.current, candidate: soloPick,
+    });
+    setYourSoloVote(soloPick);
+    setSoloStage('handoff');
+  };
+
   // M5: a real vote the student may change while the ballot is open, not a one-shot
   // team entry. The server tallies and auto-resolves on a majority.
   const submitPick = () => {
@@ -808,9 +859,8 @@ const ManagerExercisePage = () => {
 
   const secsLeft = remaining == null ? null : Math.max(0, remaining);
 
-  // A short 880Hz blip. The AudioContext is created lazily off the student's earlier
-  // click (start / vote / individual pick), which satisfies the browser autoplay
-  // gesture requirement.
+  // The AudioContext is created lazily off the student's earlier click (start /
+  // private pick / vote), which satisfies the browser autoplay gesture requirement.
   const playBeep = useCallback(() => {
     try {
       let ctx = audioCtxRef.current;
@@ -843,11 +893,11 @@ const ManagerExercisePage = () => {
     return () => clearInterval(id);
   }, [phase, finalCall, playBeep]);
 
-  // The discussion/codify clock is visible the whole window, but the beep only kicks
+  // The discussion/debrief clock is visible the whole window, but the beep only kicks
   // in for the final 10 seconds. Gated on a boolean (not raw secsLeft) so the 1s
   // interval isn't torn down and restarted on every 250ms tick.
   const discussBeepOn =
-    (phase === 'discuss' || phase === 'codify') && secsLeft != null && secsLeft > 0 && secsLeft <= 10;
+    (phase === 'discuss' || phase === 'debrief') && secsLeft != null && secsLeft > 0 && secsLeft <= 10;
   useEffect(() => {
     if (!discussBeepOn) return;
     playBeep();
@@ -971,9 +1021,9 @@ const ManagerExercisePage = () => {
           return <OutcomeCard key={i} title={sender.replace(OUTCOME_PREFIX, '').trim()} text={msg.text} />;
         }
         const isFacilitator = sender === FACILITATOR_SENDER;
-        // Mark my own messages by stable uid when present; fall back to the display
-        // name for legacy messages that predate sender_uid. Comparing by name alone
-        // rendered my text as someone else's whenever the roster name had drifted.
+        // Match own messages by stable uid, falling back to the display name for
+        // legacy messages that predate sender_uid. Comparing by name alone rendered
+        // your own text as someone else's whenever a name drifted from the roster.
         const isMe = !isFacilitator && (
           (msg.sender_uid && msg.sender_uid === userIdRef.current) ||
           (!msg.sender_uid && sender === displayNameRef.current)
@@ -1296,26 +1346,21 @@ const ManagerExercisePage = () => {
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto space-y-6">
-            {/* ACTR's opener arrives as a normal message even though chat is
-                locked, so the question and the buttons read as one prompt. */}
+            {/* The transcript stays visible while chat is locked so the discussion
+                they just had sits above the ballot rather than disappearing. */}
             {Transcript()}
 
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold text-[#222]">Your group's decision</h2>
-                  {roundNum >= 2 && (
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/50 rounded-full px-2 py-0.5">Round 2</span>
-                  )}
                 </div>
                 {secsLeft != null && (
                   CountdownChip({ label: finalCall ? 'Final call' : 'Decide', urgent: finalCall || secsLeft <= 30 })
                 )}
               </div>
               <p className="text-sm text-gray-500 mb-5">
-                {roundNum >= 2
-                  ? <>This time, choose from the candidates you haven't tried. Same rules — majority decides, or press <span className="font-semibold text-[#222]">Decide now</span>.</>
-                  : <>Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted.</>}
+                Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted. This is the group's only decision.
               </p>
               {finalCall && (
                 <div className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-600 animate-pulse">
@@ -1331,7 +1376,7 @@ const ManagerExercisePage = () => {
   }
 
   // -------------------------------------------------------------------------
-  // Phase: done (no scorecard — this exercise is not graded)
+  // Phase: done — the session is over. Not graded, by design.
   // -------------------------------------------------------------------------
   if (phase === 'done') {
     return (
@@ -1356,6 +1401,36 @@ const ManagerExercisePage = () => {
               </button>
             </div>
 
+            {/* M9: the payoff of having captured a private answer — what this
+                student walked in believing, against what the group did. Rendered
+                only for the student's OWN pick; nobody else's is ever shown, here
+                or anywhere. Silent when they never submitted one. */}
+            {yourSoloVote && (
+              <div className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 sm:p-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-5">Where you started</h3>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-gray-200 p-4">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Your private pick</p>
+                    <p className="text-lg font-bold text-[#222]">{yourSoloVote}</p>
+                  </div>
+                  <div className="rounded-2xl border border-gray-200 p-4">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Your group hired</p>
+                    <p className="text-lg font-bold text-[#222]">{chosenCandidate || '—'}</p>
+                  </div>
+                </div>
+                {chosenCandidate && (
+                  <p className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold border ${
+                    yourSoloVote === chosenCandidate
+                      ? 'bg-gray-50 text-gray-600 border-gray-200'
+                      : 'bg-[#F9D0C4]/25 text-[#C2410C] border-[#FA6C43]/40'
+                  }`}>
+                    {yourSoloVote === chosenCandidate
+                      ? 'The group went where you already were.'
+                      : 'You came in wanting someone else, and the group went the other way.'}
+                  </p>
+                )}
+              </div>
+            )}
             {Transcript()}
           </div>
         </main>
@@ -1364,11 +1439,11 @@ const ManagerExercisePage = () => {
   }
 
   // -------------------------------------------------------------------------
-  // Phase: discuss — round-1 prelude (M4). Before the chat opens, walk this
-  // student through the premise brief, then their role-sliced credential cards.
+  // Phase: solo — ROUND 0 (M9). Read the brief, read your own cards, then decide
+  // ALONE before anyone in the group has said a word.
   // (Serif premise polish = M5; poker-card deck animation = M6.)
   // -------------------------------------------------------------------------
-  if (phase === 'discuss' && premiseStage === 'premise') {
+  if (phase === 'solo' && soloStage === 'premise') {
     const names = candidates.map((c) => c.name).filter(Boolean);
     // Structured brief from the raw general_info extraction (see parseBrief); falls
     // back to a generic line when the case has no general_info authored.
@@ -1419,7 +1494,7 @@ const ManagerExercisePage = () => {
             Here are their credentials, for your judgement.
           </p>
           <button
-            onClick={() => setPremiseStage('cards')}
+            onClick={() => setSoloStage('cards')}
             className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95 animate-in fade-in duration-500"
             style={rise(5)}
           >
@@ -1441,40 +1516,50 @@ const ManagerExercisePage = () => {
     );
   }
 
-  if (phase === 'discuss' && premiseStage === 'cards') {
-    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={() => setPremiseStage('decide')} />;
+  if (phase === 'solo' && soloStage === 'cards') {
+    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} />;
   }
 
-  // -------------------------------------------------------------------------
-  // Phase: discuss — round-1 prelude, INDIVIDUAL decision. After reading the
-  // cards and before the group discussion opens, each student privately commits
-  // to who THEY think the best hire is (hidden-profile: decide alone first, then
-  // compare). Kept client-local; the group still decides together in the ballot.
-  // -------------------------------------------------------------------------
-  if (phase === 'discuss' && premiseStage === 'decide') {
-    const names = candidates.map((c) => c.name).filter(Boolean);
+  // The pause that makes round 0 a round: they are told, before they see the ballot,
+  // that this call is theirs alone and nobody will see it.
+  if (phase === 'solo' && soloStage === 'notice') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
-        <div className="max-w-lg mx-auto w-full text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3 animate-in fade-in slide-in-from-bottom-2 duration-500">Your call</p>
-          <h1 className="text-3xl sm:text-4xl mb-3 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
-            Who do <span className="text-[#FA6C43]">you</span> think is the best hire?
-          </h1>
-          <p className="text-base text-[#1F1F1F]/70 mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif" }}>
-            Decide on your own first, using only what you were given. You'll compare notes
-            with your group next — no need to share this yet.
-          </p>
+      <NoticeScreen
+        icon={<RiUser3Line />}
+        eyebrow="On your own"
+        title="First, decide on your own."
+        body="Before you talk to anyone, make the call yourself. Nobody in your group will see who you picked, and you won't see theirs. Go with what your own notes tell you."
+        action="I'm ready"
+        onAction={() => setSoloStage('decide')}
+      />
+    );
+  }
 
-          <div className="grid gap-3 mb-8 text-left">
-            {names.map((name, i) => {
-              const selected = individualPick === name;
+  // The private ballot. Deliberately NOT the CandidateGrid used for the group vote:
+  // no live counts, no "Decide now", no sense of a room to read. There is nothing to
+  // see but the candidates, which is the whole point of asking here.
+  if (phase === 'solo' && soloStage === 'decide') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] px-6 py-12 overflow-y-auto scrollbar-thin" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="max-w-lg w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="text-center mb-8">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">Your decision</p>
+            <h1 className="text-3xl mb-3" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>Who would you hire?</h1>
+            <p className="text-sm text-gray-500">This one is yours alone. It stays private.</p>
+          </div>
+
+          <div className="grid gap-3">
+            {candidates.map((c, i) => {
+              const selected = soloPick === c.name;
               return (
-                // Same hover rule as the ballot: border/shadow only, never a lift.
+                // Hover response is border tint + soft shadow only, matching the group
+                // ballot — a translate-y lift moves the option out from under the
+                // pointer and the hover state flickers.
                 <button
-                  key={name}
-                  onClick={() => setIndividualPick(name)}
-                  style={{ animationDelay: `${i * 50}ms` }}
-                  className={`relative text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 active:scale-[0.99] ${
+                  key={c.name}
+                  onClick={() => setSoloPick(c.name)}
+                  style={{ animationDelay: `${i * 60}ms` }}
+                  className={`text-left rounded-2xl border-2 px-5 py-4 transition-all animate-in fade-in slide-in-from-bottom-1 active:scale-[0.99] ${
                     selected
                       ? 'border-[#FA6C43] bg-[#FA6C43]/5 shadow-sm'
                       : 'border-gray-200 bg-white hover:border-[#FA6C43]/50 hover:shadow-sm hover:bg-[#FA6C43]/[0.03]'
@@ -1486,7 +1571,7 @@ const ManagerExercisePage = () => {
                     }`}>
                       {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                     </span>
-                    <span className="flex-1 font-semibold text-[#222]">{name}</span>
+                    <span className="flex-1 font-semibold text-[#222]">{c.name}</span>
                   </div>
                 </button>
               );
@@ -1494,24 +1579,54 @@ const ManagerExercisePage = () => {
           </div>
 
           <button
-            onClick={confirmIndividualPick}
-            disabled={!individualPick}
-            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm hover:shadow-md transition-all active:scale-95 disabled:opacity-50 animate-in fade-in duration-500"
+            onClick={submitSoloPick}
+            disabled={!soloPick}
+            className="mt-6 w-full rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-4 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
           >
-            Lock in my choice →
+            Lock in my choice
           </button>
-          <p className="mt-3 text-xs text-gray-400">Private for now — your group decides together afterward.</p>
+          <p className="mt-3 text-center text-xs text-gray-400">You won't be able to change this once your group starts talking.</p>
         </div>
       </div>
     );
   }
 
+  // The handoff the exercise turns on: they have committed, and now they are told
+  // the next decision is a shared one. Waits here until the whole room has submitted
+  // (the server opens round 1 on its own), so nobody walks into the discussion
+  // having skipped the private call.
+  if (phase === 'solo' && soloStage === 'handoff') {
+    const waiting = soloTotal > 0 && soloSubmitted < soloTotal;
+    return (
+      <NoticeScreen
+        icon={<FaUsers />}
+        eyebrow="As a group"
+        title="Now you decide as a group."
+        body="You've made your own call. Next you'll talk it through with your team and settle on one hire between you. You each know different things about these candidates, so what you say out loud is all the others get."
+        footer={
+          <div className="mt-2">
+            {waiting ? (
+              <p className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500">
+                <FaSpinner className="animate-spin text-xs" />
+                Waiting for your group — {soloSubmitted} of {soloTotal} ready.
+              </p>
+            ) : (
+              <p className="text-sm font-semibold text-emerald-600">Everyone's in — opening the discussion…</p>
+            )}
+            {yourSoloVote && (
+              <p className="mt-4 text-xs text-gray-400">Your private pick: <span className="font-semibold text-gray-500">{yourSoloVote}</span></p>
+            )}
+          </div>
+        }
+      />
+    );
+  }
+
   // -------------------------------------------------------------------------
-  // Phase: discuss / codify (default render — the spacious facilitated chat).
-  // `codify` (post-correct-pick reflection) reuses this exact layout so it never
-  // drops to the cramped column of the choose/done screens; it just has no ballot
-  // section (ballotOpen is never true in codify) and a "Codify" countdown label.
+  // Phases: discuss (round 1, students only) and debrief (round 2, facilitated).
+  // One chat render for both — the difference is the framing, not the mechanics.
   // -------------------------------------------------------------------------
+  const isDebrief = phase === 'debrief';
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
@@ -1528,9 +1643,9 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {/* Clock stays visible the whole window; it turns urgent (and the beep starts)
-            only in the final 10 seconds. */}
-        {secsLeft != null && CountdownChip({ label: phase === 'codify' ? 'Codify' : 'Discuss', urgent: secsLeft <= 10 })}
+        {/* Clock visible for the whole window; only the last 10s reads as urgent
+            (and only then does the beep start — see discussBeepOn). */}
+        {secsLeft != null && CountdownChip({ label: isDebrief ? 'Debrief' : 'Discuss', urgent: secsLeft <= 10 })}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
@@ -1539,28 +1654,18 @@ const ManagerExercisePage = () => {
             <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6 text-[#1F1F1F]">
               <FaUsers className="text-4xl" />
             </div>
-            <h2 className="text-2xl font-bold text-[#222] mb-2">
-              {phase === 'codify' ? 'Codify your decision' : 'The floor is open'}
-            </h2>
+            <h2 className="text-2xl font-bold text-[#222] mb-2">The floor is open</h2>
+            {/* Round 1 has no facilitator at all, so promising one here would be a
+                lie the students would sit and wait on. */}
             <p className="text-gray-500 text-center max-w-sm">
-              {phase === 'codify'
-                ? 'You made the right hire — walk through why, and name the principles worth keeping. ACTR will guide it.'
-                : 'Talk it through with your group. ACTR will step in when it\'s useful.'}
+              {isDebrief
+                ? 'Talk it through. ACTR will step in when it\'s useful.'
+                : 'This one is yours. Talk it through with your group and settle on a hire between you.'}
             </p>
           </div>
         )}
 
         {Transcript()}
-
-        {/* Re-choice: the ballot reopens inside discuss rather than moving the
-            room to a new phase, so the conversation keeps running around it. */}
-        {ballotOpen && (
-          <section className="mt-6 max-w-xl rounded-3xl bg-white border-2 border-[#FA6C43]/40 shadow-md p-6 animate-in fade-in slide-in-from-bottom-3 duration-400">
-            <h2 className="text-base font-bold text-[#222] mb-1">Choose again</h2>
-            <p className="text-sm text-gray-500 mb-4">One of you enters the group's new choice when you're ready.</p>
-            {CandidateGrid({ compact: true })}
-          </section>
-        )}
       </main>
 
       <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">

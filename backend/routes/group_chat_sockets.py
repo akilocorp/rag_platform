@@ -1,7 +1,12 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   Round 1 gets no reactive ACTR (only the opener; it re-engages from round 2); student posts carry sender_uid so the client marks OWN messages by id; grading/scorecard removed from _wrapup. Prior: on_codify_start hook opens the CODIFY reflection; get_history trusts the client uid (fixes the "0 of N ready" strand); on_pick_resolved posts the outcome synchronously before the round-2 opener.
-#            Prior: on_discuss_start passes st.round to facilitator_open_discussion so round 2 gets its own opener (first hire failed); M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M3 pre-vote flow; reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
+# @updated   2026-08-04
+# @changed   M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
+#            handler records each private pick. The round-1 ACTR hooks are GONE (on_discuss_start /
+#            on_choose_start); the ballot-open line is posted under a neutral system sender instead. All
+#            facilitator gates moved from in_discussion() to facilitator_active() (debrief only), and a
+#            reply carrying the END marker closes the session. Removed the strike-two answer reveal and
+#            the whole grading block.
+#            Prior: get_history trusts the client-provided uid so a reconnect reseeds the roster + resends the snapshot (fixes the kiosk "0 of N ready" strand); on_pick_resolved posts the outcome document synchronously; M7 lazy discuss clock; M3 pre-vote flow; reset_breakout_room drops the ConversationContext cache; owner-only reset handler.
 from flask import request, current_app
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
@@ -19,7 +24,6 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import ai_manager
-from src.managers import exercise_grader
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -98,8 +102,16 @@ def register_socket_events(socketio, app):
     # There are no AI players: the room is all real students and ACTR is a single
     # facilitator voice whose default is silence. Everything that decides WHEN it
     # speaks is in `_facilitator_turn`.
+    #
+    # M9: ACTR only exists in round 2. Rounds 0 and 1 register no AI hooks at all,
+    # so there is nothing here for the group's own decision to fire.
 
     FACILITATOR_SENDER = "ACTR"
+
+    # Room-level announcements that are NOT the facilitator: the ballot opening, and
+    # anything else the machine needs to say. A separate sender because posting these
+    # as ACTR is what used to put the facilitator in the room during round 1.
+    SYSTEM_SENDER = "Exercise"
 
     def _post(state, sender, text, uid=None):
         """Persist + broadcast one room message under a display name.
@@ -108,7 +120,7 @@ def register_socket_events(socketio, app):
         `uid`, when given (student messages), rides along as `sender_uid` — persisted
         and broadcast — so the client marks a viewer's OWN messages by stable id rather
         than by a display name that can drift from the roster (which rendered your own
-        text as someone else's). ACTR / outcome posts pass no uid.
+        text as someone else's). ACTR / system / outcome posts pass no uid.
         """
         get_or_create_context(state.room_id).add_message(
             sender, text, sender_role=sender, sender_uid=uid,
@@ -142,72 +154,56 @@ def register_socket_events(socketio, app):
         """
         me_config = _exercise_runtime_config(config_doc)
 
-        def on_discuss_start(st):
-            """Pre-vote deliberation opened → ACTR invites the group to pool what they know.
+        def on_ballot_open(st):
+            """Round-1 ballot opened → a plain announcement, NOT a facilitator turn.
 
-            Passes the round so round 2 opens with the second-decision framing (the first
-            hire failed) rather than repeating the round-1 "compare notes" opener."""
-            _post_facilitator(st, ai_manager.facilitator_open_discussion(me_config, st.round))
-
-        def on_choose_start(st):
-            """Deliberation over, ballot opened → ACTR's short nudge to lock in the vote."""
-            _post_facilitator(st, ai_manager.facilitator_call_vote(me_config))
+            Posted under SYSTEM_SENDER. This line used to come from ACTR, which meant
+            the facilitator appeared in the middle of the group's own decision for the
+            sake of one sentence the ballot screen already says."""
+            _post(st, SYSTEM_SENDER,
+                  "Time's up. Cast your vote for the candidate your group wants to hire.")
 
         def on_pick_resolved(st):
-            """Pick entered → post the outcome document, then (only on strike two) the answer.
+            """Pick entered → post the outcome document.
 
-            The outcome post is SYNCHRONOUS: `_finish_kiosk` runs this hook and then
-            immediately calls `begin_next_round`, whose `on_discuss_start` posts the
-            round-2 opener. Backgrounding the outcome (as before) raced that opener, so
-            round 2 could open with "that first hire didn't work out" while the outcome
-            card explaining WHY hadn't landed yet. Posting inline guarantees the outcome
-            precedes the opener. Only the slow strike-two answer reveal (an AI call)
-            stays backgrounded, so it never stalls the phase machine."""
+            SYNCHRONOUS: `_finish_kiosk` runs this hook and then immediately enters the
+            debrief, whose opener reacts to how the hire turned out. Backgrounding the
+            outcome would race that opener, so the room could be asked about a result it
+            had not been shown yet."""
             with app.app_context():
                 chosen = st.chosen_candidate
                 forecast = st.forecast_text_for(chosen) if chosen else ""
                 if forecast:
                     _post(st, f"📊 {chosen} — Outcome", forecast)
-            if st.strikes >= 2 and st.revealed_candidate:
-                socketio.start_background_task(_reveal_answer, st.room_id)
 
-        def on_codify_start(st):
-            """Correct pick → open the terminal CODIFY reflection: ACTR invites the group
-            to make their (correct) reasoning explicit and codify the principles."""
-            _post_facilitator(st, ai_manager.facilitator_open_codify(me_config, st.chosen_candidate))
+        def on_debrief_start(st):
+            """Round 2 opened → ACTR's opener, and its first words of the whole session.
+
+            Branches on the outcome verdict rather than a round number: a group whose
+            hire worked out still has to account for how it got there."""
+            _post_facilitator(st, ai_manager.facilitator_open_debrief(
+                me_config, st.chosen_candidate, st.chosen_verdict(),
+            ))
 
         def on_wrapup(st):
-            """Exercise reached `done` → ACTR's closing ask + the M8 scorecard."""
+            """Exercise reached `done` → ACTR's closing message."""
             socketio.start_background_task(_wrapup, st.room_id)
 
+        # No round-0 or round-1 hook exists. That absence IS the feature.
         state.hooks = {
-            "on_discuss_start": on_discuss_start,
-            "on_choose_start": on_choose_start,
+            "on_ballot_open": on_ballot_open,
             "on_pick_resolved": on_pick_resolved,
-            "on_codify_start": on_codify_start,
+            "on_debrief_start": on_debrief_start,
             "on_wrapup": on_wrapup,
         }
 
-    def _reveal_answer(room_id):
-        """Background: on the SECOND wrong pick (exercise over), ACTR names the un-chosen
-        best option outright — the scoped exception to "never name the best option" (see
-        ai_manager.facilitator_reveal_answer). The outcome document itself is posted
-        synchronously by `on_pick_resolved`; this is only the slow AI answer-reveal, kept
-        off the phase-machine thread so it never stalls it.
-        """
-        with app.app_context():
-            st = ex_state.get_exercise(room_id)
-            if st is None or not (st.strikes >= 2 and st.revealed_candidate):
-                return
-            summary = get_or_create_context(room_id).summary_for_nudge()
-            reveal = ai_manager.facilitator_reveal_answer(
-                st.config, st.roster, st.active_group_size(), st.revealed_candidate,
-                transcript_summary=summary,
-            )
-            _post_facilitator(st, reveal)
-
     def _wrapup(room_id):
-        """Background: ACTR's closing message + the M8 scorecard when discuss ends."""
+        """Background: ACTR's closing message when the debrief backstop timer expires.
+
+        The usual ending is ACTR closing the session itself mid-conversation (the END
+        marker in `_facilitator_turn`), which posts its own closing message — so this
+        normally never runs.
+        """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
@@ -217,7 +213,6 @@ def register_socket_events(socketio, app):
                 st.config, st.roster, st.active_group_size(), summary, st.chosen_candidate,
             )
             _post(st, FACILITATOR_SENDER, text)
-            # Grading/scorecard removed: the exercise closes on ACTR's wrap-up alone.
 
     def _silence_watch(room_id, mark_ts):
         """Break an awkward pause: a student spoke, and 8s later nobody has followed.
@@ -231,7 +226,7 @@ def register_socket_events(socketio, app):
         with app.app_context():
             socketio.sleep(FACILITATOR_SILENCE_SECONDS)
             st = ex_state.get_exercise(room_id)
-            if st is None or not st.in_discussion():
+            if st is None or not st.facilitator_active():
                 return
             if st.last_message_ts != mark_ts or st.spoke_last():
                 return
@@ -240,30 +235,28 @@ def register_socket_events(socketio, app):
     def _facilitator_turn(room_id, addressed=False, silence=False):
         """Background: ask ACTR whether this is its turn, and post if it says yes.
 
-        Runs after EVERY student message. There is nothing between the message and
-        the model's judgment — no debounce, no quorum, no cooldown. Each of those
-        bought a guarantee with latency, and the facts they encoded are handed to
-        the model instead (`turn_context`), which lets it hold during a go-around
-        and step in when one has plainly been abandoned. SILENT is the expected
-        answer most of the time.
+        Runs after every student message IN THE DEBRIEF. There is nothing between
+        the message and the model's judgment — no debounce, no quorum, no cooldown.
+        Each of those bought a guarantee with latency, and the facts they encoded are
+        handed to the model instead (`turn_context`), which lets it hold during a
+        go-around and step in when one has plainly been abandoned. SILENT is the
+        expected answer most of the time.
 
-        Two things stay structural, and neither makes anyone wait:
+        Three things stay structural, and none makes anyone wait:
+          * `facilitator_active()` — the round gate. Round 1 returns here before any
+            model call, so the group's own decision never reaches ACTR at all;
           * only student messages get here, so ACTR cannot post twice in a row;
           * one turn per room at a time, or two concurrent turns both post.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
-            if st is None or not st.in_discussion():
-                return
-            # Round 1 is a pure student deliberation: ACTR posts the one opener that
-            # sets the task and then stays out of it — no reactive replies, no silence
-            # nudges. It re-engages from round 2 onward.
-            if st.round < 2:
+            if st is None or not st.facilitator_active():
                 return
             if not st.claim_facilitator():
                 return   # a turn is already running; the re-run below picks this up
 
             started_at_ts = st.last_message_ts
+            ended = False
             try:
                 ctx = get_or_create_context(room_id)
                 result = ai_manager.facilitator_reply(
@@ -271,6 +264,7 @@ def register_socket_events(socketio, app):
                     ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
                     chosen_name=st.chosen_candidate,
                     turn_context=st.turn_context(addressed=addressed, silence=silence),
+                    solo_spread=st.solo_spread(),
                 )
                 message = result.get("message")
                 if not message:
@@ -278,23 +272,26 @@ def register_socket_events(socketio, app):
 
                 # The model call is slow enough that the phase can move under us.
                 st = ex_state.get_exercise(room_id)
-                if st is None or not st.in_discussion():
+                if st is None or not st.facilitator_active():
                     return
                 # Speaking closes whatever go-around was open: it either answered
                 # the pattern or moved past it, and either way ACTR is no longer
                 # waiting on anyone.
                 st.clear_go_around()
                 _post_facilitator(st, message, result.get("go_around", False))
-                # M3: no ACTR-triggered re-ballot any more. Round 2 is opened
-                # automatically by the phase machine on a wrong pick, so a reactive
-                # turn just speaks and stops.
+                ended = bool(result.get("ended"))
             finally:
                 st = ex_state.get_exercise(room_id)
                 if st is not None:
                     st.release_facilitator()
+                    # ACTR judged the debrief finished. Closing AFTER releasing the
+                    # lock and posting the message, so the room reads its sign-off
+                    # before the screen changes.
+                    if ended:
+                        st.end_debrief()
                     # Anything said while that call was in flight was refused the
                     # lock and would otherwise never be considered. Look once more.
-                    if st.last_message_ts != started_at_ts and st.in_discussion():
+                    elif st.last_message_ts != started_at_ts and st.facilitator_active():
                         socketio.start_background_task(_facilitator_turn, room_id, False)
 
     # ---- Breakout-room lobby ---------------------------------------------------
@@ -638,9 +635,9 @@ def register_socket_events(socketio, app):
         if state is None or not state.can_start():
             return
         logger.info(f"▶️  Exercise starting in {room_id} with {state.active_group_size()} student(s)")
-        # M3: a room now opens on the PRE-vote deliberation, not the ballot. The vote
-        # opens (begin_choose) only after the discuss timer lapses.
-        state.begin_discuss()
+        # M9: a room opens on ROUND 0 — the private decision. Group discussion
+        # (begin_discuss) only opens once everyone has committed on their own.
+        state.begin_solo()
         config_id = room_id.rsplit("_", 1)[0]
         config_doc = _load_config_doc(config_id)
         if config_doc:
@@ -712,16 +709,21 @@ def register_socket_events(socketio, app):
                 return
             state.note_participant(uid)
             # M7: the first student message is what actually starts the discussion, so
-            # it arms the (until now lazy) discuss clock — the prelude reading time
-            # before this doesn't count against deliberation. Idempotent after the first.
+            # it arms the (until now lazy) discuss clock — the settling-in time before
+            # this doesn't count against deliberation. Idempotent after the first, and
+            # a no-op outside round 1.
             state.arm_discuss_timer()
-            _post(state, state.display_name(uid), text, uid=uid)
+            _post(state, state.display_name(uid), text, uid)
             state.note_student_message(uid)
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
             # Two paths, and they do different jobs. The immediate one asks ACTR
             # whether it should speak NOW — usually it should not, because one
             # student answering is not the group answering. The watcher covers the
             # case where holding was right but nobody else ever spoke.
+            #
+            # Both are dispatched unconditionally and BOTH self-gate on
+            # `facilitator_active()`. In round 1 they return before touching the
+            # model, so the group's own decision costs nothing and reaches no AI.
             socketio.start_background_task(_facilitator_turn, room_id, addressed, False)
             socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
             return
@@ -735,6 +737,24 @@ def register_socket_events(socketio, app):
     # ==================================================================
     # THE PICK (manager_exercise only)
     # ==================================================================
+    @socketio.on('submit_solo_vote')
+    def handle_submit_solo_vote(data):
+        """One student commits to a candidate ALONE, in round 0 (M9).
+
+        `record_solo_vote` enforces an open round, roster membership and a valid
+        candidate, then broadcasts how many have submitted — never who chose what.
+        The room opens the group discussion by itself once everyone is in.
+        """
+        room_id = (data or {}).get('room_id')
+        uid = (data or {}).get('uid')
+        candidate = (data or {}).get('candidate')
+        if not room_id or not uid or not candidate:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None:
+            return
+        state.record_solo_vote(uid, candidate)
+
     @socketio.on('submit_collective_vote')
     def handle_submit_collective_vote(data):
         """One student casts their vote in the timed group ballot (M5).

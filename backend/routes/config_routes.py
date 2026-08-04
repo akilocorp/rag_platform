@@ -118,7 +118,7 @@ def validate_manager_exercise(source, target):
     Rules enforced here:
       - manager_exercise required and must be a dict.
       - num_students int >= ME_MIN_STUDENTS; discuss_minutes > 0.
-      - candidates non-empty with unique names, each carrying its outcome doc.
+      - at least 2 candidates, unique names, each carrying its outcome doc.
       - learning_points resolved server-side from class_preset (never trusted
         from the client, so every config on a preset gets identical wording).
       - case_pack derived from the uploaded docs unless the client supplied an
@@ -179,6 +179,16 @@ def validate_manager_exercise(source, target):
     if final_call_seconds <= 0:
         final_call_seconds = 30
 
+    # M9: the round-2 facilitated debrief window. Optional and defaulting to the
+    # round-1 discussion length, so a config authored before this field existed
+    # keeps validating and running without a migration.
+    try:
+        debrief_minutes = float(raw.get('debrief_minutes') or discuss_minutes)
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.debrief_minutes must be a number"}), 400
+    if debrief_minutes <= 0:
+        debrief_minutes = discuss_minutes
+
     # Candidate roster — each entry carries the outcome document revealed on pick.
     raw_candidates = raw.get('candidates')
     if not isinstance(raw_candidates, list) or not raw_candidates:
@@ -204,10 +214,12 @@ def validate_manager_exercise(source, target):
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
 
-    # M7: the two-strike flow needs EXACTLY 3 candidates — two wrong group picks,
-    # then the third (un-chosen) candidate is the answer that gets revealed.
-    if len(candidates) != 3:
-        return jsonify({"error": "manager_exercise requires exactly 3 candidates (two guesses, then the third is revealed)"}), 400
+    # M9: two or more. This used to demand EXACTLY 3, because the old two-strike
+    # flow spent one candidate per wrong pick and revealed the third. There is one
+    # group decision now, so nothing depends on the count — and the old rule failed
+    # a 2-candidate config at Publish after the wizard had already accepted it.
+    if len(candidates) < 2:
+        return jsonify({"error": "manager_exercise needs at least 2 candidates to choose between"}), 400
 
     # AI-only reference documents. Never sent to a student client — the candidate
     # summary states each role's private view and (in most authored cases) the
@@ -240,11 +252,6 @@ def validate_manager_exercise(source, target):
     if override_err:
         return jsonify({"error": override_err}), 400
 
-    # M8: optional faculty rubric that steers the end-of-session communication grade.
-    # Blank means the grader uses its built-in default rubric.
-    grading_rubric = raw.get('grading_rubric')
-    grading_rubric = grading_rubric.strip() if isinstance(grading_rubric, str) else ""
-
     # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
     # otherwise extract it from the uploaded documents. Tallies are recomputed
     # either way so a hand-edited pack can never disagree with its own items.
@@ -264,11 +271,11 @@ def validate_manager_exercise(source, target):
         "discuss_minutes": discuss_minutes,
         "choose_minutes": choose_minutes,
         "final_call_seconds": final_call_seconds,
+        "debrief_minutes": debrief_minutes,
         "class_preset": class_preset,
         "learning_outcome": learning_outcome,
         "learning_points": class_presets.get_learning_points(class_preset),
         "facilitator_prompt_override": prompt_override,
-        "grading_rubric": grading_rubric,
         "general_info": general_info,
         "candidate_summary": candidate_summary,
         "candidates": candidates,

@@ -137,12 +137,17 @@ const EditConfigPage = () => {
             num_students: Math.max(2, Math.min(10, parseInt(me.num_students, 10) || 3)),
             num_rooms: Math.max(1, Math.min(20, parseInt(me.num_rooms, 10) || 5)),
             discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
+            // Falls back to the round-1 window for configs saved before round 2 had
+            // its own. NOTE: this literal is a whitelist rebuild, not a spread — a
+            // manager_exercise key missing from it is dropped on every save.
+            debrief_minutes: typeof me.debrief_minutes === 'number'
+                ? me.debrief_minutes
+                : (typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20),
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
             // Blank = run the stock facilitator prompt. Only set once a professor
             // has actually loaded and edited it in the advanced block below.
             facilitator_prompt_override: me.facilitator_prompt_override || '',
-            grading_rubric: me.grading_rubric || '',
             general_info: docRef(me.general_info),
             candidate_summary: docRef(me.candidate_summary),
             candidates: Array.isArray(me.candidates)
@@ -1025,10 +1030,15 @@ const EditConfigPage = () => {
                         <input type="range" min="1" max="20" step="1" value={me.num_rooms || 1} onChange={(e) => setMgr('num_rooms', Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1)))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#FA6C43]" />
                         <p className="mt-2 text-[11px] font-semibold text-gray-500">Room for up to {(me.num_rooms || 1) * (me.num_students || 1)} students.</p>
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-700 mb-2">Discussion window (minutes)</label>
+                      {/* Two windows, one per conversation. Round 0 (the private
+                          decision) is untimed — it ends when everyone has submitted. */}
+                      <div className="mb-5">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
                         <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                        <p className="text-[10px] text-gray-400 mt-1">How long the facilitated debrief runs after the outcome is revealed.</p>
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; debrief (minutes)<InfoTip text="How long the facilitated debrief may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
+                        <input type="number" min="0" step="any" value={me.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
                     </div>
 
@@ -1089,17 +1099,6 @@ const EditConfigPage = () => {
                         )}
                       </div>
 
-                      {/* M8: optional rubric that steers the end-of-session communication grade. */}
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Grading rubric<InfoTip text="Optional. Steers the communication score each student receives at the end. Leave blank to use the default rubric." /></label>
-                        <textarea
-                          rows="4"
-                          value={me.grading_rubric || ''}
-                          onChange={(e) => setMgr('grading_rubric', e.target.value)}
-                          placeholder="e.g. Reward students who surface evidence from their own sheet, build on peers, and argue fit over raw qualifications."
-                          className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:border-[#FA6C43] transition-all"
-                        />
-                      </div>
                     </AdvancedReveal>
 
                     {/* Class code — how students reach the exercise at all, so it sits

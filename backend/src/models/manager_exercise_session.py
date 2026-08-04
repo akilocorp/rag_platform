@@ -1,7 +1,9 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   Reshaped for the facilitated rework: dropped seats/individual votes/grades, added roster,
-#            chosen_candidate, and the facilitator turn-taking fields.
+# @updated   2026-08-04
+# @changed   M9 three-round rework: added `solo_ballot` (the private round-0 picks) to the skeleton and
+#            the schema; dropped the grading and strike keys along with the machine that wrote them.
+# @changed   Prior: reshaped for the facilitated rework — dropped seats, added roster, chosen_candidate,
+#            and the facilitator turn-taking fields.
 """Durable persistence for the Manager Exercise hidden-profile debrief.
 
 One Mongo document per matched room lives in the ``manager_exercise_sessions``
@@ -21,10 +23,12 @@ Document schema — keys written by the helpers below::
       "_id":                  ObjectId,
       "room_id":              str,          # PRIMARY natural key; unique index
       "config_id":            str,          # parsed from room_id
-      "phase":                str,          # waiting|choose|discuss|done
-      "phase_deadline_ts":    float|None,   # epoch seconds; discuss only
-      "roster":               [{uid, name}],# students who entered the room
-      "collective_ballot":    {"open": bool, "votes": {uid: str}},
+      "phase":                str,          # waiting|solo|discuss|choose|kiosk|debrief|done
+      "phase_deadline_ts":    float|None,   # epoch seconds; timed phases only
+      "roster":               [{uid, name, role}],
+      "solo_ballot":          {"open": bool, "votes": {uid: str}},   # round 0, private
+      "collective_ballot":    {"open": bool, "votes": {uid: str}},   # round 1, the group's
+      "continue_acks":        [uid],        # who has passed the kiosk gate
       "chosen_candidate":     str|None,     # the group's pick
       "forecast_shown_for":   str|None,     # whose outcome doc has been revealed
       "pending_go_around":    {asked_at, expected: [uid], received: [uid]}|None,
@@ -39,8 +43,11 @@ The last four fields are the facilitator's turn-taking gates. They are persisted
 rather than kept in memory so a mid-session restart cannot make ACTR forget it is
 waiting on a go-around and start replying to students one at a time.
 
-There are no seats, private documents, individual votes, or grades: the decision
-is made offline on paper, and the debrief is never scored.
+`solo_ballot` holds each student's PRIVATE round-0 pick — what they believed before
+the group could move them. It is the one thing in this document that must never be
+served to a client as a tally; `ExerciseState.solo_spread` exposes anonymous counts
+and nothing else. Students are never scored here: there is no grading anywhere in
+this feature.
 """
 
 from datetime import datetime
@@ -115,7 +122,9 @@ class ManagerExerciseSession:
             "phase": "waiting",
             "phase_deadline_ts": None,
             "roster": [],
+            "solo_ballot": {"open": False, "votes": {}},
             "collective_ballot": {"open": False, "votes": {}},
+            "continue_acks": [],
             "chosen_candidate": None,
             "forecast_shown_for": None,
             "pending_go_around": None,
@@ -174,7 +183,7 @@ class ManagerExerciseSession:
         """Persist a phase transition: ``phase`` + its ``phase_deadline_ts``.
 
         Always writes both together so the deadline can never lag the phase. Pass
-        ``phase_deadline_ts=None`` for the untimed phases (waiting/choose/done).
+        ``phase_deadline_ts=None`` for the untimed phases (waiting/solo/kiosk/done).
         """
         return ManagerExerciseSession.upsert(
             room_id, {"phase": phase, "phase_deadline_ts": phase_deadline_ts}

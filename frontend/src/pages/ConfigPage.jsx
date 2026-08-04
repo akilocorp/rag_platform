@@ -195,7 +195,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     manager_exercise: {
       num_students: 3,                                // capacity of one breakout room
       num_rooms: 5,                                   // how many groups the class splits into
-      discuss_minutes: 20,
+      discuss_minutes: 20,                            // round 1: the group's own deliberation
+      debrief_minutes: 20,                            // round 2: the facilitated debrief
       class_preset: '',
       learning_outcome: '',
       general_info: { file_id: '', text: '' },        // AI-only, optional; what the ROLE requires
@@ -969,10 +970,15 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         Room for up to {config.manager_exercise.num_rooms * config.manager_exercise.num_students} students.
                       </p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-2">Discussion window (minutes)</label>
+                    {/* Two windows, one per conversation. Round 0 (the private
+                        decision) is untimed — it ends when everyone has submitted. */}
+                    <div className="mb-5">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
-                      <p className="text-[10px] text-gray-400 mt-1">How long the facilitated debrief runs after the outcome is revealed.</p>
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; debrief (minutes)<InfoTip text="How long the facilitated debrief may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
+                      <input type="number" min="0" step="any" value={config.manager_exercise.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
                   </div>
 

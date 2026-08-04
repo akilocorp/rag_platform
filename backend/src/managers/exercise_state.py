@@ -1,23 +1,39 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   note_participant upgrades a "Student N" placeholder to the real display name (roster-name drift fix). Prior: added the CODIFY phase — a correct pick opens a terminal, chat-unlocked reflection (begin_codify → _run_codify_window → done) with no ballot. Prior: premise splits the general_info doc into student narrative + a credits/attribution block; kiosk entry broadcasts the reveal payload so clients load the outcome live; forecast_text_for matches names case/space-insensitively.
+# @updated   2026-08-04
+# @changed   M9 three-round rework. New `solo` phase (round 0): each student privately picks a candidate
+#            before the group ever talks; the room opens round 1 once everyone has submitted
+#            (SOLO_GRACE_SECONDS force-advances a stalled room). New `debrief` phase (round 2): the
+#            ONLY phase ACTR exists in (facilitator_active), entered unconditionally from the kiosk.
+#            Removed: the strike machine (strikes/collective_failed/revealed_candidate/begin_next_round),
+#            the second ballot, the dead reopen path, and grading entirely.
+# @changed   Prior: Premise splits the general_info doc into student narrative + a credits/attribution block (_student_scenario trims the structural appendix; _split_scenario_credits pulls the byline/timing/institution lines into `credits` for a tiny footer). Also: kiosk entry broadcasts the reveal payload (chosen_candidate/verdict/forecast_text) so clients load the outcome live without a refresh; forecast_text_for matches names case/space-insensitively.
 #            Prior: M7 lazy discuss clock (arm_discuss_timer starts on first student message so the prelude doesn't eat deliberation time); M5 `premise` block (general_info scenario); M3 pre-vote flow; M1+M2 role + role-sliced credentials; `abandon()` guard; chosen_verdict; grading; kiosk; timed ballot.
 """
 In-process registry of live Manager-Exercise rooms.
 
 Each matched room owns one `ExerciseState`. It holds the phase-machine state
-(waiting → choose → discuss → done), the group's chosen candidate, and the
-turn-taking bookkeeping that keeps ACTR from replying to every message. **Every**
+(waiting → solo → discuss → choose → kiosk → done), the group's chosen candidate,
+and the turn-taking bookkeeping that keeps ACTR from replying to every message. **Every**
 mutation is written through to the durable `manager_exercise_sessions` collection
 via `ManagerExerciseSession` BEFORE the corresponding socket emit, so a crash
 between persist and emit is recoverable: on cold access the state is rebuilt from
 Mongo (`get_or_create_exercise`) and any elapsed timed phase is fast-forwarded.
 
-The decision itself is made OFFLINE, on paper, before anyone opens the app. This
-machine only covers what happens afterwards: the group enters its pick, the
-matching outcome document is revealed, and ACTR facilitates the debrief. There is
-no memorize phase, no per-seat private document, no individual ballot, and no
-grading — students are never scored here.
+The exercise runs in three rounds, and which round you are in is the phase:
+
+  round 0 (`solo`)      each student reads the brief + their role's credential
+                        cards and commits to a candidate ALONE. Private: no
+                        student ever sees another's pick, and the tally is never
+                        sent to a client. This is what makes it possible to show,
+                        afterwards, that the group moved someone off their answer.
+  round 1 (`discuss`    the group deliberates and votes. NO FACILITATOR — see
+          + `choose`)   `facilitator_active` below. The point of the exercise is
+                        that a group reliably fails the hidden-profile trap, and a
+                        group coached through pooling does not fail it.
+  round 2 (`debrief`)   six months on, the outcome document lands and ACTR joins
+                        for the first time. One conversation, no second ballot.
+
+Students are never scored: there is no grading anywhere in this feature.
 
 Timers run on `socketio.start_background_task` + `socketio.sleep` only
 (async_mode='threading') — never time.sleep/asyncio.
@@ -91,45 +107,70 @@ def _split_scenario_credits(text: str):
 
 # --- Phase constants --------------------------------------------------------
 PHASE_WAITING = "waiting"
+# M9 round 0: the private decision. Each student reads the brief + their credential
+# cards and commits to a candidate alone, before anyone has spoken to anyone.
+PHASE_SOLO = "solo"
 PHASE_CHOOSE = "choose"
 # M6: instructor-paced gate between the pick and the reveal. Each student presses
 # Continue to advance their OWN screen (kiosk → time-skip → outcome); the room only
-# moves on to the shared discussion once every seated student has pressed it.
+# moves on once every seated student has pressed it.
 PHASE_KIOSK = "kiosk"
 PHASE_DISCUSS = "discuss"
-# A CORRECT first pick opens a terminal reflection instead of ending outright: the
-# group explains the reasoning behind the right hire and codifies the principles.
-# It is an open, facilitated chat like `discuss` but with NO ballot after — the timer
-# lapses straight to `done`.
-PHASE_CODIFY = "codify"
+# M9 round 2: the facilitated debrief, after the outcome. The ONLY phase ACTR is
+# ever invoked in — see `facilitator_active`.
+PHASE_DEBRIEF = "debrief"
 PHASE_DONE = "done"
 
-# Ordered flow; used to fast-forward on rehydration. Hidden-profile M3: deliberation
-# comes BEFORE the vote now — students pool their role-sliced credentials in `discuss`,
-# then the ballot opens. A wrong pick loops back to `discuss` for round 2; a correct
-# pick opens `codify` (terminal reflection) before `done`.
-PHASE_ORDER = [PHASE_WAITING, PHASE_DISCUSS, PHASE_CHOOSE, PHASE_KIOSK, PHASE_CODIFY, PHASE_DONE]
+# Ordered flow; used to fast-forward on rehydration. M9: strictly linear — the
+# private decision precedes the group's, and every room ends in the debrief whether
+# its pick was right or wrong. There is no second ballot and no branch.
+PHASE_ORDER = [PHASE_WAITING, PHASE_SOLO, PHASE_DISCUSS, PHASE_CHOOSE,
+               PHASE_KIOSK, PHASE_DEBRIEF, PHASE_DONE]
 
-# Chat is unlocked during discuss AND codify (both are open facilitated discussion).
-# In `choose` the group speaks through the ballot buttons, not the chat, so the pick
-# is a single deliberate act.
-_UNLOCKED_PHASES = {PHASE_DISCUSS, PHASE_CODIFY}
+# Chat is unlocked for the two conversations only. `solo` is locked because the
+# decision is private; `choose` is locked because the group speaks through the
+# ballot buttons, not the chat, so the pick is a single deliberate act.
+_UNLOCKED_PHASES = {PHASE_DISCUSS, PHASE_DEBRIEF}
+
+# Round number per phase — the student-facing numbering (0 private, 1 group
+# decision, 2 debrief), surfaced in the snapshot and the phase broadcast so the
+# client can label the round without deriving it.
+_PHASE_ROUND = {
+    PHASE_WAITING: 0,
+    PHASE_SOLO: 0,
+    PHASE_DISCUSS: 1,
+    PHASE_CHOOSE: 1,
+    PHASE_KIOSK: 1,
+    PHASE_DEBRIEF: 2,
+    PHASE_DONE: 2,
+}
 
 # M7: the discuss clock is LAZY — it starts when discussion actually begins (the
-# first student message), NOT when the phase opens, so the per-student premise/card
-# prelude doesn't eat deliberation time. If a room stays silent this long the clock
-# arms anyway, so a quiet room still advances to the vote instead of hanging.
+# first student message), NOT when the phase opens, so a room that is still reading
+# doesn't burn deliberation time. If a room stays silent this long the clock arms
+# anyway, so a quiet room still advances to the vote instead of hanging.
 PRELUDE_GRACE_SECONDS = 240
 
+# M9: the solo round normally ends when every student has submitted their private
+# pick — the same all-members gate the kiosk uses. The kiosk can afford no timeout
+# because an instructor is pacing it; nobody is pacing this one, so a student who
+# walks away must not strand the room forever.
+SOLO_GRACE_SECONDS = 900
+
 # --- Turn-taking ------------------------------------------------------------
-# There are no gates. ACTR is invoked on every student message and decides for
-# itself, from the facts `turn_context()` hands it plus the worked example in the
-# prompt. Gates were tried first and every one of them bought a guarantee at the
-# cost of latency: a quorum that stalled the room for a minute when one student
-# went quiet, a cooldown that muted ACTR for three turns whether or not it had
-# anything to say.
+# WITHIN the debrief there are no gates. ACTR is invoked on every student message
+# and decides for itself, from the facts `turn_context()` hands it plus the worked
+# example in the prompt. Gates were tried first and every one of them bought a
+# guarantee at the cost of latency: a quorum that stalled the room for a minute
+# when one student went quiet, a cooldown that muted ACTR for three turns whether
+# or not it had anything to say.
 #
-# Two things remain structural, and neither costs a wait:
+# Three things remain structural, and none costs a wait:
+#   * ACTR exists in ONE phase (`facilitator_active`). Round 1 does not reach the
+#     model at all — no system prompt is built, no client is opened, no call is
+#     made. This is deliberately not a prompt instruction to stay quiet: a
+#     facilitator asked to be silent is still a facilitator in the room, and the
+#     first group decision has to be uncontaminated to be worth debriefing;
 #   * only STUDENT messages invoke the facilitator, so it cannot post twice in a
 #     row — there is no trigger for a second turn;
 #   * one turn per room at a time (`claim_facilitator`), because two concurrent
@@ -177,20 +218,21 @@ class ExerciseState:
 
         # Hooks the sockets layer registers so AI-side work fires at the right
         # phase edges without this module importing ai_manager:
-        #   on_choose_start(state)  -> ACTR asks which candidate they chose
-        #   on_pick_resolved(state) -> reveal the outcome doc + ACTR branch entry
-        #   on_wrapup(state)        -> ACTR's closing message
+        #   on_pick_resolved(state)  -> post the outcome document
+        #   on_ballot_open(state)    -> the neutral "the ballot is open" notice
+        #   on_debrief_start(state)  -> ACTR's opener, its first words of the session
+        #   on_wrapup(state)         -> ACTR's closing message
+        # Note there is no round-1 hook. That is the whole point: nothing in round 1
+        # has an AI edge to fire on.
         self.hooks: Dict[str, Callable] = {}
 
         cfg = self._read_config()
         self.capacity: int = cfg["capacity"]
         self.candidates: List[Dict] = cfg["candidates"]
         self.discuss_seconds: float = cfg["discuss_seconds"]
-        # Codify (post-correct-pick reflection) runs for the same window as the main
-        # deliberation unless a distinct `codify_minutes` is configured.
-        self.codify_seconds: float = cfg["codify_seconds"]
         self.choose_seconds: float = cfg["choose_seconds"]
         self.final_call_seconds: float = cfg["final_call_seconds"]
+        self.debrief_seconds: float = cfg["debrief_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -198,24 +240,13 @@ class ExerciseState:
             self._phase = PHASE_WAITING
             self.phase_deadline_ts: Optional[float] = None
             self.roster: List[Dict] = []
+            # M9 round 0: {uid: candidate}. Private — never tallied to a client, and
+            # only ever leaves this object as the anonymous `solo_spread()` counts.
+            self.solo_ballot: Dict = {"open": False, "votes": {}}
             self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
             self.continue_acks: List[str] = []
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
-            self.reopen_allowed: bool = False
-            # M7: round/strike machine. `round` is 1|2; `strikes` counts wrong group
-            # picks; two strikes ends the exercise with `collective_failed` and the
-            # un-chosen best option surfaced as `revealed_candidate`. `round2_speakers`
-            # records who spoke in the round-2 discussion (participation flag).
-            self.round: int = 1
-            self.strikes: int = 0
-            self.collective_failed: bool = False
-            self.revealed_candidate: Optional[str] = None
-            self.round2_speakers: List[str] = []
-            # M8: everyone who spoke at least once (any phase) — overall participation
-            # — and the grades produced at `done`.
-            self.speakers: List[str] = []
-            self.grades: Dict = {}
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -236,13 +267,17 @@ class ExerciseState:
             "capacity": max(2, num or 2),
             "candidates": c.get("candidates") or [],
             "discuss_seconds": float(c.get("discuss_minutes") or 20) * 60.0,
-            # Codify reflection window; defaults to the discuss window when unset.
-            "codify_seconds": float(c.get("codify_minutes") or c.get("discuss_minutes") or 20) * 60.0,
             # M5: the `choose` ballot is timed. The main window runs `choose_seconds`;
             # when it lapses a short `final_call_seconds` window opens (the client
             # beeps) before the pick is force-resolved from whatever votes are in.
             "choose_seconds": float(c.get("choose_minutes") or 3) * 60.0,
             "final_call_seconds": float(c.get("final_call_seconds") or 30),
+            # M9: the round-2 debrief window. Falls back to the round-1 discussion
+            # length so configs authored before this field existed keep running
+            # without a migration.
+            "debrief_seconds": float(
+                c.get("debrief_minutes") or c.get("discuss_minutes") or 20
+            ) * 60.0,
         }
 
     # ==================================================================
@@ -253,6 +288,11 @@ class ExerciseState:
         self._phase = doc.get("phase") or PHASE_WAITING
         self.phase_deadline_ts = doc.get("phase_deadline_ts")
         self.roster = list(doc.get("roster") or [])
+        sb = doc.get("solo_ballot") or {}
+        self.solo_ballot = {
+            "open": bool(sb.get("open", False)),
+            "votes": dict(sb.get("votes") or {}),
+        }
         cb = doc.get("collective_ballot") or {}
         self.collective_ballot = {
             "open": bool(cb.get("open", False)),
@@ -262,14 +302,6 @@ class ExerciseState:
         self.continue_acks = list(doc.get("continue_acks") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
-        self.reopen_allowed = bool(doc.get("reopen_allowed", False))
-        self.round = int(doc.get("round") or 1)
-        self.strikes = int(doc.get("strikes") or 0)
-        self.collective_failed = bool(doc.get("collective_failed", False))
-        self.revealed_candidate = doc.get("revealed_candidate")
-        self.round2_speakers = list(doc.get("round2_speakers") or [])
-        self.speakers = list(doc.get("speakers") or [])
-        self.grades = dict(doc.get("grades") or {})
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -281,8 +313,18 @@ class ExerciseState:
     def phase(self) -> str:
         return self._phase
 
+    @property
+    def round(self) -> int:
+        """The student-facing round number, DERIVED from the phase (0/1/2).
+
+        A property rather than a stored field: the round and the phase were two
+        representations of the same fact, and the old machine could advance one
+        without the other. There is nothing to keep in sync now.
+        """
+        return _PHASE_ROUND.get(self._phase, 0)
+
     def chat_locked(self) -> bool:
-        """Authoritative chat gate. True unless the room is in `discuss`."""
+        """Authoritative chat gate. True outside the two conversation phases."""
         return self._phase not in _UNLOCKED_PHASES
 
     def roster_uids(self) -> List[str]:
@@ -376,11 +418,6 @@ class ExerciseState:
             })
         return out
 
-    def _best_option(self) -> Optional[str]:
-        """The answer key's best hire (AI-only; from the case pack). None if unset."""
-        key = (self.config.get("case_pack") or {}).get("answer_key") or {}
-        return (key.get("best_option") or None)
-
     def _verdict_for(self, name: Optional[str]) -> Optional[str]:
         """The case-pack outcome verdict ('success'/'failure') for a candidate (M2).
 
@@ -393,40 +430,25 @@ class ExerciseState:
                 return o.get("outcome_verdict") or None
         return None
 
-    def _pick_is_correct(self, name: Optional[str]) -> bool:
-        """True when `name` is the case's best option (M7 correctness gate)."""
-        best = (self._best_option() or "").strip().lower()
-        return bool(best) and best == (name or "").strip().lower()
+    def chosen_verdict(self) -> Optional[str]:
+        """The verdict ('success'/'failure') of the hire the group actually made.
 
-    def round2_absentees(self) -> List[str]:
-        """Roster names who never spoke in the round-2 discussion (participation flag).
-
-        Only meaningful once the room has reached round 2; before that it is empty.
+        Public because the debrief opener branches on it — a hire that worked out
+        gets a different first question from one that didn't.
         """
-        if self.round < 2:
-            return []
-        spoke = set(self.round2_speakers)
-        return [e.get("name", "") for e in self.roster if e.get("uid") not in spoke]
+        return self._verdict_for(self.chosen_candidate)
 
-    def group_outcome(self) -> str:
-        """The collective result for grading (M8).
+    def solo_spread(self) -> Dict[str, int]:
+        """The round-0 picks as ANONYMOUS per-candidate counts (M9).
 
-        `correct_first` (right on the first pick), `recovered` (wrong first, right
-        second), `failed` (two strikes → answer revealed), or `incomplete` (time ran
-        out on a wrong pick without a second strike).
+        The only way a solo vote ever leaves this object. The facilitator is handed
+        the spread — "two came in on Sanjay, one on Priya" — because the gap between
+        what people believed alone and what the group did is the debrief's best
+        material. It is never handed WHO believed what: that is a private answer a
+        student gave before the group could pressure them, and naming it in an open
+        room is a different exercise from the one being run.
         """
-        if self.collective_failed:
-            return "failed"
-        if self._pick_is_correct(self.chosen_candidate):
-            return "recovered" if self.round >= 2 else "correct_first"
-        return "incomplete"
-
-    def set_grades(self, grades: Dict):
-        """Persist the grades produced at `done` and broadcast them to the room (M8)."""
-        with self._lock:
-            self.grades = dict(grades or {})
-            self._persist({"grades": self.grades})
-        self._emit("grades", {"room_id": self.room_id, "grades": self.grades})
+        return self._tally(self.solo_ballot.get("votes", {}))
 
     # ==================================================================
     # SNAPSHOT (`exercise_state` payload)
@@ -460,6 +482,15 @@ class ExerciseState:
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
                 "can_start": self.can_start(),
+                # M9 round 0. `your_solo_vote` is this viewer's OWN private pick,
+                # restored so a refresh mid-round-0 doesn't ask them to decide twice.
+                # `solo_submitted`/`solo_total` are bare counts for the "waiting for
+                # your group" line. There is deliberately NO solo tally here — see
+                # `solo_spread`; sending it would leak the private round to every
+                # client in the room.
+                "your_solo_vote": self.solo_ballot.get("votes", {}).get(uid),
+                "solo_submitted": len(self.solo_ballot.get("votes", {})),
+                "solo_total": len(self.roster),
                 "collective_open": bool(self.collective_ballot.get("open")),
                 "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
                 # M5: live decision state so the client can render the running tally,
@@ -477,13 +508,8 @@ class ExerciseState:
                 # M2: verdict of the revealed pick, so the client frames the reveal
                 # as a celebration (success) or an aftermath (failure).
                 "chosen_verdict": self._verdict_for(self.chosen_candidate) if revealed else None,
-                # M7: round/strike surface. `revealed_candidate` is only the answer
-                # AFTER two strikes, at which point showing it is the whole point.
+                # Derived from the phase (0 private / 1 group decision / 2 debrief).
                 "round": self.round,
-                "collective_failed": self.collective_failed,
-                "revealed_candidate": self.revealed_candidate,
-                # M8: grades appear once the room reaches `done` (else None).
-                "grades": self.grades or None,
             }
 
     # ==================================================================
@@ -539,12 +565,7 @@ class ExerciseState:
         with self._lock:
             for e in self.roster:
                 if e.get("uid") == uid:
-                    # Fill a missing name, and also UPGRADE a "Student N" placeholder
-                    # (seeded by a message that arrived before the real name did) to the
-                    # real display name — otherwise the placeholder stuck and the roster
-                    # name drifted from the client's.
-                    existing = e.get("name") or ""
-                    if name and (not existing or existing.startswith("Student ")):
+                    if name and not e.get("name"):
                         e["name"] = name
                         self._persist({"roster": self.roster})
                     return False
@@ -588,19 +609,26 @@ class ExerciseState:
                 # crash landed between the last ack and the transition, finish now.
                 if self._all_continued():
                     self._finish_kiosk()
+            elif self._phase == PHASE_SOLO:
+                # M9: solo has no deadline of its own — it ends when everyone has
+                # submitted. A crash between the last submission and the transition
+                # would otherwise hang the room, so settle that first, then restart
+                # the grace watch for the students still to come.
+                if self._all_solo_voted():
+                    self._finish_solo()
+                else:
+                    self._socketio.start_background_task(self._solo_grace_watch)
             elif self._phase == PHASE_DISCUSS:
-                # M3: discuss is the PRE-vote deliberation now, so when its timer
-                # elapses the next thing is the ballot, not the done screen.
+                # M3: discuss is the PRE-vote deliberation, so when its timer elapses
+                # the next thing is the ballot, not the done screen.
                 # M7: a room rebuilt while still unarmed (nobody has spoken yet) has no
                 # deadline to resume — restart the grace watch instead of expiring now.
                 if self.phase_deadline_ts is None:
                     self._socketio.start_background_task(self._prelude_grace_watch)
                 else:
                     self._resume_timed(PHASE_DISCUSS, self.begin_choose)
-            elif self._phase == PHASE_CODIFY:
-                # Codify's clock is armed on entry, so a rebuilt room just resumes it;
-                # when it lapses the exercise ends.
-                self._resume_timed(PHASE_CODIFY, self._enter_done)
+            elif self._phase == PHASE_DEBRIEF:
+                self._resume_timed(PHASE_DEBRIEF, self._enter_done)
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -626,6 +654,92 @@ class ExerciseState:
     def can_start(self) -> bool:
         """True while this room is still in its lobby state and has someone in it."""
         return self._phase == PHASE_WAITING and len(self.roster) >= 1
+
+    # ==================================================================
+    # ROUND 0 — THE PRIVATE DECISION (M9)
+    # ==================================================================
+    def begin_solo(self):
+        """Enter `solo`: each student decides alone, before the group exists.
+
+        This is where a room now lands when someone presses Start (it used to go
+        straight to `discuss`). Chat stays locked and NO hook fires — there is no AI
+        edge here to fire on, which is the structural half of keeping the facilitator
+        out of the group's first decision.
+
+        Untimed: the round ends when every student has submitted. `_solo_grace_watch`
+        is the backstop for the student who never does.
+        """
+        with self._lock:
+            if self._phase != PHASE_WAITING:
+                return
+            self._phase = PHASE_SOLO
+            self.phase_deadline_ts = None
+            self.solo_ballot = {"open": True, "votes": {}}
+            self._persist({
+                "phase": PHASE_SOLO,
+                "phase_deadline_ts": None,
+                "solo_ballot": self.solo_ballot,
+            })
+
+        self._broadcast_phase()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "solo"})
+        if self._socketio:
+            self._socketio.start_background_task(self._solo_grace_watch)
+
+    def _all_solo_voted(self) -> bool:
+        """True once every seated student has submitted a private pick (empty room → False)."""
+        seated = self.roster_uids()
+        votes = self.solo_ballot.get("votes", {})
+        return bool(seated) and all(u in votes for u in seated)
+
+    def record_solo_vote(self, uid: str, candidate: str) -> bool:
+        """Record ONE student's private round-0 pick. Opens round 1 once all are in.
+
+        Deliberately unlike `record_collective_vote`: no tally is broadcast and no
+        majority resolves anything. The only thing the room learns is HOW MANY have
+        submitted, so the others know what they are waiting on without learning what
+        anyone chose. A student may change their pick until the round closes.
+        """
+        finish = False
+        with self._lock:
+            if not self.solo_ballot.get("open"):
+                return False
+            if uid not in self.roster_uids() or not self._valid_candidate(candidate):
+                return False
+            self.solo_ballot["votes"][uid] = candidate
+            self._persist({"solo_ballot": self.solo_ballot})
+            finish = self._all_solo_voted()
+
+        # Counts only. See `solo_spread` for why the tally never goes to a client.
+        self._emit("solo_update", {
+            "room_id": self.room_id,
+            "submitted": len(self.solo_ballot.get("votes", {})),
+            "total": len(self.roster),
+        })
+        if finish:
+            self._finish_solo()
+        return True
+
+    def _finish_solo(self):
+        """Close the private round and open the group deliberation."""
+        with self._lock:
+            if self._phase != PHASE_SOLO:
+                return
+            self.solo_ballot["open"] = False
+            self._persist({"solo_ballot": self.solo_ballot})
+        self.begin_discuss()
+
+    def _solo_grace_watch(self):
+        """Backstop: force round 1 open if someone never submits a private pick.
+
+        Whoever has not decided by now keeps no vote — they simply have nothing
+        recorded for round 0. Holding the whole room on one absent student is worse
+        than losing one data point.
+        """
+        with self._app.app_context():
+            self._socketio.sleep(SOLO_GRACE_SECONDS)
+            if self._phase == PHASE_SOLO:
+                self._finish_solo()
 
     def begin_choose(self):
         """Enter `choose`: open the timed ballot and lock chat for the vote.
@@ -658,7 +772,11 @@ class ExerciseState:
             "tally": {},
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
-        self._run_hook("on_choose_start")
+        # A neutral "the ballot is open" notice, NOT a facilitator turn. The line
+        # itself is the same one ACTR used to post; posting it under ACTR's name made
+        # the facilitator present at the group's first decision for the sake of one
+        # sentence the ballot screen already says.
+        self._run_hook("on_ballot_open")
         if self._socketio:
             self._socketio.start_background_task(self._run_choose_window)
 
@@ -708,29 +826,31 @@ class ExerciseState:
         })
 
     def begin_discuss(self):
-        """Enter the PRE-VOTE deliberation: unlock chat, arm the discuss timer, ACTR opens.
+        """Enter ROUND 1: the group's own deliberation. No facilitator.
 
-        M3: this is where the group pools their role-sliced credentials and reasons
-        toward a hire — BEFORE any vote. Round 1 arrives from `waiting` (a student
-        pressed Start); round 2 arrives from `kiosk` (the group's first pick was
-        wrong). When the timer lapses the ballot opens (`begin_choose`).
+        Arrives from `solo` — everyone has now committed privately, so the group can
+        talk without anyone's answer being anchored by the room. The students pool
+        their role-sliced credentials and reason toward a hire; when the timer lapses
+        the ballot opens (`begin_choose`).
 
-        Non-blocking: the countdown runs on a background task like the choose window,
-        so this is safe to call straight from the `start_exercise` socket handler.
+        No hook fires here. This used to run `on_discuss_start`, which posted ACTR's
+        opener; that is exactly the contamination this round now exists without.
+
+        Non-blocking: the countdown runs on a background task like the choose window.
         """
         with self._lock:
-            if self._phase not in (PHASE_WAITING, PHASE_KIOSK):
+            if self._phase != PHASE_SOLO:
                 return
             self._phase = PHASE_DISCUSS
             # M7: leave the clock UNARMED (deadline None). It starts on the first
-            # student message (arm_discuss_timer) so the prelude reading time is free;
-            # the grace watch below arms it anyway if the room stays silent.
+            # student message (arm_discuss_timer), so a group still settling in
+            # doesn't burn deliberation time; the grace watch below arms it anyway if
+            # the room stays silent.
             self.phase_deadline_ts = None
             self._persist({"phase": PHASE_DISCUSS, "phase_deadline_ts": None})
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
-        self._run_hook("on_discuss_start")
         if self._socketio:
             self._socketio.start_background_task(self._prelude_grace_watch)
 
@@ -765,36 +885,62 @@ class ExerciseState:
             if self._phase == PHASE_DISCUSS:
                 self.begin_choose()
 
-    def begin_codify(self):
-        """Right pick → open the terminal CODIFY reflection (chat unlocked, no ballot).
+    # ==================================================================
+    # ROUND 2 — THE FACILITATED DEBRIEF (M9)
+    # ==================================================================
+    def _enter_debrief(self):
+        """Enter ROUND 2: the outcome has landed and ACTR joins for the first time.
 
-        The group made the correct hire; instead of ending outright, they now explain
-        the evidence and reasoning behind it and codify the principles. Unlike discuss,
-        the clock is armed immediately (there is no prelude to read) and its expiry
-        routes straight to `done` — there is no vote at the end.
+        UNCONDITIONAL — reached from the kiosk whether the group's hire worked out or
+        not. Under the old strike machine a correct pick ended the session on the spot,
+        so the groups that read the case best were the only ones who never got a
+        debrief. The opener branches on the verdict instead (`on_debrief_start`).
+
+        This is the one phase `facilitator_active` returns True for. Chat unlocks and
+        the debrief clock arms immediately (unlike round 1's lazy clock — the room is
+        already talking by the time it gets here).
         """
         with self._lock:
             if self._phase != PHASE_KIOSK:
                 return
-            self._phase = PHASE_CODIFY
-            self.phase_deadline_ts = time.time() + self.codify_seconds
-            self._persist({"phase": PHASE_CODIFY, "phase_deadline_ts": self.phase_deadline_ts})
+            self._phase = PHASE_DEBRIEF
+            self.phase_deadline_ts = time.time() + self.debrief_seconds
+            self._persist({
+                "phase": PHASE_DEBRIEF,
+                "phase_deadline_ts": self.phase_deadline_ts,
+            })
 
         self._broadcast_phase()
-        self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "codify"})
-        self._run_hook("on_codify_start")
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "debrief"})
+        self._run_hook("on_debrief_start")
         if self._socketio:
-            self._socketio.start_background_task(self._run_codify_window)
+            self._socketio.start_background_task(self._run_debrief_window)
 
-    def _run_codify_window(self):
-        """Background timer for the codify reflection → end the exercise on expiry."""
+    def _run_debrief_window(self):
+        """Background timer for the debrief. The BACKSTOP, not the usual ending.
+
+        ACTR normally closes the session itself when the conversation has run its
+        course (`end_debrief`, driven by the end marker in its reply). This only
+        catches a room that never converges.
+        """
         with self._app.app_context():
             self._sleep_until(self.phase_deadline_ts)
-            if self._phase == PHASE_CODIFY:
+            if self._phase == PHASE_DEBRIEF:
                 self._enter_done()
 
+    def end_debrief(self):
+        """ACTR has judged the debrief finished → close the session.
+
+        Called from the sockets layer when a facilitator reply carries the end
+        marker. Guarded to the debrief phase so a late marker can't reopen or
+        re-close a room that has already moved on.
+        """
+        if self._phase != PHASE_DEBRIEF:
+            return
+        self._enter_done()
+
     def _enter_done(self):
-        """Discuss expired → wrap up. No scorecard: this exercise is not graded."""
+        """The session is over. No scorecard: this exercise is not graded."""
         with self._lock:
             if self._phase == PHASE_DONE:
                 return
@@ -813,25 +959,23 @@ class ExerciseState:
             "phase": self._phase,
             "phase_deadline_ts": self.phase_deadline_ts,
             "server_now_ts": time.time(),
-            "round": self.round,   # M7: lets the client show the round without a full snapshot
+            "round": self.round,   # lets the client label the round without a full snapshot
         })
 
     # ==================================================================
     # THE PICK (collective ballot)
     # ==================================================================
     def _ballot_candidates(self) -> List[Dict]:
-        """The candidates a ballot may offer right now.
+        """Every named candidate. Shared by the round-0 private pick and the group ballot.
 
-        On the first pick that is everyone. On a re-choice the group has already
-        seen what happened to `chosen_candidate`, so it is out of the running —
-        the question is which of the *remaining* candidates they now want.
+        There is one group decision now, so nothing is ever eliminated — this used to
+        drop `chosen_candidate` for the re-choice a second round offered.
         """
-        return [c for c in self.candidates
-                if c.get("name") and c.get("name") != self.chosen_candidate]
+        return [c for c in self.candidates if c.get("name")]
 
     def _valid_candidate(self, candidate: str) -> bool:
-        # Same rule server-side as the emitted list, so a stale client cannot vote
-        # for the candidate the re-choice just eliminated.
+        # Same rule server-side as the emitted list, so a stale or hand-rolled client
+        # cannot vote for something that was never on the ballot.
         return any(c.get("name") == candidate for c in self._ballot_candidates())
 
     def record_collective_vote(self, uid: str, candidate: str) -> bool:
@@ -889,12 +1033,12 @@ class ExerciseState:
     def resolve_collective(self) -> Tuple[Optional[str], Dict]:
         """
         Tally the ballot, set the group's pick, close the ballot, persist, emit
-        `collective_result`, then reveal the outcome via `on_pick_resolved`.
+        `collective_result`, then hold at the kiosk gate. Returns (winner, tally).
 
-        Serves both the first pick (from `choose`) and a re-choice (from `discuss`);
-        only the first advances the phase. Returns (winner, tally).
+        There is exactly one group decision now, so this no longer scores the pick
+        against the answer key — whether the group was right shows up where it should,
+        in the outcome document they read six months on.
         """
-        entering_discuss = False
         with self._lock:
             if not self.collective_ballot.get("open"):
                 return self.chosen_candidate, self._tally(self.collective_ballot.get("votes", {}))
@@ -907,25 +1051,11 @@ class ExerciseState:
             self.collective_ballot["open"] = False
             self.collective_ballot["final_call"] = False
             self.forecast_shown_for = winner
-
-            # M7: a wrong group pick is a strike. On the SECOND strike the exercise
-            # is over — the un-chosen best option becomes the answer to reveal, and
-            # the collective decision is recorded as failed (surfaced in grading).
-            fields = {
+            self._persist({
                 "chosen_candidate": self.chosen_candidate,
                 "collective_ballot": self.collective_ballot,
                 "forecast_shown_for": self.forecast_shown_for,
-            }
-            if winner and not self._pick_is_correct(winner):
-                self.strikes += 1
-                fields["strikes"] = self.strikes
-                if self.strikes >= 2:
-                    self.collective_failed = True
-                    self.revealed_candidate = self._best_option()
-                    fields["collective_failed"] = True
-                    fields["revealed_candidate"] = self.revealed_candidate
-            self._persist(fields)
-            from_choose = self._phase == PHASE_CHOOSE
+            })
 
         self._emit("collective_result", {
             "room_id": self.room_id,
@@ -934,13 +1064,9 @@ class ExerciseState:
         })
         self._emit("ballot_update", {"room_id": self.room_id, "open": False, "candidates": []})
 
-        # M6: the FIRST pick goes through the kiosk gate — the shared outcome reveal
-        # (`on_pick_resolved`) is deferred until the whole room has pressed Continue.
-        # A re-choice inside discuss keeps revealing immediately (no gate).
-        if from_choose:
-            self._enter_kiosk()
-        else:
-            self._run_hook("on_pick_resolved")
+        # M6: the outcome reveal (`on_pick_resolved`) is deferred until the whole room
+        # has pressed Continue, so everyone reads it at the same moment.
+        self._enter_kiosk()
         return winner, tally
 
     # ==================================================================
@@ -1010,80 +1136,18 @@ class ExerciseState:
         return True
 
     def _finish_kiosk(self):
-        """Everyone continued → run the shared reveal, then branch on the pick (M3).
+        """Everyone continued → post the shared reveal, then open the debrief.
 
-        A correct pick — or the SECOND wrong pick, whose answer the reveal has just
-        named — ends the exercise. A first wrong pick drops the room into a fresh
-        round-2 deliberation over the remaining candidates. There is no post-reveal
-        debrief phase any more; the discussion all happens before each vote.
+        No branch: right or wrong, the room goes to round 2. The old machine ended a
+        correct pick here, which meant the groups who read the case best were the only
+        ones who never got debriefed.
         """
         with self._lock:
             if self._phase != PHASE_KIOSK or self._kiosk_finishing:
                 return
             self._kiosk_finishing = True
         self._run_hook("on_pick_resolved")
-        if self._pick_is_correct(self.chosen_candidate):
-            # Right hire → open the terminal reflection so the group codifies WHY.
-            self.begin_codify()
-        elif self.strikes >= 2:
-            self._enter_done()
-        else:
-            self.begin_next_round()
-
-    def begin_next_round(self):
-        """Open a full second round after a wrong first pick (M3/M7).
-
-        Reached automatically from `_finish_kiosk` when the first pick was wrong — no
-        ACTR `[REOPEN]` signal any more. Unlike the old inline re-choice this is a real
-        round: back to a fresh PRE-VOTE deliberation over the REMAINING candidates,
-        then a new ballot, kiosk, and reveal. Guarded to round 2 only — there is no
-        third round; two strikes ends the exercise via the answer reveal instead.
-        """
-        with self._lock:
-            if self._phase != PHASE_KIOSK or self.round >= 2 or self.strikes >= 2:
-                return
-            self.round = 2
-            self._kiosk_finishing = False
-            self._persist({"round": self.round})
-        # begin_discuss accepts the kiosk→discuss transition and arms its own timer,
-        # which then rolls into begin_choose exactly like round 1.
-        self.begin_discuss()
-
-    def set_reopen_allowed(self, allowed: bool):
-        """Record that a re-choice is PERMITTED — not that it is being offered.
-
-        Set from the case-pack tally when the pick resolves. Splitting permission
-        from timing is what stops the ballot appearing beside the outcome reveal,
-        where it reads as a verdict on the group's first answer.
-        """
-        with self._lock:
-            self.reopen_allowed = bool(allowed)
-            self._persist({"reopen_allowed": self.reopen_allowed})
-
-    def reopen_choice(self):
-        """Reopen the ballot inside `discuss` so the group can choose again.
-
-        A phase flag rather than a phase change: chat stays unlocked so students
-        keep talking through the re-choice, which is where most of the learning
-        happens. Called only when ACTR itself invites a re-choice at step 11 of
-        the sequence, and only if the tally permits one.
-
-        The candidate they already picked is dropped from the list — they have
-        seen its outcome, so re-offering it makes the question meaningless.
-        """
-        with self._lock:
-            if self._phase != PHASE_DISCUSS or not self.reopen_allowed:
-                return
-            self.collective_ballot = {"open": True, "votes": {}, "final_call": False}
-            self._persist({"collective_ballot": self.collective_ballot})
-
-        self._emit("ballot_update", {
-            "room_id": self.room_id,
-            "open": True,
-            "final_call": False,
-            "tally": {},
-            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
-        })
+        self._enter_debrief()
 
     @staticmethod
     def _tally(votes: Dict[str, str]) -> Dict[str, int]:
@@ -1117,14 +1181,6 @@ class ExerciseState:
                 if uid not in received:
                     received.append(uid)
                     fields["pending_go_around"] = self.pending_go_around
-            # M7: participation flag — who actually talks in the round-2 discussion.
-            if self.round >= 2 and self._phase == PHASE_DISCUSS and uid and uid not in self.round2_speakers:
-                self.round2_speakers.append(uid)
-                fields["round2_speakers"] = self.round2_speakers
-            # M8: overall participation — anyone who spoke at least once, any phase.
-            if uid and uid not in self.speakers:
-                self.speakers.append(uid)
-                fields["speakers"] = self.speakers
             self._persist(fields)
 
     def note_facilitator_spoke(self, go_around: bool):
@@ -1204,9 +1260,17 @@ class ExerciseState:
                 ),
             }
 
-    def in_discussion(self) -> bool:
-        """True while the room is in `discuss` — the only phase ACTR reacts in."""
-        return self._phase == PHASE_DISCUSS
+    def facilitator_active(self) -> bool:
+        """The ONE phase ACTR exists in. Round 1 never reaches the model.
+
+        Every facilitator entry point checks this — the reactive turn, the silence
+        watcher, and the post-model re-check after a slow call. Round 1 is the group's
+        own decision, and it is kept that way by never invoking the facilitator at
+        all rather than by asking it to stay quiet: a facilitator told to hold is
+        still a facilitator in the room, one prompt regression away from speaking,
+        and the whole exercise depends on that first decision being untouched.
+        """
+        return self._phase == PHASE_DEBRIEF
 
     def spoke_last(self) -> bool:
         """True when ACTR posted more recently than any student.

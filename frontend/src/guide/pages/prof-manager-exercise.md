@@ -19,9 +19,9 @@ Have three documents ready:
 2. **Candidate Summary** — every role's private view of the candidates, side by side.
 3. **One outcome document per candidate** — how that person actually performed if hired.
 
-> **You need exactly three candidates.** The wizard will let you move on with two, but
-> publishing will fail at the last moment. Prepare all three outcome documents before you
-> start and you'll avoid losing the work.
+> **You need at least two candidates**, each with its own outcome document. Three is the
+> usual shape and what the hidden-profile design is tuned for, but two will publish. Prepare
+> the outcome documents before you start and you won't lose work at the last step.
 
 ## Step 1 — Name and type
 
@@ -45,8 +45,13 @@ Jump straight to setting group size and rooms.
   showed up. There are no AI players; every participant is a real student.
 - **Breakout groups** (1–20, default 5) — how many rooms exist. The line underneath shows
   your total capacity: *"Room for up to 15 students."*
-- **Discussion window (minutes)** — how long the facilitated debrief runs after the outcome
-  is revealed. Default 20.
+- **Round 1 — team discussion (minutes)** — how long the group has to talk before the ballot
+  opens. Default 20. The clock starts on their **first message**, so reading time is free.
+- **Round 2 — debrief (minutes)** — how long the facilitated debrief may run after the
+  outcome is revealed. Default 20. This is a *backstop*: the facilitator normally closes the
+  session itself once the group has worked out what they missed.
+
+Round 0, the private decision, is untimed — it ends when everyone has committed.
 
 ### Learning
 
@@ -117,25 +122,36 @@ Introduction message and access permissions, then **Publish**.
 
 ## What students experience
 
+The exercise runs in **three rounds**, and the order is the pedagogy: they commit alone,
+then as a group, and only then do they meet the facilitator.
+
 1. **Lobby** — they pick a breakout room from cards showing live occupancy (*Group 1,
    Group 2…*, `2 / 3`). No queue.
 2. **Waiting** — *"2 of 3 here. Start whenever your team is ready."* Anyone can press
    **Start with 2 people**.
 3. **The case** — the shared narrative, then their own **private credential cards**. This
    is the hidden profile: each student sees a different slice.
-4. **The decision** — a voting grid with a countdown. The room resolves on a majority.
-5. **"Six months later"** — the outcome of their hire is revealed, good or bad. If they got
-   it wrong, a **Round 2** gives them a second try from the candidates they didn't pick.
-6. **The debrief** — the AI facilitator runs the timed discussion, taking turns properly
-   rather than replying to every message.
-7. **Done** — a scorecard.
+4. **Round 0 — the private decision.** *"First, decide on your own."* Each student picks a
+   candidate before speaking to anybody. **Nobody ever sees anyone else's private pick** —
+   not the other students, not you, not the facilitator (it is told the anonymous spread,
+   never who chose what). The group only opens once everyone has committed.
+5. **Round 1 — the group decision.** *"Now you decide as a group."* They discuss, then a
+   voting grid with a countdown; the room resolves on a majority. **The facilitator is not
+   present for any of this.** That is deliberate: a group coached through pooling doesn't
+   fall into the hidden-profile trap, and if they don't fall into it there is nothing to
+   debrief.
+6. **"Six months later"** — the outcome of their hire is revealed, good or bad.
+7. **Round 2 — the debrief.** The AI facilitator joins for the first and only time and runs
+   the discussion, taking turns properly rather than replying to every message. It works
+   backwards from the outcome: what did each of you hold that never got said. There is **no
+   second vote** — the group re-decides out loud, not on a ballot. **Every** group reaches
+   this round, including the ones that hired the right person.
+8. **Done** — each student sees their own private pick beside what the group did.
 
 ## Grading
 
-- **Group outcome** — right first time, recovered in round 2, or neither. Deterministic.
-- **Per-student participation** — whether they took part, in each round. Deterministic.
-- **Per-student communication** — optional, judged against a rubric you can set under
-  **Customize → Grading rubric** in Advanced mode.
+There is none, by design. Nothing in this exercise is scored, and no scorecard is shown.
+The debrief conversation is the assessment, and it belongs to the room.
 
 ## Customising the facilitator *(Advanced)*
 

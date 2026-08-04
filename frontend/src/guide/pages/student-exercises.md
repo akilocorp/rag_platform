@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-08-04  @changed Manager Exercise rewritten for the three-round flow: private pick, unfacilitated group decision, facilitated debrief; grading section removed. Prior: humanizer copy pass, trimmed em dashes and AI-isms. -->
 
 # Doing each exercise
 
@@ -106,7 +106,8 @@ Say more than one line in the "Why?" box. That's where most of the marks are.
 
 ## 4. Manager Exercise
 
-A group decision game. You'll be hiring one of three candidates.
+A group decision game. You'll be hiring one candidate, and you'll decide **twice**: once on
+your own, then once with your team.
 
 ![The group lobby](/guide-media/me-student-lobby.png)
 
@@ -120,19 +121,22 @@ A group decision game. You'll be hiring one of three candidates.
    > answer only appears if you actually pool what you're each holding. Say what's on your
    > cards out loud, especially the things nobody else has mentioned.
 
-4. **Vote.** A countdown runs; the room resolves on a majority. A **Final call** warning
-   appears when time is nearly up.
-5. **"Six months later"**: you find out how your hire actually worked out. If it went
-   badly you get a **Round 2** to choose from the candidates you didn't pick.
-6. **Debrief.** An AI facilitator runs a timed discussion about what happened. Take part:
-   participation is part of your grade.
-7. **Done** — a scorecard.
+4. **Decide on your own.** Before you talk to anybody, you pick a candidate privately.
+   **Nobody sees it.** Not your teammates, not your professor, not the AI. Go with what your
+   own cards tell you. Once everyone has committed, the group opens.
+5. **Decide as a group.** Talk it through, then vote. A countdown runs, the room resolves on
+   a majority, and a **Final call** warning appears when time is nearly up.
+
+   > There is **no AI in this part.** The discussion and the decision are entirely yours.
+
+6. **"Six months later"**: you find out how your hire actually worked out.
+7. **Debrief.** *Now* an AI facilitator joins, for the only time, and runs a discussion
+   about what happened. There's no second vote. This is where you work out what your group
+   never said to each other, and it's the part worth showing up for.
+8. **Done.** You'll see your own private pick next to what your group hired.
 
 ### How you're graded
 
-- Whether your group got it right first time, or recovered in round 2.
-- Whether you participated, in each round.
-- Sometimes how you communicated, if your professor set a rubric for it.
-
-The groups that do well are the ones where people volunteer information nobody asked them
-for.
+You aren't. Nothing here is scored and there's no scorecard. Say what's on your cards
+anyway. The groups that get it right are the ones where people volunteer information nobody
+asked them for, and the ones that get it wrong usually had someone who knew and didn't say.
