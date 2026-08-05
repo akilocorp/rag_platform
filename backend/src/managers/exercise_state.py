@@ -245,6 +245,9 @@ class ExerciseState:
             self.solo_ballot: Dict = {"open": False, "votes": {}}
             self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
             self.continue_acks: List[str] = []
+            # M11: who has said the group is done deliberating and ready to vote.
+            # A majority opens the ballot early; see `record_ready_to_vote`.
+            self.ready_to_vote: List[str] = []
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
             self.pending_go_around: Optional[Dict] = None
@@ -300,6 +303,7 @@ class ExerciseState:
             "final_call": bool(cb.get("final_call", False)),
         }
         self.continue_acks = list(doc.get("continue_acks") or [])
+        self.ready_to_vote = list(doc.get("ready_to_vote") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
         self.pending_go_around = doc.get("pending_go_around") or None
@@ -532,6 +536,11 @@ class ExerciseState:
                 "your_vote": self.collective_ballot.get("votes", {}).get(uid),
                 # M6: kiosk progress so a (re)joining client renders the gate/wait
                 # accurately and knows whether it has already pressed Continue.
+                # M11: round-1 "we've decided" progress, so a reconnecting student
+                # sees the count and knows whether their own press was recorded.
+                "ready_count": len(self.ready_to_vote),
+                "ready_total": len(self.roster),
+                "you_are_ready": uid in self.ready_to_vote,
                 "kiosk_acked": len(self.continue_acks),
                 "kiosk_total": len(self.roster),
                 "you_continued": uid in self.continue_acks,
@@ -879,12 +888,53 @@ class ExerciseState:
             # doesn't burn deliberation time; the grace watch below arms it anyway if
             # the room stays silent.
             self.phase_deadline_ts = None
-            self._persist({"phase": PHASE_DISCUSS, "phase_deadline_ts": None})
+            self.ready_to_vote = []
+            self._persist({
+                "phase": PHASE_DISCUSS,
+                "phase_deadline_ts": None,
+                "ready_to_vote": self.ready_to_vote,
+            })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
         if self._socketio:
             self._socketio.start_background_task(self._prelude_grace_watch)
+
+    def record_ready_to_vote(self, uid: str) -> bool:
+        """One student signals the group is done deliberating (M11).
+
+        Opens the ballot once a MAJORITY of the roster has pressed it — the same
+        quorum `early_finalize` uses on the ballot itself, and for the same reason:
+        one impatient student must not be able to end a discussion the rest of the
+        room is still having. Below quorum this only broadcasts the count, so the
+        others can see someone is waiting on them.
+
+        Pressing again un-presses, because "we're ready" is a position a student can
+        change while the others talk them out of it.
+
+        Not requiring EVERYONE (unlike the kiosk gate) is deliberate: this is an
+        optimisation on a phase that already ends on its own clock, so a single idle
+        student should cost the group their early exit, not strand them entirely.
+        """
+        open_ballot = False
+        with self._lock:
+            if self._phase != PHASE_DISCUSS or uid not in self.roster_uids():
+                return False
+            if uid in self.ready_to_vote:
+                self.ready_to_vote.remove(uid)
+            else:
+                self.ready_to_vote.append(uid)
+            self._persist({"ready_to_vote": self.ready_to_vote})
+            open_ballot = len(self.ready_to_vote) * 2 > max(1, len(self.roster))
+
+        self._emit("ready_update", {
+            "room_id": self.room_id,
+            "ready": len(self.ready_to_vote),
+            "total": len(self.roster),
+        })
+        if open_ballot:
+            self.begin_choose()
+        return True
 
     def _prelude_grace_watch(self):
         """Fallback: arm the discuss clock after the grace window if it is still

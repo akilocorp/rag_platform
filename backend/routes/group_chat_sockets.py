@@ -776,6 +776,23 @@ def register_socket_events(socketio, app):
             return
         state.record_collective_vote(uid, candidate)
 
+    @socketio.on('ready_to_vote')
+    def handle_ready_to_vote(data):
+        """A student says the group is done deliberating in round 1 (M11).
+
+        `record_ready_to_vote` enforces the discuss phase and roster membership,
+        toggles this student's signal, and opens the ballot once a majority have
+        pressed it. Below majority it just broadcasts the count.
+        """
+        room_id = (data or {}).get('room_id')
+        uid = (data or {}).get('uid')
+        if not room_id or not uid:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None:
+            return
+        state.record_ready_to_vote(uid)
+
     @socketio.on('early_decision')
     def handle_early_decision(data):
         """The group presses "Decide now" to finalize before the clock (M5).

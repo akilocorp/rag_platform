@@ -435,6 +435,12 @@ const ManagerExercisePage = () => {
   // the phase. In a solo room the phase jumps to 'debrief' the instant you press
   // Continue, which would otherwise skip the "6 months later" clock entirely.
   const [inKioskWalkthrough, setInKioskWalkthrough] = useState(false);
+  // M11: round-1 "we've decided" signal. A majority of the room opens the ballot
+  // early; below that these counts just show the others someone is waiting.
+  const [readyCount, setReadyCount] = useState(0);
+  const [readyTotal, setReadyTotal] = useState(0);
+  const [youAreReady, setYouAreReady] = useState(false);
+
   const [kioskAcked, setKioskAcked] = useState(0);
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
@@ -610,6 +616,9 @@ const ManagerExercisePage = () => {
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
     if (s.chosen_verdict !== undefined) setChosenVerdict(s.chosen_verdict);
+    if (typeof s.ready_count === 'number') setReadyCount(s.ready_count);
+    if (typeof s.ready_total === 'number') setReadyTotal(s.ready_total);
+    if (typeof s.you_are_ready === 'boolean') setYouAreReady(s.you_are_ready);
     if (typeof s.kiosk_acked === 'number') setKioskAcked(s.kiosk_acked);
     if (typeof s.kiosk_total === 'number') setKioskTotal(s.kiosk_total);
     if (typeof s.you_continued === 'boolean') setYouContinued(s.you_continued);
@@ -779,6 +788,12 @@ const ManagerExercisePage = () => {
         // M6: live kiosk tally — how many of the room have pressed Continue. Kiosk
         // entry also carries the reveal payload (chosen candidate/verdict/outcome)
         // so the per-student reveal loads live; no full snapshot is pushed here.
+        // M11: how many of the room have said they're done deliberating.
+        socket.on('ready_update', (d) => {
+          if (typeof d.ready === 'number') setReadyCount(d.ready);
+          if (typeof d.total === 'number') setReadyTotal(d.total);
+        });
+
         socket.on('kiosk_update', (d) => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
@@ -911,6 +926,14 @@ const ManagerExercisePage = () => {
 
   // M6: press Continue at the kiosk. Advances THIS client into the time-skip at
   // once; the server holds the shared discussion until the whole room has pressed.
+  // M11: "we've made our decision" — the group's way out of round 1 before the
+  // clock. Toggles this student's signal; the server opens the ballot once a
+  // majority have pressed it, so one person can't end the discussion alone.
+  const toggleReadyToVote = () => {
+    socketRef.current?.emit('ready_to_vote', { room_id: roomId, uid: userIdRef.current });
+    setYouAreReady((prev) => !prev);
+  };
+
   const continueAck = () => {
     socketRef.current?.emit('continue_ack', { room_id: roomId, uid: userIdRef.current });
     setYouContinued(true);
@@ -1764,6 +1787,32 @@ const ManagerExercisePage = () => {
         {chatLocked && (
           <div className="mb-3 flex items-center justify-center gap-2 text-xs font-semibold text-gray-400 animate-in fade-in">
             <FaLock className="text-[11px]" /> Chat is locked right now.
+          </div>
+        )}
+
+        {/* M11: the group's way out of round 1 before the clock. Sits above the
+            composer rather than in the header so it reads as an action about the
+            discussion, not a piece of room furniture. Round 1 only — there is no
+            ballot after the debrief. */}
+        {!isDebrief && !chatLocked && (
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-3 animate-in fade-in">
+            <button
+              onClick={toggleReadyToVote}
+              className={`inline-flex items-center gap-2 rounded-2xl border-2 px-5 py-2.5 text-sm font-bold transition-all active:scale-[0.98] ${
+                youAreReady
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-[#FA6C43]/40 text-[#C2410C] hover:bg-[#F9D0C4]/20'
+              }`}
+            >
+              {youAreReady
+                ? <><FaCheckCircle className="text-xs" /> We've decided — waiting on the others</>
+                : <>We've made our decision</>}
+            </button>
+            {readyCount > 0 && (
+              <span className="text-xs font-semibold text-gray-500 tabular-nums">
+                {readyCount}{readyTotal ? ` of ${readyTotal}` : ''} ready to vote
+              </span>
+            )}
           </div>
         )}
         <div className="w-full relative flex items-center gap-3">
