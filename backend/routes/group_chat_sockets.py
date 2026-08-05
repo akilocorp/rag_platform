@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-04
-# @changed   M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
+# @updated   2026-08-05
+# @changed   M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
+#            hands off to a new backgrounded _open_debrief instead of posting a hardcoded line inline.
+#            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock.
+#            Prior: M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
 #            handler records each private pick. The round-1 ACTR hooks are GONE (on_discuss_start /
 #            on_choose_start); the ballot-open line is posted under a neutral system sender instead. All
 #            facilitator gates moved from in_discussion() to facilitator_active() (debrief only), and a
@@ -151,8 +154,11 @@ def register_socket_events(socketio, app):
         holds an app context). All are wrapped by ExerciseState._run_hook, which
         swallows exceptions, and the model-calling ones are pushed onto their own
         background task so a slow completion never stalls the phase machine.
+
+        `config_doc` is no longer read here: the two model-calling hooks run in their
+        own background task and take the runtime config off `st.config`, which is the
+        same object `get_or_create_exercise` was built with.
         """
-        me_config = _exercise_runtime_config(config_doc)
 
         def on_ballot_open(st):
             """Round-1 ballot opened → a plain announcement, NOT a facilitator turn.
@@ -179,11 +185,11 @@ def register_socket_events(socketio, app):
         def on_debrief_start(st):
             """Round 2 opened → ACTR's opener, and its first words of the whole session.
 
-            Branches on the outcome verdict rather than a round number: a group whose
-            hire worked out still has to account for how it got there."""
-            _post_facilitator(st, ai_manager.facilitator_open_debrief(
-                me_config, st.chosen_candidate, st.chosen_verdict(),
-            ))
+            Backgrounded, unlike before: the opener is now written by the model off the
+            facilitator prompt, and a hook that blocks on a completion stalls the phase
+            machine. Ordering with the outcome document is not at risk — `on_pick_resolved`
+            posts that synchronously before this phase opens."""
+            socketio.start_background_task(_open_debrief, st.room_id)
 
         def on_wrapup(st):
             """Exercise reached `done` → ACTR's closing message."""
@@ -196,6 +202,22 @@ def register_socket_events(socketio, app):
             "on_debrief_start": on_debrief_start,
             "on_wrapup": on_wrapup,
         }
+
+    def _open_debrief(room_id):
+        """Background: ACTR's opener for the round-2 debrief.
+
+        Model-generated from step 1 of the facilitator prompt, so a professor editing
+        `facilitator_prompt_override` changes the first thing the room hears. Posts
+        nothing if the call fails — see `facilitator_open_debrief`.
+        """
+        with app.app_context():
+            st = ex_state.get_exercise(room_id)
+            if st is None:
+                return
+            _post_facilitator(st, ai_manager.facilitator_open_debrief(
+                st.config, st.roster, st.active_group_size(),
+                chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
+            ))
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the debrief backstop timer expires.

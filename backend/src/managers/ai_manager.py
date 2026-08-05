@@ -1,10 +1,12 @@
 # @language  Python
-# @updated   2026-08-04
-# @changed   M9: ACTR is now a ROUND-2-ONLY voice. Removed facilitator_open_discussion (round-1 opener),
-#            facilitator_call_vote, and the two-strike reveal (_REVEAL_SYSTEM / facilitator_reveal_answer)
-#            along with the dead [REOPEN] path. Added facilitator_open_debrief (branches on the outcome
-#            verdict), the anonymous round-0 spread in reactive turns, and the END marker that lets ACTR
-#            close the session itself.
+# @updated   2026-08-05
+# @changed   M12: the debrief opener is no longer hardcoded. facilitator_open_debrief now asks the model,
+#            on the same facilitator system prompt as every other turn, for step 1 of THE SEQUENCE — so a
+#            professor's facilitator_prompt_override owns the first words of the session. Fails to silence
+#            rather than to a canned line.
+#            Prior: M9 — ACTR became a ROUND-2-ONLY voice (removed facilitator_open_discussion,
+#            facilitator_call_vote and the two-strike reveal along with the dead [REOPEN] path), added the
+#            anonymous round-0 spread in reactive turns and the END marker that closes the session.
 """ACTR — the single facilitator voice in a `manager_exercise` room.
 
 ACTR exists in exactly one round. It never sees the students decide: rounds 0 and
@@ -187,27 +189,44 @@ def render_solo_spread(spread, chosen_name=None):
     return line
 
 
-def facilitator_open_debrief(config, chosen_name=None, verdict=None):
-    """ACTR's first words of the whole session: open the round-2 debrief (M9).
+def facilitator_open_debrief(config, roster, group_size, chosen_name=None, verdict=None):
+    """ACTR's first words of the whole session: open the round-2 debrief (M12).
 
-    Deliberately not model-generated — a fixed opener means the debrief starts even
-    with no API key, and this one line is the same every session. It branches on the
-    OUTCOME rather than on a round number, because both outcomes now reach round 2:
-    a group whose hire worked out still has to account for how it got there, which is
-    the question a lucky group most needs asked.
+    Written by the model, off the same system prompt as every other turn. It used to
+    be two fixed strings branching on the verdict in Python — which put the opening
+    move of the pedagogy where a professor's `facilitator_prompt_override` could not
+    reach it, and where it could contradict the prompt it was meant to start. The
+    stock prompt's step 1 asks something else entirely on a failure ("Could you have
+    seen that coming?") and explicitly bars opening a failure with a "why"; the
+    hardcoded line did neither. The prompt owns the opener now.
 
-    Answer-neutral either way: it opens the conversation without settling it.
+    The verdict is still supplied, but as a fact in the user message rather than as a
+    branch here: which question it earns is step 1's decision, not this function's.
+
+    Fails to "" rather than to a canned line — a fallback opener written in Python is
+    the exact thing this removes. Nothing is posted, the debrief still opens, and the
+    first student message hands ACTR a turn through the normal reactive path.
     """
-    who = chosen_name or "the person you picked"
-    if (verdict or "").strip().lower() == "success":
-        return (
-            f"So {who} worked out. Before you take the credit, walk me back through it. "
-            "What did each of you actually know when you made that call?"
-        )
-    return (
-        f"So {who} didn't work out. You've all read what happened. "
-        "What did you know at the time that would have pointed somewhere else?"
-    )
+    cfg = config or {}
+    outcome = ("worked out (SUCCESS)"
+               if (verdict or "").strip().lower() == "success"
+               else "did not work out (FAILURE)")
+
+    user = "\n\n".join([
+        f"The group hired: {chosen_name or '(nobody)'}",
+        f"Its outcome document has just been posted to the room: the hire {outcome}.",
+        "TASK: The debrief has just opened and nobody has spoken yet. Write your FIRST "
+        "message — step 1 of THE SEQUENCE, the one you send once and never again — "
+        "taking the branch that matches the outcome above. One short message. Do not "
+        "reply SILENT and do not use any marker.",
+    ])
+
+    text = _call(_system(cfg, roster, group_size), user, fallback="")
+    if not text or _is_silent(text):
+        return ""
+    # Markers are stripped rather than acted on: an opener is by definition ACTR's
+    # first and only turn so far, so there is no go-around to arm and nothing to end.
+    return _split_markers(text)[0]
 
 
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,
