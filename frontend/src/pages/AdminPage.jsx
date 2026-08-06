@@ -1,7 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-03
-// @changed   Admins can open a pre-verified account here; its one-time password is revealed once,
-//            and the user list flags who is still sitting on theirs.
+// @updated   2026-08-06
+// @changed   Create-an-account now takes the person's school and school ID; the list shows both
+//            under the username and the search box matches on them.
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaSpinner, FaSearch, FaCheckCircle, FaUserPlus, FaCopy, FaCheck, FaTimes, FaKey } from 'react-icons/fa';
@@ -83,7 +83,7 @@ const AdminPage = () => {
   const [settings, setSettings] = useState(null);     // usage limits config
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTier, setNewTier] = useState({ name: '', messages_per_student: '' });
-  const [newAccount, setNewAccount] = useState({ email: '', username: '', role: 'professor' });
+  const [newAccount, setNewAccount] = useState({ email: '', username: '', role: 'professor', university: '', school_id: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createdAccount, setCreatedAccount] = useState(null);  // drives the one-time password dialog
@@ -171,10 +171,12 @@ const AdminPage = () => {
         email: newAccount.email.trim(),
         username: newAccount.username.trim(),
         role: newAccount.role,
+        university: newAccount.university.trim(),
+        school_id: newAccount.school_id.trim(),
       }, authHeaders());
       setUsers(prev => [...prev, data.user].sort((a, b) => a.email.localeCompare(b.email)));
       setCreatedAccount(data);
-      setNewAccount({ email: '', username: '', role: 'professor' });
+      setNewAccount({ email: '', username: '', role: 'professor', university: '', school_id: '' });
     } catch (err) {
       setCreateError(err.response?.data?.error || 'Could not create the account.');
     } finally {
@@ -198,10 +200,13 @@ const AdminPage = () => {
     }
   };
 
-  const filtered = users.filter(u =>
-    u.email.toLowerCase().includes(search.toLowerCase()) ||
-    u.username.toLowerCase().includes(search.toLowerCase())
-  );
+  // School and school ID join the match so an admin can find someone by the
+  // number a registrar gave them, not just by the account they picked.
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    return [u.email, u.username, u.university, u.school_id]
+      .some(field => (field || '').toLowerCase().includes(q));
+  });
 
   const counts = ROLES.reduce((acc, r) => {
     acc[r] = users.filter(u => u.role === r).length;
@@ -249,49 +254,82 @@ const AdminPage = () => {
                 Creates a verified account with a one-time password. No verification email is sent.
               </p>
 
-              <form onSubmit={createAccount} className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr_auto_auto] gap-3 items-end">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={newAccount.email}
-                    onChange={e => setNewAccount(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="professor@ust.hk"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
-                  />
+              {/* Two rows: identity on top, affiliation and the submit below —
+                  four text inputs on one line squeezes the email past legible. */}
+              <form onSubmit={createAccount} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr] gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={newAccount.email}
+                      onChange={e => setNewAccount(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="professor@ust.hk"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Username</label>
+                    <input
+                      type="text"
+                      required
+                      value={newAccount.username}
+                      onChange={e => setNewAccount(prev => ({ ...prev, username: e.target.value }))}
+                      placeholder="jdoe"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Username</label>
-                  <input
-                    type="text"
-                    required
-                    value={newAccount.username}
-                    onChange={e => setNewAccount(prev => ({ ...prev, username: e.target.value }))}
-                    placeholder="jdoe"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Role</label>
-                  <select
-                    value={newAccount.role}
-                    onChange={e => setNewAccount(prev => ({ ...prev, role: e.target.value }))}
-                    className="px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4]"
+
+                <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr_auto_auto] gap-3 items-end">
+                  {/* Optional on purpose: an admin opening a colleague's account
+                      usually has neither to hand, and the fields stay editable later. */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      School <span className="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newAccount.university}
+                      onChange={e => setNewAccount(prev => ({ ...prev, university: e.target.value }))}
+                      placeholder="HKUST"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      School ID <span className="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newAccount.school_id}
+                      onChange={e => setNewAccount(prev => ({ ...prev, school_id: e.target.value }))}
+                      placeholder="20451234"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Role</label>
+                    <select
+                      value={newAccount.role}
+                      onChange={e => setNewAccount(prev => ({ ...prev, role: e.target.value }))}
+                      className="px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4]"
+                    >
+                      {ROLES.map(r => (
+                        <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={creating || !newAccount.email.trim() || !newAccount.username.trim()}
+                    className="px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white text-sm font-bold rounded-xl disabled:opacity-50 flex items-center gap-2 transition-all active:scale-[0.98]"
                   >
-                    {ROLES.map(r => (
-                      <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
-                    ))}
-                  </select>
+                    {creating && <FaSpinner className="animate-spin text-xs" />}
+                    {creating ? 'Creating…' : 'Create'}
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  disabled={creating || !newAccount.email.trim() || !newAccount.username.trim()}
-                  className="px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white text-sm font-bold rounded-xl disabled:opacity-50 flex items-center gap-2 transition-all active:scale-[0.98]"
-                >
-                  {creating && <FaSpinner className="animate-spin text-xs" />}
-                  {creating ? 'Creating…' : 'Create'}
-                </button>
               </form>
 
               {createError && (
@@ -327,7 +365,15 @@ const AdminPage = () => {
                   <div key={user.id} className="grid grid-cols-[1fr_160px_100px_110px] gap-4 px-6 py-4 border-b border-gray-50 last:border-b-0 items-center hover:bg-gray-50/50 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[#222] truncate">{user.username}</p>
-                      <p className="text-xs text-gray-400 truncate">{user.id}</p>
+                      {/* Falls back to the raw id when there's no affiliation to show —
+                          every row keeps a second line either way. */}
+                      {(user.university || user.school_id) ? (
+                        <p className="text-xs text-gray-500 truncate">
+                          {[user.university, user.school_id].filter(Boolean).join(' · ')}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 truncate">{user.id}</p>
+                      )}
                     </div>
 
                     <p className="text-sm text-gray-600 truncate">{user.email}</p>

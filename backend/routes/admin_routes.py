@@ -1,7 +1,7 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   POST /admin/users lets an admin open a pre-verified account and returns a one-time password
-#            once; list_users now reports whether that password is still unchanged.
+# @updated   2026-08-06
+# @changed   Admin-created accounts now carry the person's school and school ID, and list_users
+#            returns both so they're visible (and searchable) in the panel.
 import os
 import re
 import secrets
@@ -64,6 +64,9 @@ def list_users():
             "is_verified": u.get("is_verified", False),
             # Still sitting on the password the admin handed them.
             "must_change_password": bool(u.get("must_change_password")),
+            # Blank for everyone who self-registered before these were collected.
+            "university": u.get("university") or "",
+            "school_id": u.get("school_id") or "",
         })
     result.sort(key=lambda u: u["email"])
     return jsonify({"users": result}), 200
@@ -88,6 +91,11 @@ def create_user():
     email = (data.get('email') or '').strip().lower()
     username = (data.get('username') or '').strip()
     role = (data.get('role') or 'professor').strip()
+    # Both optional — an admin opening a professor's account often has neither.
+    # `university` is the field self-registration already writes, so admin-made
+    # and self-made accounts stay one shape.
+    university = (data.get('university') or '').strip()
+    school_id = (data.get('school_id') or '').strip()
 
     if not email or not username:
         return jsonify({"error": "Email and username are required"}), 400
@@ -109,7 +117,8 @@ def create_user():
         "must_change_password": True,
         "role": role,
         "classes": [],
-        "university": (data.get('university') or '').strip() or None,
+        "university": university or None,
+        "school_id": school_id or None,
         "created_by_admin": str(caller["_id"]),
     })
     current_app.logger.info(f"Admin {caller.get('email')} created {role} account {email}")
@@ -124,6 +133,8 @@ def create_user():
             "role": role,
             "is_verified": True,
             "must_change_password": True,
+            "university": university,
+            "school_id": school_id,
         },
     }), 201
 
