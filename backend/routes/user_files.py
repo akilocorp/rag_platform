@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-20
+# @changed   Add POST /api/files/manager-doc: per-manager doc upload + header role-name parse for the Manager Exercise (text-only, no RAG ingestion).
 """
 Per-user personal file library for RAG. Files are global to the user and
 surface in every chat they open, alongside the config-owner's baseline docs.
@@ -32,6 +35,7 @@ from src.utils.vector_stores.store_vector_stores import (
     CLAUDE_BATCH_PAGE_THRESHOLD,
     _extract_pdf_text_via_claude,
     extract_pdf_chunks_fast,
+    extract_plaintext,
     ingest_chunks,
     process_user_url_and_create_vectors,
 )
@@ -507,6 +511,200 @@ def upload_url():
     doc["_id"] = str(file_id)
     doc["vector_ingested"] = True
     return jsonify({"file": doc}), 201
+
+
+# ---------------------------------------------------------------------------
+# Manager Exercise — per-manager private doc upload + role parse
+# ---------------------------------------------------------------------------
+
+# Header patterns that name the recipient role of a memo-style role sheet, e.g.
+# "To: Marketing Manager" / "Role: Ops Lead" / "Position: HR Director". Matched
+# case-insensitively against the first handful of non-empty lines.
+_ROLE_HEADER_RE = re.compile(
+    r"^\s*(?:to|role|position|title)\s*[:\-]\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+# Strip common Markdown emphasis wrappers so a "**Marketing Manager**" first
+# line yields a clean "Marketing Manager".
+_MD_EMPHASIS_RE = re.compile(r"^[*_#>\s]+|[*_\s]+$")
+
+
+def _parse_role_name(doc_text: str) -> str:
+    """Parse a managerial role name from a role-sheet document header.
+
+    Strategy (cheap, deterministic — no LLM):
+      1. Scan the first ~10 non-empty lines for a `To:` / `Role:` /
+         `Position:` / `Title:` header; return its value.
+      2. Else fall back to the first bold (`**...**`) line, if any.
+      3. Else fall back to the first non-empty line (trimmed of Markdown).
+    Returns "" when the document is empty. The result is always faculty-editable
+    in the UI, so a best-effort guess is acceptable.
+    """
+    if not doc_text:
+        return ""
+    lines = [ln for ln in doc_text.splitlines() if ln.strip()]
+    head = lines[:10]
+
+    # 1. Explicit header (To:/Role:/Position:/Title:)
+    for ln in head:
+        m = _ROLE_HEADER_RE.match(ln)
+        if m:
+            candidate = _MD_EMPHASIS_RE.sub("", m.group(1)).strip()
+            if candidate:
+                return candidate[:120]
+
+    # 2. First bold line (**Role Name**)
+    for ln in head:
+        bold = re.match(r"^\s*\*\*(.+?)\*\*\s*$", ln)
+        if bold:
+            candidate = bold.group(1).strip()
+            if candidate:
+                return candidate[:120]
+
+    # 3. First non-empty line, Markdown-stripped.
+    first = _MD_EMPHASIS_RE.sub("", lines[0]).strip() if lines else ""
+    return first[:120]
+
+
+def _parse_role_name_via_haiku(doc_text: str) -> str | None:
+    """Optional cheap LLM fallback for role-name parsing when the regex whiffs.
+
+    Sends the document head to claude-haiku-4-5 and asks for just the role name.
+    Degrades to None (never raises) if the key/package is missing or the call
+    fails — the caller keeps the regex result in that case.
+    """
+    api_key = (
+        current_app.config.get("ANTHROPIC_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
+    if not api_key or not doc_text:
+        return None
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return None
+    try:
+        # Only the first ~1500 chars are needed to spot the recipient/role header.
+        head = doc_text[:1500]
+        client = Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=32,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "This is the top of a managerial role-assignment memo for a "
+                    "business-school exercise. Reply with ONLY the recipient's "
+                    "job/role title (e.g. \"Marketing Manager\"), no quotes, no "
+                    "other words. If none is stated, reply with an empty line.\n\n"
+                    f"---\n{head}\n---"
+                ),
+            }],
+        )
+        text = "".join(
+            b.text for b in (getattr(msg, "content", None) or [])
+            if getattr(b, "type", None) == "text"
+        ).strip()
+        # Guard against the model narrating; keep it to a short title.
+        if text and len(text) <= 120 and "\n" not in text:
+            return text
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Haiku role-name parse failed: %s", e)
+        return None
+
+
+@user_files_bp.route('/files/manager-doc', methods=['POST'])
+@jwt_required()
+def upload_manager_doc():
+    """Upload ONE per-manager private document for a Manager Exercise config.
+
+    Faculty-only. Extracts plaintext via the shared loader path (txt/md/docx/
+    pdf/pptx) — text-only, NO vector ingestion: the private role sheet is served
+    verbatim from `doc_text` on the config, never through RAG (the vector store
+    filters by config/room and cannot isolate a doc to a single seat).
+
+    A `user_files` row is still recorded so the doc is referenceable / appears
+    in the library, and the role name is parsed from the header for faculty
+    confirmation. Response 201: {role_name, doc_text, file_id}.
+    """
+    user_id = get_jwt_identity()
+
+    if 'file' not in request.files:
+        return jsonify({"message": "No file uploaded"}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({"message": "Empty file"}), 400
+    if not _allowed(f.filename):
+        return jsonify({
+            "message": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        }), 400
+
+    folder_path = _normalize_path(request.form.get('folder_path', ''))
+    # config_id is optional at upload time (the config may not exist yet during
+    # the create wizard). When present, gate on faculty ownership.
+    config_id = request.form.get('config_id') or None
+    ok, err = _can_write_to_config(user_id, config_id)
+    if not ok:
+        return jsonify({"message": err}), 403
+
+    filename = secure_filename(f.filename)
+    content_type = f.content_type or mimetypes.guess_type(filename)[0]
+
+    os.makedirs(TMP_UPLOAD_DIR, exist_ok=True)
+    tmp_path = os.path.join(TMP_UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
+    f.save(tmp_path)
+
+    try:
+        size_bytes = os.path.getsize(tmp_path)
+        if size_bytes > MAX_FILE_SIZE:
+            return jsonify({"message": "File exceeds 50 MB limit"}), 413
+
+        # Text-only extraction — reuse the shared loader path, no chunking/embed.
+        doc_text = extract_plaintext(tmp_path)
+        if doc_text is None:
+            return jsonify({"message": "Failed to read file"}), 500
+        if not doc_text.strip():
+            # e.g. an image-only PDF with no text layer — role sheets are text.
+            return jsonify({"message": "No extractable text in file"}), 422
+
+        # Parse role name from the header; cheap Haiku fallback if the regex
+        # only mustered the first-line fallback (best-effort, never fatal).
+        role_name = _parse_role_name(doc_text)
+        header_hit = bool(_ROLE_HEADER_RE.match(doc_text.splitlines()[0] or "")) if doc_text.splitlines() else False
+        if not header_hit:
+            llm_guess = _parse_role_name_via_haiku(doc_text)
+            if llm_guess:
+                role_name = llm_guess
+
+        # Record a user_files row so the doc is referenceable / listable.
+        # Private role sheets are NOT vector-ingested, so vector_ingested stays
+        # False and ingest_status marks the text-only path explicitly.
+        db = current_app.config['MONGO_DB']
+        files_col = db['user_files']
+        doc = {
+            "user_id": user_id,
+            "folder_path": folder_path,
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": size_bytes,
+            "uploaded_at": time.time(),
+            "vector_ingested": False,
+            "ingest_status": "text_only",
+            "storage_key": None,
+            "is_manager_doc": True,
+        }
+        if config_id:
+            doc["config_id"] = config_id
+        file_id = files_col.insert_one(doc).inserted_id
+
+        return jsonify({
+            "role_name": role_name,
+            "doc_text": doc_text,
+            "file_id": str(file_id),
+        }), 201
+    finally:
+        _safe_unlink(tmp_path)
 
 
 def _backfill_legacy_kb_files(db, config_id):

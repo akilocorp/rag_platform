@@ -1,14 +1,14 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-15
- * @changed   Added MathQuill "insert equation" button + popover to the action row.
+ * @updated   2026-07-19
+ * @changed   ƒ× now drops a live inline MathQuill field into the message (no popover); textarea replaced by RichMathInput.
  */
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiPaperclip, FiImage } from 'react-icons/fi';
 import { TbMathFunction } from 'react-icons/tb';
 import VoiceRecordButton from './VoiceRecordButton';
-import MathInputPopover from './MathInputPopover';
+import RichMathInput from './RichMathInput';
 
 // Fallback follow-up prompts (used until the backend returns tailored ones).
 const DEFAULT_QUICK_PROMPTS = [
@@ -73,34 +73,13 @@ const ChatComposer = ({
   const [showQuickPrompts, setShowQuickPrompts] = useState(false);
   const [isFanOpen, setIsFanOpen] = useState(false);
   const [isPulsing, setIsPulsing] = useState(false);
-  // Gates the MathQuill equation popover above the "insert equation" button.
-  const [showMath, setShowMath] = useState(false);
   const dwellTimerRef = useRef(null);
   const pulseTimerRef = useRef(null);
   const closeTimerRef = useRef(null);
   const leaveTimerRef = useRef(null);
-
-  // Splice a MathQuill equation into the message as `$...$` LaTeX at the current
-  // caret (falling back to append), then restore focus + caret just past it. The
-  // `$...$` wrapper is what the KaTeX render pipeline keys on downstream.
-  const insertLatex = (latex) => {
-    const wrapped = `$${latex}$`;
-    const el = inputRef?.current;
-    if (el && typeof el.selectionStart === 'number') {
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const next = input.slice(0, start) + wrapped + input.slice(end);
-      setInput(next);
-      requestAnimationFrame(() => {
-        el.focus();
-        const pos = start + wrapped.length;
-        el.setSelectionRange(pos, pos);
-      });
-    } else {
-      setInput((input || '') + wrapped);
-    }
-    setShowMath(false);
-  };
+  // Imperative handle to the inline-math editor so the ƒ× button can drop a live
+  // MathQuill field at the caret (all equation editing now happens in-line).
+  const richInputRef = useRef(null);
 
   const handleSendHoverEnter = () => {
     if (!hasAiReplied || isLoading) return;
@@ -163,21 +142,18 @@ const ChatComposer = ({
           {attachments}
         </div>
       )}
-      <textarea
-        ref={inputRef}
+      {/* Prose + live inline math on one line. onSend fires on Enter; the ƒ×
+          button below drives insertMath through richInputRef. */}
+      <RichMathInput
+        ref={richInputRef}
+        domRef={inputRef}
         value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            onSend();
-          }
-        }}
+        onChange={setInput}
+        onSend={() => onSend()}
         onPaste={onPaste}
         placeholder="Type a message..."
-        rows={1}
-        className="w-full min-h-[44px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-transparent text-[#222] placeholder-gray-400 border-none outline-none focus:outline-none focus:ring-0 focus:border-transparent focus:shadow-none px-1 py-2 text-base sm:text-lg"
         disabled={isLoading}
+        className="w-full min-h-[44px] max-h-[200px] overflow-y-auto scrollbar-hide bg-transparent text-[#222] border-none outline-none whitespace-pre-wrap break-words px-1 py-2 text-base sm:text-lg"
       />
 
       <div className="h-px mx-1 my-2" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }} />
@@ -223,21 +199,16 @@ const ChatComposer = ({
           {showVoice && (
             <VoiceRecordButton onTranscribed={onVoiceTranscribed} disabled={isLoading} />
           )}
-          {/* Insert-equation button + its MathQuill popover. Relative wrapper so
-              the popover anchors to this button's bottom-left. */}
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setShowMath((v) => !v)}
-              disabled={isLoading}
-              title="Insert equation"
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 hover:bg-gray-100 ${showMath ? 'text-[#FA6C43] bg-gray-100' : 'text-gray-500 hover:text-[#FA6C43]'}`}
-            >
-              <TbMathFunction className="text-base" />
-            </button>
-            {showMath && (
-              <MathInputPopover onInsert={insertLatex} onClose={() => setShowMath(false)} />
-            )}
-          </div>
+          {/* Insert-equation button — drops a live inline MathQuill field at the
+              caret and focuses it, so the equation is edited in place (no popover). */}
+          <button
+            onClick={() => richInputRef.current?.insertMath()}
+            disabled={isLoading}
+            title="Insert equation"
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 hover:bg-gray-100 text-gray-500 hover:text-[#FA6C43] shrink-0"
+          >
+            <TbMathFunction className="text-base" />
+          </button>
           {/* Model picker — only on free playground / personal bots */}
           {showModelPicker && (
             <select

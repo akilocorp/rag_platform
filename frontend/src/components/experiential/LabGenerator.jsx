@@ -1,12 +1,13 @@
 // @language JavaScript (React)
-// @updated 2026-07-16
-// @changed Render a method's post-generation SettingsForm (e.g. shock-world grading floor) beneath the finished lab — patches the config without regenerating.
+// @updated 2026-07-19
+// @changed Gate method picker, topic-coverage, and post-gen settings behind faculty Advanced mode; Simple mode is just prompt → generate.
 import React, { useState, useEffect, useRef } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { FiZap, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import apiClient from '../../api/apiClient';
 import { validateExperientialConfig } from '../../configs/experiential/schema';
 import { getMethod } from '../../methods/registry';
+import AdvancedReveal from '../AdvancedReveal';
 
 // Generate-on-save UI for experiential labs: the professor picks a pedagogical
 // method, writes a design prompt that fine-tunes it, hits Generate, and Claude
@@ -19,7 +20,7 @@ const FALLBACK_METHODS = [
   { id: 'generic', label: 'Generic (any discipline)', description: '', prompt_hint: '' },
 ];
 
-export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId, files }) {
+export default function LabGenerator({ prompt, onPromptChange, generated, onGenerated, configId, files, advanced = true }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [grounded, setGrounded] = useState(false);
@@ -147,6 +148,10 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
 
   return (
     <div>
+      {/* Method choice + its structured inputs are Advanced-only. In Simple mode
+          the professor just writes a prompt and generates; `template` keeps its
+          default so generation still works. */}
+      <AdvancedReveal show={advanced}>
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Pedagogical method</label>
       <select
         value={template}
@@ -166,6 +171,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
           <ConfigForm params={methodParams} onChange={setMethodParams} />
         </div>
       )}
+      </AdvancedReveal>
 
       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Lab design prompt</label>
       <textarea
@@ -194,7 +200,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
         </div>
       )}
 
-      {courseTopics.length > 0 && (
+      {advanced && courseTopics.length > 0 && (
         <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/70 p-3">
           <div className="text-[13px] font-semibold text-gray-700 mb-0.5">What this lab tests — from your course</div>
           <p className="text-[11px] text-gray-500 mb-2">A lab covers only a few topics. The checked ones are what it tests now — drop or add topics, then regenerate to steer it.</p>
@@ -249,7 +255,7 @@ export default function LabGenerator({ prompt, onPromptChange, generated, onGene
       {/* Post-generation settings (grading policy etc.), rendered generically when
           the generated lab's method ships a SettingsForm. Patches the config in
           place — no regenerate — so tweaking these never re-rolls the lab. */}
-      {generated && SettingsForm && (
+      {advanced && generated && SettingsForm && (
         <SettingsForm config={generated} onChange={(patch) => onGenerated({ ...generated, ...patch })} />
       )}
     </div>

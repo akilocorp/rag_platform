@@ -1,6 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { FaTrash, FaPlus } from 'react-icons/fa';
+// @language  JavaScript (React / JSX)
+// @updated   2026-07-23
+// @changed   Add drag-and-drop rubric-document import — AI builds the scoring spec from a prof's doc.
+import React, { useEffect, useRef, useState } from 'react';
+import { FaTrash, FaPlus, FaFileUpload, FaSpinner } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import AdvancedReveal from './AdvancedReveal';
 
 /**
  * Assignment-type picker + editable scoring spec for video-analysis configs.
@@ -16,10 +20,20 @@ import apiClient from '../api/apiClient';
  *   assignmentType : string
  *   scoringSpec    : object | null
  *   onChange({ assignment_type, scoring_spec })
+ *   advanced       : boolean — when false (faculty Simple mode) only the
+ *                    assignment-type picker shows; the editable rubric is hidden.
+ *   onMeta({ bot_name, introduction }) : optional — fired after a rubric-doc
+ *                    import so the wizard can prefill class name / intro.
  */
-export default function VideoScoringEditor({ assignmentType, scoringSpec, onChange }) {
+export default function VideoScoringEditor({ assignmentType, scoringSpec, onChange, advanced = true, onMeta }) {
   const [presets, setPresets] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Rubric-doc import state: idle → importing → imported {bot_name, counts} | error
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +56,32 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
   const selectPreset = (key) => {
     const p = presets.find((x) => x.key === key);
     if (p) onChange({ assignment_type: key, scoring_spec: JSON.parse(JSON.stringify(p.scoring_spec)) });
+  };
+
+  // Send a dropped rubric document to the AI class builder; the returned
+  // assignment_type + scoring_spec replace the current spec, and bot_name /
+  // introduction are offered to the wizard via onMeta.
+  const importRubricDoc = async (file) => {
+    if (!file || importing) return;
+    setImporting(true); setImportError(null); setImportNote(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await apiClient.post('/video/rubric-from-doc', form);
+      const { bot_name, introduction, assignment_type, scoring_spec } = res.data || {};
+      if (!scoring_spec) throw new Error('empty response');
+      onChange({ assignment_type, scoring_spec });
+      if (onMeta) onMeta({ bot_name, introduction });
+      setImportNote({
+        name: bot_name || file.name,
+        boxes: (scoring_spec.dimensions || []).length,
+        checks: (scoring_spec.content_checks || []).length,
+      });
+    } catch (e) {
+      setImportError(e?.response?.data?.error || 'Could not build a class from that document.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const spec = scoringSpec || {};
@@ -84,6 +124,41 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
 
   return (
     <div className="space-y-6">
+      {/* Rubric-doc dropzone — prof drops their metrics/rubric document and the
+          AI builds the whole class (name, intro, boxes, checks, grading prompt). */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); importRubricDoc(e.dataTransfer.files?.[0]); }}
+        onClick={() => !importing && fileInputRef.current?.click()}
+        className={`rounded-2xl border-2 border-dashed p-5 text-center cursor-pointer transition-all ${
+          dragOver ? 'border-[#FA6C43] bg-[#FFF3EF]' : 'border-gray-200 bg-gray-50 hover:border-[#F9D0C4]'
+        }`}
+      >
+        <input
+          ref={fileInputRef} type="file" className="hidden" accept=".docx,.pdf,.txt,.md"
+          onChange={(e) => { importRubricDoc(e.target.files?.[0]); e.target.value = ''; }}
+        />
+        {importing ? (
+          <p className="text-sm text-gray-600 flex items-center justify-center gap-2">
+            <FaSpinner className="animate-spin text-[#FA6C43]" /> Reading your rubric and building the class…
+          </p>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-gray-700 flex items-center justify-center gap-2">
+              <FaFileUpload className="text-[#FA6C43]" /> Drop your rubric or metrics document here
+            </p>
+            <p className="text-xs text-gray-400 mt-1">docx, pdf, txt or md — AI turns it into scoring boxes, content checks and a grading prompt you can edit below.</p>
+          </>
+        )}
+        {importNote && !importing && (
+          <p className="text-xs text-green-600 mt-2">
+            Imported “{importNote.name}” — {importNote.boxes} scoring boxes, {importNote.checks} content checks. Review below.
+          </p>
+        )}
+        {importError && !importing && <p className="text-xs text-red-500 mt-2">{importError}</p>}
+      </div>
+
       {/* Assignment type */}
       <div>
         <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Assignment Type</label>
@@ -99,6 +174,10 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
           return p?.description ? <p className="text-xs text-gray-500 mt-1.5">{p.description}</p> : null;
         })()}
       </div>
+
+      {/* Rubric detail is Advanced-only — Simple mode stops at the preset above. */}
+      <AdvancedReveal show={advanced}>
+      <div className="space-y-6">
 
       {/* Scoring boxes (dimensions) */}
       <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
@@ -183,6 +262,9 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
           {checks.length === 0 && <p className="text-xs text-gray-400">No content checks — scoring relies on the boxes and grading prompt only.</p>}
         </div>
       </div>
+
+      </div>
+      </AdvancedReveal>
     </div>
   );
 }

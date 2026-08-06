@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-07-26
+# @changed   manager_exercise now syncs group_size to num_students (was num_managers) after the facilitated
+#            rework; still reuses config_routes.validate_manager_exercise for the PUT path.
 from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
@@ -7,7 +11,7 @@ import json
 
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
-from routes.config_routes import validate_class_usage
+from routes.config_routes import validate_class_usage, validate_manager_exercise
 from src.facilitator.config import normalize_config as normalize_facilitator
 
 
@@ -160,6 +164,18 @@ def update_existing_config(config_id):
         facilitator = data.get('facilitator')
         if facilitator is not None:
             update_data['facilitator'] = normalize_facilitator(facilitator)
+
+        # --- MANAGER EXERCISE BLOCK (hidden-profile group game) ---
+        # bot_type is immutable on edit; fall back to the stored doc when the
+        # form omits it. Only run the (strict) validator when a manager_exercise
+        # payload is actually present, so unrelated edits to a manager_exercise
+        # config (e.g. renaming the bot) don't require re-sending the full
+        # sub-object. When it validates, group_size is force-set to num_students.
+        bot_type = data.get('bot_type') or config_to_update.get('bot_type')
+        if bot_type == 'manager_exercise' and data.get('manager_exercise') is not None:
+            err = validate_manager_exercise(data, update_data)
+            if err:
+                return err
 
         # Class rollout — validate code + usage tier/pool (any bot type).
         # Recomputes usage_pool; the existing class_pool counter is preserved so

@@ -1,7 +1,13 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-07-25
+ * @changed   Home logo now targets role-aware dashboardPath() so students aren't bounced back into chat.
+ */
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
+import { dashboardPath } from '../utils/auth';
 import {
   FiPlus,
   FiClock,
@@ -213,12 +219,15 @@ export const ChatSidebar = ({
     }
   };
 
-  const goConfigList = () => navigate('/config_list');
+  // Home target must respect the user's role: professors land on /config_list,
+  // students on /student-dashboard. Hardcoding /config_list bounced students
+  // back into chat (ProfessorRoute → /student-chat → /chat/:id redirect loop).
+  const goHome = () => navigate(dashboardPath());
 
   const handleLogoClick = (e) => {
     if (onNavigateWithAutoSave) {
       e.preventDefault();
-      onNavigateWithAutoSave(goConfigList);
+      onNavigateWithAutoSave(goHome);
     }
   };
 
@@ -258,7 +267,7 @@ export const ChatSidebar = ({
           }`}
         >
           <Link
-            to="/config_list"
+            to={dashboardPath()}
             onClick={handleLogoClick}
             className={`group relative flex items-center justify-center shrink-0 ${
               isCollapsed ? 'w-full' : ''

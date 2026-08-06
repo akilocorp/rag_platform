@@ -1,3 +1,6 @@
+# @language  Python
+# @updated   2026-07-19
+# @changed   Raise deck cap 8→20 so a full flashcard set lives entirely in the widget (no leftover prose).
 """
 flashcard — a display-only deck of active-recall flip cards.
 
@@ -18,13 +21,15 @@ from src.facilitator.base import widget
     when_to_use=(
         "Use when the reply presents a set of term/definition, question/answer, "
         "or prompt/response pairs the user should memorize or self-test on "
-        "(2-8 pairs). Put the cue on `front` and the thing to recall on `back`. "
+        "(2-20 pairs). Put the cue on `front` and the thing to recall on `back`. "
+        "Capture EVERY pair the reply lists — the widget holds the whole deck, so "
+        "nothing should be left out for the prose to repeat. "
         "Do NOT use for a single fact or for a continuous explanation."
     ),
     data_schema={
         "title": "optional string — short deck title",
         "cards": (
-            "array of 2-8 objects { front: string, back: string } — front is the "
+            "array of 2-20 objects { front: string, back: string } — front is the "
             "cue (term/question), back is what the user should recall (definition/answer). "
             "Both sides required and kept short."
         ),
@@ -51,7 +56,9 @@ def validate(data):
     if len(cards) < 2:
         return None
 
-    out = {"cards": cards[:8]}
+    # Cap the deck (the carousel steps one card at a time, so a large deck is
+    # fine); 20 is well above any realistic set while bounding runaway output.
+    out = {"cards": cards[:20]}
     title = str(data.get("title") or "").strip()
     if title:
         out["title"] = title

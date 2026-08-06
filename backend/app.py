@@ -1,16 +1,20 @@
 # @language  Python
-# @updated   2026-07-15
-# @changed   Register define_bp for the context-aware dictionary endpoint.
+# @updated   2026-08-03
+# @changed   App-wide gate: an account still holding an admin-issued one-time password can reach
+#            nothing but the change-password screen.
 # v2026-05-20
 import os
 import logging
 from datetime import timedelta
 from typing import Dict, Any
 from extenstions import mail, jwt, bcrypt
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
-from flask_jwt_extended import JWTManager, get_jwt_identity, jwt_required, create_access_token
+from flask_jwt_extended import (
+    JWTManager, get_jwt_identity, jwt_required, create_access_token,
+    verify_jwt_in_request, get_jwt,
+)
 from flask_mail import Mail
 from langchain_openai.embeddings import OpenAIEmbeddings
 
@@ -110,6 +114,48 @@ def create_app():
     app.register_blueprint(define_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
+
+    # Reachable while a one-time password is still in force: the change-password
+    # screen itself, plus what the client needs to render it and get out.
+    PWD_CHANGE_ALLOWED = {
+        '/api/auth/change-password',
+        '/api/auth/login',
+        '/api/auth/logout',
+        '/api/auth/refresh',
+        '/api/auth/me',
+        '/api/auth/forgot-password',
+        '/api/auth/reset-password',
+        '/api/refresh',
+    }
+
+    @app.before_request
+    def enforce_password_change():
+        """An admin-issued password buys exactly one thing: the screen where you
+        replace it.
+
+        Enforcing this centrally is what makes the password genuinely one-time —
+        a client-side redirect alone would leave every API reachable with the
+        password the admin read off their screen. The check reads a JWT claim, so
+        it costs no database round-trip per request.
+        """
+        if request.method == 'OPTIONS':
+            return None
+        path = request.path or ''
+        if not path.startswith('/api') or path in PWD_CHANGE_ALLOWED:
+            return None
+        try:
+            verify_jwt_in_request(optional=True)
+            claims = get_jwt()
+        except Exception:
+            # No token, or one this route may legitimately reject itself —
+            # leave the verdict to the route's own auth.
+            return None
+        if claims and claims.get('pwd_change'):
+            return jsonify({
+                "error": "password_change_required",
+                "message": "Set your own password before continuing.",
+            }), 403
+        return None
 
     @app.route('/health', methods=['GET'])
     def health_check():

@@ -43,6 +43,69 @@ Configurable chatbot research platform. Professors set persona, system prompt, a
 
 ---
 
+## Config Reuse: simulation templates and copy/paste
+
+Two separate features that both exist so a professor doesn't start from a blank config.
+Neither is documented elsewhere in this file; both are covered end-to-end in the user
+guide (`prof-chat-bot.md` and `prof-manage.md`).
+
+### Simulation templates — wizard step 4, "Customize AI Behavior"
+
+Defined in `frontend/src/data/simulationTemplates.js`. Rendered as a card grid under the
+heading **"Start from a template"** `(optional)`, above the Instructions textarea.
+
+| key | Card title | What it sets up |
+|---|---|---|
+| `hr_interview` | **HR Interview** | Practice behavioral interviews with a neutral HR evaluator |
+| `sales_negotiation` | **Sales / Negotiation** | Pitch to a skeptical buyer and practice closing deals |
+| `debate_partner` | **Debate Partner** | Defend any position against a rigorous opposing argument |
+| `macro_shock` | **Macro Shock Simulator** | Reason through the downstream effects of an economic shock |
+| `socratic_tutor` | **Socratic Tutor / TA** | Guide students to answers through questions, never giving them directly |
+
+Applying one fills `instructions` and `temperature`, and fills `bot_name` / `introduction`
+**only if those are still blank** — so it never clobbers something the professor typed. The
+active card shows an `Active` pill, and a **"Write from scratch"** link clears the
+selection. Available on both create and edit (edit renders it as a collapsible
+**"▸ Apply a simulation template"**).
+
+Not to be confused with the **quick templates** on `/responses/:id` (HR Interview,
+Participation, Critical Thinking, Sales & Negotiation, Presentation Skills, Socratic
+Dialogue) — those steer a grading analysis, not a bot's persona.
+
+### Copy/paste an assistant between professor accounts
+
+Transfers a whole assistant, including its knowledge base, to another professor — or
+duplicates one of your own. Implemented in `ConfigList.jsx` + `config_routes.py`.
+
+**Copy** — `Ctrl+C` on the hovered card, the clone icon, or right-click → Copy. Calls
+`POST /config/{id}/copy`, which mints a `secrets.token_urlsafe(12)` token into
+`config_transfers` with a **7-day** expiry (`CONFIG_TRANSFER_TTL_DAYS`, `config_routes.py:900`).
+That collection carries a TTL index so Mongo reaps expired tokens, but reads still check
+`expires_at` because the TTL monitor only sweeps about once a minute. The clipboard gets a
+human-readable line carrying `actr-config:<token>` (`CLIPBOARD_PREFIX`, `ConfigList.jsx:48`),
+so it survives being pasted into email or chat.
+
+**Paste** — `Ctrl+V` anywhere on the list, the **Paste** button, or right-click → Paste.
+Opens `PasteConfigModal` (name pre-filled `"<original> (copy)"`, optional class code).
+`POST /config/paste/<token>` deep-copies the source doc minus `_COPY_EXCLUDED_FIELDS`,
+reassigns `user_id`, mints a fresh `collection_name`, and clones the knowledge base — both
+the file records and the vector chunks.
+
+**Fields dropped on copy** (`_COPY_EXCLUDED_FIELDS`, `config_routes.py:907`) — and the
+comment above it explains each: `_id`; `class_code` (globally unique, must be re-typed);
+`usage_tier` / `student_count` / `usage_pool` (they describe the class that was copied, and
+the new counter restarts at zero, so inheriting the label would lie); `is_playground` /
+`is_personal` (singleton markers that would hijack `get_playground_config` and
+`/student/personal-config`); and `upload_locked_until`.
+
+**Student activity is never touched** — chat sessions, messages, group-chat messages,
+video submissions and usage counters live in separate collections, and the copy only walks
+the config doc plus its knowledge base.
+
+If the browser blocks clipboard reads, the modal falls back to a manual paste box.
+
+---
+
 ## Group Chat Matching System
 
 ### Goal
@@ -229,3 +292,98 @@ Drop a file in `backend/src/agentic/tools/` to add a tool — no edits to `agent
 - The lobby-AI step skip is one-way: existing group chats keep whatever `model_name` they were saved with. To force-migrate them to `gpt-3.5-turbo`, the EditConfigPage submit handler would need a `if bot_type === 'group_chat': model_name = 'gpt-3.5-turbo'` line.
 - **Group chat AI bots** still don't get the formatting nudge — that lives in `agent_runner.py`, which only the 1:1 agentic path uses. Group chat bots flow through `group_chat_sockets.py` / `context_manager.py`. If their replies need the same Markdown polish, the prompt change has to land there too.
 - Step 8 of the agentic upgrade (rollout kill-switch + dogfood) is still open from the prior session.
+
+---
+
+## 2026-08-03 Session: `/userguide` site + student account controls
+
+### What shipped (commit `3f0c2d0` on `dev`)
+A public, in-app user guide at **`/userguide`** — 18 task-oriented pages across three
+tracks: professor (11), student (4), shared account basics (3).
+
+**Architecture — `frontend/src/guide/` is a self-contained island:**
+- `content.js` — the nav tree. Page bodies auto-load from `./pages/*.md` via
+  `import.meta.glob(..., { query: '?raw', eager: true })`. Also owns `getNeighbours`
+  (prev/next walks the flat reading order across track boundaries) and `searchPages`
+  (plain substring match, title hits ranked above body hits — no index, no dependency).
+- `GuideMarkdown.jsx` — **constructs its own `new Marked({ gfm: true, breaks: false })`.**
+  This matters: `utils/markdown.js` calls `marked.use({ breaks: true })` on the shared
+  singleton for chat, which would turn every wrapped line of guide prose into a `<br>`.
+  Never switch the guide to the shared `marked`.
+  Images are decorated *after* render (`decorateScreenshots`) rather than via a renderer
+  override, so the code doesn't depend on which token signature the installed marked
+  version hands to `renderer.image()`. A failed image is swapped for a dashed
+  "Screenshot pending" slot naming the missing file.
+  In-guide links are plain `<a>` inside `dangerouslySetInnerHTML`, so a click handler
+  intercepts same-origin hrefs and routes them through `navigate()`.
+- `GuideLayout.jsx` — sidebar, mobile `<select>` jump menu, search, prev/next, print.
+- `pages/*.md` — content. **Editing the guide means editing markdown, not React.**
+- `frontend/public/guide-media/*.png` — screenshots, referenced by plain path. Deliberately
+  *not* `src/assets` + imports: dropping a PNG in needs no code change. Folder is named
+  `guide-media`, not `userguide`, so it can't collide with the route in nginx `try_files`.
+- `.guide-md` prose styles live at the bottom of `index.css`, beside `.chat-message-md`
+  (which is serif and chat-tuned — the guide needed its own sans-serif doc styles).
+
+**`MobileGate` in `App.jsx`** replaced the old top-of-`App` mobile block. It lives *inside*
+the Router and reads `useLocation`, because the first version read
+`window.location.pathname` at mount — which meant a phone user could click a link out of
+the guide and land in the app unblocked. `/userguide` is the only path exempt from
+`MobileBlockPage`.
+
+**Student account controls (the other half of this commit).** `StudentDashboardPage` had
+no account menu at all — a student could neither log out nor change their password from
+anywhere in their session (`/change-password` existed but nothing they could see linked to
+it). Mounting the existing `UserInfo` in the header fixed all of it at once; `UserInfo`
+also gained a **User guide** entry that deep-links by role, and its username went
+`gray-400 → gray-600` now that it renders on the light dashboard.
+
+Entry points: navbar "Guide", account dropdown, and the student dashboard empty state.
+
+### Ground truth from driving the live dev site
+Screenshots were captured by driving `testfront.bitterlylab.com` over CDP
+(`playwright-core` + `chromium.connectOverCDP`, scratch Chrome profile on port 9222). That
+surfaced **two places where reading the source gave the wrong picture** — both now
+corrected in the guide, and worth knowing before writing docs from source again:
+
+- **`/responses/:id` does not open on a finished report.** The Analytics tab opens on a
+  **"New Analysis"** card: quick templates (HR Interview, Participation, Critical Thinking,
+  Sales & Negotiation, Presentation Skills, Socratic Dialogue), an optional grading-criteria
+  box, and a **Generate Analysis** button (~8–15s for a handful of sessions). Class
+  Overview / per-student scores only exist *after* you run it.
+- **`/video-dashboard/:id` contents**, verified: Delivery View button; Upload link +
+  Invite link with Copy; one card per scoring box showing the class average and an
+  Excellent/Strong/Developing/Weak split; **Content Checks (Class Avg)**; a callout
+  *"Most common weakness: X is the lowest-scoring box for the most students."*;
+  **Class Analytics** (avg wpm, avg filler %); a per-student table (**names + emails —
+  careful when screen-sharing**); and **AI Grading Analysis** with a free-text box +
+  **Run Analysis**. There is **no** "first 8 seconds" metric, no Export PDF, no Past
+  Analyses panel, and no Rescore button — earlier notes claiming those were wrong.
+
+Wizard step headings all confirmed as documented: *"What do we call your Space?"* →
+*"Pick the Base AI Model"* → *"Upload Knowledge Base"* → *"Customize AI Behavior"* →
+*"Final Polish"*; and per type *"Define the Rubric"* / *"Generate the Lab"* / *"Setup"*.
+Both Simple/Advanced toggle variants confirmed: full `Simple | Advanced` pill on
+`/config_list`, compact `S ⚬ A` inside the wizard modal.
+
+### Known traps the guide documents (still unfixed in code)
+| Trap | Where |
+|---|---|
+| Wizard advertises 500 MB per file; the chat-sidebar file library rejects over **50 MB** | `ConfigPage.jsx` hint vs `user_files.py:103` |
+| Manager Exercise: wizard passes with **2** candidate outcomes, backend demands **exactly 3** — fails at Publish after all the setup | `ConfigPage.jsx` step-3 validation vs `config_routes.py:208` |
+| Experiential Lab's final button reads **"Next"**, not "Publish" (its last step is 3; only `step === 5` relabels) | `ConfigPage.jsx:1672` |
+| `/admin` sits behind `ProfessorRoute`, not an admin guard — non-admins reach it and get an API 403 | `App.jsx` |
+| Student dashboard UI says `N / 15 attempts`; backend caps `can_submit` at **5** | `StudentDashboardPage.jsx` vs `student_routes.py` |
+| `/terms` and `/privacy` are linked from login + register but have **no routes** → 404 | `LoginPage.jsx`, `RegistrationPage.jsx` |
+| Email verification is **never enforced** at login despite the docstring saying so | `auth.py:295-351` |
+
+### Notes for the next session
+- **5 of 24 screenshots are still placeholders**: `student-dashboard`, `video-results`,
+  `me-review-case`, `experiential-dashboard`, `shock-world-player`. Reasons and what each
+  needs are in `frontend/public/guide-media/README.md`. Missing files render as a dashed
+  slot naming the expected filename, so nothing breaks.
+- **No Experiential Lab config exists on the dev account** (the shared list shows zero
+  "Open Sessions" spaces) — that's why two of the five are blocked.
+- To add a guide page: drop `frontend/src/guide/pages/<id>.md` **and** add `{ id, title }`
+  to the right track in `content.js`. A file without a nav entry is invisible; a nav entry
+  without a file renders empty.
+- The guide must stay callable logged-out — it must never hit `apiClient` or `/auth/me`.

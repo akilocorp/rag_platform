@@ -1,5 +1,6 @@
+/* @language JSX  @updated 2026-08-03  @changed Added the public /userguide routes and exempted them from the mobile block. */
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
 import MobileBlockPage from './pages/MobileBlockPage';
 
@@ -16,8 +17,10 @@ import ConfigList from './pages/ConfigList';
 import EmailVerificationPage from './pages/EmailVerification';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import ChangePasswordPage from './pages/ChangePasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
+import ManagerExercisePage from './pages/ManagerExercisePage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
@@ -30,6 +33,7 @@ import StudentDashboardPage from './pages/StudentDashboardPage';
 import ExperientialPage from './pages/ExperientialPage';
 import ExperientialSessionPage from './pages/ExperientialSessionPage';
 import ExperientialDashboardPage from './pages/ExperientialDashboardPage';
+import UserGuidePage from './pages/UserGuidePage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -60,21 +64,24 @@ function useIsMobile() {
   return isMobile;
 }
 
+// The app is desktop-only, but the user guide is the one exception — a student who opens
+// an invite link on their phone needs to be able to read why they're being told to switch
+// devices. Lives inside the Router (not in App) so the block re-applies on client-side
+// navigation off the guide, which a pathname read at mount would miss.
+function MobileGate({ isMobile, children }) {
+  const { pathname } = useLocation();
+  if (isMobile && !pathname.startsWith('/userguide')) return <MobileBlockPage />;
+  return children;
+}
+
 function App() {
   const isMobile = useIsMobile();
-
-  if (isMobile) {
-    return (
-      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
-        <MobileBlockPage />
-      </div>
-    );
-  }
 
   return (
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
+        <MobileGate isMobile={isMobile}>
         <PageTransition>
         <Routes>
 
@@ -85,6 +92,10 @@ function App() {
           <Route path="/home" element={<HomePage />} />
           <Route path="/v2" element={<LandingV2 />} />
           <Route path="/about" element={<AboutPage />} />
+          {/* User guide — public and unauthenticated on purpose: a locked-out user needs
+              to read the password pages, and students hit it before they have an account. */}
+          <Route path="/userguide" element={<UserGuidePage />} />
+          <Route path="/userguide/:pageId" element={<UserGuidePage />} />
 
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />
@@ -94,7 +105,13 @@ function App() {
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          {/* Where an admin-issued one-time password lands, and where anyone can
+              change their own. Auth is checked inside the page, not by a guard,
+              because a gated account can reach nothing else. */}
+          <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route path="/group-chat/:configId" element={<GroupChatPage />}/>
+          {/* Manager Exercise — student-facing hidden-profile decision game (public, like group chat) */}
+          <Route path="/manager-exercise/:configId" element={<ManagerExercisePage />}/>
 
           {/* Chat Routes (Handled by PublicChatRoute to determine if auth is needed) */}
           <Route element={<PublicChatRoute />}>
@@ -138,6 +155,7 @@ function App() {
 
         </Routes>
         </PageTransition>
+        </MobileGate>
       </div>
     </Router>
   );

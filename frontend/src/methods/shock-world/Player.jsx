@@ -1,6 +1,6 @@
 // @language JavaScript (React)
-// @updated 2026-07-16
-// @changed Grade payload: send questions (not tutor replies) + keyIdeas + gradeFloor for the blind grader; debrief renders n/a dimensions.
+// @updated 2026-07-17
+// @changed Stamp the tutor verdict onto the student block so its callout colours by correctness.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowLeft, FiRefreshCw, FiMenu, FiZap, FiAward, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
@@ -287,6 +287,14 @@ export default function Runner({ config, configId, templateId, onReset, onBack, 
       return;
     }
     historyRef.current.push({ role: 'tutor', text: replyText });
+
+    // Stamp the tutor's verdict onto the student's answer block (queued just
+    // before the tutor block at tutorIdx) so its callout can colour by
+    // correctness: green = sound, red = wrong, yellow = partial.
+    const verdict = control?.verdict;
+    if (verdict) {
+      setFeed((f) => { const c = [...f]; const si = tutorIdx - 1; if (c[si]) c[si] = { ...c[si], verdict }; return c; });
+    }
 
     const advance = !!control?.advance;
     const nextQ = control?.next_question || null;

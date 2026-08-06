@@ -1,14 +1,39 @@
+# @language  Python
+# @updated   2026-08-06
+# @changed   Admin-created accounts now carry the person's school and school ID, and list_users
+#            returns both so they're visible (and searchable) in the panel.
 import os
+import re
+import secrets
 import uuid
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
 from models.user import User
 from src.usage import limits as usage_limits
+from extenstions import bcrypt
 
 admin_bp = Blueprint('admin', __name__)
 
 VALID_ROLES = {'professor', 'student', 'admin'}
+
+# Ambiguous glyphs are left out so the password survives being read aloud or
+# copied off a screen: no I/l/1, no O/o/0.
+_PW_LETTERS = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ'
+_PW_DIGITS = '23456789'
+
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def generate_one_time_password():
+    """A readable temp password shaped `wxyz-4821-QRST`.
+
+    The hyphens are what satisfy the special-character half of the password
+    rule enforced on the change-password and forgot-password routes, so a temp
+    password is always a legal password in its own right.
+    """
+    block = lambda src, n: ''.join(secrets.choice(src) for _ in range(n))
+    return f"{block(_PW_LETTERS, 4)}-{block(_PW_DIGITS, 4)}-{block(_PW_LETTERS, 4)}"
 
 
 def _require_admin():
@@ -37,9 +62,81 @@ def list_users():
             "username": u.get("username", ""),
             "role": u.get("role", "professor"),
             "is_verified": u.get("is_verified", False),
+            # Still sitting on the password the admin handed them.
+            "must_change_password": bool(u.get("must_change_password")),
+            # Blank for everyone who self-registered before these were collected.
+            "university": u.get("university") or "",
+            "school_id": u.get("school_id") or "",
         })
     result.sort(key=lambda u: u["email"])
     return jsonify({"users": result}), 200
+
+
+@admin_bp.route('/users', methods=['POST'])
+@jwt_required()
+def create_user():
+    """Open an account directly, skipping email verification entirely.
+
+    The admin vouches for the person, so the account is created verified and
+    ready to log in. It gets a generated one-time password that is returned in
+    this response and never again — nothing anywhere stores the plaintext — plus
+    a `must_change_password` flag that locks the account to the change-password
+    screen until they pick their own.
+    """
+    caller, err = _require_admin()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    username = (data.get('username') or '').strip()
+    role = (data.get('role') or 'professor').strip()
+    # Both optional — an admin opening a professor's account often has neither.
+    # `university` is the field self-registration already writes, so admin-made
+    # and self-made accounts stay one shape.
+    university = (data.get('university') or '').strip()
+    school_id = (data.get('school_id') or '').strip()
+
+    if not email or not username:
+        return jsonify({"error": "Email and username are required"}), 400
+    if not EMAIL_RE.match(email):
+        return jsonify({"error": "That doesn't look like a valid email address"}), 400
+    if role not in VALID_ROLES:
+        return jsonify({"error": f"Invalid role. Must be one of: {', '.join(sorted(VALID_ROLES))}"}), 400
+    if User.find_by_email(email):
+        return jsonify({"error": "That email is already registered."}), 409
+    if User.find_by_username(username):
+        return jsonify({"error": "That username is already taken."}), 409
+
+    one_time_password = generate_one_time_password()
+    user_id = User.create({
+        "email": email,
+        "username": username,
+        "password": bcrypt.generate_password_hash(one_time_password).decode('utf-8'),
+        "is_verified": True,
+        "must_change_password": True,
+        "role": role,
+        "classes": [],
+        "university": university or None,
+        "school_id": school_id or None,
+        "created_by_admin": str(caller["_id"]),
+    })
+    current_app.logger.info(f"Admin {caller.get('email')} created {role} account {email}")
+
+    return jsonify({
+        "message": f"Account created for {email}.",
+        "one_time_password": one_time_password,
+        "user": {
+            "id": str(user_id),
+            "email": email,
+            "username": username,
+            "role": role,
+            "is_verified": True,
+            "must_change_password": True,
+            "university": university,
+            "school_id": school_id,
+        },
+    }), 201
 
 
 @admin_bp.route('/users/<string:user_id>/role', methods=['PUT'])

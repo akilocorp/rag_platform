@@ -1,9 +1,70 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-06
+// @changed   Create-an-account now takes the person's school and school ID; the list shows both
+//            under the username and the search box matches on them.
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft, FaSpinner, FaSearch, FaCheckCircle } from 'react-icons/fa';
+import { FaArrowLeft, FaSpinner, FaSearch, FaCheckCircle, FaUserPlus, FaCopy, FaCheck, FaTimes, FaKey } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const ROLES = ['professor', 'student', 'admin'];
+
+// Shown once, immediately after an account is created. The plaintext password
+// exists nowhere else — not in the database, not in a log — so this dialog is
+// deliberately blunt about that being the only chance to copy it.
+const NewAccountModal = ({ account, onClose }) => {
+  const [copied, setCopied] = useState(false);
+  if (!account) return null;
+
+  const copy = () => {
+    navigator.clipboard?.writeText(account.one_time_password).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg p-8 relative" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-5 right-5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all">
+          <FaTimes />
+        </button>
+
+        <div className="w-12 h-12 rounded-full bg-[#FFF5F2] flex items-center justify-center mb-4">
+          <FaKey className="text-[#FA6C43]" />
+        </div>
+        <h2 className="text-xl font-extrabold text-[#222] mb-1">Account ready</h2>
+        <p className="text-sm text-gray-500 mb-5">
+          <span className="font-semibold text-gray-700">{account.user.email}</span> is verified and can log in now.
+          Give them this one-time password — they’ll be asked to set their own before they can do anything else.
+        </p>
+
+        <div className="flex items-center gap-2 mb-3">
+          <code className="flex-1 text-base font-bold tracking-wider text-gray-800 bg-[#FFF5F2] border border-[#FA6C43]/20 px-4 py-3 rounded-xl text-center">
+            {account.one_time_password}
+          </code>
+          <button
+            onClick={copy}
+            className="px-4 py-3 rounded-xl bg-[#FA6C43] text-white text-sm font-semibold flex items-center gap-2 shrink-0 hover:bg-[#E55B34] transition-colors"
+          >
+            {copied ? <FaCheck /> : <FaCopy />} {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+
+        <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+          This is the only time it’s shown. If it’s lost, they can use “Forgot password” on the login page.
+        </p>
+
+        <button
+          onClick={onClose}
+          className="w-full py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const ROLE_COLORS = {
   professor: 'bg-blue-100 text-blue-700',
@@ -22,6 +83,10 @@ const AdminPage = () => {
   const [settings, setSettings] = useState(null);     // usage limits config
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTier, setNewTier] = useState({ name: '', messages_per_student: '' });
+  const [newAccount, setNewAccount] = useState({ email: '', username: '', role: 'professor', university: '', school_id: '' });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [createdAccount, setCreatedAccount] = useState(null);  // drives the one-time password dialog
 
   const authHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('jwtToken')}` } });
 
@@ -93,6 +158,32 @@ const AdminPage = () => {
     }
   };
 
+  // Opens an account outright: no invite, no verification email. The response
+  // carries the generated password, which is why it goes to the dialog rather
+  // than just a toast.
+  const createAccount = async (e) => {
+    e.preventDefault();
+    if (creating) return;
+    setCreating(true);
+    setCreateError('');
+    try {
+      const { data } = await apiClient.post('/admin/users', {
+        email: newAccount.email.trim(),
+        username: newAccount.username.trim(),
+        role: newAccount.role,
+        university: newAccount.university.trim(),
+        school_id: newAccount.school_id.trim(),
+      }, authHeaders());
+      setUsers(prev => [...prev, data.user].sort((a, b) => a.email.localeCompare(b.email)));
+      setCreatedAccount(data);
+      setNewAccount({ email: '', username: '', role: 'professor', university: '', school_id: '' });
+    } catch (err) {
+      setCreateError(err.response?.data?.error || 'Could not create the account.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const handleRoleChange = async (userId, newRole) => {
     setSaving(prev => ({ ...prev, [userId]: true }));
     try {
@@ -109,10 +200,13 @@ const AdminPage = () => {
     }
   };
 
-  const filtered = users.filter(u =>
-    u.email.toLowerCase().includes(search.toLowerCase()) ||
-    u.username.toLowerCase().includes(search.toLowerCase())
-  );
+  // School and school ID join the match so an admin can find someone by the
+  // number a registrar gave them, not just by the account they picked.
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    return [u.email, u.username, u.university, u.school_id]
+      .some(field => (field || '').toLowerCase().includes(q));
+  });
 
   const counts = ROLES.reduce((acc, r) => {
     acc[r] = users.filter(u => u.role === r).length;
@@ -150,6 +244,99 @@ const AdminPage = () => {
           </div>
         ) : (
           <>
+            {/* Open an account directly — bypasses the email-verification flow
+                entirely; the admin vouching for the person is the check. */}
+            <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6 mb-6">
+              <h2 className="text-lg font-bold text-[#222] mb-1 flex items-center gap-2">
+                <FaUserPlus className="text-[#FA6C43] text-base" /> Create an account
+              </h2>
+              <p className="text-xs text-gray-400 font-medium mb-5">
+                Creates a verified account with a one-time password. No verification email is sent.
+              </p>
+
+              {/* Two rows: identity on top, affiliation and the submit below —
+                  four text inputs on one line squeezes the email past legible. */}
+              <form onSubmit={createAccount} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr] gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={newAccount.email}
+                      onChange={e => setNewAccount(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="professor@ust.hk"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Username</label>
+                    <input
+                      type="text"
+                      required
+                      value={newAccount.username}
+                      onChange={e => setNewAccount(prev => ({ ...prev, username: e.target.value }))}
+                      placeholder="jdoe"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr_auto_auto] gap-3 items-end">
+                  {/* Optional on purpose: an admin opening a colleague's account
+                      usually has neither to hand, and the fields stay editable later. */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      School <span className="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newAccount.university}
+                      onChange={e => setNewAccount(prev => ({ ...prev, university: e.target.value }))}
+                      placeholder="HKUST"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      School ID <span className="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newAccount.school_id}
+                      onChange={e => setNewAccount(prev => ({ ...prev, school_id: e.target.value }))}
+                      placeholder="20451234"
+                      className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Role</label>
+                    <select
+                      value={newAccount.role}
+                      onChange={e => setNewAccount(prev => ({ ...prev, role: e.target.value }))}
+                      className="px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#FA6C43] focus:ring-2 focus:ring-[#F9D0C4]"
+                    >
+                      {ROLES.map(r => (
+                        <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={creating || !newAccount.email.trim() || !newAccount.username.trim()}
+                    className="px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white text-sm font-bold rounded-xl disabled:opacity-50 flex items-center gap-2 transition-all active:scale-[0.98]"
+                  >
+                    {creating && <FaSpinner className="animate-spin text-xs" />}
+                    {creating ? 'Creating…' : 'Create'}
+                  </button>
+                </div>
+              </form>
+
+              {createError && (
+                <p className="mt-3 text-xs font-semibold text-red-600">{createError}</p>
+              )}
+            </div>
+
             {/* Search */}
             <div className="relative mb-6">
               <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
@@ -178,13 +365,27 @@ const AdminPage = () => {
                   <div key={user.id} className="grid grid-cols-[1fr_160px_100px_110px] gap-4 px-6 py-4 border-b border-gray-50 last:border-b-0 items-center hover:bg-gray-50/50 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[#222] truncate">{user.username}</p>
-                      <p className="text-xs text-gray-400 truncate">{user.id}</p>
+                      {/* Falls back to the raw id when there's no affiliation to show —
+                          every row keeps a second line either way. */}
+                      {(user.university || user.school_id) ? (
+                        <p className="text-xs text-gray-500 truncate">
+                          {[user.university, user.school_id].filter(Boolean).join(' · ')}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 truncate">{user.id}</p>
+                      )}
                     </div>
 
                     <p className="text-sm text-gray-600 truncate">{user.email}</p>
 
                     <div>
-                      {user.is_verified ? (
+                      {/* Still on the password we handed them — worth calling out
+                          separately from unverified, since they can't use the app yet. */}
+                      {user.must_change_password ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                          <FaKey className="text-[9px]" /> Temp password
+                        </span>
+                      ) : user.is_verified ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
                           <FaCheckCircle className="text-[10px]" /> Verified
                         </span>
@@ -305,6 +506,8 @@ const AdminPage = () => {
           </>
         )}
       </div>
+
+      <NewAccountModal account={createdAccount} onClose={() => setCreatedAccount(null)} />
 
       {/* Toast */}
       {toast && (

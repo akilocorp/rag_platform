@@ -1,4 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context 
+# @language  Python
+# @updated   2026-07-19
+# @changed   Legacy chat path: give the facilitator the real conversation history so sequential MCQ widgets keep firing.
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
 import json
@@ -1001,14 +1004,13 @@ def chat(config_id, chat_id):
                     ]}
                 )
             else:
-                # Variant A default: config baseline + full user library
-                config_ids = [config_id]
-                if is_authenticated:
-                    config_ids.append(f"user:{user_id_for_history}")
+                # Strict per-bot: only this bot's own config-scoped files. The
+                # f"user:{id}" personal-library bucket is global to the user, so
+                # merging it here leaked one bot's files into every other bot.
                 docs = vector_store.similarity_search(
                     query=user_input,
-                    k=5 if len(config_ids) > 1 else 3,
-                    pre_filter={"config_id": {"$in": config_ids}}
+                    k=3,
+                    pre_filter={"config_id": config_id}
                 )
 
             # Send Sources immediately
@@ -1259,9 +1261,19 @@ def chat(config_id, chat_id):
             # then always emit a result (widget or null) so the skeleton clears.
             if got_any and accumulated_text.strip() and _facilitator_enabled(config_doc):
                 yield json.dumps({"type": "facilitator_pending"}) + "\n"
+                # Feed the facilitator the real conversation, not just this turn's
+                # input. On a sequential quiz, turn 2's user message is only the
+                # clicked option (e.g. "1845 — Great Western Railway"); with no
+                # prior context the facilitator can't tell it's an ongoing MCQ and
+                # returns null, so the next question renders as plain text. The
+                # current turn is already persisted implicitly above, so this
+                # reload includes it; fall back to the bare input on any error.
+                try:
+                    fac_history = _load_anthropic_history(get_history_factory(chat_id))
+                except Exception:
+                    fac_history = [{"role": "user", "content": user_input}]
                 facilitator_block = _facilitator_stage(
-                    config_doc, accumulated_text,
-                    [{"role": "user", "content": user_input}], None,
+                    config_doc, accumulated_text, fac_history, None,
                 )
                 yield json.dumps({
                     "type": "facilitator",

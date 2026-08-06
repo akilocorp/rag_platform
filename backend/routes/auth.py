@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-03
+# @changed   Accounts opened by an admin carry a one-time password: login flags it, tokens carry the
+#            claim the app-wide gate reads, and POST /auth/change-password is the only way out.
 import re
 import secrets
 import smtplib
@@ -6,7 +10,7 @@ from email.message import EmailMessage
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_jwt_extended import (
-    jwt_required, get_jwt_identity, 
+    jwt_required, get_jwt_identity,
     create_access_token, create_refresh_token, unset_jwt_cookies
 )
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
@@ -252,6 +256,33 @@ def verify_email():
         return jsonify({"message": "An internal server error occurred"}), 500
 
 
+# The password rule every self-chosen password goes through: 8+ chars with a
+# letter, a digit and a special character. Shared by /forgot-password and
+# /change-password so the two can't drift apart.
+PASSWORD_RE = re.compile(r'^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$')
+PASSWORD_RULE_MESSAGE = "Password must be at least 8 characters with a letter, a number, and a special character."
+
+# Claim carried by tokens issued to an account still holding the one-time
+# password an admin generated. app.py's gate refuses everything but the
+# change-password screen while it is present.
+PWD_CHANGE_CLAIM = 'pwd_change'
+
+
+def _tokens_for(user):
+    """Access + refresh tokens, stamped with the must-change-password claim.
+
+    The claim rides in the token so the app-wide gate costs no database read per
+    request; it is re-derived from the user document on refresh and cleared for
+    good once the password is changed.
+    """
+    user_id = str(user['_id'])
+    claims = {PWD_CHANGE_CLAIM: True} if user.get('must_change_password') else None
+    return (
+        create_access_token(identity=user_id, additional_claims=claims),
+        create_refresh_token(identity=user_id),
+    )
+
+
 def _normalize_identifier(s):
     """Normalize login identifier: strip, fix fullwidth @ (U+FF20) to ASCII @."""
     if not s or not isinstance(s, str):
@@ -296,9 +327,7 @@ def login():
         if user and bcrypt.check_password_hash(user['password'], password):
 
             # 2. Generate Tokens
-            user_id = str(user['_id'])
-            access_token = create_access_token(identity=user_id)
-            refresh_token = create_refresh_token(identity=user_id)
+            access_token, refresh_token = _tokens_for(user)
 
             return jsonify({
                 "access_token": access_token,
@@ -309,6 +338,9 @@ def login():
                     "role": user.get('role', 'professor'),
                     "is_verified": user.get('is_verified', False),
                     "university": user.get('university'),
+                    # Signed in on an admin-issued password — the client sends
+                    # them straight to the change-password screen.
+                    "must_change_password": bool(user.get('must_change_password')),
                 }
             })
 
@@ -337,9 +369,8 @@ def forgot_password():
         if new_password != confirm_password:
             return jsonify({"error": "Passwords do not match"}), 400
 
-        password_regex = re.compile(r'^(?=.*[a-zA-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$')
-        if not password_regex.match(new_password):
-            return jsonify({"error": "Password must be at least 8 characters with letter, number, and special character."}), 400
+        if not PASSWORD_RE.match(new_password):
+            return jsonify({"error": PASSWORD_RULE_MESSAGE}), 400
 
         user = User.find_by_email(email)
         if not user:
@@ -410,6 +441,62 @@ def reset_password():
         return jsonify({"error": "An internal server error occurred"}), 500
 
 
+@auth_bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    """Set your own password — and the only route an admin-created account can
+    reach until it does.
+
+    The current password is required normally, but not when the account is still
+    on its one-time password: the user authenticated with it seconds ago and
+    making them retype a generated string buys nothing. Success clears the flag
+    and hands back fresh tokens, because the caller's existing token still
+    carries the claim the gate rejects.
+    """
+    try:
+        user = User.find_by_id(get_jwt_identity())
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        data = request.get_json() or {}
+        new_password = data.get('new_password') or ''
+        confirm_password = data.get('confirm_password') or ''
+        forced = bool(user.get('must_change_password'))
+
+        if not forced:
+            current_password = data.get('current_password') or ''
+            if not current_password:
+                return jsonify({"error": "Your current password is required"}), 400
+            if not bcrypt.check_password_hash(user['password'], current_password):
+                return jsonify({"error": "That current password is incorrect"}), 401
+
+        if new_password != confirm_password:
+            return jsonify({"error": "Passwords do not match"}), 400
+        if not PASSWORD_RE.match(new_password):
+            return jsonify({"error": PASSWORD_RULE_MESSAGE}), 400
+        if bcrypt.check_password_hash(user['password'], new_password):
+            return jsonify({"error": "Choose a password you haven't used here before"}), 400
+
+        User.set_password(
+            user['_id'],
+            bcrypt.generate_password_hash(new_password).decode('utf-8'),
+        )
+        current_app.logger.info(f"[ChangePassword] Password set for {user.get('email')}")
+
+        refreshed = dict(user)
+        refreshed['must_change_password'] = False
+        access_token, refresh_token = _tokens_for(refreshed)
+        return jsonify({
+            "message": "Password updated.",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error in /change-password: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
@@ -428,10 +515,16 @@ def logout():
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
-    """Refreshes an access token."""
+    """Refreshes an access token.
+
+    Re-reads the user so a still-pending password change survives the refresh
+    (and so changing it elsewhere drops the claim rather than reissuing it).
+    """
     try:
         current_user_id = get_jwt_identity()
-        new_access_token = create_access_token(identity=current_user_id)
+        user = User.find_by_id(current_user_id)
+        claims = {PWD_CHANGE_CLAIM: True} if user and user.get('must_change_password') else None
+        new_access_token = create_access_token(identity=current_user_id, additional_claims=claims)
         return jsonify(access_token=new_access_token), 200
     except Exception as e:
         current_app.logger.error(f"Error in /refresh: {e}")
@@ -453,6 +546,7 @@ def get_user_info():
             "username": user['username'],
             "email": user['email'],
             "role": user.get('role', 'professor'),
+            "must_change_password": bool(user.get('must_change_password')),
         })
     except Exception as e:
         current_app.logger.error(f"Error in /me: {e}")

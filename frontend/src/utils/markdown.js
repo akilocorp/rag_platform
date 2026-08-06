@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (ES module)
+ * @updated   2026-07-19
+ * @changed   looksLikeMath now accepts a leading numeric coefficient (e.g. "2x") so $2x$ renders instead of printing raw.
+ */
 import { marked } from 'marked';
 import katex from 'katex';
 
@@ -79,10 +84,58 @@ function extractCharts(text) {
 
 // $...$ is only math when the content actually looks like LaTeX; otherwise
 // currency like "$10/M input and $50/M output" gets swallowed as an equation.
-const looksLikeMath = (tex) =>
+// Exported so the inline-math composer (RichMathInput) parses typed $...$ runs
+// with the exact same rule the render pipeline uses — no drift between them.
+// The middle rule allows an optional leading numeric coefficient so a term like
+// "2x" / "3y+1" counts as math; currency stays rejected because the char after
+// the digits is a space or "/" (e.g. "10 and ", "10/M input"), not a letter.
+export const looksLikeMath = (tex) =>
   /[\\^_{}=]/.test(tex) ||
-  /^[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
+  /^[-+]?\d*\.?\d*[A-Za-z](?:[A-Za-z0-9 +\-*/.,()]{0,14})$/.test(tex.trim()) ||
   /^[-+]?[\d.,]+$/.test(tex.trim());
+
+// Pull every math segment ($$…$$ / \[…\] as display, \(…\) / $…$ as inline) out
+// of a text run, replacing each with a placeholder sentinel via `stash`. Shared
+// by the AI-markdown path and the user-text path so both recognise math (and
+// reject bare "$10" prices) identically. The manual $-scan lets a rejected pair
+// consume only its opening $, so real math later on the line still pairs up.
+function stashMath(s, stash) {
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => stash(tex, true));
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => stash(tex, true));
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => stash(tex, false));
+  const dollarRe = /\$([^$\n]+?)\$/g;
+  let out = '';
+  let last = 0;
+  let mm;
+  while ((mm = dollarRe.exec(s))) {
+    if (looksLikeMath(mm[1])) {
+      out += s.slice(last, mm.index) + stash(mm[1], false);
+      last = dollarRe.lastIndex;
+    } else {
+      dollarRe.lastIndex = mm.index + 1;
+    }
+  }
+  return out + s.slice(last);
+}
+
+// Swap the math sentinels back to KaTeX-rendered HTML. On a KaTeX error we fall
+// back to the raw LaTeX rather than throwing, so a malformed equation never
+// blanks the whole message.
+function renderMathSentinels(html, math) {
+  return html.replace(new RegExp(`${M_OPEN}(\\d+)${M_CLOSE}`, 'g'), (_, n) => {
+    const { tex, display } = math[+n];
+    try {
+      return katex.renderToString(tex, {
+        displayMode: display,
+        throwOnError: false,
+        strict: false,
+        trust: false,
+      });
+    } catch {
+      return tex;
+    }
+  });
+}
 
 // Render AI markdown to HTML. Math segments are pulled out BEFORE marked runs
 // (marked eats the backslashes in \(...\) / \[...\]) and rendered directly
@@ -108,24 +161,7 @@ export function renderMarkdown(raw) {
         codes.push(m);
         return `${C_OPEN}${codes.length - 1}${C_CLOSE}`;
       });
-      s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => stash(tex, true));
-      s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => stash(tex, true));
-      s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => stash(tex, false));
-      // Manual scan so a rejected pair (e.g. "$5 ... $") only consumes its
-      // opening $, letting genuine math later on the line still pair up.
-      const dollarRe = /\$([^$\n]+?)\$/g;
-      let out = '';
-      let last = 0;
-      let mm;
-      while ((mm = dollarRe.exec(s))) {
-        if (looksLikeMath(mm[1])) {
-          out += s.slice(last, mm.index) + stash(mm[1], false);
-          last = dollarRe.lastIndex;
-        } else {
-          dollarRe.lastIndex = mm.index + 1;
-        }
-      }
-      s = out + s.slice(last);
+      s = stashMath(s, stash);
       // Models often emit "**Section title**" lines instead of real headings.
       s = s.replace(/^\s{0,3}\*\*([^*\n]+?)\*\*:?\s*$/gm, '### $1');
       s = s.replace(new RegExp(`${C_OPEN}(\\d+)${C_CLOSE}`, 'g'), (_, n) => codes[+n]);
@@ -134,22 +170,31 @@ export function renderMarkdown(raw) {
     .join('');
 
   let html = marked.parse(processed);
-  html = html.replace(new RegExp(`${M_OPEN}(\\d+)${M_CLOSE}`, 'g'), (_, n) => {
-    const { tex, display } = math[+n];
-    try {
-      return katex.renderToString(tex, {
-        displayMode: display,
-        throwOnError: false,
-        strict: false,
-        trust: false,
-      });
-    } catch {
-      return tex;
-    }
-  });
+  html = renderMathSentinels(html, math);
   // Drop chart placeholders back in for ChatPage to mount as live widgets
   // (unwrap any <p> marked put around the bare sentinel).
   html = html.replace(new RegExp(`(?:<p>)?${V_OPEN}(\\d+)${V_CLOSE}(?:</p>)?`, 'g'),
     (_, n) => (charts[+n] ? `<div class="chart-embed" data-chart="${charts[+n]}"></div>` : ''));
   return html;
+}
+
+// Render a USER message: their own text is plain (no markdown — we don't let
+// user input inject headings/HTML), but inline math they insert via the composer
+// (spliced in as `$...$`) must still render. So we pull math OUT first, escape
+// the remaining text and turn newlines into <br>, then drop the KaTeX-rendered
+// math back in. Sentinels are private-use chars, so HTML-escaping leaves them
+// intact for the final math pass.
+export function renderUserText(raw) {
+  const math = [];
+  const stash = (tex, display) => {
+    math.push({ tex, display });
+    return `${M_OPEN}${math.length - 1}${M_CLOSE}`;
+  };
+  const withMath = stashMath(raw || '', stash);
+  const escaped = withMath
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  return renderMathSentinels(escaped, math);
 }

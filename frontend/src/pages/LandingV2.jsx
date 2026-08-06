@@ -1,3 +1,6 @@
+// @language JavaScript (React)
+// @updated 2026-08-03
+// @changed Add a "Guide" link to the top-right nav, left of Sign in.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
@@ -766,6 +769,13 @@ const LandingV2 = () => {
           />
         </Link>
         <div className="flex items-center gap-3">
+          <Link
+            to="/userguide"
+            className="text-sm font-semibold transition-opacity hover:opacity-80"
+            style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
+          >
+            Guide
+          </Link>
           <Link
             to="/login"
             className="text-sm font-semibold transition-opacity hover:opacity-80"

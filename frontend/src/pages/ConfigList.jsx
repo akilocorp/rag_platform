@@ -1,8 +1,13 @@
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes } from 'react-icons/fa';
-import React, { useEffect, useMemo, useState } from 'react';
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-03
+// @changed   Card body click now selects the card (Ctrl+C copy target) instead of opening the bot;
+//            the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
+import ConfigModeToggle from '../components/ConfigModeToggle';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
 import apiClient from '../api/apiClient';
@@ -17,6 +22,7 @@ const primaryActionLabel = (botType) => {
     case 'video_analysis': return 'Open Dashboard';
     case 'experiential':   return 'Open Sessions';
     case 'group_chat':     return 'Open Chat';
+    case 'manager_exercise': return 'Open Exercise';
     default:               return 'Chat Now';
   }
 };
@@ -28,9 +34,274 @@ const directStudentLink = (config) => {
   switch (config.bot_type) {
     case 'experiential':   return `${origin}/experiential/c/${config.config_id}`;
     case 'group_chat':     return `${origin}/group-chat/${config.config_id}`;
+    case 'manager_exercise': return `${origin}/manager-exercise/${config.config_id}`;
     case 'video_analysis': return `${origin}/video-upload/${config.config_id}`;
     default:               return `${origin}/chat/${config.config_id}`;
   }
+};
+
+// --- Clipboard transfer -------------------------------------------------------
+// Ctrl+C puts one readable line on the clipboard. The payload is a server-minted
+// token, not the config itself: the knowledge base only exists server-side, so
+// the clone has to happen there — and a token is what lets a copy cross into
+// another professor's account.
+const CLIPBOARD_PREFIX = 'actr-config:';
+const CLIPBOARD_TOKEN_RE = /actr-config:([A-Za-z0-9_-]{8,})/;
+
+const clipboardPayload = (botName, token) =>
+  `ACTR assistant "${botName}" — paste it in your assistant list (Ctrl+V): ${CLIPBOARD_PREFIX}${token}`;
+
+const parseConfigToken = (text) => (text || '').match(CLIPBOARD_TOKEN_RE)?.[1] || null;
+
+// Write to the clipboard, falling back to the legacy execCommand path — the
+// async Clipboard API is unavailable outside secure contexts, which is exactly
+// where a professor testing on a plain-http host would be.
+const writeClipboard = async (text) => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to execCommand */ }
+  try {
+    const scratch = document.createElement('textarea');
+    scratch.value = text;
+    scratch.style.position = 'fixed';
+    scratch.style.opacity = '0';
+    document.body.appendChild(scratch);
+    scratch.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(scratch);
+    return ok;
+  } catch {
+    return false;
+  }
+};
+
+// True when the keystroke belongs to a text field or a live text selection —
+// Ctrl+C must keep meaning "copy this text" in those cases, not "copy the card".
+const isTypingContext = () => {
+  const el = document.activeElement;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return true;
+  const selection = window.getSelection?.();
+  return !!(selection && !selection.isCollapsed && String(selection).trim());
+};
+
+// Right-click menu. Rendered at the pointer, dismissed by any outside click,
+// scroll or Escape.
+const ContextMenu = ({ menu, onClose, items }) => {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const dismiss = () => onClose();
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('click', dismiss);
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  // Keep the panel inside the viewport when the click lands near an edge.
+  const left = Math.min(menu.x, window.innerWidth - 210);
+  const top = Math.min(menu.y, window.innerHeight - (items.length * 40 + 16));
+
+  return (
+    <div
+      className="fixed z-[120] w-[200px] py-1.5 bg-white rounded-xl border border-gray-200 shadow-xl animate-in zoom-in-95 duration-100"
+      style={{ left, top }}
+      onClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.label}
+          onClick={() => { onClose(); item.onClick(); }}
+          disabled={item.disabled}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-[#FFF5F2] hover:text-[#FA6C43] disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-700 transition-colors text-left"
+        >
+          {item.icon}
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+// The paste dialog: names the copy and takes its class code. Both are asked for
+// because a paste creates a NEW class — the class code is globally unique, so it
+// can never be inherited, and the copy starts with no students and no
+// transcripts of its own.
+const PasteConfigModal = ({ isOpen, token, preview, loadError, onResolveToken, onClose, onCreated }) => {
+  const [botName, setBotName] = useState('');
+  const [classCode, setClassCode] = useState('');
+  const [manualText, setManualText] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSubmitError('');
+    setBusy(false);
+    setClassCode('');
+    setManualText('');
+  }, [isOpen, token]);
+
+  // Prefill the name the moment the preview lands, so the professor only edits.
+  useEffect(() => {
+    if (preview?.bot_name) setBotName(`${preview.bot_name} (copy)`);
+  }, [preview]);
+
+  if (!isOpen) return null;
+
+  const submit = async () => {
+    if (!botName.trim() || busy) return;
+    setBusy(true);
+    setSubmitError('');
+    try {
+      const { data } = await apiClient.post(`/config/paste/${token}`, {
+        bot_name: botName.trim(),
+        class_code: classCode.trim().toLowerCase(),
+      });
+      onCreated(data.config, data.files_copied);
+    } catch (err) {
+      setSubmitError(err.response?.data?.error || 'Could not paste this assistant.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // No token in hand: the browser refused a clipboard read, so let the professor
+  // paste the copied line straight into the dialog.
+  const manualEntry = (
+    <>
+      <p className="text-sm text-gray-500 mb-4">
+        Paste the copied text below (Ctrl+V), then continue.
+      </p>
+      <textarea
+        autoFocus
+        rows={3}
+        value={manualText}
+        onChange={(e) => setManualText(e.target.value)}
+        placeholder="ACTR assistant … actr-config:…"
+        className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#FA6C43]/30 focus:border-[#FA6C43] outline-none resize-none"
+      />
+      {manualText && !parseConfigToken(manualText) && (
+        <p className="mt-2 text-xs font-semibold text-red-600">
+          That doesn’t look like a copied assistant. Copy one with Ctrl+C first.
+        </p>
+      )}
+      <button
+        onClick={() => onResolveToken(parseConfigToken(manualText))}
+        disabled={!parseConfigToken(manualText)}
+        className="w-full mt-5 py-3 px-6 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] disabled:opacity-50 transition-all"
+      >
+        Continue
+      </button>
+    </>
+  );
+
+  const form = (
+    <>
+      <p className="text-sm text-gray-500 mb-5">
+        This creates a brand-new assistant in your account — {preview?.file_count > 0
+          ? `its ${preview.file_count} knowledge-base file${preview.file_count === 1 ? '' : 's'} come along, but no `
+          : 'with no '}
+        student chats, responses or usage carry over.
+      </p>
+
+      <label className="block text-sm font-bold text-gray-700 mb-1.5">Name</label>
+      <input
+        autoFocus
+        value={botName}
+        onChange={(e) => setBotName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#FA6C43]/30 focus:border-[#FA6C43] outline-none"
+      />
+
+      <label className="block text-sm font-bold text-gray-700 mt-4 mb-1.5">
+        Class code <span className="font-medium text-gray-400">(optional)</span>
+      </label>
+      <input
+        value={classCode.toUpperCase()}
+        onChange={(e) => setClassCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        maxLength={20}
+        placeholder="e.g. ACTR101"
+        className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#FA6C43]/30 focus:border-[#FA6C43] outline-none uppercase"
+      />
+      <p className="mt-1.5 text-xs text-gray-400 font-medium">
+        3–20 characters, letters, numbers, hyphens. Must be unique — the original’s code stays with the original class.
+      </p>
+
+      {submitError && (
+        <p className="mt-3 text-xs font-semibold text-red-600">{submitError}</p>
+      )}
+
+      <div className="flex gap-3 mt-6">
+        <button
+          onClick={onClose}
+          className="flex-1 py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={!botName.trim() || busy}
+          className="flex-1 py-3 px-6 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+        >
+          {busy && <FaSpinner className="animate-spin text-sm" />}
+          {busy ? 'Copying…' : 'Create copy'}
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      onContextMenu={(e) => e.stopPropagation()}
+    >
+      <div
+        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in zoom-in-95 duration-200 p-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={onClose} title="Close" className="absolute top-5 right-5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all">
+          <FaTimes />
+        </button>
+
+        <div className="w-12 h-12 rounded-full bg-[#FFF5F2] flex items-center justify-center mb-4">
+          <FaPaste className="text-[#FA6C43]" />
+        </div>
+        <h2 className="text-xl font-extrabold text-[#222] mb-1">
+          {preview ? `Paste “${preview.bot_name}”` : 'Paste an assistant'}
+        </h2>
+        {preview && (
+          <p className="text-xs font-semibold text-gray-400 mb-4 uppercase tracking-wide">
+            {getModelDisplayName(preview.model_name)}
+            {preview.file_count > 0 && ` · ${preview.file_count} file${preview.file_count === 1 ? '' : 's'}`}
+          </p>
+        )}
+
+        {loadError ? (
+          <p className="text-sm font-semibold text-red-600 py-4">{loadError}</p>
+        ) : !token ? (
+          manualEntry
+        ) : !preview ? (
+          <div className="flex items-center gap-3 py-8 text-gray-500">
+            <FaSpinner className="animate-spin text-[#FA6C43]" /> Looking up the copied assistant…
+          </div>
+        ) : (
+          form
+        )}
+      </div>
+    </div>
+  );
 };
 
 // "Share to class" popup: shows the class-invite link (/join/<code>) when the
@@ -54,6 +325,9 @@ const ShareModal = ({ isOpen, onClose, config }) => {
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       onClick={(e) => { e.stopPropagation(); onClose(); }}
+      // Let the browser's own menu handle right-clicks on the link, instead of
+      // the card's copy/paste menu firing through the overlay.
+      onContextMenu={(e) => e.stopPropagation()}
     >
       <div
         className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in zoom-in-95 duration-200 p-8"
@@ -94,7 +368,7 @@ const ShareModal = ({ isOpen, onClose, config }) => {
   );
 };
 
-const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete }) => {
+const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onHover, onCardMenu, isSelected }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -116,6 +390,13 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
   // they line up with Customize / Chat Now on one vertically-centered row.
   const actionButtons = (
     <>
+      <button
+        onClick={(e) => { e.stopPropagation(); onCopy(config); }}
+        title="Copy assistant (Ctrl+C)"
+        className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
+      >
+        <FaClone className="text-sm" />
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
         title="Share to class"
@@ -142,11 +423,18 @@ const ConfigItem = ({ config, index, view, onOpen, onResponses, onEdit, onDelete
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl border border-gray-200 shadow-sm transition-all duration-300 cursor-pointer hover:border-[#FA6C43]/40 hover:shadow-md hover:-translate-y-1 animate-send-fly-in ${
-        isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'
-      }`}
+      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 cursor-pointer hover:border-[#FA6C43]/40 hover:shadow-md hover:-translate-y-1 animate-send-fly-in ${
+        isSelected ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/30' : 'border-gray-200'
+      } ${isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'}`}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-      onClick={() => onOpen(config)}
+      // Clicking the card body selects it as the Ctrl+C copy target (the orange
+      // ring). Opening the bot is the primary button's job (Chat Now, etc.).
+      onClick={() => onSelect(config)}
+      // Hover is a fallback Ctrl+C target when nothing is selected; right-click
+      // both selects the card and opens its menu.
+      onMouseEnter={() => onHover(config)}
+      onMouseLeave={() => onHover(null)}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onCardMenu(e, config); }}
     >
       {/* Top: icon + title + actions */}
       <div className={isList ? 'flex items-center gap-4 flex-1 min-w-0' : 'flex items-start gap-4'}>
@@ -246,6 +534,19 @@ const ConfigListPage = () => {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 
+  // Copy/paste state. `hoveredRef` is a ref, not state, because the Ctrl+C
+  // handler only reads it — tracking hover in state would re-render the whole
+  // list on every pointer move across a card.
+  const hoveredRef = useRef(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);   // {x, y, config|null}
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteToken, setPasteToken] = useState(null);
+  const [pastePreview, setPastePreview] = useState(null);
+  const [pasteLoadError, setPasteLoadError] = useState('');
+  const [toast, setToast] = useState('');
+  const toastTimer = useRef(null);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -283,6 +584,10 @@ const ConfigListPage = () => {
       navigate(`/experiential-dashboard/${config.config_id}`);
     } else if (config.bot_type === 'group_chat') {
       navigate(`/group-chat/${config.config_id}`);
+    } else if (config.bot_type === 'manager_exercise') {
+      // Manager Exercise is a student-facing game like group chat (no faculty
+      // dashboard) — route to its own page, not the 1:1 chat fallback.
+      navigate(`/manager-exercise/${config.config_id}`);
     } else {
       navigate(`/chat/${config.config_id}`);
     }
@@ -320,6 +625,131 @@ const ConfigListPage = () => {
     setIsConfigModalOpen(true);
   };
 
+  // --- Copy / paste ----------------------------------------------------------
+
+  const showToast = useCallback((message) => {
+    setToast(message);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 4000);
+  }, []);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Ctrl+C: mint a transfer token for the card and put one readable line on the
+  // clipboard. The token is minted server-side even if the clipboard write is
+  // refused, so the payload is surfaced in a toast rather than lost.
+  const handleCopy = useCallback(async (config) => {
+    const configId = config.config_id || config._id;
+    if (!configId) return;
+    try {
+      const { data } = await apiClient.post(`/config/${configId}/copy`);
+      const payload = clipboardPayload(data.bot_name, data.token);
+      const ok = await writeClipboard(payload);
+      showToast(ok
+        ? `Copied “${data.bot_name}” — press Ctrl+V in any assistant list to paste it.`
+        : `Copy this and paste it in an assistant list: ${payload}`);
+    } catch (err) {
+      console.error('Failed to copy configuration:', err);
+      showToast('Could not copy this assistant.');
+    }
+  }, [showToast]);
+
+  // Open the paste dialog for a token. Passing null opens it in manual-entry
+  // mode, which is the fallback when the browser blocks reading the clipboard.
+  const openPasteDialog = useCallback(async (token) => {
+    setPasteOpen(true);
+    setPasteToken(token || null);
+    setPastePreview(null);
+    setPasteLoadError('');
+    if (!token) return;
+    try {
+      const { data } = await apiClient.get(`/config/paste/${token}`);
+      setPastePreview(data);
+    } catch (err) {
+      setPasteLoadError(err.response?.data?.message || 'This copy has expired or is no longer valid.');
+    }
+  }, []);
+
+  // Right-click → Paste. Reading the clipboard needs a permission most browsers
+  // only grant in secure contexts; on refusal we fall back to asking for the text.
+  const handleMenuPaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const token = parseConfigToken(text);
+      if (!token) {
+        showToast('Nothing copied yet — press Ctrl+C on an assistant first.');
+        return;
+      }
+      openPasteDialog(token);
+    } catch {
+      openPasteDialog(null);
+    }
+  }, [openPasteDialog, showToast]);
+
+  // A pasted copy is a new assistant in this account — prepend it so it is
+  // visible without a refetch, and clear any filter that would hide it.
+  const handlePasted = useCallback((config, filesCopied) => {
+    setPasteOpen(false);
+    setConfigs(prev => [config, ...prev]);
+    setVisibility(config.is_public ? 'shared' : 'private');
+    setCategory('all');
+    showToast(filesCopied > 0
+      ? `“${config.bot_name}” created with ${filesCopied} file${filesCopied === 1 ? '' : 's'}. No student data was copied.`
+      : `“${config.bot_name}” created. No student data was copied.`);
+  }, [showToast]);
+
+  // Keyboard copy. The target is the right-clicked card, else the hovered one.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.key || '').toLowerCase() !== 'c') return;
+      if (pasteOpen || isConfigModalOpen || isBugModalOpen || isTypingContext()) return;
+      const target = configs.find(c => (c.config_id || c._id) === selectedId) || hoveredRef.current;
+      if (!target) return;
+      e.preventDefault();
+      handleCopy(target);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [configs, selectedId, pasteOpen, isConfigModalOpen, isBugModalOpen, handleCopy]);
+
+  // Ctrl+V anywhere on the list. The paste event hands us the clipboard text
+  // directly, so this needs no permission prompt. Clipboard content that isn't
+  // a copied assistant is ignored.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (pasteOpen || isConfigModalOpen || isBugModalOpen) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const token = parseConfigToken(e.clipboardData?.getData('text'));
+      if (!token) return;
+      e.preventDefault();
+      openPasteDialog(token);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [pasteOpen, isConfigModalOpen, isBugModalOpen, openPasteDialog]);
+
+  const handleCardMenu = (e, config) => {
+    setSelectedId(config.config_id || config._id);
+    setContextMenu({ x: e.clientX, y: e.clientY, config });
+  };
+
+  const handleBackgroundMenu = (e) => {
+    e.preventDefault();
+    setSelectedId(null);
+    setContextMenu({ x: e.clientX, y: e.clientY, config: null });
+  };
+
+  const contextMenuItems = contextMenu?.config
+    ? [
+        { label: 'Copy', icon: <FaClone className="text-xs" />, onClick: () => handleCopy(contextMenu.config) },
+        { label: 'Customize', icon: <FaCog className="text-xs" />, onClick: () => onEdit(contextMenu.config) },
+        { label: 'Paste', icon: <FaPaste className="text-xs" />, onClick: handleMenuPaste },
+      ]
+    : [
+        { label: 'Paste', icon: <FaPaste className="text-xs" />, onClick: handleMenuPaste },
+      ];
+
   // Apply the Private/Shared filter once; categories slice the result.
   const byVisibility = useMemo(
     () => configs.filter(c => (visibility === 'shared' ? !!c.is_public : !c.is_public)),
@@ -351,7 +781,11 @@ const ConfigListPage = () => {
   ];
 
   return (
-    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 flex flex-col relative">
+    <div
+      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      className="min-h-screen bg-[#F0F6FB] text-gray-900 flex flex-col relative"
+      onContextMenu={handleBackgroundMenu}
+    >
 
       {/* Navbar */}
       <nav className="w-full flex justify-between items-center px-6 lg:px-8 py-6 max-w-[1440px] mx-auto z-10">
@@ -366,6 +800,10 @@ const ConfigListPage = () => {
           />
         </div>
         <div className="flex items-center space-x-6 lg:space-x-8">
+
+          {/* Faculty Simple/Advanced mode switch — gates how much bot-config
+              detail the create/edit forms expose. */}
+          <ConfigModeToggle className="hidden sm:block" />
 
           {/* Report Bug Button added to Navbar */}
           <button
@@ -464,6 +902,16 @@ const ConfigListPage = () => {
                   </button>
                 </div>
 
+                {/* Keyboard-free way in to the same flow as Ctrl+V. */}
+                <button
+                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm active:scale-[0.98]"
+                  onClick={handleMenuPaste}
+                  title="Paste a copied assistant (Ctrl+V)"
+                >
+                  <FaPaste className="mr-2 text-sm" />
+                  <span className="font-bold text-[14px]">Paste</span>
+                </button>
+
                 <button
                   className="flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
                   onClick={handleCreateNew}
@@ -528,9 +976,14 @@ const ConfigListPage = () => {
                           index={idx}
                           view={view}
                           onOpen={handleOpen}
+                          onSelect={(c) => setSelectedId(c.config_id || c._id)}
                           onResponses={handleResponses}
                           onEdit={onEdit}
                           onDelete={handleDelete}
+                          onCopy={handleCopy}
+                          onHover={(c) => { hoveredRef.current = c; }}
+                          onCardMenu={handleCardMenu}
+                          isSelected={selectedId === (config.config_id || config._id)}
                         />
                       ))}
                     </div>
@@ -552,6 +1005,28 @@ const ConfigListPage = () => {
         isOpen={isBugModalOpen}
         onClose={() => setIsBugModalOpen(false)}
       />
+
+      <PasteConfigModal
+        isOpen={pasteOpen}
+        token={pasteToken}
+        preview={pastePreview}
+        loadError={pasteLoadError}
+        onResolveToken={openPasteDialog}
+        onClose={() => setPasteOpen(false)}
+        onCreated={handlePasted}
+      />
+
+      <ContextMenu
+        menu={contextMenu}
+        items={contextMenuItems}
+        onClose={() => setContextMenu(null)}
+      />
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-[90vw] bg-gray-900 text-white text-sm font-medium px-6 py-3 rounded-xl shadow-xl z-[130] animate-in zoom-in-95 duration-200">
+          {toast}
+        </div>
+      )}
 
     </div>
   );

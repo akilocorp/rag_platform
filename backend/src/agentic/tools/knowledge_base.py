@@ -63,10 +63,10 @@ def search_knowledge_base(inputs: dict, ctx: ToolContext) -> dict:
             {"source_file_id": {"$in": [str(x) for x in ctx.selected_file_ids]}},
         ]}
     else:
-        config_ids = [config_id_str]
-        if is_authenticated:
-            config_ids.append(f"user:{ctx.user_id}")
-        pre_filter = {"config_id": {"$in": config_ids}}
+        # Strict per-bot: only this bot's own config-scoped files. The
+        # f"user:{id}" personal-library bucket is global to the user, so merging
+        # it here leaked one bot's files into every other bot.
+        pre_filter = {"config_id": config_id_str}
 
     docs = vector_store.similarity_search(query=query, k=top_k, pre_filter=pre_filter)
 

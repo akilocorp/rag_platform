@@ -1,3 +1,6 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-03
+// @changed   Added a Guide link so the /userguide site is reachable before anyone signs in.
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import logo from '../assets/logo.png'; // Adjust path if necessary
@@ -42,6 +45,19 @@ const Navbar = () => {
           }`}
         >
           About Us
+        </Link>
+
+        {/* Active for any page under /userguide, not just the index — the guide is a
+            multi-page site and the nav item should stay lit while you read it. */}
+        <Link
+          to="/userguide"
+          className={`text-sm lg:text-base transition-colors hidden sm:block ${
+            location.pathname.startsWith('/userguide')
+              ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]'
+              : 'text-gray-700 font-medium hover:text-[#F8CABA]'
+          }`}
+        >
+          Guide
         </Link>
 
         {/* Logged in → Dashboard. On the login page → Register. Otherwise → Login. */}

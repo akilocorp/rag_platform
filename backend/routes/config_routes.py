@@ -1,3 +1,8 @@
+# @language  Python
+# @updated   2026-08-03
+# @changed   Config copy/paste: POST /config/<id>/copy mints a clipboard token, GET+POST /config/paste/<token>
+#            preview and clone a config (plus its knowledge base) into any professor's account as a fresh class.
+#            Prior: GET /config/<id> returns an `owned` flag so the client can surface owner-only controls.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -7,12 +12,19 @@ import os
 from werkzeug.utils import secure_filename
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from models.config import Config
+from models.case_preset import CasePreset
 from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
+from src.managers import case_pack
+from src.managers import class_presets
+from src.managers import facilitator_prompt
 
 import re
 import json
+import copy as copy_module
+import secrets
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 
 # --- Setup and Configuration ---
@@ -63,6 +75,433 @@ def validate_class_usage(source, target, current_config_id=None):
         target['usage_pool'] = int(tier['messages_per_student']) * student_count
     return None
 
+# --- Manager Exercise ---------------------------------------------------------
+# Minimum group size. The exercise is a hidden-profile debrief: the whole lesson
+# is that information was distributed and never pooled, which needs at least two
+# people holding different packets.
+ME_MIN_STUDENTS = 2
+
+# Breakout rooms the class splits into. The professor hands out one class code and
+# students choose a room from a lobby, so the cap is just "more than any class
+# would plausibly need".
+ME_DEFAULT_ROOMS = 5
+ME_MAX_ROOMS = 20
+
+
+def _me_doc_ref(raw, field):
+    """Normalize an AI-only reference document to {file_id, text}.
+
+    `text` is authoritative (it is what the case-pack extractor and the
+    facilitator actually read); `file_id` is a bookkeeping pointer to the upload.
+    """
+    val = raw.get(field)
+    if not isinstance(val, dict):
+        return {"file_id": "", "text": ""}
+    file_id = val.get("file_id")
+    text = val.get("text")
+    return {
+        "file_id": file_id.strip() if isinstance(file_id, str) else "",
+        "text": text if isinstance(text, str) else "",
+    }
+
+
+def validate_manager_exercise(source, target):
+    """Validate + normalize the `manager_exercise` sub-object, derive the case pack,
+    and force the top-level `group_size == num_students` invariant.
+
+    Mirrors how scoring_spec / experiential_config / facilitator are handled: the
+    value may arrive as a dict or a JSON string. On success, writes the normalized
+    sub-object into `target['manager_exercise']` and overwrites
+    `target['group_size']`. Returns an error (response, status) tuple on failure,
+    or None on success.
+
+    Rules enforced here:
+      - manager_exercise required and must be a dict.
+      - num_students int >= ME_MIN_STUDENTS; discuss_minutes > 0.
+      - at least 2 candidates, unique names, each carrying its outcome doc.
+      - learning_points resolved server-side from class_preset (never trusted
+        from the client, so every config on a preset gets identical wording).
+      - case_pack derived from the uploaded docs unless the client supplied an
+        edited one; either way the tallies are recomputed in Python.
+
+    A config cannot be saved without a usable case pack: the pack carries the
+    answer key the facilitator steers by, and an exercise with an empty one would
+    silently run without any pedagogy.
+    """
+    raw = source.get('manager_exercise')
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            raw = None
+    if not isinstance(raw, dict):
+        return jsonify({"error": "manager_exercise config is required for this bot type"}), 400
+
+    # num_students is the CAPACITY of one breakout room, not a gate. A group may
+    # start under-filled; the facilitator is told the real headcount at that point.
+    try:
+        num_students = int(raw.get('num_students'))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.num_students must be an integer"}), 400
+    if num_students < ME_MIN_STUDENTS:
+        return jsonify({"error": f"manager_exercise.num_students must be >= {ME_MIN_STUDENTS}"}), 400
+
+    # How many breakout rooms the class is split into. Students pick one from a
+    # lobby rather than being queued into whichever fills first.
+    try:
+        num_rooms = int(raw.get('num_rooms', ME_DEFAULT_ROOMS))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.num_rooms must be an integer"}), 400
+    if not 1 <= num_rooms <= ME_MAX_ROOMS:
+        return jsonify({"error": f"manager_exercise.num_rooms must be between 1 and {ME_MAX_ROOMS}"}), 400
+
+    # Discuss window (minutes).
+    try:
+        discuss_minutes = float(raw.get('discuss_minutes'))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.discuss_minutes must be a number"}), 400
+    if discuss_minutes <= 0:
+        return jsonify({"error": "manager_exercise.discuss_minutes must be > 0"}), 400
+
+    # M5: the in-app decision (`choose`) is now timed. `choose_minutes` is the main
+    # ballot window; `final_call_seconds` is the tight anxiety window after it lapses.
+    # Both optional with safe defaults so existing configs keep working.
+    try:
+        choose_minutes = float(raw.get('choose_minutes', 3))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.choose_minutes must be a number"}), 400
+    if choose_minutes <= 0:
+        choose_minutes = 3.0
+    try:
+        final_call_seconds = int(raw.get('final_call_seconds', 30))
+    except (ValueError, TypeError):
+        final_call_seconds = 30
+    if final_call_seconds <= 0:
+        final_call_seconds = 30
+
+    # M9: the round-2 facilitated debrief window. Optional and defaulting to the
+    # round-1 discussion length, so a config authored before this field existed
+    # keeps validating and running without a migration.
+    try:
+        debrief_minutes = float(raw.get('debrief_minutes') or discuss_minutes)
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.debrief_minutes must be a number"}), 400
+    if debrief_minutes <= 0:
+        debrief_minutes = discuss_minutes
+
+    # Candidate roster — each entry carries the outcome document revealed on pick.
+    raw_candidates = raw.get('candidates')
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        return jsonify({"error": "manager_exercise.candidates must be a non-empty list"}), 400
+    candidates = []
+    seen_names = set()
+    for c in raw_candidates:
+        if not isinstance(c, dict):
+            return jsonify({"error": "each candidate must be an object with a name"}), 400
+        name = (c.get('name') or '').strip()
+        if not name:
+            return jsonify({"error": "each candidate must have a non-empty name"}), 400
+        if name in seen_names:
+            return jsonify({"error": f"duplicate candidate name '{name}'"}), 400
+        seen_names.add(name)
+        forecast_text = c.get('forecast_text')
+        forecast_file_id = c.get('forecast_file_id')
+        if not isinstance(forecast_text, str) or not forecast_text.strip():
+            return jsonify({"error": f"candidate '{name}' needs an uploaded outcome document"}), 400
+        candidates.append({
+            "name": name,
+            "forecast_text": forecast_text,
+            "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
+        })
+
+    # M10: how a student reads their own confidential material in round 0.
+    #   'cards' — the extracted per-role strengths/concerns as a card deck (default,
+    #             and what every config built before this field did).
+    #   'case'  — the role's own uploaded packet, read as a case document.
+    # Unknown values fall back to 'cards' rather than erroring: this is a display
+    # choice, and a bad value should not stop a class running.
+    student_view = raw.get('student_view')
+    if student_view not in ('cards', 'case'):
+        student_view = 'cards'
+
+    # M10: the per-role packets — one case document per confidential role, which is
+    # what a student holding that role reads in `case` mode. Optional: a config with
+    # none simply shows cards (see `ExerciseState.case_for`), so this never breaks an
+    # existing exercise. Roles are matched to `case_pack.roles` case-insensitively at
+    # runtime, so casing drift between an upload and the extraction can't blank a
+    # student's screen.
+    role_packets = []
+    seen_roles = set()
+    for p in (raw.get('role_packets') or []):
+        if not isinstance(p, dict):
+            continue
+        role = (p.get('role') or '').strip()
+        text = p.get('text')
+        if not role or not isinstance(text, str) or not text.strip():
+            continue
+        key = role.casefold()
+        if key in seen_roles:
+            return jsonify({"error": f"duplicate role packet for '{role}'"}), 400
+        seen_roles.add(key)
+        file_id = p.get('file_id')
+        role_packets.append({
+            "role": role,
+            "text": text,
+            "file_id": file_id.strip() if isinstance(file_id, str) else "",
+        })
+
+    # M9: two or more. This used to demand EXACTLY 3, because the old two-strike
+    # flow spent one candidate per wrong pick and revealed the third. There is one
+    # group decision now, so nothing depends on the count — and the old rule failed
+    # a 2-candidate config at Publish after the wizard had already accepted it.
+    if len(candidates) < 2:
+        return jsonify({"error": "manager_exercise needs at least 2 candidates to choose between"}), 400
+
+    # AI-only reference documents. Never sent to a student client — the candidate
+    # summary states each role's private view and (in most authored cases) the
+    # pooled totals, i.e. the answer key in plain text.
+    #
+    # general_info does a different job from the summary: it is what the ROLE
+    # requires, which is what a candidate's pooled picture gets tested against.
+    # Without it the exercise degenerates into counting items, so it is required.
+    # Students already hold it on paper.
+    general_info = _me_doc_ref(raw, 'general_info')
+    candidate_summary = _me_doc_ref(raw, 'candidate_summary')
+    if not candidate_summary["text"].strip():
+        return jsonify({"error": "manager_exercise.candidate_summary is required (upload the Candidate Summary document)"}), 400
+    # Required, because without it the facilitator has nothing to test a candidate
+    # against and the session collapses into counting items.
+    if not general_info["text"].strip():
+        return jsonify({"error": "manager_exercise.general_info is required (upload the General Information document)"}), 400
+
+    class_preset = (raw.get('class_preset') or '').strip()
+    learning_outcome = raw.get('learning_outcome')
+    learning_outcome = learning_outcome.strip() if isinstance(learning_outcome, str) else ""
+
+    # Optional full replacement of the facilitator's system prompt, edited by the
+    # professor in the wizard's advanced block. Blank means "use the stock prompt",
+    # so an untouched config is byte-identical to before. Only <<CASE_PACK>> is
+    # mandatory — losing it would leave the facilitator inventing the case.
+    prompt_override = raw.get('facilitator_prompt_override')
+    prompt_override = prompt_override.strip() if isinstance(prompt_override, str) else ""
+    override_err = facilitator_prompt.validate_prompt_override(prompt_override)
+    if override_err:
+        return jsonify({"error": override_err}), 400
+
+    # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
+    # otherwise extract it from the uploaded documents. Tallies are recomputed
+    # either way so a hand-edited pack can never disagree with its own items.
+    supplied = raw.get('case_pack')
+    if isinstance(supplied, dict) and supplied.get('options'):
+        pack = case_pack.recompute(supplied)
+    else:
+        pack, err = case_pack.build_case_pack(
+            general_info["text"], candidate_summary["text"], candidates,
+        )
+        if err:
+            return jsonify({"error": err}), 400
+
+    target['manager_exercise'] = {
+        "num_students": num_students,
+        "num_rooms": num_rooms,
+        "discuss_minutes": discuss_minutes,
+        "choose_minutes": choose_minutes,
+        "final_call_seconds": final_call_seconds,
+        "debrief_minutes": debrief_minutes,
+        "student_view": student_view,
+        "role_packets": role_packets,
+        "class_preset": class_preset,
+        "learning_outcome": learning_outcome,
+        "learning_points": class_presets.get_learning_points(class_preset),
+        "facilitator_prompt_override": prompt_override,
+        "general_info": general_info,
+        "candidate_summary": candidate_summary,
+        "candidates": candidates,
+        "case_pack": pack,
+    }
+    # Invariant: top-level group_size is force-set to num_students (ignore any
+    # mismatching client value).
+    target['group_size'] = num_students
+    return None
+
+
+@config_bp.route('/config/facilitator-prompt/default', methods=['GET'])
+@jwt_required()
+def facilitator_prompt_default():
+    """Serve the stock facilitator prompt so the wizard can prefill its editor.
+
+    Fetched on demand rather than bundled into the frontend or stored on every
+    config: it is ~12 KB of pedagogy that most professors will never touch, and
+    keeping one copy server-side means an edit here reaches every config that
+    has not overridden it.
+    """
+    return jsonify({
+        "prompt": facilitator_prompt.FACILITATOR_PROMPT,
+        "required_placeholder": facilitator_prompt.REQUIRED_PLACEHOLDER,
+    }), 200
+
+
+@config_bp.route('/config/case-pack/preview', methods=['POST'])
+@jwt_required()
+def preview_case_pack():
+    """Build a case pack from uploaded documents WITHOUT saving a config.
+
+    The authoring wizard's review step needs the extracted tallies and answer key
+    before the config exists, so the professor can correct a bad extraction rather
+    than discover it mid-class. Same code path as save, so what they approve here
+    is exactly what gets stored.
+    """
+    data = request.get_json(silent=True) or {}
+    pack, err = case_pack.build_case_pack(
+        data.get('general_info_text') or '',
+        data.get('candidate_summary_text') or '',
+        data.get('candidates') or [],
+    )
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({"case_pack": pack}), 200
+
+
+def _preset_summary(doc, user_id=None):
+    """List-view shape: enough to choose between cases, without the document text.
+
+    The full candidate summary and every outcome document run to tens of
+    kilobytes each; someone picking from a list needs the name, the candidates
+    and the tally, so that is all that ships. `owned` tells the UI whether to
+    offer the visibility toggle and delete.
+    """
+    pack = doc.get("case_pack") or {}
+    return {
+        "preset_id": str(doc.get("_id")),
+        "name": doc.get("name") or "Untitled case",
+        "case_name": pack.get("case_name") or "",
+        "visibility": CasePreset.normalize_visibility(doc.get("visibility"), default="private"),
+        "owned": bool(user_id) and doc.get("user_id") == user_id,
+        "candidates": [c.get("name", "") for c in (doc.get("candidates") or [])],
+        "tally": [
+            {
+                "name": o.get("name", ""),
+                "strengths": o.get("distinct_strengths", 0),
+                "concerns": o.get("distinct_concerns", 0),
+            }
+            for o in (pack.get("options") or [])
+        ],
+        "updated_at": (doc.get("updated_at").isoformat() if doc.get("updated_at") else None),
+    }
+
+
+@config_bp.route('/case-presets', methods=['GET'])
+@jwt_required()
+def list_case_presets():
+    """Cases this user may build from — every public one plus their own private ones."""
+    user_id = get_jwt_identity()
+    presets = [_preset_summary(d, user_id) for d in CasePreset.find_readable(user_id)]
+    return jsonify({"presets": presets}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>', methods=['GET'])
+@jwt_required()
+def get_case_preset(preset_id):
+    """The full case — documents and reviewed case pack — to load into a new class."""
+    user_id = get_jwt_identity()
+    doc = CasePreset.find_one_readable(preset_id, user_id)
+    if not doc:
+        return jsonify({"error": "Case not found"}), 404
+    doc["preset_id"] = str(doc.pop("_id"))
+    doc["owned"] = doc.pop("user_id", None) == user_id
+    doc["visibility"] = CasePreset.normalize_visibility(doc.get("visibility"), default="private")
+    for key in ("created_at", "updated_at"):
+        if doc.get(key):
+            doc[key] = doc[key].isoformat()
+    return jsonify({"preset": doc}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>/visibility', methods=['PATCH'])
+@jwt_required()
+def set_case_preset_visibility(preset_id):
+    """Share a case with everyone, or take it back. Author only."""
+    visibility = (request.get_json(silent=True) or {}).get('visibility')
+    result = CasePreset.set_visibility(preset_id, get_jwt_identity(), visibility)
+    if not result or result.matched_count == 0:
+        return jsonify({"error": "Case not found, or not yours to change"}), 404
+    return jsonify({"visibility": CasePreset.normalize_visibility(visibility)}), 200
+
+
+@config_bp.route('/case-presets', methods=['POST'])
+@jwt_required()
+def save_case_preset():
+    """Save the current case — documents plus its reviewed analysis — for reuse.
+
+    Deliberately stores the `case_pack` as reviewed rather than re-deriving it on
+    load: re-analysing would regenerate the answer key, and someone who has
+    already checked and corrected one should not have to check it again.
+
+    Public by default, since a case is teaching material and sharing is the point.
+    The overwrite-by-name check is scoped to YOUR cases, so refining your own is
+    an edit rather than a pile of near-duplicates and you can never clobber a
+    colleague's case by choosing the same name.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({"error": "Give the case a name"}), 400
+    pack = data.get('case_pack')
+    if not isinstance(pack, dict) or not pack.get('options'):
+        return jsonify({"error": "Analyse and review the case before saving it as a preset"}), 400
+
+    fields = {
+        "user_id": user_id,
+        "name": name,
+        "visibility": CasePreset.normalize_visibility(data.get('visibility')),
+        "candidate_summary": data.get('candidate_summary') or {"file_id": "", "text": ""},
+        "candidates": data.get('candidates') or [],
+        "case_pack": case_pack.recompute(pack),
+        "class_preset": (data.get('class_preset') or '').strip(),
+        "learning_outcome": (data.get('learning_outcome') or '').strip(),
+    }
+
+    existing = CasePreset.find_owned_by_name(name, user_id)
+    if existing:
+        CasePreset.replace_owned(existing["_id"], user_id, fields)
+        saved = CasePreset.find_one_readable(existing["_id"], user_id)
+    else:
+        saved = CasePreset.create(fields)
+    return jsonify({"preset": _preset_summary(saved, user_id)}), 200
+
+
+@config_bp.route('/case-presets/<preset_id>', methods=['DELETE'])
+@jwt_required()
+def delete_case_preset(preset_id):
+    """Remove a case you saved. Deleting someone else's is simply not found.
+
+    Classes already built from it are unaffected — the case lives on each config
+    doc, so removing the library copy never breaks a running exercise.
+    """
+    result = CasePreset.delete_owned(preset_id, get_jwt_identity())
+    if not result or result.deleted_count == 0:
+        return jsonify({"error": "Case not found, or not yours to delete"}), 404
+    return jsonify({"deleted": True}), 200
+
+
+@config_bp.route('/config/case-pack/recompute', methods=['POST'])
+@jwt_required()
+def recompute_case_pack():
+    """Re-derive the tally from a pack the professor has edited. No model call.
+
+    Lets the Review step show the effect of un-ticking a merge immediately, using
+    the same counting code that runs at save. Duplicating the arithmetic in the
+    browser would be a second source of truth for the one number the exercise
+    turns on.
+    """
+    data = request.get_json(silent=True) or {}
+    pack = data.get('case_pack')
+    if not isinstance(pack, dict) or not pack.get('options'):
+        return jsonify({"error": "case_pack is required"}), 400
+    return jsonify({"case_pack": case_pack.recompute(pack)}), 200
+
+
 @config_bp.route('/config_list', methods=['GET'])
 @jwt_required()
 def getconfigs():
@@ -112,10 +551,20 @@ def get_single_config(config_id):
         if config_document is None:
             return jsonify({"message": "Configuration not found"}), 404
 
-        # If the chat is public, return it immediately
+        # If the chat is public, return it immediately. We still make a best-effort,
+        # optional read of the caller's JWT so the owner gets an `owned` flag — that
+        # flag is what surfaces owner-only controls in the client (e.g. resetting a
+        # manager-exercise breakout lobby). Security is NOT enforced here: the reset
+        # socket handler re-verifies ownership authoritatively.
         if config_document.get("is_public") is True:
             config_document["config_id"] = str(config_document.pop("_id"))
             config_document['collection_name'] = config_document.get('collection_name', '')
+            try:
+                verify_jwt_in_request(optional=True)
+                caller_id = get_jwt_identity()
+            except Exception:
+                caller_id = None
+            config_document["owned"] = bool(caller_id) and caller_id == config_document.get("user_id")
             return jsonify({"config": config_document}), 200
 
         # If we're here, the chat is private, so a valid JWT is required
@@ -131,9 +580,11 @@ def get_single_config(config_id):
         if config_document.get("user_id") != user_id:
             return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
 
-        # 5. Serialize the document for the JSON response
+        # 5. Serialize the document for the JSON response. Reaching here means the
+        # caller passed the ownership check above, so `owned` is unconditionally true.
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
+        config_document["owned"] = True
         return jsonify({"config": config_document}), 200
         
     except Exception as e:
@@ -334,6 +785,13 @@ Answer:"""
             if isinstance(exp_config, dict):
                 config_document['experiential_config'] = exp_config
 
+        # Manager Exercise — hidden-profile group game. Validates + normalizes the
+        # manager_exercise sub-object and force-sets group_size == num_students.
+        if bot_type == 'manager_exercise':
+            err = validate_manager_exercise(config_data, config_document)
+            if err:
+                return err
+
         # Class rollout — any bot type may carry a class_code + usage tier/pool.
         err = validate_class_usage(config_data, config_document)
         if err:
@@ -468,4 +926,263 @@ def get_config_by_class(class_code):
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+# --- Config copy / paste ------------------------------------------------------
+# A professor copies an assistant (Ctrl+C) and pastes it into any professor's
+# assistant list (Ctrl+V) — their own account or a colleague's. The clipboard
+# never carries the config itself, only a short-lived token: the part that
+# actually matters, the embedded knowledge base, exists only server-side and has
+# to be cloned there.
+#
+# A paste always produces a NEW CLASS. Every student-generated record is keyed
+# on the config's _id (transcripts, group rooms, video submissions, sessions,
+# usage counters) or on class_code (enrollment), and the copy gets a fresh value
+# for both — so nothing a student ever did can follow the copy, and the source
+# class keeps everything it had.
+
+CONFIG_TRANSFER_TTL_DAYS = 7
+
+# Never survives a copy. class_code is globally unique and must be re-typed;
+# the roster/usage numbers describe the class that was copied, not the new one
+# (its counter restarts at zero, so inheriting the label would lie); the
+# playground/personal flags are singleton markers that would hijack the lookups
+# in get_playground_config and /student/personal-config.
+_COPY_EXCLUDED_FIELDS = (
+    '_id', 'class_code', 'usage_tier', 'student_count', 'usage_pool',
+    'is_playground', 'is_personal', 'upload_locked_until',
+)
+
+_transfer_indexes_ready = False
+
+
+def _transfers_collection():
+    """`config_transfers` with its indexes, created once per process.
+
+    The TTL index lets Mongo reap expired tokens on its own; reads still check
+    `expires_at` because the TTL monitor only sweeps about once a minute.
+    """
+    global _transfer_indexes_ready
+    col = current_app.config['MONGO_DB']['config_transfers']
+    if not _transfer_indexes_ready:
+        try:
+            col.create_index('token', unique=True)
+            col.create_index('expires_at', expireAfterSeconds=0)
+        except Exception as e:
+            current_app.logger.warning(f"config_transfers index setup failed: {e}")
+        _transfer_indexes_ready = True
+    return col
+
+
+def _load_transfer(token):
+    """Resolve a clipboard token to its still-valid transfer doc, else None."""
+    doc = _transfers_collection().find_one({'token': (token or '').strip()})
+    if not doc:
+        return None
+    expires_at = doc.get('expires_at')
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            return None
+    return doc
+
+
+def _count_kb_files(db, config_id_str, source_config):
+    """How many knowledge-base files a paste would carry over.
+
+    Configs built through the Files panel have `user_files` rows; ones built in
+    the old create wizard only have filenames on the config doc until the
+    backfill in user_files.py runs, so fall back to that list.
+    """
+    count = db['user_files'].count_documents({'config_id': config_id_str})
+    if count:
+        return count
+    return len(source_config.get('documents') or [])
+
+
+def _clone_knowledge_base(db, old_config_id, new_config_id, new_user_id, new_collection_name):
+    """Re-point a copy of the source config's documents and embeddings at the new config.
+
+    Retrieval filters on `config_id` alone (chat_routes.py, agentic knowledge_base
+    tool), so a copied config with no cloned vectors would list files it cannot
+    read. Chunks are copied verbatim — the embeddings come along, so this costs
+    no embedding API calls.
+
+    `user_files` rows keep the source's `storage_key`: the S3 object is shared
+    read-only. If the original owner later deletes that file, the copy loses the
+    download but keeps retrieval, because the vectors are its own.
+
+    Returns (files_copied, chunks_copied).
+    """
+    files_col = db['user_files']
+    vectors_col = db['vector_collection']
+
+    # File rows first, so the id map is ready to rewrite each chunk's back-pointer.
+    file_id_map = {}
+    for file_doc in list(files_col.find({'config_id': old_config_id})):
+        old_file_id = str(file_doc.pop('_id'))
+        file_doc['user_id'] = new_user_id
+        file_doc['config_id'] = new_config_id
+        file_doc['copied_from_file_id'] = old_file_id
+        file_id_map[old_file_id] = str(files_col.insert_one(file_doc).inserted_id)
+
+    chunks_copied = 0
+    batch = []
+    for chunk in vectors_col.find({'config_id': old_config_id}):
+        chunk.pop('_id', None)
+        chunk['config_id'] = new_config_id
+        chunk['user_id'] = new_user_id
+        if chunk.get('owner_user_id'):
+            chunk['owner_user_id'] = new_user_id
+        if chunk.get('collection_name'):
+            chunk['collection_name'] = new_collection_name
+        mapped = file_id_map.get(chunk.get('source_file_id'))
+        if mapped:
+            chunk['source_file_id'] = mapped
+        batch.append(chunk)
+        if len(batch) >= 500:
+            vectors_col.insert_many(batch)
+            chunks_copied += len(batch)
+            batch = []
+    if batch:
+        vectors_col.insert_many(batch)
+        chunks_copied += len(batch)
+
+    return len(file_id_map), chunks_copied
+
+
+@config_bp.route('/config/<string:config_id>/copy', methods=['POST'])
+@jwt_required()
+def copy_config(config_id):
+    """Mint the clipboard token for one of the caller's own assistants (Ctrl+C)."""
+    try:
+        user_id = get_jwt_identity()
+        if not ObjectId.is_valid(config_id):
+            return jsonify({"message": "Invalid configuration ID format"}), 400
+
+        source = Config.get_collection().find_one(
+            {"_id": ObjectId(config_id), "user_id": user_id},
+            {"bot_name": 1, "bot_type": 1},
+        )
+        if not source:
+            return jsonify({"message": "Configuration not found or access denied"}), 404
+
+        token = secrets.token_urlsafe(12)
+        now = datetime.now(timezone.utc)
+        _transfers_collection().insert_one({
+            "token": token,
+            "config_id": config_id,
+            "owner_user_id": user_id,
+            "bot_name": source.get("bot_name", "Assistant"),
+            "bot_type": source.get("bot_type", "chat"),
+            "created_at": now,
+            "expires_at": now + timedelta(days=CONFIG_TRANSFER_TTL_DAYS),
+        })
+
+        return jsonify({
+            "token": token,
+            "bot_name": source.get("bot_name", "Assistant"),
+            "expires_in_days": CONFIG_TRANSFER_TTL_DAYS,
+        }), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error minting copy token for config {config_id}: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/paste/<string:token>', methods=['GET'])
+@jwt_required()
+def preview_pasted_config(token):
+    """What the paste dialog shows before the professor commits: which assistant
+    the token points at, and how much comes with it."""
+    try:
+        transfer = _load_transfer(token)
+        if not transfer:
+            return jsonify({"message": "This copy has expired or is no longer valid."}), 404
+
+        source = Config.get_collection().find_one({"_id": ObjectId(transfer['config_id'])})
+        if not source:
+            return jsonify({"message": "The original assistant no longer exists."}), 404
+
+        db = current_app.config['MONGO_DB']
+        return jsonify({
+            "bot_name": source.get("bot_name", "Assistant"),
+            "bot_type": source.get("bot_type", "chat"),
+            "model_name": source.get("model_name", ""),
+            "file_count": _count_kb_files(db, transfer['config_id'], source),
+            "is_own": source.get("user_id") == get_jwt_identity(),
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error previewing copy token: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/paste/<string:token>', methods=['POST'])
+@jwt_required()
+def paste_config(token):
+    """Clone the token's assistant into the caller's account under a new name
+    and class code (Ctrl+V).
+
+    Copies exactly two things: the config document and its knowledge base. It
+    runs no query against chat_session_metadata, message_store,
+    group_chat_messages, video_submissions, the session collections or
+    usage_counters — the copy opens as an empty class, and the source keeps
+    every transcript, score and enrolled student.
+    """
+    try:
+        user_id = get_jwt_identity()
+        payload = request.get_json(silent=True) or {}
+
+        transfer = _load_transfer(token)
+        if not transfer:
+            return jsonify({"error": "This copy has expired or is no longer valid."}), 404
+
+        source = Config.get_collection().find_one({"_id": ObjectId(transfer['config_id'])})
+        if not source:
+            return jsonify({"error": "The original assistant no longer exists."}), 404
+
+        bot_name = (payload.get('bot_name') or '').strip()
+        if not bot_name:
+            return jsonify({"error": "Give the copy a name."}), 400
+
+        new_config = {k: copy_module.deepcopy(v) for k, v in source.items()
+                      if k not in _COPY_EXCLUDED_FIELDS}
+        new_config['user_id'] = user_id
+        new_config['bot_name'] = bot_name
+
+        # Same regex, same 409 message, same uniqueness check as create/edit.
+        err = validate_class_usage({'class_code': payload.get('class_code')}, new_config)
+        if err:
+            return err
+
+        new_id = Config.get_collection().insert_one(new_config).inserted_id
+        collection_name = f"config_{new_id}"
+        Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
+        new_config['collection_name'] = collection_name
+
+        files_copied, chunks_copied = _clone_knowledge_base(
+            current_app.config['MONGO_DB'],
+            transfer['config_id'], str(new_id), user_id, collection_name,
+        )
+        current_app.logger.info(
+            "Config pasted | source=%s new=%s user=%s files=%d chunks=%d",
+            transfer['config_id'], new_id, user_id, files_copied, chunks_copied,
+        )
+
+        # Same shape as a /config_list item, so the list can prepend it directly.
+        # insert_one stamps the raw ObjectId back onto the dict, which jsonify
+        # cannot serialize — swap it for the string id the frontend expects.
+        new_config.pop('_id', None)
+        new_config['config_id'] = str(new_id)
+        return jsonify({
+            "message": "Assistant copied.",
+            "config": new_config,
+            "files_copied": files_copied,
+        }), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error pasting config: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
