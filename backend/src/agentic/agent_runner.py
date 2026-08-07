@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-07
+# @changed   `temperature` is now gated by `accepts_temperature` — the newest Claude models reject the
+#            sampling parameters with a 400, so the config's slider is dropped rather than failing the turn.
 """
 Agentic chat runner — Claude tool-use loop.
 
@@ -19,6 +23,7 @@ from src.agentic.constants import (
 )
 from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
+from src.utils.models import accepts_temperature
 
 logger = logging.getLogger(__name__)
 
@@ -291,8 +296,11 @@ def stream_agentic_response(
             "messages": messages,
             "max_tokens": DEFAULT_MAX_TOKENS,
         }
+        # The newest Anthropic models reject `temperature` with a 400 rather than
+        # ignoring it, so the professor's slider is dropped for those instead of
+        # failing the turn.
         temp = config.get('temperature')
-        if temp is not None:
+        if temp is not None and accepts_temperature(model):
             try:
                 kwargs["temperature"] = float(temp)
             except (TypeError, ValueError):

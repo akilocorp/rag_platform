@@ -1,3 +1,6 @@
+// @language  JavaScript
+// @updated   2026-08-07
+// @changed   Added Claude Opus 5 so saved configs on it render a name instead of the raw model id.
 const MODEL_DISPLAY_NAMES = {
   'deepseek-chat': 'Deepseek Chat',
   'gemini-2.5-flash': 'Gemini 2.5 Flash',
@@ -7,6 +10,7 @@ const MODEL_DISPLAY_NAMES = {
   'gpt-4-turbo': 'GPT-4 Turbo',
   'gpt-4.1': 'GPT-4.1',
   'gpt-4o-mini': 'GPT-4o Mini',
+  'claude-opus-5': 'Claude Opus 5',
   'claude-sonnet-4-6': 'Claude Sonnet 4.6',
   'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
 };

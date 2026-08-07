@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-07-19
-# @changed   Legacy chat path: give the facilitator the real conversation history so sequential MCQ widgets keep firing.
+# @updated   2026-08-07
+# @changed   The Claude branch builds its kwargs conditionally so `temperature` is omitted for models that
+#            reject sampling parameters (a 400, not a warning).
+#            Prior: legacy chat path gives the facilitator the real conversation history so sequential MCQ widgets keep firing.
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
@@ -26,6 +28,7 @@ from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
 from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
+from src.utils.models import accepts_temperature
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -1109,14 +1112,19 @@ def chat(config_id, chat_id):
                 )
 
             elif model_name.lower().startswith("claude"):
-                # CASE 3b: Anthropic Claude models
-                llm = ChatAnthropic(
-                    model=model_name,
-                    temperature=temperature,
-                    api_key=current_app.config.get("ANTHROPIC_API_KEY"),
-                    max_tokens=500,
-                    streaming=True
-                )
+                # CASE 3b: Anthropic Claude models. `temperature` is omitted for the
+                # models that reject sampling parameters outright — passing it there
+                # is a 400, not a warning, so the professor's slider is simply not
+                # applied rather than breaking the chat.
+                claude_kwargs = {
+                    "model": model_name,
+                    "api_key": current_app.config.get("ANTHROPIC_API_KEY"),
+                    "max_tokens": 500,
+                    "streaming": True,
+                }
+                if accepts_temperature(model_name):
+                    claude_kwargs["temperature"] = temperature
+                llm = ChatAnthropic(**claude_kwargs)
 
             else:
                 # CASE 4: Standard OpenAI

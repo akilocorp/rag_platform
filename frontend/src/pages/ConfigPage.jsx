@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-31
-// @changed   "Counted as one item" merges now group into Strengths / Concerns sections (section header
-//            carries the category, per-row field tag dropped). Prior: saved cases + per-merge confirm toggles.
+// @updated   2026-08-07
+// @changed   Added Claude Opus 5 to the model picker.
+//            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
+//            carries the category, per-row field tag dropped).
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -155,6 +156,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
     // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
     // { id: 'gpt-4.1', name: 'GPT-4.1', desc: 'Fastest, great for TAs' },
     // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'claude-opus-5', name: 'Claude Opus 5', desc: 'Deepest reasoning, best for hard tasks' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', desc: 'Balanced Claude model' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', desc: 'Fast, lightweight Claude' }
   ];

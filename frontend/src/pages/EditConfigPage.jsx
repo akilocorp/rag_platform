@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-31
-// @changed   "Counted as one item" merges now group into Strengths / Concerns sections (section header
-//            carries the category, per-row field tag dropped). Prior: M8 grading-rubric field + round-trip.
+// @updated   2026-08-07
+// @changed   Added Claude Opus 5 to the model picker.
+//            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
+//            carries the category, per-row field tag dropped).
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -79,6 +80,7 @@ const EditConfigPage = () => {
     // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
     // { id: 'gpt-4.1', name: 'GPT-4.1' },
     // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'claude-opus-5', name: 'Claude Opus 5' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
