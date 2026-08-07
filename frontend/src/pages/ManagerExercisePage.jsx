@@ -1746,6 +1746,17 @@ const ManagerExercisePage = () => {
     <div className="flex flex-col h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
         <div className="flex items-center gap-4 min-w-0">
+          {/* Escape hatch back to the lobby, matching the one on the kiosk wait
+              screen. Round 1 only — leaving mid-debrief has nothing to return to. */}
+          {!isDebrief && (
+            <button
+              onClick={leaveBreakout}
+              title="Leave this group and go back to the lobby"
+              className="flex-shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
+            >
+              <FaArrowLeft className="text-xs" /> <span className="hidden sm:inline">Back</span>
+            </button>
+          )}
           <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
           <div className="min-w-0 flex items-center gap-3">
             <h1 className="font-semibold text-[#222] text-base truncate">
