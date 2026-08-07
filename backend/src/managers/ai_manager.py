@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-05
-# @changed   M12: the debrief opener is no longer hardcoded. facilitator_open_debrief now asks the model,
+# @updated   2026-08-07
+# @changed   facilitator_reply takes `recent_asks` (renders the repeat guard directly above the TASK) and
+#            `outcome_text` (pins the outcome document into every turn so it cannot age out of the rolling
+#            transcript window while ACTR is still ruling on what it says).
+#            Prior: M12: the debrief opener is no longer hardcoded. facilitator_open_debrief now asks the model,
 #            on the same facilitator system prompt as every other turn, for step 1 of THE SEQUENCE — so a
 #            professor's facilitator_prompt_override owns the first words of the session. Fails to silence
 #            rather than to a canned line.
@@ -39,7 +42,11 @@ import logging
 import os
 import re
 
-from src.managers.facilitator_prompt import build_facilitator_system, render_turn_brief
+from src.managers.facilitator_prompt import (
+    build_facilitator_system,
+    render_repeat_guard,
+    render_turn_brief,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +237,8 @@ def facilitator_open_debrief(config, roster, group_size, chosen_name=None, verdi
 
 
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,
-                      turn_context=None, solo_spread=None):
+                      turn_context=None, solo_spread=None, recent_asks=None,
+                      outcome_text=None):
     """A reactive facilitator turn during the debrief.
 
     Returns `{"message": str|None, "go_around": bool, "ended": bool}` — `message` is
@@ -245,6 +253,12 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     what lets it hold during a go-around and step in when one has been abandoned.
 
     `solo_spread` is the anonymous round-0 tally; see `render_solo_spread`.
+
+    `recent_asks` is ACTR's own last few turns, used to detect that it is about to ask
+    the same question a third time. `outcome_text` is the full outcome document the room
+    read — pinned into every turn rather than left to survive in the rolling transcript
+    window, because ACTR cites it when ruling on what the group should have seen and a
+    long debrief will eventually push it out.
     """
     cfg = config or {}
     fallback = None   # silence is the correct failure mode for a reactive turn
@@ -267,13 +281,28 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
             "\"Marco, you've been quiet — what did yours say?\""
         )
 
-    user = "\n\n".join([
+    blocks = [
         "WHERE THE TURN STANDS\n" + render_turn_brief(turn_context),
         f"The group hired: {chosen_name or '(nobody)'}",
         render_solo_spread(solo_spread, chosen_name) or "No private picks were recorded.",
-        f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}",
-        "\n".join(task),
-    ])
+    ]
+    if (outcome_text or "").strip():
+        blocks.append(
+            "THE OUTCOME DOCUMENT THE ROOM READ — quote it accurately or not at all:\n"
+            + outcome_text.strip()
+        )
+    blocks.append(f"Discussion so far:\n{(transcript_summary or '').strip() or '(nothing yet)'}")
+    # Sits directly above the TASK so it is the last thing read before the decision.
+    repeat_guard = render_repeat_guard(
+        recent_asks,
+        names=[(e or {}).get("name") for e in (roster or [])],
+        go_around_open=bool((turn_context or {}).get("go_around_open")),
+    )
+    if repeat_guard:
+        blocks.append(repeat_guard)
+    blocks.append("\n".join(task))
+
+    user = "\n\n".join(blocks)
 
     text = _call(_system(cfg, roster, group_size), user, fallback=fallback)
     if not text or _is_silent(text):

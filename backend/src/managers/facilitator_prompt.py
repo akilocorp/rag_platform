@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-04
-# @changed   M9: FACILITATOR_PROMPT rewritten for the ROUND-2 DEBRIEF. The previous body was written for
+# @updated   2026-08-07
+# @changed   Added render_repeat_guard: computes whether ACTR's last turn repeats an earlier one and, if so,
+#            renders an instruction to drop the question and move on. Seeing its own repeats in the
+#            transcript was not enough — it asked one question four times in a room it could fully see.
+#            Prior: M9: FACILITATOR_PROMPT rewritten for the ROUND-2 DEBRIEF. The previous body was written for
 #            the pre-vote deliberation ACTR has now been removed from — it asserted "no outcome has
 #            happened yet" and ran a pool → weigh → commit-to-a-vote sequence, all of it about a round
 #            it is no longer in. FIRST-DRAFT STRAWMAN — pedagogy to be revised by the professor.
@@ -390,6 +393,105 @@ def render_turn_brief(ctx):
     quiet = ctx.get("seconds_since_last_message")
     if quiet is not None:
         lines.append(f"- Seconds since the last message: {quiet}.")
+    return "\n".join(lines)
+
+
+# How alike two ACTR turns must be to count as the same question asked twice. Jaccard
+# over word sets — the same measure the case pack uses to pair rewordings. 0.5 catches a
+# question re-asked behind a new preamble ("So X and Y — one concern or two?" vs "One
+# concern or two — before we move on?") while leaving two genuinely different questions
+# about the same candidate below the line. Overlap coefficient, NOT the case pack's
+# Jaccard: a loop tightens as it goes, and the fourth ask is the shortest. Jaccard
+# divides by the union, so the short restatement scored *lower* against the long
+# original than the middle repeats did — it went quiet exactly where the loop was worst.
+REPEAT_SIMILARITY = 0.6
+
+# Below this many content words a question is too short to compare by overlap — a
+# one-word set matching once scores 1.0 against anything. Short turns fall through to
+# the verbatim list, which needs no threshold.
+REPEAT_MIN_TOKENS = 4
+
+# Dropped before comparing: they carry no topic and dominate short questions.
+_REPEAT_STOPWORDS = frozenset(
+    "a an and are as at be but by can could did do does for from had has have how in is "
+    "it its of on or so that the them they this those to was were what when which who "
+    "why with you your we us our i me my he she his her him not no yes if then than "
+    "there here about before after again still just now".split()
+)
+
+
+def _repeat_tokens(text, drop=frozenset()):
+    """Content-word set for repeat comparison: normalized, de-pluralized, stopped.
+
+    Trailing-s stripping is what lets "one concern or two" match "two separate
+    concerns" — the loop's own rephrasings differed by inflection as often as by
+    wording. `drop` carries the roster's names: ACTR addresses people by name, so two
+    unrelated go-arounds put to the same students otherwise overlap on the names alone
+    and score as a repeat.
+    """
+    words = case_pack_mod._norm(text).split()
+    return {
+        (w[:-1] if len(w) > 3 and w.endswith("s") else w)
+        for w in words
+        if w not in _REPEAT_STOPWORDS and w not in drop
+    }
+
+
+def render_repeat_guard(recent_asks, names=None, go_around_open=False):
+    """Show ACTR its own recent turns, and escalate when the latest repeats one.
+
+    Two layers, because either alone was shown to fail. ACTR's own messages are
+    already in the transcript it reads, but seeing them chronologically is not the
+    same as being told they are repeats — in an observed room it asked one question
+    four times across turns it could fully see. So the recent turns are ALWAYS listed
+    under a heading that names the rule. On top of that, a mechanical overlap check
+    escalates to a hard directive when the latest turn measurably restates an earlier
+    one; when the measure misses a rephrasing, the verbatim list still does the work.
+
+    The escalation is suppressed while a go-around is open. Putting the same question
+    to the people who have not answered yet is how a go-around COMPLETES, and the turn
+    brief already governs that — calling it a loop would break the legitimate case to
+    fix the broken one.
+
+    `recent_asks` is ACTR's own recent messages, oldest first; `names` the roster's
+    display names. Returns "" when there is nothing worth showing, so the caller can
+    drop the block entirely.
+    """
+    asks = [a.strip() for a in (recent_asks or []) if (a or "").strip()]
+    if len(asks) < 2:
+        return ""
+
+    drop = {
+        w
+        for n in (names or [])
+        for w in case_pack_mod._norm(n or "").split()
+    }
+
+    lines = [
+        "TURNS YOU HAVE ALREADY TAKEN (most recent last). If the message you are about "
+        "to write asks any of these again — in any wording — you are looping. Ask "
+        "something else or move to the next step:"
+    ]
+    lines += [f"  - \"{a[:240]}\"" for a in asks]
+
+    latest = _repeat_tokens(asks[-1], drop)
+    repeats = 0
+    if not go_around_open and len(latest) >= REPEAT_MIN_TOKENS:
+        for prior in asks[:-1]:
+            prior_tokens = _repeat_tokens(prior, drop)
+            if len(prior_tokens) < REPEAT_MIN_TOKENS:
+                continue
+            shared = len(latest & prior_tokens)
+            if shared / min(len(latest), len(prior_tokens)) >= REPEAT_SIMILARITY:
+                repeats += 1
+
+    if repeats:
+        lines.append(
+            f"\nYOU HAVE ALREADY ASKED THIS. Your last turn restates {repeats} of the "
+            "above. It has not landed, and asking it again will not make it land. Do NOT "
+            "ask it again and do NOT rephrase it. Take what the group has actually put on "
+            "the table, say what that tells you, and move to the next step of the sequence."
+        )
     return "\n".join(lines)
 
 

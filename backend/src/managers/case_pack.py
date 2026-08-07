@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-07-27
-# @changed   Restored the optional general-information document: carried onto the pack verbatim so the
+# @updated   2026-08-07
+# @changed   render_case_pack binds the "one concern or two?" move to its operands — the COLLAPSE PAIRS
+#            block is now declared the only permitted pairing, strength-vs-concern is ruled out explicitly,
+#            and options with no pairs say so instead of staying silent (ACTR was inventing a pair).
+#            Prior: restored the optional general-information document, carried onto the pack verbatim so the
 #            facilitator can quote what the ROLE requires when the group argues about which failure costs more.
 """Turn a professor's uploaded case documents into a **case pack**.
 
@@ -611,10 +614,28 @@ def render_case_pack(pack):
             lines.append(f"    concerns:  {'; '.join(v.get('concerns') or []) or '(none)'}")
             if v.get("neutral"):
                 lines.append(f"    neutral:   {'; '.join(v['neutral'])}")
+        # The "one concern or two?" move, bound to its operands. Unbound, the prompt
+        # handed ACTR the phrasing but not the target, and it fired the move at a
+        # STRENGTH against a concern — not a collapse at all — then held that reading
+        # against a group that had counted correctly. Only confirmed concern-vs-concern
+        # rewordings ever reach `collapse_pairs`, so naming them as the whole permitted
+        # set is enough to make the misfire unavailable.
         if opt.get("collapse_pairs"):
-            lines.append("  COLLAPSE PAIRS (same concern, different wording — ask 'one concern or two?'):")
+            lines.append(
+                "  COLLAPSE PAIRS — the ONLY pairings you may ask 'one concern or two?' about. "
+                "Opening that move means quoting both sides of ONE pair below:"
+            )
             for pair in opt["collapse_pairs"]:
                 lines.append("    - " + "  ||  ".join(pair))
+            lines.append(
+                "    Never open it on any other pairing, and never on a strength against a "
+                "concern — those are two different columns, not one item worded twice."
+            )
+        else:
+            lines.append(
+                "  COLLAPSE PAIRS: none. Every concern listed above is a separate fact, so "
+                "never ask 'one concern or two?' about this option."
+            )
         if opt.get("outcome_summary"):
             lines.append(f"  Outcome: {opt['outcome_summary']}")
         if opt.get("reconvene_reason"):

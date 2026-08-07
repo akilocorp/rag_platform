@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-05
-# @changed   M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
+# @updated   2026-08-07
+# @changed   _facilitator_turn now passes ACTR its own recent turns (FACILITATOR_REPEAT_LOOKBACK) so a
+#            repeated question is caught, plus the chosen candidate's outcome document so it is pinned
+#            into every turn rather than aging out of the transcript window.
+#            Prior: M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
 #            hands off to a new backgrounded _open_debrief instead of posting a hardcoded line inline.
 #            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock.
 #            Prior: M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
@@ -38,6 +41,11 @@ uid_to_sid: dict = {}
 # How much transcript ACTR sees when judging its turn. Wider than the default so
 # the start of a go-around is never scrolled off — it has to see who it asked.
 FACILITATOR_HISTORY_MESSAGES = 20
+
+# How many of ACTR's own past turns are checked for "you already asked this". Four
+# covers the observed loop (one question across four turns) without reaching so far
+# back that a question legitimately revisited much later reads as a repeat.
+FACILITATOR_REPEAT_LOOKBACK = 4
 
 # How long a pause is allowed to run before ACTR breaks it. This is a timer that
 # FIRES, not one that blocks: ACTR is still asked the instant a student posts, and
@@ -287,6 +295,12 @@ def register_socket_events(socketio, app):
                     chosen_name=st.chosen_candidate,
                     turn_context=st.turn_context(addressed=addressed, silence=silence),
                     solo_spread=st.solo_spread(),
+                    # ACTR's own recent turns, so a question it has already asked can be
+                    # detected as a repeat instead of asked a third time.
+                    recent_asks=ctx.recent_by_sender(
+                        FACILITATOR_SENDER, FACILITATOR_REPEAT_LOOKBACK
+                    ),
+                    outcome_text=st.forecast_text_for(st.chosen_candidate),
                 )
                 message = result.get("message")
                 if not message:

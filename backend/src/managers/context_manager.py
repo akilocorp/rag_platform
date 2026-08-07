@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   add_message accepts an optional sender_uid, stamped on the message so the Manager Exercise client marks a viewer's OWN messages by stable id (not a drift-prone display name). Prior: optional sender_role/sender_seat for role-name rendering.
+# @updated   2026-08-07
+# @changed   Added recent_by_sender: pulls one sender's last N message texts from the transcript, so the
+#            facilitator can be shown its own recent turns and told when it is repeating itself.
+#            Prior: add_message accepts an optional sender_uid, stamped on the message so the Manager Exercise client marks a viewer's OWN messages by stable id (not a drift-prone display name). Prior: optional sender_role/sender_seat for role-name rendering.
 from datetime import datetime
 from typing import List, Dict, Optional
 from flask import current_app
@@ -84,6 +86,16 @@ class ConversationContext:
             profile = self.user_profiles[sender]
             profile["message_count"] += 1
             profile["total_chars"] += len(text)
+
+    def recent_by_sender(self, sender: str, limit: int = 4) -> List[str]:
+        """The last `limit` message texts from one sender, oldest first.
+
+        Used to hand ACTR its own recent turns so a repeated question can be detected
+        against them. Reads the room transcript rather than any in-process counter, so
+        it survives a restart mid-debrief for free.
+        """
+        texts = [m.get("text") or "" for m in self.messages if m.get("sender") == sender]
+        return texts[-limit:]
 
     def get_context_summary(self, num_messages: int = 15) -> str:
         """Generates a summary for the AI bots."""
