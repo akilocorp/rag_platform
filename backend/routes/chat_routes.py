@@ -1,8 +1,9 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   The Claude branch builds its kwargs conditionally so `temperature` is omitted for models that
-#            reject sampling parameters (a 400, not a warning).
-#            Prior: legacy chat path gives the facilitator the real conversation history so sequential MCQ widgets keep firing.
+# @updated   2026-08-10
+# @changed   Facilitator widgets are no longer invisible to the bot: stored blocks replay into history as text
+#            (`_inline_facilitator`), a clicked option carries a model-only note back to its question
+#            (`_facilitator_answer_note`) and steers retrieval, and an empty prompt_template now falls back.
+#            Prior: the Claude branch omits `temperature` for models that reject sampling parameters.
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
@@ -26,6 +27,7 @@ from langchain_anthropic import ChatAnthropic
 
 from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
+from src.facilitator import registry as facilitator_registry
 from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
 from src.utils.models import accepts_temperature
@@ -460,13 +462,52 @@ def delete_chat(config_id, chat_id):
 
 # --- FACTORY & HELPERS ---
 
+def _inline_facilitator(message):
+    """Fold an AI message's stored facilitator widget back into its text.
+
+    The facilitator's question and options are persisted to
+    `additional_kwargs.facilitator`, never to `content`, and history replay
+    feeds the model `content` only. The bot therefore had no record of the
+    widget it rendered, so a reply of just "Berlin" read as a fresh question
+    about Berlin rather than an answer to its own multiple choice.
+
+    Returns a *new* message — the stored document is untouched, so this stays a
+    read-time transform and frontend replay (which reads the raw doc through its
+    own history object) is unaffected.
+    """
+    if not isinstance(message, AIMessage):
+        return message
+    block = (message.additional_kwargs or {}).get("facilitator")
+    if not isinstance(block, dict) or not block.get("widget"):
+        return message
+    rendered = facilitator_registry.to_transcript(block["widget"], block.get("data"))
+    if not rendered:
+        return message
+    content = message.content if isinstance(message.content, str) else ""
+    return AIMessage(
+        content=(content + "\n\n" + rendered).strip(),
+        additional_kwargs=message.additional_kwargs,
+    )
+
+
 class _AttachedFilesMongoHistory(MongoDBChatMessageHistory):
     """MongoDBChatMessageHistory that injects `attached_files` into the
-    `additional_kwargs` of the next HumanMessage it persists.
+    `additional_kwargs` of the next HumanMessage it persists, and replays stored
+    facilitator widgets as text on read.
 
     Set `pending_attached_files` on the instance before the chain (or
     direct add_user_message call) runs; it's consumed once and cleared.
     """
+
+    @property
+    def messages(self):
+        """Read side for both chat paths — the agentic loader
+        (`_load_anthropic_history`) and the legacy `RunnableWithMessageHistory`
+        chain both come through here, so inlining the widget once covers both.
+        `GET /history` builds a plain MongoDBChatMessageHistory instead, so the
+        browser still receives the untouched content plus the raw block.
+        """
+        return [_inline_facilitator(m) for m in super().messages]
 
     def _maybe_inject(self, message):
         files = getattr(self, "pending_attached_files", None) or []
@@ -598,6 +639,43 @@ def _load_anthropic_history(history_obj):
     return out
 
 
+def _facilitator_answer_note(facilitator_answer):
+    """Frame a widget answer for the model, or "" when this turn isn't one.
+
+    An interactive widget sends back only the option the user clicked, so the
+    turn arrives as a bare string like "Berlin" with nothing tying it to the
+    question. This note restores that link (and the verdict, when the widget
+    carried an answer key). Model-only, in the same spirit as
+    `_selected_files_context_note` — the persisted user message stays the clean
+    option text so the transcript still reads like a conversation.
+    """
+    if not isinstance(facilitator_answer, dict):
+        return ""
+    question = str(facilitator_answer.get('question') or '').strip()
+    selected = str(facilitator_answer.get('selected') or '').strip()
+    if not question or not selected:
+        return ""
+    # Only graded questions carry an answer key; a preference or next-step
+    # question has none, and telling the model to mark it right or wrong would
+    # invent a verdict where there isn't one.
+    correct = str(facilitator_answer.get('correct') or '').strip()
+    if correct:
+        verdict = (
+            " That is the correct answer."
+            if correct == selected
+            else f" That is incorrect — the correct answer is \"{correct}\"."
+        )
+        closing = "Tell them plainly whether they were right or wrong, and why, before continuing."
+    else:
+        verdict = ""
+        closing = "Continue from that choice."
+    return (
+        f"[System note: You asked the user \"{question}\" as a multiple-choice "
+        f"question and they selected \"{selected}\".{verdict} Respond to it as "
+        f"their answer to that question, not as a new topic. {closing}]\n\n"
+    )
+
+
 def _selected_files_context_note(selected_file_ids, user_id_for_history):
     """Return a short bracketed note listing names of the user's selected
     library files, or empty string if none. Prepended to the user input so
@@ -712,9 +790,14 @@ def _facilitator_enabled(config_doc):
     return bool(isinstance(fac_cfg, dict) and fac_cfg.get("enabled"))
 
 
-def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
+def _facilitator_stage(config_doc, reply_text, history_messages, user_input, context=None):
     """Run the facilitator post-pass for this turn; returns a {widget, data}
-    block or None. Never raises — degrades to None on any failure."""
+    block or None. Never raises — degrades to None on any failure.
+
+    `context` is the turn's source material (retrieved passages on the legacy
+    path, tool results on the agentic one) so the widget — and any answer key —
+    is grounded in the documents rather than in the bot's prose about them.
+    """
     fac_cfg = config_doc.get("facilitator")
     if not (isinstance(fac_cfg, dict) and fac_cfg.get("enabled")):
         return None
@@ -722,7 +805,9 @@ def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
         history = list(history_messages or [])
         if user_input:
             history = history + [{"role": "user", "content": user_input}]
-        return run_facilitator(reply_text, history=history, facilitator_cfg=fac_cfg)
+        return run_facilitator(
+            reply_text, history=history, facilitator_cfg=fac_cfg, context=context,
+        )
     except Exception:
         logger.exception("facilitator stage failed")
         return None
@@ -752,7 +837,8 @@ def _attach_facilitator_to_last_ai(chat_id, block):
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
-                     student_email=None, marketing_opt_in=None, identity=None):
+                     student_email=None, marketing_opt_in=None, identity=None,
+                     facilitator_answer=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -772,10 +858,12 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         )
         history_messages = _load_anthropic_history(history_obj)
 
-        # Prepend a context note about selected library files so the agent
-        # knows what "this" / "the document" refers to. Persisted user input
-        # below stays clean — the note is model-only.
+        # Prepend context notes so the agent knows what "this" / "the document"
+        # refers to, and that a bare option string is an answer to the widget it
+        # just rendered. Persisted user input below stays clean — both are
+        # model-only.
         note = _selected_files_context_note(selected_file_ids, user_id_for_history)
+        note = _facilitator_answer_note(facilitator_answer) + note
         agent_input = note + user_input if note else user_input
         image_blocks = _parse_image_blocks(images)
 
@@ -790,6 +878,10 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         accumulated_text = ""
         full_trace = []
         final_stop_reason = "end_turn"
+        # The agentic path has no single `context_text` — its source material is
+        # whatever the tools returned this turn. Collected here so the facilitator
+        # can ground its widget in the passages rather than in the bot's prose.
+        tool_context = []
 
         for event in stream_agentic_response(
             config=config_doc,
@@ -803,6 +895,10 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 accumulated_text += event.get("data") or ""
                 yield json.dumps(event) + "\n"
             elif etype in ("tool_use", "tool_result"):
+                if etype == "tool_result" and not event.get("is_error"):
+                    content = event.get("content")
+                    if isinstance(content, str) and content.strip():
+                        tool_context.append(f"[{event.get('name')}]\n{content.strip()}")
                 yield json.dumps(event) + "\n"
             elif etype == "done":
                 full_trace = event.get("assistant_blocks") or []
@@ -829,6 +925,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             yield json.dumps({"type": "facilitator_pending"}) + "\n"
             facilitator_block = _facilitator_stage(
                 config_doc, accumulated_text, history_messages, user_input,
+                context=tool_context,
             )
             yield json.dumps({
                 "type": "facilitator",
@@ -877,6 +974,10 @@ def chat(config_id, chat_id):
     # persisted on the user message so the chips survive a history reload.
     attached_files = data.get('attached_files', []) or []
     images = data.get('images', []) or []
+    # Set when this turn came from clicking an interactive facilitator widget:
+    # {widget, question, selected, correct?}. Used to build a model-only note and
+    # to steer retrieval at the question rather than the bare option text.
+    facilitator_answer = data.get('facilitator_answer') or None
     qualtrics_id = data.get('qualtrics_id') or None
     student_label = data.get('student_label') or None
     student_email = data.get('student_email') or None
@@ -971,6 +1072,7 @@ def chat(config_id, chat_id):
                 student_email=student_email,
                 marketing_opt_in=marketing_opt_in,
                 identity=identity,
+                facilitator_answer=facilitator_answer,
             )),
             mimetype='application/x-ndjson',
         )
@@ -989,17 +1091,24 @@ def chat(config_id, chat_id):
             vector_store = get_vector_store()
             is_authenticated = user_id_for_history and user_id_for_history != "anonymous"
 
+            # On a widget answer the input is a bare option ("Berlin"), which
+            # retrieves the topic of the option instead of the material the
+            # question came from. Search on the question plus the pick.
+            retrieval_query = user_input
+            if isinstance(facilitator_answer, dict) and facilitator_answer.get('question'):
+                retrieval_query = f"{facilitator_answer['question']} {user_input}".strip()
+
             if file_variant == 'B':
                 # Variant B: files are scoped to this bot's config_id — no user library merge
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=3,
                     pre_filter={"config_id": config_id}
                 )
             elif selected_file_ids and is_authenticated:
                 # Variant A with explicit selection: config baseline + selected files only
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=5,
                     pre_filter={"$or": [
                         {"config_id": config_id},
@@ -1011,7 +1120,7 @@ def chat(config_id, chat_id):
                 # f"user:{id}" personal-library bucket is global to the user, so
                 # merging it here leaked one bot's files into every other bot.
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=3,
                     pre_filter={"config_id": config_id}
                 )
@@ -1030,7 +1139,10 @@ def chat(config_id, chat_id):
             image_blocks = _image_url_blocks(images) if images else []
             supports_vision = _model_supports_vision(config_doc.get("model_name"))
 
-            base_instruction = config_doc.get("prompt_template", "Answer based on context.")
+            # `or` not `.get(default)`: the edit route used to persist an empty
+            # string here, and a present-but-empty key silently stripped the
+            # persona and the grounding line instead of falling back.
+            base_instruction = config_doc.get("prompt_template") or "Answer based on context."
             # Escape any {var} in user prompt that isn't our template vars (context, history, question)
             base_instruction = _escape_prompt_variables(base_instruction)
 
@@ -1043,6 +1155,14 @@ def chat(config_id, chat_id):
             Context:
             {{context}}
             """ + _escape_prompt_variables(FORMATTING_GUIDE)
+
+            # Widget answers ride in the system message, not the question: the
+            # legacy chain persists whatever `question` holds, and the note is
+            # meant to be model-only. Escaped — it splices in model/user text
+            # that may contain braces.
+            fac_note = _facilitator_answer_note(facilitator_answer)
+            if fac_note:
+                system_message += "\n\n" + _escape_prompt_variables(fac_note.strip())
 
             # Image attached but this model can't see it: tell the model so it
             # answers honestly instead of erroring or pretending. (No braces in
@@ -1168,7 +1288,7 @@ def chat(config_id, chat_id):
                 # Rebuild the system text from the RAW prompt template — the
                 # {{ }}-escaped `system_message` above is only correct once a
                 # ChatPromptTemplate unescapes it, which we don't use here.
-                raw_instruction = config_doc.get("prompt_template", "Answer based on context.")
+                raw_instruction = config_doc.get("prompt_template") or "Answer based on context."
                 system_text = (
                     f"{raw_instruction}\n\n"
                     "Use the provided Context (retrieved documents) and the "
@@ -1176,6 +1296,9 @@ def chat(config_id, chat_id):
                     "If the user asks about previous messages, look at the History.\n\n"
                     f"Context:\n{context_text}\n" + FORMATTING_GUIDE
                 )
+                # Raw text here (no ChatPromptTemplate), so no brace escaping.
+                if fac_note:
+                    system_text += "\n\n" + fac_note.strip()
 
                 messages = [SystemMessage(content=system_text)]
                 messages.extend(history_obj.messages)  # prior turns (text only)
@@ -1282,6 +1405,7 @@ def chat(config_id, chat_id):
                     fac_history = [{"role": "user", "content": user_input}]
                 facilitator_block = _facilitator_stage(
                     config_doc, accumulated_text, fac_history, None,
+                    context=context_text,
                 )
                 yield json.dumps({
                     "type": "facilitator",

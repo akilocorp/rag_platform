@@ -1,8 +1,7 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   Config copy/paste: POST /config/<id>/copy mints a clipboard token, GET+POST /config/paste/<token>
-#            preview and clone a config (plus its knowledge base) into any professor's account as a fresh class.
-#            Prior: GET /config/<id> returns an `owned` flag so the client can surface owner-only controls.
+# @updated   2026-08-10
+# @changed   Extracted the legacy prompt wrapper into `build_prompt_template` so the edit route can reuse it
+#            and stop blanking prompt_template on save. Prior: config copy/paste via clipboard tokens.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -37,6 +36,29 @@ config_bp = Blueprint('config_routes', __name__)
 def allowed_file(filename):
     """Checks if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def build_prompt_template(bot_name, instructions):
+    """Wrap a professor's raw `instructions` into the LangChain prompt template
+    the legacy (non-agentic) chat path renders.
+
+    Shared by create and edit so the two can never drift. This is the ONLY place
+    the grounding line ("If the context doesn't contain the answer, say so") is
+    produced — the edit route used to persist an empty prompt_template, which
+    silently stripped both the persona and that line from every legacy-path bot.
+    Uses an f-string so instructions may contain "{" / "}" without breaking
+    str.format; `{context}` / `{question}` stay as template vars.
+    """
+    return f"""You are a helpful AI assistant named '{bot_name or "Assistant"}'.
+Your goal is to answer questions accurately based on the context provided.
+
+Follow these specific instructions:
+{instructions}
+
+Based on the context below, please answer the user's question. If the context doesn't contain the answer, say so.
+Context: {{context}}
+Question: {{question}}
+Answer:"""
 
 
 def validate_class_usage(source, target, current_config_id=None):
@@ -673,17 +695,7 @@ def configure_model():
             # If a full template is provided, use it directly (highest priority)
             final_prompt_template = custom_prompt_template
         elif instructions:
-            # Use f-string so user instructions may contain "{" / "}" without breaking str.format
-            final_prompt_template = f"""You are a helpful AI assistant named '{bot_name}'.
-Your goal is to answer questions accurately based on the context provided.
-
-Follow these specific instructions:
-{instructions}
-
-Based on the context below, please answer the user's question. If the context doesn't contain the answer, say so.
-Context: {{context}}
-Question: {{question}}
-Answer:"""
+            final_prompt_template = build_prompt_template(bot_name, instructions)
         else:
             # If neither is provided, it's an error
             return jsonify({"error": "Missing required field: please provide either 'instructions' or a 'prompt_template'"}), 400

@@ -1,3 +1,9 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-08-10
+ * @changed   onSubmit now forwards an optional `meta` argument so an interactive widget can report what
+ *            question was answered alongside the option text.
+ */
 import React from 'react';
 import { getWidget } from './registry';
 
@@ -5,6 +11,8 @@ import { getWidget } from './registry';
 // `block` = { widget, data }. Unknown widget ids render nothing (forward-compatible
 // with blocks produced by a newer backend widget the frontend doesn't ship yet).
 // The wrapper adds a uniform entrance animation for every widget.
+// onSubmit(text, meta): `meta` is optional context about what was answered, which
+// interactive widgets pass so the backend can tie the reply back to its question.
 export default function FacilitatorBlock({ block, onSubmit, disabled }) {
   if (!block || !block.widget) return null;
   const widget = getWidget(block.widget);

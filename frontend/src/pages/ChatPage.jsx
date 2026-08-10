@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-19
- * @changed   No init spinner on existing-chat redirects; flashcard prose fully suppressed; user bubbles render inserted inline math.
+ * @updated   2026-08-10
+ * @changed   A facilitator widget answer now posts `facilitator_answer` alongside the message so the backend can
+ *            tie the clicked option back to its question. Prior: no init spinner on existing-chat redirects.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -590,7 +591,7 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
           {!isUser && message.facilitator && (
             <FacilitatorBlock
               block={message.facilitator}
-              onSubmit={(value) => onFacilitatorSubmit?.(value)}
+              onSubmit={(value, meta) => onFacilitatorSubmit?.(value, meta)}
               disabled={!isLast}
             />
           )}
@@ -1231,7 +1232,11 @@ const ChatPage = () => {
   }, [chatId]); // Fires when user clicks a session in sidebar
 
   // --- 5. THE UNIFIED MESSAGE PROCESSOR ---
-  const handleMessageProcess = useCallback(async (textInput) => {
+  // `facilitatorAnswer` is set only when this send came from clicking an
+  // interactive widget: {widget, question, selected, correct?}. It rides beside
+  // the message so the backend can tell the model the bare option text is an
+  // answer to the question it just asked, rather than a new topic.
+  const handleMessageProcess = useCallback(async (textInput, facilitatorAnswer) => {
     if (!textInput || !textInput.trim() || isLoading) return;
 
     // A. Determine the working ID
@@ -1294,6 +1299,7 @@ const ChatPage = () => {
           selected_file_ids: selectedFileIds,
           attached_files: attachedFiles,
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
+          ...(facilitatorAnswer ? { facilitator_answer: facilitatorAnswer } : {}),
           ...(sessionModel ? { model_override: sessionModel } : {}),
           ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
           ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
@@ -1465,13 +1471,15 @@ const ChatPage = () => {
 
   const handleTextSend = () => { handleMessageProcess(input); setInput(''); };
 
-  const handleSendWithAnimation = (overrideText) => {
+  // `meta` is only ever passed by an interactive facilitator widget; the input
+  // bar and the quick-prompt fan call this with a bare string (or nothing).
+  const handleSendWithAnimation = (overrideText, meta) => {
     if (isLoading) return;
     const text = typeof overrideText === 'string' ? overrideText : input;
     if (!text.trim()) return;
     setIsSending(true);
     if (typeof overrideText === 'string') {
-      handleMessageProcess(text);
+      handleMessageProcess(text, meta);
       setInput('');
     } else {
       handleTextSend();

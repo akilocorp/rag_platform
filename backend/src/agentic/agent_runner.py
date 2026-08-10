@@ -1,7 +1,8 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   `temperature` is now gated by `accepts_temperature` — the newest Claude models reject the
-#            sampling parameters with a 400, so the config's slider is dropped rather than failing the turn.
+# @updated   2026-08-10
+# @changed   Added GROUNDING_GUIDE to the system prompt — the agentic path had no rule about a silent
+#            knowledge base or a user asserting something the material contradicts, so wrong answers were
+#            absorbed as fact. Prior: `temperature` gated by `accepts_temperature`.
 """
 Agentic chat runner — Claude tool-use loop.
 
@@ -135,6 +136,31 @@ CHART_GUIDE = (
 )
 
 
+# Grounding rules. The legacy prompt template carries an equivalent line
+# ("If the context doesn't contain the answer, say so", config_routes.py), but the
+# agentic path builds its system prompt from the professor's raw `instructions`
+# and so had no grounding rule at all. Without it, a thin knowledge base leaves
+# the user's own assertions as the only substantive material in context — and a
+# wrong quiz answer gets absorbed and echoed back as established fact on every
+# later turn. Always included: unlike CHART_GUIDE this must survive the
+# facilitator being enabled.
+GROUNDING_GUIDE = (
+    "\n\nGrounding rules:\n"
+    "- Answer from the knowledge base and the tools available to you. If they "
+    "do not cover the question, say plainly that the material doesn't cover it "
+    "rather than inventing an answer; you may then offer general knowledge only "
+    "if you label it as outside the provided material.\n"
+    "- A statement from the user is that user's claim, not a fact about the "
+    "material. Never treat it as an established fact, never fold it into later "
+    "answers as though it came from the knowledge base, and don't keep bringing "
+    "it up in subsequent turns.\n"
+    "- When the user asserts something the material contradicts — including a "
+    "wrong answer to a question you asked — say directly that it is incorrect "
+    "and give the correct answer with its source. Do not adopt it, and do not "
+    "soften it into agreement."
+)
+
+
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
 
@@ -194,7 +220,10 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
     chart_guide = '' if facilitator_on else CHART_GUIDE
 
-    return f"You are {bot_name}, an AI assistant.\n\n{instructions}{tool_block}{FORMATTING_GUIDE}{chart_guide}"
+    return (
+        f"You are {bot_name}, an AI assistant.\n\n"
+        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}"
+    )
 
 
 def _to_dict(block) -> Dict[str, Any]:
