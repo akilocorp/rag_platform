@@ -35,6 +35,10 @@ import Navbar from './NavBar';
 const LoginPage = () => {
   const [searchParams] = useSearchParams();
   const classCode = searchParams.get('class') || '';
+  // Where an access guard bounced us from. Same-origin paths only, so a crafted
+  // ?next= can't turn the login screen into an open redirect.
+  const nextParam = searchParams.get('next') || '';
+  const nextPath = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '';
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -96,7 +100,9 @@ const LoginPage = () => {
           navigate('/change-password', { replace: true });
           return;
         }
-        if (userRole === 'student' && classCode) {
+        if (nextPath) {
+          navigate(nextPath, { replace: true });
+        } else if (userRole === 'student' && classCode) {
           // Route through /join so it enrolls and dispatches into the right bot
           // by bot_type (chat / experiential / group chat / video dashboard).
           navigate(`/join/${encodeURIComponent(classCode)}`, { replace: true });

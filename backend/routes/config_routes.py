@@ -599,14 +599,21 @@ def get_single_config(config_id):
             return jsonify({"message": "Authentication required for this private chat"}), 401
 
         # Check if the authenticated user is the owner of the config
-        if config_document.get("user_id") != user_id:
-            return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
+        owned = config_document.get("user_id") == user_id
+        if not owned:
+            # Not the owner, but a student enrolled in this bot's class is still
+            # allowed in — that is the entire point of a class link. Without this
+            # every private space was unreachable through /join.
+            class_code = (config_document.get("class_code") or "").strip().lower()
+            user = User.find_by_id(user_id) if class_code else None
+            enrolled_codes = {str(c).strip().lower() for c in ((user or {}).get('classes') or [])}
+            if not class_code or class_code not in enrolled_codes:
+                return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
 
-        # 5. Serialize the document for the JSON response. Reaching here means the
-        # caller passed the ownership check above, so `owned` is unconditionally true.
+        # 5. Serialize the document for the JSON response.
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
-        config_document["owned"] = True
+        config_document["owned"] = owned
         return jsonify({"config": config_document}), 200
         
     except Exception as e:
@@ -930,11 +937,25 @@ def get_config_by_class(class_code):
         )
         if not doc:
             return jsonify({"error": "Class code not found"}), 404
+
+        # Optional JWT: the join page asks a signed-in student to confirm before
+        # enrolling, but a student who already joined shouldn't be asked again.
+        enrolled = False
+        try:
+            verify_jwt_in_request(optional=True)
+            caller_id = get_jwt_identity()
+            if caller_id:
+                user = User.find_by_id(caller_id)
+                enrolled = class_code.strip().lower() in ((user or {}).get('classes') or [])
+        except Exception:
+            enrolled = False
+
         return jsonify({
             "config_id": str(doc["_id"]),
             "bot_name": doc.get("bot_name", "Assignment"),
             "assignment_type": doc.get("assignment_type", ""),
             "bot_type": doc.get("bot_type", "chat"),
+            "enrolled": enrolled,
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)
