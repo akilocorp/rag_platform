@@ -10,6 +10,7 @@ import UserInfo from '../components/UserInfo';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
+import { studentPathFor } from '../utils/botTypes';
 import apiClient from '../api/apiClient';
 // Import your modal components here (adjust paths as needed)
 import ConfigModal from './ConfigPage';
@@ -28,17 +29,10 @@ const primaryActionLabel = (botType) => {
 };
 
 // The direct student-facing URL for a config, by bot_type (fallback when no
-// class code is set).
-const directStudentLink = (config) => {
-  const origin = window.location.origin;
-  switch (config.bot_type) {
-    case 'experiential':   return `${origin}/experiential/c/${config.config_id}`;
-    case 'group_chat':     return `${origin}/group-chat/${config.config_id}`;
-    case 'manager_exercise': return `${origin}/manager-exercise/${config.config_id}`;
-    case 'video_analysis': return `${origin}/video-upload/${config.config_id}`;
-    default:               return `${origin}/chat/${config.config_id}`;
-  }
-};
+// class code is set). The bot_type → path map lives in utils/botTypes so the
+// student dashboard and the join page route to the same places.
+const directStudentLink = (config) =>
+  `${window.location.origin}${studentPathFor(config.bot_type, config.config_id)}`;
 
 // --- Clipboard transfer -------------------------------------------------------
 // Ctrl+C puts one readable line on the clipboard. The payload is a server-minted

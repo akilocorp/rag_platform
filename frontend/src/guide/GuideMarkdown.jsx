@@ -51,6 +51,27 @@ function decorateScreenshots(root) {
   });
 }
 
+// Slug for a heading, so other parts of the app can deep-link into a section — the
+// student dashboard points each class type at its own heading here. Numbered headings
+// ("## 2. Submitting a video") drop the number so the anchor stays stable if the
+// sections are ever reordered.
+export function slugifyHeading(text) {
+  return (text || '')
+    .trim()
+    .replace(/^\d+[.)]\s*/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Same post-render pass as decorateScreenshots, and for the same reason: it doesn't
+// depend on which token signature the installed marked version hands to a renderer.
+function addHeadingIds(root) {
+  root.querySelectorAll('h1, h2, h3, h4').forEach((h) => {
+    if (!h.id) h.id = slugifyHeading(h.textContent);
+  });
+}
+
 export default function GuideMarkdown({ source }) {
   const ref = useRef(null);
   const navigate = useNavigate();
@@ -58,7 +79,9 @@ export default function GuideMarkdown({ source }) {
   const html = useMemo(() => guideMarked.parse(source || ''), [source]);
 
   useEffect(() => {
-    if (ref.current) decorateScreenshots(ref.current);
+    if (!ref.current) return;
+    decorateScreenshots(ref.current);
+    addHeadingIds(ref.current);
   }, [html]);
 
   // The body is injected HTML, so in-guide links are plain <a> tags that would trigger a

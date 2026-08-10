@@ -1,8 +1,11 @@
-<!-- @language Markdown  @updated 2026-08-04  @changed Manager Exercise rewritten for the three-round flow: private pick, unfacilitated group decision, facilitated debrief; grading section removed. Prior: humanizer copy pass, trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-08-10  @changed Added the Group chats section and renumbered; video steps now start from Enter class. Prior: Manager Exercise rewritten for the three-round flow. -->
 
 # Doing each exercise
 
-Your professor picks one of four kinds of activity. Here's what each one asks of you.
+Your professor picks one of five kinds of activity. Here's what each one asks of you.
+
+Whichever it is, you open it the same way: find the class on your dashboard and press
+**Enter class**. The card tells you which kind it is.
 
 ## 1. Chatting with an assistant
 
@@ -27,18 +30,41 @@ A normal conversation, except the assistant has read your course materials.
 There's a file panel in the sidebar where you can upload your own documents and select
 which ones the assistant should focus on.
 
-## 2. Submitting a video
+## 2. Group chats
+
+A chat room you share with classmates, with one or more AI participants in it.
+
+You don't pick who you're with. When you enter, you go into a **matchmaking queue** and
+wait until enough people have arrived, then everyone is dropped into the same room
+together. The waiting screen shows your place in the queue and has a **Leave queue**
+button if you change your mind.
+
+Some group chats are set up for one person, in which case you skip the queue entirely and
+go straight in with the AI participants.
+
+**What to expect once you're in:**
+
+- The AI participants don't reply to everything. They join in when they have something to
+  add, so silence from them isn't a bug.
+- Everyone sees the same conversation, and it's saved. Closing the tab and coming back
+  puts you in the same room with the history intact.
+- If the backend restarts mid-session the room is lost and you'll be re-queued. Rare, but
+  it's what has happened if you suddenly find yourself back on the waiting screen.
+
+## 3. Submitting a video
 
 ![The upload page](/guide-media/video-upload.png)
 
-1. Open the assignment from your dashboard and click **Submit Video**.
+1. Open the class from your dashboard with **Enter class**, which takes you to the upload
+   page.
 2. Enter **Your Name** and **Email**. Results are emailed to this address.
 3. Drop in **Your Video**. Accepted: **MP4, MOV, WEBM, M4V**, up to 1 GB.
 4. Wait. It takes about **2–4 minutes** and shows you what it's doing: *"Optimizing your
    video…"* → *"Analyzing your delivery & speech…"* → *"Grading your pitch…"* There are
    pitch tips on screen while you wait.
-5. You'll get a private results link by email, and **View Results** lights up on your
-   dashboard.
+5. You'll get a private results link by email. Your past attempts, each with a link to its
+   results, are listed on the upload page itself, so **Enter class** is also how you go
+   back and read a score.
 
 ### Reading your results
 
@@ -57,7 +83,7 @@ which ones the assistant should focus on.
 You get more than one attempt. Read the coaching, record again, resubmit. That's the point
 of the exercise.
 
-## 3. Experiential Labs
+## 4. Experiential Labs
 
 A simulation you reason through. Two shapes exist depending on what your professor chose.
 
@@ -104,7 +130,7 @@ Self-correction shows as *"not applicable"* if you were never wrong.
 
 Say more than one line in the "Why?" box. That's where most of the marks are.
 
-## 4. Manager Exercise
+## 5. Manager Exercise
 
 A group decision game. You'll be hiring one candidate, and you'll decide **twice**: once on
 your own, then once with your team.

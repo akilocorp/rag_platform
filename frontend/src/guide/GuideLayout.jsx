@@ -4,7 +4,7 @@
  * @changed   New file: guide shell — sidebar, mobile jump menu, search, prev/next, print.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FaSearch, FaPrint, FaArrowLeft, FaArrowRight, FaTimes } from 'react-icons/fa';
 import logo from '../assets/logo.png';
 import { TRACKS, PAGES, searchPages, getNeighbours } from './content';
@@ -160,9 +160,24 @@ function PrevNext({ currentId }) {
 }
 
 export default function GuideLayout({ currentId, children }) {
+  const { hash } = useLocation();
+
   // Land at the top when moving between pages — without this the router keeps the old
-  // scroll offset and a short page opens halfway down.
-  useEffect(() => { window.scrollTo(0, 0); }, [currentId]);
+  // scroll offset and a short page opens halfway down. A #hash overrides it: the ids come
+  // from GuideMarkdown's post-render pass, so wait a frame for that to have run.
+  useEffect(() => {
+    if (!hash) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    const id = decodeURIComponent(hash.slice(1));
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(id);
+      if (target) target.scrollIntoView({ block: 'start' });
+      else window.scrollTo(0, 0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentId, hash]);
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB]">

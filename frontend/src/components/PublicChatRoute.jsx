@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { FaSpinner, FaLock } from 'react-icons/fa';
+import { FaLock } from 'react-icons/fa';
+import LoadingScreen from './LoadingScreen';
 
 const PublicChatRoute = ({ children }) => {
   const { configId } = useParams();
@@ -58,17 +59,9 @@ const PublicChatRoute = ({ children }) => {
 
   // --- RENDER STATES ---
 
-  if (canAccess === null) {
-    return (
-      <div
-        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        className="flex flex-col items-center justify-center min-h-screen bg-[#F0F6FB] text-[#222]"
-      >
-        <FaSpinner className="animate-spin text-4xl text-[#FA6C43] mb-4" />
-        <p className="text-gray-600 font-medium">Verifying access...</p>
-      </div>
-    );
-  }
+  // Same loader the route transition uses, so entering a class is one continuous
+  // screen rather than an illustrated overlay that fades into a bare spinner.
+  if (canAccess === null) return <LoadingScreen />;
 
   // If allowed, render the Chat Page (children or Outlet)
   if (canAccess === true) {

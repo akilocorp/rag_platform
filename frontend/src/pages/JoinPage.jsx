@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import { studentPathFor } from '../utils/botTypes';
 
 export default function JoinPage() {
   const { classCode } = useParams();
@@ -21,17 +22,9 @@ export default function JoinPage() {
       .finally(() => setLoading(false));
   }, [classCode]);
 
-  // Where an enrolled student should land, by bot_type. Chat/experiential/group
-  // drop straight into the bot; video keeps the assignment dashboard.
-  const studentRouteFor = (cfg) => {
-    switch (cfg?.bot_type) {
-      case 'experiential':   return `/experiential/c/${cfg.config_id}`;
-      case 'group_chat':     return `/group-chat/${cfg.config_id}`;
-      case 'manager_exercise': return `/manager-exercise/${cfg.config_id}`;
-      case 'video_analysis': return '/student-dashboard';
-      default:               return `/chat/${cfg.config_id}`;
-    }
-  };
+  // Where an enrolled student should land, by bot_type. Shared with the dashboard's
+  // "Enter class" button and the professor's share links so all three agree.
+  const studentRouteFor = (cfg) => studentPathFor(cfg?.bot_type, cfg?.config_id);
 
   // Already a member — nothing to consent to, just walk them back in.
   useEffect(() => {

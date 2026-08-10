@@ -32,8 +32,16 @@ import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
 import { renderMarkdown } from '../utils/markdown';
 import { io } from 'socket.io-client';
+import UserInfo from '../components/UserInfo';
+import LoadingScreen from '../components/LoadingScreen';
+import { dashboardPath } from '../utils/auth';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
+
+// Where "back" goes reads differently by role: a student's home is their class list,
+// a professor's is their assistant list. Paired with dashboardPath() for the route.
+const homeLabel = () =>
+  localStorage.getItem('userRole') === 'student' ? 'Back to my classes' : 'Back to my AIs';
 
 // ACTR's messages arrive under this sender; the outcome document is posted under
 // a "📊 <Name> — Outcome" sender so both can be styled apart from student chat.
@@ -1175,13 +1183,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   // Phase: loading
   // -------------------------------------------------------------------------
-  if (phase === 'loading') {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222]">
-        <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
-      </div>
-    );
-  }
+  if (phase === 'loading') return <LoadingScreen message="Setting up your exercise…" />;
 
   // -------------------------------------------------------------------------
   // Phase: lobby (pick a breakout room)
@@ -1190,15 +1192,19 @@ const ManagerExercisePage = () => {
     return (
       <div className="min-h-screen bg-[#F0F6FB] text-[#222] py-10 px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="max-w-2xl mx-auto">
-          {/* Escape hatch back to the config list — the lobby is otherwise a
-              dead end if a student lands on the wrong exercise. Colour-only
-              hover (no lift) per the house micro-animation rule. */}
-          <button
-            onClick={() => navigate('/config_list')}
-            className="mb-6 inline-flex items-center gap-2 rounded-lg -ml-2 px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
-          >
-            <FaArrowLeft className="text-xs" /> Back to my AIs
-          </button>
+          {/* Escape hatch home — the lobby is otherwise a dead end if a student
+              lands on the wrong exercise. Colour-only hover (no lift) per the
+              house micro-animation rule. dashboardPath() rather than a hardcoded
+              /config_list: that route is professor-only and bounced students. */}
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <button
+              onClick={() => navigate(dashboardPath())}
+              className="inline-flex items-center gap-2 rounded-lg -ml-2 px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
+            >
+              <FaArrowLeft className="text-xs" /> {homeLabel()}
+            </button>
+            <UserInfo />
+          </div>
           <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
               <FaUsers className="text-3xl text-[#FA6C43]" />
@@ -1388,6 +1394,7 @@ const ManagerExercisePage = () => {
             <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
             <h1 className="font-semibold text-[#222] text-base truncate">{config?.bot_name || 'Manager Exercise'}</h1>
           </div>
+          <UserInfo />
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto space-y-6">
@@ -1451,6 +1458,7 @@ const ManagerExercisePage = () => {
               {config?.bot_name || 'Manager Exercise'}
             </h1>
           </div>
+          <UserInfo />
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
@@ -1503,7 +1511,7 @@ const ManagerExercisePage = () => {
                   : 'Thanks for taking part.'}
               </p>
               <button
-                onClick={() => navigate('/config_list')}
+                onClick={() => navigate(dashboardPath())}
                 className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-6 py-3 shadow-sm transition-all active:scale-95"
               >
                 <FaArrowLeft className="text-xs" /> Back
@@ -1769,9 +1777,12 @@ const ManagerExercisePage = () => {
             )}
           </div>
         </div>
-        {/* Clock visible for the whole window; only the last 10s reads as urgent
-            (and only then does the beep start — see discussBeepOn). */}
-        {secsLeft != null && CountdownChip({ label: isDebrief ? 'Debrief' : 'Discuss', urgent: secsLeft <= 10 })}
+        <div className="flex items-center gap-4 shrink-0">
+          {/* Clock visible for the whole window; only the last 10s reads as urgent
+              (and only then does the beep start — see discussBeepOn). */}
+          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Debrief' : 'Discuss', urgent: secsLeft <= 10 })}
+          <UserInfo />
+        </div>
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">

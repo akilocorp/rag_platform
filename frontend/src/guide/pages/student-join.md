@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-08-10  @changed Joining now asks first: documented the Accept & Join / Decline card and what Decline does. -->
 
 # Join your class
 
@@ -8,9 +8,19 @@ Your professor will send you a link. It looks like this:
 https://yoursite.com/join/MGMT5110
 ```
 
-Open it. That's the whole thing: the link enrolls you and takes you where you need to be.
+Open it and you'll be shown what you're about to join before anything happens.
 
 ![The join page](/guide-media/join-page.png)
+
+## If you're already signed in
+
+The page names the class and asks you to confirm:
+
+- **Accept & Join** — you're enrolled and taken straight into the class.
+- **Decline** — nothing happens. You go back to your dashboard and you are not added to
+  the class. You can always open the link again later and accept then.
+
+Opening a link for a class you're already in skips the question and just takes you in.
 
 ## If you don't have an account yet
 
@@ -42,16 +52,14 @@ verified" reminder on your dashboard.
 ## Where you end up
 
 Straight into whatever your professor set up. Depending on the class that's a chat
-assistant, a video assignment on your dashboard, a simulation lab, or a group exercise
-lobby.
-
-If you're already signed in when you open the link, you skip all of the above and land
-there immediately.
+assistant, a group chat waiting room, a video upload page, a simulation lab, or an
+exercise lobby. Signing in after accepting the invite carries you the rest of the way; you
+aren't asked to confirm a second time.
 
 ## Joining more classes
 
 Open each professor's link the same way. You can be in as many classes as you like, and
-they'll all appear on your dashboard.
+they all appear on your dashboard with an **Enter class** button, whatever kind they are.
 
 ## If something goes wrong
 
@@ -61,8 +69,9 @@ thing, then ask your professor to resend it.
 **A sign-in prompt you didn't expect** — normal for most classes. Sign in and you'll
 continue automatically.
 
-**An error saying you need to be logged in** — you've been given a direct link to a private
-space rather than a class link. Ask your professor for the `/join/...` version.
+**"This space is private"** — you're signed in, but this assistant hasn't been shared with
+you and you're not in its class. Check you're on the right account, then ask your professor
+for the `/join/...` link rather than a direct one.
 
 More in [Troubleshooting](/userguide/student-troubleshooting).
 
