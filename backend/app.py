@@ -1,7 +1,8 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   App-wide gate: an account still holding an admin-issued one-time password can reach
-#            nothing but the change-password screen.
+# @updated   2026-08-12
+# @changed   Registered the syllabus advisor blueprint (`/api/advisor/*`).
+#            Prior: app-wide gate: an account still holding an admin-issued one-time password can
+#            reach nothing but the change-password screen.
 # v2026-05-20
 import os
 import logging
@@ -41,6 +42,7 @@ from routes.video_routes import video_bp
 from routes.calibrate_routes import calibrate_bp
 from routes.experiential_routes import experiential_bp
 from routes.define_routes import define_bp
+from routes.advisor_routes import advisor_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -112,6 +114,7 @@ def create_app():
     app.register_blueprint(calibrate_bp)
     app.register_blueprint(experiential_bp, url_prefix='/api')
     app.register_blueprint(define_bp, url_prefix='/api')
+    app.register_blueprint(advisor_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 
