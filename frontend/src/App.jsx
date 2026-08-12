@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-03  @changed Added the public /userguide routes and exempted them from the mobile block. */
+/* @language JSX  @updated 2026-08-12  @changed Added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. Prior: added the public /userguide routes. */
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -34,6 +34,7 @@ import ExperientialPage from './pages/ExperientialPage';
 import ExperientialSessionPage from './pages/ExperientialSessionPage';
 import ExperientialDashboardPage from './pages/ExperientialDashboardPage';
 import UserGuidePage from './pages/UserGuidePage';
+import CoursePlanPage from './pages/CoursePlanPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Import the ProtectedRoute component
@@ -68,9 +69,15 @@ function useIsMobile() {
 // an invite link on their phone needs to be able to read why they're being told to switch
 // devices. Lives inside the Router (not in App) so the block re-applies on client-side
 // navigation off the guide, which a pathname read at mount would miss.
+// Routes a phone may open. Both are read-first pages someone reaches before they
+// have an account — the guide, and the syllabus advisor a professor is likely to
+// be handed as a link during a conversation.
+const MOBILE_ALLOWED = ['/userguide', '/course-plan'];
+
 function MobileGate({ isMobile, children }) {
   const { pathname } = useLocation();
-  if (isMobile && !pathname.startsWith('/userguide')) return <MobileBlockPage />;
+  const allowed = MOBILE_ALLOWED.some((p) => pathname.startsWith(p));
+  if (isMobile && !allowed) return <MobileBlockPage />;
   return children;
 }
 
@@ -96,6 +103,10 @@ function App() {
               to read the password pages, and students hit it before they have an account. */}
           <Route path="/userguide" element={<UserGuidePage />} />
           <Route path="/userguide/:pageId" element={<UserGuidePage />} />
+          {/* Syllabus advisor — public on purpose: the audience is a professor who
+              does not have an account yet. The backend caps what a logged-out
+              caller receives; nothing here is trusted to hide it. */}
+          <Route path="/course-plan" element={<CoursePlanPage />} />
 
           {/* Public Auth Routes */}
           <Route path="/register" element={<RegisterPage />} />

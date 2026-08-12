@@ -1,7 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-03
-// @changed   Card body click now selects the card (Ctrl+C copy target) instead of opening the bot;
-//            the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
+// @updated   2026-08-12
+// @changed   Header gained a "Plan from syllabus" button into /course-plan.
+//            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
+//            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -904,6 +905,17 @@ const ConfigListPage = () => {
                 >
                   <FaPaste className="mr-2 text-sm" />
                   <span className="font-bold text-[14px]">Paste</span>
+                </button>
+
+                {/* For the professor staring at a blank list: start from the syllabus
+                    they already have rather than from a decision they can't yet make. */}
+                <button
+                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm active:scale-[0.98]"
+                  onClick={() => navigate('/course-plan')}
+                  title="Upload your syllabus and see which classes ACTR fits"
+                >
+                  <FaListAlt className="mr-2 text-sm" />
+                  <span className="font-bold text-[14px]">Plan from syllabus</span>
                 </button>
 
                 <button
