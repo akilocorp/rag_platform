@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   facilitator_reply takes `recent_asks` (renders the repeat guard directly above the TASK) and
+# @updated   2026-08-15
+# @changed   Facilitator quote-reply: a new [REPLY:name] marker lets ACTR attach a turn to the one student
+#            it answers (parsed/stripped in _split_markers, surfaced as reply_to_name in facilitator_reply's
+#            result); the socket layer resolves the name to that student's latest message. Name-prefixing is
+#            kept for multi-person go-arounds a single reply-target can't represent.
+#            Prior: facilitator_reply takes `recent_asks` (renders the repeat guard directly above the TASK) and
 #            `outcome_text` (pins the outcome document into every turn so it cannot age out of the rolling
 #            transcript window while ACTR is still ruling on what it says).
 #            Prior: M12: the debrief opener is no longer hardcoded. facilitator_open_debrief now asks the model,
@@ -74,6 +78,13 @@ END_MARKER = "[END]"
 # Returned instead of a message when ACTR has nothing worth saying this turn.
 _SILENT_TOKEN = "SILENT"
 
+# Appended when ACTR is answering ONE named student. The socket layer strips it and
+# attaches the turn to that student's latest message as a quote-reply — the structured
+# replacement for prefixing "Name, …". Names are still used in prose for a go-around
+# addressing several people, which a single reply-target cannot represent. A mis-typed
+# or unmatched name simply yields no reply (today's behaviour).
+REPLY_MARKER_RE = re.compile(r"\[REPLY:\s*([^\]]+?)\s*\]", re.IGNORECASE)
+
 
 def _get_client():
     """Return an Anthropic client, or None if key/package unavailable. Never raises."""
@@ -123,17 +134,22 @@ def _is_silent(text):
 
 
 def _split_markers(text):
-    """Strip the control markers off a reply. Returns (clean_text, go_around, ended).
+    """Strip the control markers off a reply. Returns (clean_text, go_around, ended, reply_to_name).
 
     Trailing sentinels rather than a JSON envelope keep the message itself in
     ACTR's natural chat voice — a model asked to emit JSON tends to write like a
-    form, and the whole point of this facilitator is that it doesn't.
+    form, and the whole point of this facilitator is that it doesn't. `reply_to_name`
+    is the target of a [REPLY:name] marker (None when absent), left for the socket
+    layer to resolve to a message id.
     """
     body = (text or "").strip()
     go_around = GO_AROUND_MARKER in body
     ended = END_MARKER in body
+    reply_match = REPLY_MARKER_RE.search(body)
+    reply_to_name = reply_match.group(1).strip() if reply_match else None
+    body = REPLY_MARKER_RE.sub("", body)
     body = body.replace(GO_AROUND_MARKER, "").replace(END_MARKER, "").strip()
-    return body, go_around, ended
+    return body, go_around, ended, reply_to_name
 
 
 def _call(system, user, fallback=None):
@@ -272,6 +288,10 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
         "When the debrief has reached its ENDING condition, write your closing message and "
         f"end it with {END_MARKER}. That closes the session, so use it once and only when "
         "the group has actually got there.",
+        "When your message answers or addresses ONE student, do NOT prefix their name — "
+        "instead end the message with [REPLY:their name] (matching a name from the roster). "
+        "The interface shows it as a reply to their message. Keep writing names in prose only "
+        "when you address several people at once (e.g. a go-around).",
     ]
     if (turn_context or {}).get("silence"):
         task.append(
@@ -306,9 +326,10 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
 
     text = _call(_system(cfg, roster, group_size), user, fallback=fallback)
     if not text or _is_silent(text):
-        return {"message": None, "go_around": False, "ended": False}
-    message, go_around, ended = _split_markers(text)
-    return {"message": message or None, "go_around": go_around, "ended": ended}
+        return {"message": None, "go_around": False, "ended": False, "reply_to_name": None}
+    message, go_around, ended, reply_to_name = _split_markers(text)
+    return {"message": message or None, "go_around": go_around, "ended": ended,
+            "reply_to_name": reply_to_name}
 
 
 def facilitator_wrapup(config, roster, group_size, transcript_summary, chosen_name=None):

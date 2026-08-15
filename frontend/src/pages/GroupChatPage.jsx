@@ -1,6 +1,7 @@
+/* @language JSX  @updated 2026-08-15  @changed WhatsApp-style quote-reply: hover reply affordance, a composer chip, a quote block above each bubble, and click-to-scroll to the parent — so a message shows who it's answering in a 3+ person thread. */
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft } from 'react-icons/fa';
+import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft, FaReply, FaTimes } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
 import { renderMarkdown } from '../utils/markdown';
@@ -42,6 +43,10 @@ const GroupChatPage = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // Quote-reply: the parent message being replied to (null = none), and the mid
+  // briefly ring-highlighted after a click-to-scroll lands on it.
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [flashMid, setFlashMid] = useState(null);
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -127,16 +132,17 @@ const GroupChatPage = () => {
           setPhase('chat');
         });
 
-        // Listen for history on room join
+        // Listen for history on room join. Keep mid + reply_to so replies replay with
+        // their quote block and remain valid scroll targets.
         socket.on('chat_history', (data) => {
           if (data.messages) {
-            setMessages(data.messages.map(m => ({ sender: m.sender, text: m.text })));
+            setMessages(data.messages.map(m => ({ sender: m.sender, text: m.text, mid: m.mid, reply_to: m.reply_to })));
           }
         });
 
         // Listen for new live messages
         socket.on('message', (data) => {
-          setMessages(prev => [...prev, { sender: data.sender, text: data.text }]);
+          setMessages(prev => [...prev, { sender: data.sender, text: data.text, mid: data.mid, reply_to: data.reply_to }]);
         });
 
       } catch (e) {
@@ -183,10 +189,23 @@ const GroupChatPage = () => {
     socketRef.current.emit('send_message', {
       room_id: roomId,
       uid: userIdRef.current,
-      text: input
+      text: input,
+      reply_to: replyingTo?.mid || null,
     });
 
     setInput('');
+    setReplyingTo(null);
+  };
+
+  // Click a quote block → scroll to the parent message and flash it briefly. A gone
+  // parent (trimmed/deleted) is a no-op; the quote still renders from its frozen preview.
+  const scrollToMid = (mid) => {
+    if (!mid) return;
+    const el = document.getElementById(`gm-${mid}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashMid(mid);
+    setTimeout(() => setFlashMid((cur) => (cur === mid ? null : cur)), 1200);
   };
 
   if (phase === 'loading') {
@@ -340,26 +359,62 @@ const GroupChatPage = () => {
                 );
               }
 
+              // Hover affordance — sits on the inner side of the bubble, revealed on
+              // row hover (opacity only, no layout shift, per the house motion rule).
+              const replyBtn = (
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo({ mid: msg.mid, sender: msg.sender, text: msg.text })}
+                  title="Reply"
+                  className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#FA6C43] transition-opacity"
+                >
+                  <FaReply className="text-xs" />
+                </button>
+              );
+
               return (
-                <div key={i} className={`flex gap-4 ${isMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                  
+                <div
+                  key={msg.mid ?? i}
+                  id={msg.mid ? `gm-${msg.mid}` : undefined}
+                  className={`group flex gap-4 ${isMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300 rounded-2xl transition-shadow ${flashMid && flashMid === msg.mid ? 'ring-2 ring-[#FA6C43]/60' : ''}`}
+                >
+
                   {!isMe && (
                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
                       <span className="text-[#FA6C43] text-xs font-bold">{msg.sender.substring(0,2).toUpperCase()}</span>
                     </div>
                   )}
 
-                  <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  {isMe && replyBtn}
+
+                  <div className={`flex flex-col min-w-0 max-w-[88%] ${isMe ? 'items-end' : 'items-start'}`}>
                     {!isMe && <span className="text-[10px] font-bold text-gray-500 ml-1 mb-1">{msg.sender}</span>}
-                    
-                    <div className={`min-w-0 max-w-[88%] rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
+
+                    <div className={`min-w-0 max-w-full rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
                       isMe
                         ? 'bg-[#FA6C43] text-white rounded-br-none'
                         : 'bg-white border border-gray-200 text-[#222] rounded-bl-none'
                     }`}>
+                      {/* Quote block — frozen preview of the parent; click scrolls to it. */}
+                      {msg.reply_to && (
+                        <button
+                          type="button"
+                          onClick={() => scrollToMid(msg.reply_to.mid)}
+                          className={`mb-2 w-full text-left rounded-lg border-l-2 pl-2.5 pr-2 py-1 transition-colors ${
+                            isMe
+                              ? 'border-white/70 bg-white/15 hover:bg-white/25'
+                              : 'border-[#FA6C43] bg-[#FA6C43]/5 hover:bg-[#FA6C43]/10'
+                          }`}
+                        >
+                          <span className={`block text-[11px] font-bold truncate ${isMe ? 'text-white/90' : 'text-[#C2410C]'}`}>{msg.reply_to.sender}</span>
+                          <span className={`block text-[12px] truncate ${isMe ? 'text-white/80' : 'text-gray-500'}`}>{msg.reply_to.snippet}</span>
+                        </button>
+                      )}
                       <GroupMessageBody text={msg.text} isMe={isMe} />
                     </div>
                   </div>
+
+                  {!isMe && replyBtn}
 
                   {isMe && (
                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
@@ -375,6 +430,22 @@ const GroupChatPage = () => {
 
         {/* Input Area */}
         <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">
+          {/* Reply preview chip — shows what the next message will quote, with a cancel. */}
+          {replyingTo && (
+            <div className="mb-3 flex items-center gap-3 rounded-xl border-l-2 border-[#FA6C43] bg-[#F9D0C4]/20 pl-3 pr-2 py-2 animate-chip-in">
+              <div className="flex-1 min-w-0">
+                <span className="block text-[11px] font-bold text-[#C2410C] truncate">Replying to {replyingTo.sender}</span>
+                <span className="block text-[12px] text-gray-500 truncate">{replyingTo.text}</span>
+              </div>
+              <button
+                onClick={() => setReplyingTo(null)}
+                title="Cancel reply"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-[#FA6C43] hover:bg-white transition-colors"
+              >
+                <FaTimes className="text-sm" />
+              </button>
+            </div>
+          )}
           <div className="w-full relative flex items-center gap-3">
             <textarea
               ref={inputRef}

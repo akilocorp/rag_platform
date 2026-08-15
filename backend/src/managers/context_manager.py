@@ -1,12 +1,22 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   Added recent_by_sender: pulls one sender's last N message texts from the transcript, so the
+# @updated   2026-08-15
+# @changed   Quote-reply support: every message gets a stable `mid`; add_message accepts a `reply_to`
+#            parent mid and stores a denormalized {mid, sender, snippet} so a quote survives the parent
+#            being trimmed/deleted; _message_by_mid resolver + legacy-mid backfill on load; get_context_summary
+#            annotates reply lines so the model sees thread structure.
+#            Prior: Added recent_by_sender: pulls one sender's last N message texts from the transcript, so the
 #            facilitator can be shown its own recent turns and told when it is repeating itself.
 #            Prior: add_message accepts an optional sender_uid, stamped on the message so the Manager Exercise client marks a viewer's OWN messages by stable id (not a drift-prone display name). Prior: optional sender_role/sender_seat for role-name rendering.
+import uuid
 from datetime import datetime
 from typing import List, Dict, Optional
 from flask import current_app
 from src.managers.bot_manager import room_bot_registry
+
+# A quote-reply preview is truncated to this many chars so the transcript line and
+# the client quote block stay one-line. The snippet is denormalized onto the child
+# message (not looked up live) so it survives the parent being trimmed or deleted.
+REPLY_SNIPPET_CHARS = 120
 
 class ConversationContext:
     MAX_MESSAGES_PER_ROOM = 1000
@@ -27,12 +37,46 @@ class ConversationContext:
                 .sort("turn", 1)
                 .limit(self.MAX_MESSAGES_PER_ROOM)
             )
+            # Messages written before quote-reply shipped have no `mid`. Synthesize a
+            # deterministic one so they can still be *targeted* by a reply. It isn't
+            # persisted back — it only needs to be stable within this loaded window.
+            for m in stored:
+                if not m.get("mid"):
+                    m["mid"] = f"legacy:{m.get('turn')}"
             self.messages = stored
         except Exception as e:
             current_app.logger.error(f"Failed to load group chat history for {self.room_id}: {e}")
 
-    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None, sender_uid: str = None):
-        """Add message to in-memory history and persist to MongoDB.
+    def _message_by_mid(self, mid: str) -> Optional[Dict]:
+        """Find a loaded message by its stable `mid` (None if absent/trimmed)."""
+        if not mid:
+            return None
+        for m in self.messages:
+            if m.get("mid") == mid:
+                return m
+        return None
+
+    def _build_reply_preview(self, reply_to_mid: str) -> Optional[Dict]:
+        """Resolve a parent mid into a self-contained quote preview.
+
+        Denormalizes the parent's DISPLAY sender (role name in the Manager Exercise,
+        else the raw sender key) and a one-line snippet, computed server-side so a
+        spoofed client can't inject preview text. Returns None if the parent is gone.
+        """
+        parent = self._message_by_mid(reply_to_mid)
+        if not parent:
+            return None
+        snippet = " ".join((parent.get("text") or "").split())
+        if len(snippet) > REPLY_SNIPPET_CHARS:
+            snippet = snippet[:REPLY_SNIPPET_CHARS - 1].rstrip() + "…"
+        return {
+            "mid": reply_to_mid,
+            "sender": parent.get("sender_role") or parent.get("sender") or "",
+            "snippet": snippet,
+        }
+
+    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None, sender_uid: str = None, reply_to: str = None) -> Dict:
+        """Add message to in-memory history and persist to MongoDB. Returns the stored dict.
 
         `sender` is the attribution key (uid, or "ai:<idx>" for an AI seat) — kept
         stable for the grader. For the Manager Exercise we also stamp an optional
@@ -40,11 +84,20 @@ class ConversationContext:
         uid/AI key) and `sender_seat` (used client-side to mark a viewer's OWN
         messages without ever revealing which seats are AI). Both default to None
         so the plain group-chat path stores exactly as before.
+
+        `reply_to` is the parent message's `mid` when this is a quote-reply. It is
+        resolved here into a denormalized preview object; an unresolvable parent just
+        drops the reply (renders as a normal message). Returning the stored dict lets
+        the socket layer echo the new `mid`/`reply_to` on its broadcast.
         """
         timestamp = datetime.now().isoformat()
 
         message = {
             "room_id": self.room_id,
+            # Stable client-visible id, immune to the turn-renumbering trim below, so a
+            # stored reply_to never silently re-points. Lives on the in-memory dict too,
+            # so it's available for the live broadcast (not only after a reload).
+            "mid": uuid.uuid4().hex,
             "sender": sender,
             "text": text,
             "timestamp": timestamp,
@@ -58,6 +111,11 @@ class ConversationContext:
         # a drift-prone display name. Only student posts carry it; ACTR posts pass None.
         if sender_uid is not None:
             message["sender_uid"] = sender_uid
+        # Quote-reply: freeze a self-contained preview of the parent onto this message.
+        if reply_to:
+            preview = self._build_reply_preview(reply_to)
+            if preview:
+                message["reply_to"] = preview
 
         # Sliding window — trim oldest in memory if over limit
         if len(self.messages) >= self.MAX_MESSAGES_PER_ROOM:
@@ -87,6 +145,8 @@ class ConversationContext:
             profile["message_count"] += 1
             profile["total_chars"] += len(text)
 
+        return message
+
     def recent_by_sender(self, sender: str, limit: int = 4) -> List[str]:
         """The last `limit` message texts from one sender, oldest first.
 
@@ -106,7 +166,14 @@ class ConversationContext:
         context = f"**Total Turns**: {len(self.messages)}\n\n### Recent Messages:\n"
 
         for msg in recent:
-            context += f"[{msg['turn']}] **{msg['sender']}**: {msg['text']}\n"
+            line = f"[{msg['turn']}] **{msg['sender']}**"
+            # Surface quote-reply structure to the model so it understands what a
+            # message is answering (and which student a reply is aimed at).
+            rt = msg.get("reply_to")
+            if rt and rt.get("snippet"):
+                line += f' ↳re:"{rt["snippet"]}"'
+            line += f": {msg['text']}\n"
+            context += line
 
         return context
 
@@ -119,15 +186,16 @@ class ConversationContext:
     # exactly like a human's and replay/grade uniformly. These thin wrappers keep
     # the sockets layer from reaching into ConversationContext internals.
 
-    def append_manager_message(self, sender_key: str, text: str, sender_role: str = None, sender_seat: int = None):
-        """Persist + record an AI-seat turn into the room transcript.
+    def append_manager_message(self, sender_key: str, text: str, sender_role: str = None, sender_seat: int = None, reply_to: str = None) -> Dict:
+        """Persist + record an AI-seat turn into the room transcript. Returns the stored dict.
 
         `sender_key` is the grader attribution key ("ai:<idx>"); `sender_role` is
         the seat's role name shown to clients (so the AI is indistinguishable from a
-        human manager) and `sender_seat` its index. Thin wrapper over add_message so
+        human manager) and `sender_seat` its index. `reply_to` is a parent mid when
+        the facilitator is answering one student. Thin wrapper over add_message so
         the sockets layer doesn't reach into ConversationContext internals.
         """
-        self.add_message(sender_key, text, sender_role=sender_role, sender_seat=sender_seat)
+        return self.add_message(sender_key, text, sender_role=sender_role, sender_seat=sender_seat, reply_to=reply_to)
 
     def transcript_for_grading(self) -> List[Dict]:
         """Flat [{sender, text}, ...] transcript for the LLM-judge grader.

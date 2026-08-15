@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   _facilitator_turn now passes ACTR its own recent turns (FACILITATOR_REPEAT_LOOKBACK) so a
+# @updated   2026-08-15
+# @changed   Quote-reply plumbing: _post/_post_facilitator accept a parent `reply_to` mid and echo the
+#            stored mid + denormalized reply_to on every broadcast; the plain group-chat path persists the
+#            human message BEFORE broadcasting (so it always has a mid and always persists) and hands its
+#            mid to the bot so the bot's reply attaches to it; the facilitator resolves a [REPLY:name]
+#            marker to that student's latest message and attaches its turn.
+#            Prior: _facilitator_turn now passes ACTR its own recent turns (FACILITATOR_REPEAT_LOOKBACK) so a
 #            repeated question is caught, plus the chosen candidate's outcome document so it is pinned
 #            into every turn rather than aging out of the transcript window.
 #            Prior: M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
@@ -124,7 +129,7 @@ def register_socket_events(socketio, app):
     # as ACTR is what used to put the facilitator in the room during round 1.
     SYSTEM_SENDER = "Exercise"
 
-    def _post(state, sender, text, uid=None):
+    def _post(state, sender, text, uid=None, reply_to=None):
         """Persist + broadcast one room message under a display name.
 
         `sender` stays the DISPLAY NAME (the facilitator reads the transcript by name).
@@ -132,27 +137,34 @@ def register_socket_events(socketio, app):
         and broadcast — so the client marks a viewer's OWN messages by stable id rather
         than by a display name that can drift from the roster (which rendered your own
         text as someone else's). ACTR / system / outcome posts pass no uid.
+
+        `reply_to` (a parent mid) makes this a quote-reply; the stored message's `mid`
+        and denormalized `reply_to` preview are echoed on the broadcast so every client
+        can render the quote block and scroll to the parent.
         """
-        get_or_create_context(state.room_id).add_message(
-            sender, text, sender_role=sender, sender_uid=uid,
+        stored = get_or_create_context(state.room_id).add_message(
+            sender, text, sender_role=sender, sender_uid=uid, reply_to=reply_to,
         )
         socketio.emit("message", {
             "room_id": state.room_id,
             "sender": sender,
             "sender_uid": uid,
             "text": text,
+            "mid": stored.get("mid"),
+            "reply_to": stored.get("reply_to"),
         }, room=state.room_id)
 
-    def _post_facilitator(state, text, go_around=False):
+    def _post_facilitator(state, text, go_around=False, reply_to=None):
         """Post an ACTR turn and reset its turn-taking counters.
 
         `note_facilitator_spoke` arms the quorum gate when the message opened a
         go-around — that is what stops ACTR replying to each student individually
-        as their answers trickle in.
+        as their answers trickle in. `reply_to` (a parent mid) attaches the turn to
+        the one student it answers instead of prefixing their name.
         """
         if not text:
             return
-        _post(state, FACILITATOR_SENDER, text)
+        _post(state, FACILITATOR_SENDER, text, reply_to=reply_to)
         state.note_facilitator_spoke(go_around)
 
     def _register_exercise_hooks(state, config_doc):
@@ -314,7 +326,18 @@ def register_socket_events(socketio, app):
                 # the pattern or moved past it, and either way ACTR is no longer
                 # waiting on anyone.
                 st.clear_go_around()
-                _post_facilitator(st, message, result.get("go_around", False))
+                # A [REPLY:name] marker attaches this turn to that student's latest
+                # message. Resolve by display name against the transcript; an unmatched
+                # name just yields no reply (the message still posts, un-attached).
+                reply_to_mid = None
+                reply_name = (result.get("reply_to_name") or "").strip().lower()
+                if reply_name:
+                    for m in reversed(ctx.messages):
+                        disp = (m.get("sender_role") or m.get("sender") or "")
+                        if disp.lower() == reply_name:
+                            reply_to_mid = m.get("mid")
+                            break
+                _post_facilitator(st, message, result.get("go_around", False), reply_to=reply_to_mid)
                 ended = bool(result.get("ended"))
             finally:
                 st = ex_state.get_exercise(room_id)
@@ -727,6 +750,8 @@ def register_socket_events(socketio, app):
         room_id = data.get('room_id')
         uid = data.get('uid')
         text = data.get('text')
+        # Quote-reply: the parent message's mid, if this message replies to one.
+        reply_to = data.get('reply_to')
 
         if not text or not room_id:
             return
@@ -749,7 +774,7 @@ def register_socket_events(socketio, app):
             # this doesn't count against deliberation. Idempotent after the first, and
             # a no-op outside round 1.
             state.arm_discuss_timer()
-            _post(state, state.display_name(uid), text, uid)
+            _post(state, state.display_name(uid), text, uid, reply_to=reply_to)
             state.note_student_message(uid)
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
             # Two paths, and they do different jobs. The immediate one asks ACTR
@@ -764,11 +789,21 @@ def register_socket_events(socketio, app):
             socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
             return
 
-        # ------------------- PLAIN GROUP CHAT PATH (unchanged) -------------------
-        # 1. Immediate broadcast to humans in the room
-        emit('message', {'sender': uid, 'text': text}, room=room_id)
-        # 2. Trigger AI background processing
-        socketio.start_background_task(process_ai_logic, app, room_id, uid, text, socketio)
+        # ------------------- PLAIN GROUP CHAT PATH -------------------
+        # 1. Persist the human message FIRST so it owns a stable mid and always
+        #    persists (previously it was broadcast un-stored, and never saved at all
+        #    in a bots-less group). Then broadcast with that mid + reply_to preview.
+        ctx = get_or_create_context(room_id)
+        stored = ctx.add_message(uid, text, reply_to=reply_to)
+        emit('message', {
+            'sender': uid,
+            'text': text,
+            'mid': stored.get('mid'),
+            'reply_to': stored.get('reply_to'),
+        }, room=room_id)
+        # 2. Trigger AI background processing, handing it the human message's mid so the
+        #    bot's reply attaches to it (the structured replacement for a "Name, …" prefix).
+        socketio.start_background_task(process_ai_logic, app, room_id, uid, text, socketio, stored.get('mid'))
 
     # ==================================================================
     # THE PICK (manager_exercise only)
@@ -881,8 +916,13 @@ def register_socket_events(socketio, app):
             logger.info(f"🔌 {uid} disconnected and removed from queue")
 
 
-def process_ai_logic(app, room_id, uid, text, socketio):
-    """Background task for RAG and AI Generation (plain group_chat only)."""
+def process_ai_logic(app, room_id, uid, text, socketio, parent_mid=None):
+    """Background task for RAG and AI Generation (plain group_chat only).
+
+    `parent_mid` is the human message's stable mid (already persisted by the socket
+    handler), so the bot reply can quote-attach to it. The handler owns persistence
+    now — this task no longer re-adds the human message.
+    """
     with app.app_context():
         try:
             # room_id format is "{config_id}_{8chars}" — extract the real config_id
@@ -911,8 +951,9 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             if not bots_config:
                 return
 
+            # The human message is already persisted by the socket handler (which owns
+            # its mid), so we only read the shared context here — no re-add.
             ctx = get_or_create_context(room_id)
-            ctx.add_message(uid, text)
 
             orch_history = ctx.get_context_summary(num_messages=10)
             chosen_bot_names = analyze_intent(text, bots_config, orch_history)
@@ -947,11 +988,18 @@ def process_ai_logic(app, room_id, uid, text, socketio):
                 reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
 
                 if reply:
-                    ctx.add_message(bot_instance.name, reply)
+                    # Attach the bot reply to the message that triggered it, so its
+                    # bubble quotes the exact student turn it answers.
+                    stored_reply = ctx.add_message(bot_instance.name, reply, reply_to=parent_mid)
                     socketio.sleep(1)
                     socketio.emit(
                         "message",
-                        {"sender": bot_instance.name, "text": reply},
+                        {
+                            "sender": bot_instance.name,
+                            "text": reply,
+                            "mid": stored_reply.get("mid"),
+                            "reply_to": stored_reply.get("reply_to"),
+                        },
                         room=room_id,
                     )
                 else:

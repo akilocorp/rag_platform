@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-15  @changed OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-15  @changed WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -26,7 +26,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft, FaLock,
   FaUserTie, FaCheckCircle, FaRegClock, FaChartLine, FaComments,
-  FaRedo, FaTimes,
+  FaRedo, FaTimes, FaReply,
 } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
@@ -417,6 +417,10 @@ const ManagerExercisePage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [chatLocked, setChatLocked] = useState(true);
+  // Quote-reply: the parent being replied to, and the mid briefly flashed after a
+  // click-to-scroll lands on it.
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [flashMid, setFlashMid] = useState(null);
 
   // ---- the pick ----
   // One member enters the decision on the team's behalf, so `voted` only guards
@@ -767,11 +771,15 @@ const ManagerExercisePage = () => {
           if (data.messages) {
             setMessages(data.messages.map((m) => ({
               sender: m.sender_role || m.sender, sender_uid: m.sender_uid, text: m.text,
+              mid: m.mid, reply_to: m.reply_to,
             })));
           }
         });
         socket.on('message', (data) => {
-          setMessages((prev) => [...prev, { sender: data.sender, sender_uid: data.sender_uid, text: data.text }]);
+          setMessages((prev) => [...prev, {
+            sender: data.sender, sender_uid: data.sender_uid, text: data.text,
+            mid: data.mid, reply_to: data.reply_to,
+          }]);
         });
 
         // Ballot opened/closed + live tally (M5). A FRESH open (closed→open) clears
@@ -901,8 +909,20 @@ const ManagerExercisePage = () => {
     if (!input.trim() || !socketRef.current || chatLocked) return;
     socketRef.current.emit('send_message', {
       room_id: roomId, uid: userIdRef.current, text: input,
+      reply_to: replyingTo?.mid || null,
     });
     setInput('');
+    setReplyingTo(null);
+  };
+
+  // Click a quote block → scroll to the parent and flash it. A gone parent is a no-op.
+  const scrollToMid = (mid) => {
+    if (!mid) return;
+    const el = document.getElementById(`me-msg-${mid}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashMid(mid);
+    setTimeout(() => setFlashMid((cur) => (cur === mid ? null : cur)), 1200);
   };
 
   // M9 round 0: commit privately. Moves this client to the handoff notice at once;
@@ -1146,8 +1166,23 @@ const ManagerExercisePage = () => {
           (msg.sender_uid && msg.sender_uid === userIdRef.current) ||
           (!msg.sender_uid && sender === displayNameRef.current)
         );
+        // Hover affordance on the bubble's inner side (opacity only, no layout shift).
+        const replyBtn = (
+          <button
+            type="button"
+            onClick={() => setReplyingTo({ mid: msg.mid, sender, text: msg.text })}
+            title="Reply"
+            className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#FA6C43] transition-opacity"
+          >
+            <FaReply className="text-xs" />
+          </button>
+        );
         return (
-          <div key={i} className={`flex gap-4 ${isMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+          <div
+            key={msg.mid ?? i}
+            id={msg.mid ? `me-msg-${msg.mid}` : undefined}
+            className={`group flex gap-4 ${isMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300 rounded-2xl transition-shadow ${flashMid && flashMid === msg.mid ? 'ring-2 ring-[#FA6C43]/60' : ''}`}
+          >
             {!isMe && (
               <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 ${
                 isFacilitator ? 'bg-[#FA6C43] text-white' : 'bg-[#F9D0C4]/60 text-[#FA6C43]'
@@ -1157,6 +1192,7 @@ const ManagerExercisePage = () => {
                   : <span className="text-xs font-bold">{sender.substring(0, 2).toUpperCase()}</span>}
               </div>
             )}
+            {isMe && replyBtn}
             <div className={`flex flex-col min-w-0 max-w-[88%] ${isMe ? 'items-end' : 'items-start'}`}>
               {!isMe && <span className="text-[10px] font-bold text-gray-500 ml-1 mb-1">{sender}</span>}
               <div className={`min-w-0 max-w-full rounded-2xl px-5 py-3 shadow-sm text-[15px] leading-[1.65] break-words overflow-hidden ${
@@ -1166,9 +1202,25 @@ const ManagerExercisePage = () => {
                     ? 'bg-white border-2 border-[#FA6C43]/30 text-[#222] rounded-bl-none'
                     : 'bg-white border border-gray-200 text-[#222] rounded-bl-none'
               }`}>
+                {/* Quote block — frozen preview of the parent; click scrolls to it. */}
+                {msg.reply_to && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToMid(msg.reply_to.mid)}
+                    className={`mb-2 w-full text-left rounded-lg border-l-2 pl-2.5 pr-2 py-1 transition-colors ${
+                      isMe
+                        ? 'border-white/70 bg-white/15 hover:bg-white/25'
+                        : 'border-[#FA6C43] bg-[#FA6C43]/5 hover:bg-[#FA6C43]/10'
+                    }`}
+                  >
+                    <span className={`block text-[11px] font-bold truncate ${isMe ? 'text-white/90' : 'text-[#C2410C]'}`}>{msg.reply_to.sender}</span>
+                    <span className={`block text-[12px] truncate ${isMe ? 'text-white/80' : 'text-gray-500'}`}>{msg.reply_to.snippet}</span>
+                  </button>
+                )}
                 <MessageBody text={msg.text} isMe={isMe} />
               </div>
             </div>
+            {!isMe && replyBtn}
             {isMe && (
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#F9D0C4]/60 flex items-center justify-center mt-1">
                 <RiUser3Line className="text-[#FA6C43] text-sm" />
@@ -1837,6 +1889,22 @@ const ManagerExercisePage = () => {
                 {readyCount}{readyTotal ? ` of ${readyTotal}` : ''} ready to vote
               </span>
             )}
+          </div>
+        )}
+        {/* Reply preview chip — what the next message will quote, with a cancel. */}
+        {replyingTo && !chatLocked && (
+          <div className="mb-3 flex items-center gap-3 rounded-xl border-l-2 border-[#FA6C43] bg-[#F9D0C4]/20 pl-3 pr-2 py-2 animate-chip-in">
+            <div className="flex-1 min-w-0">
+              <span className="block text-[11px] font-bold text-[#C2410C] truncate">Replying to {replyingTo.sender}</span>
+              <span className="block text-[12px] text-gray-500 truncate">{replyingTo.text}</span>
+            </div>
+            <button
+              onClick={() => setReplyingTo(null)}
+              title="Cancel reply"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-[#FA6C43] hover:bg-white transition-colors"
+            >
+              <FaTimes className="text-sm" />
+            </button>
           </div>
         )}
         <div className="w-full relative flex items-center gap-3">
