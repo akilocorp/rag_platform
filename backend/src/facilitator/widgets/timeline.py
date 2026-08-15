@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the ordered steps replay into history — the bot can answer
+#            questions about the sequence instead of denying a timeline was made.
 """
 timeline — a display-only ordered sequence of steps / stages / events.
 
@@ -8,6 +12,20 @@ The validator is STRICT — a step with no `label` is dropped, and fewer than tw
 usable steps rejects the whole widget (a one-item "sequence" isn't one).
 """
 from src.facilitator.base import widget
+
+
+def _to_transcript(data):
+    """Render the ordered steps into history so the bot can answer questions
+    about the sequence it produced."""
+    lines = ["[Timeline displayed to the user]"]
+    if data.get("title"):
+        lines.append(f"Title: {data['title']}")
+    for i, s in enumerate(data.get("steps") or [], 1):
+        line = f"{i}. {s.get('label')}"
+        if s.get("detail"):
+            line += f" — {s['detail']}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 @widget(
@@ -28,6 +46,7 @@ from src.facilitator.base import widget
         ),
     },
     interactive=False,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

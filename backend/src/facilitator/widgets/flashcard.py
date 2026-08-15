@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-07-19
-# @changed   Raise deck cap 8→20 so a full flashcard set lives entirely in the widget (no leftover prose).
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the full deck (every front/back) replays into history — the
+#            bot can answer questions about the cards instead of denying a deck was made.
+#            Prior: Raise deck cap 8→20 so a full flashcard set lives entirely in the widget (no leftover prose).
 """
 flashcard — a display-only deck of active-recall flip cards.
 
@@ -12,6 +14,17 @@ back, otherwise the whole widget is rejected and the turn falls back to plain
 text (a half-empty deck never renders).
 """
 from src.facilitator.base import widget
+
+
+def _to_transcript(data):
+    """Render every card (front → back) into history so the bot can answer
+    questions about the deck it produced."""
+    lines = ["[Flashcard deck displayed to the user]"]
+    if data.get("title"):
+        lines.append(f"Title: {data['title']}")
+    for i, c in enumerate(data.get("cards") or [], 1):
+        lines.append(f"{i}. {c.get('front')} → {c.get('back')}")
+    return "\n".join(lines)
 
 
 @widget(
@@ -35,6 +48,7 @@ from src.facilitator.base import widget
         ),
     },
     interactive=False,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

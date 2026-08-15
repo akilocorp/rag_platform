@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the scenario and each country's role/note replay into history —
+#            the bot can answer questions about the map instead of denying one was made.
 """
 impact_map — a display-of-a-scenario world choropleth.
 
@@ -32,6 +36,24 @@ def _num(v):
     return f
 
 
+def _to_transcript(data):
+    """Render the scenario and each country's role/note into history so the bot can
+    answer questions about the impact map it produced."""
+    lines = ["[Impact map (world choropleth) shown to the user]"]
+    if data.get("title"):
+        lines.append(f"Title: {data['title']}")
+    if data.get("scenario"):
+        lines.append(f"Scenario: {data['scenario']}")
+    for r in data.get("regions") or []:
+        line = f"{r.get('country')} ({r.get('role')})"
+        if r.get("note"):
+            line += f": {r['note']}"
+        lines.append(line)
+    if data.get("caption"):
+        lines.append(f"Caption: {data['caption']}")
+    return "\n".join(lines)
+
+
 @widget(
     id="impact_map",
     label="Impact map",
@@ -59,6 +81,7 @@ def _num(v):
         "caption": "optional string — a one-line takeaway shown under the map",
     },
     interactive=True,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

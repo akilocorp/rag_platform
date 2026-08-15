@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the central idea, tiles, distractors and the answer-key links
+#            replay into history — the bot can answer questions about the map instead of denying one was made.
 """
 mind_map — an interactive constructive-recall exercise.
 
@@ -45,6 +49,35 @@ def _clean_tiles(raw, taken_ids):
     return tiles
 
 
+def _to_transcript(data):
+    """Render the map's central idea, tiles, distractors and answer-key links into
+    history so the bot can answer questions about the exercise it produced. Link
+    ids are resolved back to their labels (ids are internal slugs)."""
+    central = data.get("central")
+    nodes = data.get("nodes") or []
+    label_by_id = {n.get("id"): n.get("label") for n in nodes}
+    label_by_id[CENTER_ID] = central
+    lines = [
+        "[Interactive mind map shown to the user]",
+        f"Central idea: {central}",
+        "Concept tiles: " + ", ".join(str(n.get("label")) for n in nodes),
+    ]
+    if data.get("distractors"):
+        lines.append(
+            "Distractor tiles: "
+            + ", ".join(str(d.get("label")) for d in data["distractors"])
+        )
+    links = data.get("correct_links") or []
+    if links:
+        rendered = [
+            f"{label_by_id.get(lk.get('from'), lk.get('from'))} — "
+            f"{label_by_id.get(lk.get('to'), lk.get('to'))}"
+            for lk in links
+        ]
+        lines.append("Answer key (correct connections): " + "; ".join(rendered))
+    return "\n".join(lines)
+
+
 @widget(
     id="mind_map",
     label="Mind map",
@@ -76,6 +109,7 @@ def _clean_tiles(raw, taken_ids):
         "instructions": "optional string — a one-line prompt shown above the canvas",
     },
     interactive=True,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

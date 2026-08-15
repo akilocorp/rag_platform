@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-10
-# @changed   Added GROUNDING_GUIDE to the system prompt — the agentic path had no rule about a silent
+# @updated   2026-08-15
+# @changed   When the facilitator is on, the system prompt now tells the bot its answer may become an
+#            interactive widget and that past widgets replay into history as bracketed content blocks — so a
+#            follow-up about a widget's contents is answered instead of denied.
+#            Prior: Added GROUNDING_GUIDE to the system prompt — the agentic path had no rule about a silent
 #            knowledge base or a user asserting something the material contradicts, so wrong answers were
 #            absorbed as fact. Prior: `temperature` gated by `accepts_temperature`.
 """
@@ -160,6 +163,24 @@ GROUNDING_GUIDE = (
     "soften it into agreement."
 )
 
+# Only added when the facilitator is enabled. The facilitator post-pass silently
+# turns your answer into an interactive widget (a chart, quiz, flashcard deck,
+# table, timeline, mind map, or impact map) drawn from the content of your reply.
+# Without telling the bot this, a follow-up like "what was the third data point?"
+# got a flat denial that any widget existed. On read, past widgets are folded back
+# into history as text (each widget's `to_transcript`), so the contents ARE in
+# context — this just tells the bot to trust and use them.
+FACILITATOR_AWARENESS = (
+    "\n\nInteractive widgets:\n"
+    "- An interactive study widget may be rendered from your answer and shown to "
+    "the user below your text (a chart, quiz, flashcards, table, timeline, mind "
+    "map, or map). Write your reply with the complete content it should hold.\n"
+    "- Earlier widgets you produced appear in this conversation's history as "
+    "bracketed '[... displayed to the user]' blocks listing their contents. Treat "
+    "those as widgets you created: when the user asks about one, answer from that "
+    "recorded content — never claim no widget was created."
+)
+
 
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
@@ -219,10 +240,13 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     fac = config.get('facilitator')
     facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
     chart_guide = '' if facilitator_on else CHART_GUIDE
+    # Tell the bot about the widget post-pass so it owns the widget it produced and
+    # can answer follow-ups about it (see FACILITATOR_AWARENESS).
+    facilitator_awareness = FACILITATOR_AWARENESS if facilitator_on else ''
 
     return (
         f"You are {bot_name}, an AI assistant.\n\n"
-        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}"
+        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}{facilitator_awareness}"
     )
 
 
