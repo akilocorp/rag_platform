@@ -1,14 +1,13 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-12
- * @changed   New page: upload a syllabus, get a per-session plan of where ACTR fits — with the
- *            logged-out preview, the "not a fit" weeks, and a follow-up question panel.
+ * @updated   2026-08-15
+ * @changed   Added a "Back to dashboard" link in the header so the page isn't a dead end.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiUploadCloud, FiFileText, FiCheckCircle, FiHelpCircle, FiLock, FiSend,
-  FiChevronDown, FiChevronRight, FiExternalLink, FiAlertCircle,
+  FiChevronDown, FiChevronRight, FiExternalLink, FiAlertCircle, FiArrowLeft,
 } from 'react-icons/fi';
 import apiClient from '../api/apiClient';
 
@@ -120,6 +119,13 @@ export default function CoursePlanPage() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 py-8">
+          {/* The page is otherwise a dead end — give the professor a way back to the dashboard. */}
+          <Link
+            to="/config_list"
+            className="inline-flex items-center gap-2 mb-4 text-sm text-slate-500 hover:text-slate-900 transition-colors"
+          >
+            <FiArrowLeft /> Back to dashboard
+          </Link>
           <h1 className="text-3xl font-bold text-slate-900">Where does ACTR fit in your course?</h1>
           <p className="mt-2 text-slate-600 max-w-2xl">
             Upload the syllabus you already teach from. We'll read it session by session and tell you
