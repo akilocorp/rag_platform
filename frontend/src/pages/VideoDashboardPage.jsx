@@ -1,6 +1,11 @@
+/*
+ * @language JavaScript (React / JSX)
+ * @updated 2026-08-15
+ * @changed Sidebar: Delivery View restyled from a +action button into a tab under a "View" category header
+ */
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaPlus, FaFilePdf } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaFilePdf } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const fmt10 = (v) => v != null ? (v / 10).toFixed(1) : '—';
@@ -283,13 +288,15 @@ export default function VideoDashboardPage() {
         <p className="text-sm text-gray-500 mb-6">{dash?.total_submissions || 0} submission{dash?.total_submissions === 1 ? '' : 's'}</p>
 
         <div className="flex gap-5 items-start">
-          {/* Sidebar */}
+          {/* Sidebar — Delivery View + Past Analyses read as two tab categories */}
           <aside className="w-52 shrink-0 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1">View</p>
+            {/* Default destination — styled as a tab (matches SidebarItem), not an action button */}
             <button
               onClick={() => setViewId(null)}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${!viewId ? 'bg-[#FA6C43] text-white' : 'bg-white border border-gray-200 text-gray-700 hover:border-[#FA6C43] hover:text-[#FA6C43]'}`}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${!viewId ? 'bg-[#FA6C43] text-white' : 'text-gray-700 hover:bg-gray-100'}`}
             >
-              <FaPlus className="text-[10px]" /> Delivery View
+              Delivery View
             </button>
             {analyses.length > 0 && (
               <>
