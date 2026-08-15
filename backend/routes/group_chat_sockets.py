@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-08-15
-# @changed   Quote-reply plumbing: _post/_post_facilitator accept a parent `reply_to` mid and echo the
+# @changed   Finished breakout rooms survive a backend restart: the lobby room list and the join guard now
+#            fall back to the durable manager_exercise_sessions phase when no in-memory ExerciseState exists,
+#            so a "done" room stays Finished/closed instead of reverting to an empty joinable slot that
+#            replays the previous group's transcript.
+#            Prior: Quote-reply plumbing: _post/_post_facilitator accept a parent `reply_to` mid and echo the
 #            stored mid + denormalized reply_to on every broadcast; the plain group-chat path persists the
 #            human message BEFORE broadcasting (so it always has a mid and always persists) and hands its
 #            mid to the bot so the bot's reply attaches to it; the facilitator resolves a [REPLY:name]
@@ -365,6 +369,20 @@ def register_socket_events(socketio, app):
     def _lobby_channel(config_id):
         return f"lobby:{config_id}"
 
+    def _durable_room_phase(room_id):
+        """Phase from the durable `manager_exercise_sessions` doc, or WAITING if none.
+
+        Used when no in-memory ExerciseState exists (e.g. after a backend restart):
+        _enter_done persists phase="done", so this keeps a finished room finished even
+        though `ex_state.get_exercise` returns None until something rebuilds it.
+        """
+        try:
+            doc = ManagerExerciseSession.find_by_room(room_id)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"durable phase lookup failed for {room_id}: {e}")
+            return ex_state.PHASE_WAITING
+        return (doc or {}).get("phase") or ex_state.PHASE_WAITING
+
     def _lobby_rooms(config_id, me_config):
         """Live view of every breakout room: who's in it and whether it has begun.
 
@@ -381,12 +399,24 @@ def register_socket_events(socketio, app):
         except (TypeError, ValueError):
             capacity = 3
 
+        # Durable phase per room in ONE query, so a finished room survives a restart
+        # in the lobby (in-memory ex_state is gone then, but the session doc isn't).
+        durable_phase = {}
+        try:
+            for doc in ManagerExerciseSession.find_by_config(config_id):
+                rid = doc.get("room_id")
+                if rid:
+                    durable_phase[rid] = doc.get("phase") or ex_state.PHASE_WAITING
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"lobby durable-phase load failed for {config_id}: {e}")
+
         rooms = []
         for i in range(1, num_rooms + 1):
             rid = _room_id_for(config_id, i)
             members = _room_members.get(rid, {})
             st = ex_state.get_exercise(rid)
-            phase = st.phase() if st else ex_state.PHASE_WAITING
+            # Prefer live state; fall back to the durable phase so "Finished" sticks.
+            phase = st.phase() if st else durable_phase.get(rid, ex_state.PHASE_WAITING)
             rooms.append({
                 "room_id": rid,
                 "index": i,
@@ -586,7 +616,10 @@ def register_socket_events(socketio, app):
         room_id = _room_id_for(config_id, index)
 
         state = ex_state.get_exercise(room_id)
-        if state is not None and state.phase() == ex_state.PHASE_DONE:
+        # Honour the durable phase when there's no live state (post-restart), so a
+        # finished room refuses entry instead of replaying its transcript to a joiner.
+        phase = state.phase() if state is not None else _durable_room_phase(room_id)
+        if phase == ex_state.PHASE_DONE:
             emit('breakout_error', {'reason': 'finished', 'room_id': room_id}, to=request.sid)
             return
         try:
