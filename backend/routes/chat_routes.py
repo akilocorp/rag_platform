@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-10
-# @changed   Facilitator widgets are no longer invisible to the bot: stored blocks replay into history as text
+# @updated   2026-08-16
+# @changed   Agentic path: inline render_widget tool widgets. `facilitator` events from the runner are
+#            forwarded at position and collected as a LIST on additional_kwargs.facilitator; the post-pass
+#            is skipped when the tool is active; render_widget tool_use/result aren't forwarded as pills;
+#            _inline_facilitator now replays a list or a legacy dict.
+#            Prior: Facilitator widgets are no longer invisible to the bot: stored blocks replay into history as text
 #            (`_inline_facilitator`), a clicked option carries a model-only note back to its question
 #            (`_facilitator_answer_note`) and steers retrieval, and an empty prompt_template now falls back.
 #            Prior: the Claude branch omits `temperature` for models that reject sampling parameters.
@@ -8,6 +12,7 @@ from flask import Blueprint, request, jsonify, current_app, Response, stream_wit
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
 import json
+import os
 import re
 import time
 import requests
@@ -477,15 +482,27 @@ def _inline_facilitator(message):
     """
     if not isinstance(message, AIMessage):
         return message
-    block = (message.additional_kwargs or {}).get("facilitator")
-    if not isinstance(block, dict) or not block.get("widget"):
+    stored = (message.additional_kwargs or {}).get("facilitator")
+    # Two shapes: a single dict (legacy post-pass) or a list of inline widgets
+    # (render_widget tool). Render each to its transcript and fold all in, in order.
+    if isinstance(stored, dict):
+        blocks = [stored]
+    elif isinstance(stored, list):
+        blocks = [b for b in stored if isinstance(b, dict)]
+    else:
         return message
-    rendered = facilitator_registry.to_transcript(block["widget"], block.get("data"))
-    if not rendered:
+    rendered_parts = []
+    for block in blocks:
+        if not block.get("widget"):
+            continue
+        rendered = facilitator_registry.to_transcript(block["widget"], block.get("data"))
+        if rendered:
+            rendered_parts.append(rendered)
+    if not rendered_parts:
         return message
     content = message.content if isinstance(message.content, str) else ""
     return AIMessage(
-        content=(content + "\n\n" + rendered).strip(),
+        content=(content + "\n\n" + "\n\n".join(rendered_parts)).strip(),
         additional_kwargs=message.additional_kwargs,
     )
 
@@ -882,6 +899,16 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         # whatever the tools returned this turn. Collected here so the facilitator
         # can ground its widget in the passages rather than in the bot's prose.
         tool_context = []
+        # Inline widgets the model rendered via the render_widget tool this turn, in
+        # stream order. Each carries its tool_use_id so the reload path can re-interleave
+        # them against the text using the tool_trace ordering.
+        facilitator_blocks = []
+        # When the render_widget tool owns widgets, the post-pass is skipped (no double
+        # widget). Mirrors the tool's own gate: kill-switch on AND facilitator enabled.
+        widget_tool_on = (
+            os.getenv("FACILITATOR_TOOL", "1").strip().lower() not in ("0", "false", "no", "off", "")
+            and _facilitator_enabled(config_doc)
+        )
 
         for event in stream_agentic_response(
             config=config_doc,
@@ -894,7 +921,19 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             if etype == "token":
                 accumulated_text += event.get("data") or ""
                 yield json.dumps(event) + "\n"
+            elif etype == "facilitator":
+                # An inline widget rendered by render_widget — forward at position and
+                # keep it (with its tool_use id) for persistence.
+                facilitator_blocks.append({
+                    "widget": event.get("widget"),
+                    "data": event.get("data"),
+                    "tool_use_id": event.get("id"),
+                })
+                yield json.dumps(event) + "\n"
             elif etype in ("tool_use", "tool_result"):
+                # render_widget surfaces as its own inline widget, not a tool pill.
+                if event.get("name") == "render_widget":
+                    continue
                 if etype == "tool_result" and not event.get("is_error"):
                     content = event.get("content")
                     if isinstance(content, str) and content.strip():
@@ -906,21 +945,20 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 # Don't ship assistant_blocks to the client (large + redundant
                 # with the token stream and individual tool events).
                 done_payload = {"type": "done", "stop_reason": final_stop_reason}
-                # Charge one message only on a successful turn.
-                if identity is not None and final_stop_reason != "error" and accumulated_text.strip():
+                # Charge one message only on a successful turn (a widget-only turn counts).
+                if (identity is not None and final_stop_reason != "error"
+                        and (accumulated_text.strip() or facilitator_blocks)):
                     try:
                         done_payload["usage"] = usage_limits.consume(identity, 1)
                     except Exception as e:
                         logger.error("usage consume (agentic) failed: %s", e)
                 yield json.dumps(done_payload) + "\n"
 
-        # Facilitator post-pass — wrap the reply with an interactive UI widget
-        # (e.g. multiple choice or a chart) when the bot's config enables it.
-        # Best-effort; a failure never affects the turn. Emit a `pending` signal
-        # first so the UI can show a "building…" skeleton during the extra call,
-        # then always emit a result (widget or null) so the skeleton clears.
+        # Legacy facilitator post-pass — ONLY when the render_widget tool is NOT the
+        # widget owner (kill-switch off, or facilitator disabled). Emits a single
+        # end-appended widget, exactly as before. Best-effort; never affects the turn.
         facilitator_block = None
-        if (final_stop_reason != "error" and accumulated_text.strip()
+        if (not widget_tool_on and final_stop_reason != "error" and accumulated_text.strip()
                 and _facilitator_enabled(config_doc)):
             yield json.dumps({"type": "facilitator_pending"}) + "\n"
             facilitator_block = _facilitator_stage(
@@ -936,8 +974,8 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         # Persist this turn. User message first, then AI message with the
         # full trace so frontend replay can re-render the tool pills.
         # Skip on error — don't write a user-visible error string as if it
-        # were a real model response.
-        if final_stop_reason != "error" and accumulated_text.strip():
+        # were a real model response. A widget-only turn (sparse text) still persists.
+        if final_stop_reason != "error" and (accumulated_text.strip() or facilitator_blocks):
             try:
                 if attached_files:
                     history_obj.pending_attached_files = attached_files
@@ -945,7 +983,11 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 extra_kwargs = {}
                 if full_trace:
                     extra_kwargs["tool_trace"] = full_trace
-                if facilitator_block:
+                # Inline widgets persist as a LIST (re-interleaved on reload via the
+                # trace); the legacy post-pass persists a single dict block.
+                if facilitator_blocks:
+                    extra_kwargs["facilitator"] = facilitator_blocks
+                elif facilitator_block:
                     extra_kwargs["facilitator"] = facilitator_block
                 ai_msg = AIMessage(
                     content=accumulated_text,

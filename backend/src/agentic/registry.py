@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-16
+# @changed   get_tool_specs honours a tool's optional build_spec(config) hook so a per-request spec
+#            (e.g. render_widget's config-derived widget enum) is used in place of the static spec.
 """
 Public registry API used by the agent runner.
 
@@ -14,8 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 def get_tool_specs(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Return Anthropic-shaped tool specs that are enabled for this config."""
-    return [t["spec"] for t in base.TOOLS.values() if t["enabled_when"](config)]
+    """Return Anthropic-shaped tool specs that are enabled for this config.
+
+    A tool may declare `build_spec(config)` to rebuild its spec per-request
+    (e.g. an enum whose values depend on the config); otherwise its static
+    spec is used.
+    """
+    specs = []
+    for t in base.TOOLS.values():
+        if not t["enabled_when"](config):
+            continue
+        builder = t.get("build_spec")
+        specs.append(builder(config) if builder else t["spec"])
+    return specs
 
 
 def get_tool_names() -> List[str]:

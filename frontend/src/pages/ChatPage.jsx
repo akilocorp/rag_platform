@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-10
- * @changed   A facilitator widget answer now posts `facilitator_answer` alongside the message so the backend can
+ * @updated   2026-08-16
+ * @changed   Inline widgets: an AI message now renders an ordered `parts` sequence (text segments +
+ *            render_widget widgets interleaved at their stream position), built live from `facilitator`
+ *            events and rebuilt on reload from the tool_trace ordering. render_widget is kept out of the
+ *            thinking pills. Legacy single-block (dict) facilitator messages still render end-appended.
+ *            Prior: A facilitator widget answer now posts `facilitator_answer` alongside the message so the backend can
  *            tie the clicked option back to its question. Prior: no init spinner on existing-chat redirects.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -38,12 +42,21 @@ const extractToolCallsFromTrace = (trace) => {
   if (!Array.isArray(trace)) return [];
   const calls = [];
   const byId = {};
+  // render_widget renders as an inline widget, not a "Show thinking" pill.
+  const widgetIds = new Set();
+  for (const block of trace) {
+    if (block?.type === 'tool_use' && block.name === 'render_widget') {
+      widgetIds.add(block.id);
+    }
+  }
   for (const block of trace) {
     if (block?.type === 'tool_use') {
+      if (block.name === 'render_widget') continue;
       const call = { id: block.id, name: block.name, input: block.input || {} };
       calls.push(call);
       byId[block.id] = call;
     } else if (block?.type === 'tool_result') {
+      if (widgetIds.has(block.tool_use_id)) continue;
       const call = byId[block.tool_use_id];
       if (call) {
         call.result = typeof block.content === 'string'
@@ -54,6 +67,33 @@ const extractToolCallsFromTrace = (trace) => {
     }
   }
   return calls;
+};
+
+// Rebuild the ordered text/widget sequence for a reloaded AI message. The tool_trace
+// already interleaves text blocks and render_widget tool_use blocks in stream order, so
+// we walk it, accumulating text and flushing a widget each time a render_widget tool_use
+// appears (joined to its stored block by tool_use_id). A render_widget with no stored
+// block (it failed validation) is skipped, so the text just flows past it. Returns null
+// when there's nothing to interleave (caller falls back to legacy rendering).
+const buildInlineParts = (trace, facilitatorList) => {
+  if (!Array.isArray(facilitatorList) || facilitatorList.length === 0) return null;
+  const byId = {};
+  for (const b of facilitatorList) { if (b?.tool_use_id) byId[b.tool_use_id] = b; }
+
+  if (!Array.isArray(trace) || trace.length === 0) return null;
+  const parts = [];
+  let buf = '';
+  const flush = () => { if (buf.trim()) parts.push({ kind: 'text', text: buf }); buf = ''; };
+  for (const block of trace) {
+    if (block?.type === 'text') {
+      buf += (typeof block.text === 'string' ? block.text : '');
+    } else if (block?.type === 'tool_use' && block.name === 'render_widget') {
+      const w = byId[block.id];
+      if (w && w.widget) { flush(); parts.push({ kind: 'widget', widget: w.widget, data: w.data }); }
+    }
+  }
+  flush();
+  return parts.length ? parts : null;
 };
 
 const safeHostname = (url) => {
@@ -385,6 +425,24 @@ function dropOrphanedHeadings(lines) {
   });
 }
 
+// One markdown text segment of an AI reply. Its own ref + effect, so several can
+// render between inline widgets — each mounts charts and wraps defineable words.
+// Definition hover is handled by the parent wrapper (events bubble up), so a segment
+// needs no mouse handlers of its own.
+const MarkdownSegment = React.memo(({ text }) => {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.innerHTML = renderMarkdown(text || '');
+    mountCharts(el);
+    loadDefineableSet().then((set) => {
+      if (ref.current === el) wrapDefineableWordsInDom(el, set);
+    });
+  }, [text]);
+  return <div ref={ref} className="chat-message-md prose max-w-none chat-message-md--light" />;
+});
+
 // --- MODERN CHAT MESSAGE COMPONENT ---
 const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit }) => {
   const { sender, text, isTyping } = message;
@@ -577,27 +635,56 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
 
           {showThinking ? (
             <ThinkingIndicator />
+          ) : (!isUser && message.parts && message.parts.length) ? (
+            // Inline mode: ordered text segments + render_widget widgets interleaved
+            // at their stream position. Hover handlers live on the wrapper so the
+            // definition popover works across every inner segment.
+            <div onMouseOver={handleDefMouseOver} onMouseOut={handleDefMouseOut}>
+              {message.parts.map((part, i) => {
+                if (part.kind === 'widget') {
+                  return (
+                    <FacilitatorBlock
+                      key={`w${i}`}
+                      block={{ widget: part.widget, data: part.data }}
+                      onSubmit={(value, meta) => onFacilitatorSubmit?.(value, meta)}
+                      disabled={!isLast}
+                    />
+                  );
+                }
+                // Text segment — strip prose the widget that immediately follows
+                // already renders (flashcards hold everything, so blank the lead-in).
+                const next = message.parts[i + 1];
+                let segText = part.text || '';
+                if (next && next.kind === 'widget') {
+                  segText = next.widget === 'flashcard'
+                    ? ''
+                    : stripRedundantWidgetText(segText, { widget: next.widget, data: next.data });
+                }
+                if (!segText.trim()) return null;
+                return <MarkdownSegment key={`t${i}`} text={segText} />;
+              })}
+            </div>
           ) : (
-            <div
-              ref={mdRef}
-              onMouseOver={handleDefMouseOver}
-              onMouseOut={handleDefMouseOut}
-              className={`chat-message-md prose max-w-none ${
-                isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
-              }`}
-            />
-          )}
-
-          {!isUser && message.facilitator && (
-            <FacilitatorBlock
-              block={message.facilitator}
-              onSubmit={(value, meta) => onFacilitatorSubmit?.(value, meta)}
-              disabled={!isLast}
-            />
-          )}
-
-          {!isUser && message.facilitatorPending && !message.facilitator && (
-            <FacilitatorPending />
+            <>
+              <div
+                ref={mdRef}
+                onMouseOver={handleDefMouseOver}
+                onMouseOut={handleDefMouseOut}
+                className={`chat-message-md prose max-w-none ${
+                  isUser ? 'chat-message-md--invert prose-invert' : 'chat-message-md--light'
+                }`}
+              />
+              {!isUser && message.facilitator && (
+                <FacilitatorBlock
+                  block={message.facilitator}
+                  onSubmit={(value, meta) => onFacilitatorSubmit?.(value, meta)}
+                  disabled={!isLast}
+                />
+              )}
+              {!isUser && message.facilitatorPending && !message.facilitator && (
+                <FacilitatorPending />
+              )}
+            </>
           )}
       </div>
 
@@ -1218,12 +1305,23 @@ const ChatPage = () => {
           const trace = msg.data?.additional_kwargs?.tool_trace;
           const attached = msg.data?.additional_kwargs?.attached_files;
           const facilitator = msg.data?.additional_kwargs?.facilitator;
+          // A list = inline render_widget widgets → rebuild ordered parts from the
+          // trace. A dict = legacy single post-pass widget → render end-appended.
+          const isList = Array.isArray(facilitator);
+          let parts = isList ? buildInlineParts(trace, facilitator) : null;
+          if (isList && !parts && facilitator.length) {
+            // Defensive: widgets stored but trace ordering unavailable — stack them
+            // after the text rather than losing them.
+            parts = [{ kind: 'text', text: msg.data.content || '' }]
+              .concat(facilitator.filter(b => b?.widget).map(b => ({ kind: 'widget', widget: b.widget, data: b.data })));
+          }
           return {
             sender: msg.type === 'human' ? 'user' : 'ai',
             text: msg.data.content,
             tool_calls: trace ? extractToolCallsFromTrace(trace) : [],
             attachedFiles: Array.isArray(attached) ? attached : [],
-            facilitator: facilitator && facilitator.widget ? facilitator : undefined,
+            facilitator: (!isList && facilitator && facilitator.widget) ? facilitator : undefined,
+            parts: parts || undefined,
           };
         }));
       } catch (e) { console.error("History load failed", e); }
@@ -1321,6 +1419,11 @@ const ChatPage = () => {
       const decoder = new TextDecoder();
       let accumulatedText = '';
       let currentSentence = '';
+      // Inline-widget interleaving: `closedParts` is null until the first inline
+      // widget arrives (so non-widget replies keep the plain text render path);
+      // `openText` is the text accumulated since the last widget.
+      let closedParts = null;
+      let openText = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1335,11 +1438,22 @@ const ChatPage = () => {
             if (content && (data.type === 'token' || !data.type)) {
               accumulatedText += content;
               currentSentence += content;
+              openText += content;
 
+              // In inline mode, the live parts are the closed segments plus the
+              // still-open trailing text.
+              const livePartsToken = closedParts !== null
+                ? closedParts.concat(openText.trim() ? [{ kind: 'text', text: openText }] : [])
+                : undefined;
               setMessages(prev => {
                 const newMsgs = [...prev];
                 const lastIdx = newMsgs.length - 1;
-                newMsgs[lastIdx] = { ...newMsgs[lastIdx], text: accumulatedText, isTyping: false };
+                newMsgs[lastIdx] = {
+                  ...newMsgs[lastIdx],
+                  text: accumulatedText,
+                  isTyping: false,
+                  ...(livePartsToken ? { parts: livePartsToken } : {}),
+                };
                 return newMsgs;
               });
 
@@ -1392,8 +1506,24 @@ const ChatPage = () => {
                 newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: true };
                 return newMsgs;
               });
+            } else if (data.type === 'facilitator' && data.id) {
+              // Inline widget from the render_widget tool (carries a tool_use `id`).
+              // Close the open text segment, drop the widget in at this position,
+              // then start a fresh text segment.
+              if (closedParts === null) closedParts = [];
+              if (openText.trim()) closedParts.push({ kind: 'text', text: openText });
+              openText = '';
+              if (data.widget) closedParts.push({ kind: 'widget', widget: data.widget, data: data.data });
+              const livePartsWidget = closedParts.slice();
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, parts: livePartsWidget };
+                return newMsgs;
+              });
             } else if (data.type === 'facilitator') {
-              // Result of the post-pass. `widget` is null when no widget fits —
+              // Legacy post-pass result (no `id`). `widget` is null when none fits —
               // in that case just clear the skeleton and render nothing.
               setMessages(prev => {
                 const newMsgs = [...prev];

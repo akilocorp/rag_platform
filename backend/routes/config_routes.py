@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-10
-# @changed   Extracted the legacy prompt wrapper into `build_prompt_template` so the edit route can reuse it
+# @updated   2026-08-16
+# @changed   New Claude bots default the facilitator ON (opt-out kept): _default_facilitator_raw seeds an
+#            enabled block on create when the payload omits one and the model is Claude.
+#            Prior: Extracted the legacy prompt wrapper into `build_prompt_template` so the edit route can reuse it
 #            and stop blanking prompt_template on save. Prior: config copy/paste via clipboard tokens.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
@@ -16,6 +18,16 @@ from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
+
+
+def _default_facilitator_raw(raw, model_name):
+    """Seed an enabled facilitator block for a new Claude bot when the create payload
+    omits one, so widgets are on by default (opt-out). An explicit block is returned
+    unchanged, so an unchecked toggle (enabled:false) is honoured. Non-Claude / present
+    blocks are untouched."""
+    if raw is None and str(model_name or '').lower().startswith('claude'):
+        return {"enabled": True}
+    return raw
 from src.managers import class_presets
 from src.managers import facilitator_prompt
 
@@ -769,7 +781,13 @@ def configure_model():
             "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
-            "facilitator": normalize_facilitator(config_data.get('facilitator')),
+            # Default the facilitator ON for new Claude bots (opt-out kept). When the
+            # create payload carries no facilitator block AND the model is Claude, seed
+            # an enabled one; an explicit block (the wizard always sends one) passes
+            # through untouched, so unchecking it still yields enabled:false. Create
+            # route only — existing configs are never modified.
+            "facilitator": normalize_facilitator(_default_facilitator_raw(
+                config_data.get('facilitator'), llm_type)),
         }
 
         # Video-analysis configs carry an assignment type + an editable scoring spec.

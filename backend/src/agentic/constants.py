@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-16
+# @changed   Added a render_widget per-turn cap (5) so a bot can render several inline widgets without
+#            running away against MAX_TOOL_ROUNDS.
 """
 Agentic safety + budget constants.
 
@@ -21,6 +25,10 @@ MAX_TOOL_ROUNDS = 8
 MAX_USES_PER_TOOL = {
     "web_search": 5,
     "web_fetch": 5,
+    # render_widget: multiple inline widgets per reply are the point, but each call
+    # costs a tool round against MAX_TOOL_ROUNDS (8), so 5 bounds a runaway while
+    # leaving room for a couple of search rounds in the same turn.
+    "render_widget": 5,
 }
 
 # Anthropic max_tokens per stream round. 2048 covers synthesis + citations

@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-15
-# @changed   When the facilitator is on, the system prompt now tells the bot its answer may become an
+# @updated   2026-08-16
+# @changed   render_widget tool support: when the tool is available the system prompt tells the bot to call
+#            it inline (multiple per reply), and the loop emits an inline `facilitator` event at the tool's
+#            stream position so the widget renders where it was called.
+#            Prior: When the facilitator is on, the system prompt now tells the bot its answer may become an
 #            interactive widget and that past widgets replay into history as bracketed content blocks — so a
 #            follow-up about a widget's contents is answered instead of denied.
 #            Prior: Added GROUNDING_GUIDE to the system prompt — the agentic path had no rule about a silent
@@ -181,6 +184,25 @@ FACILITATOR_AWARENESS = (
     "recorded content — never claim no widget was created."
 )
 
+# Used instead of FACILITATOR_AWARENESS when the `render_widget` tool is available:
+# the bot now CREATES widgets deliberately by calling the tool, inline, and may call
+# it several times in one reply (once per widget-worthy section). This is what makes
+# widgets land between the paragraphs they illustrate rather than stacked at the end.
+FACILITATOR_TOOL_GUIDE = (
+    "\n\nInteractive widgets:\n"
+    "- When a section of your reply would land better as an interactive element "
+    "(a chart, quiz, flashcards, comparison table, timeline, mind map, or map), call "
+    "the `render_widget` tool RIGHT AFTER that section — the widget appears inline, "
+    "exactly where you call it.\n"
+    "- You may call `render_widget` more than once in a single reply: once per "
+    "widget-worthy section, as many as genuinely help (a few at most). Don't force one "
+    "where plain prose is better, and don't restate the widget's contents in prose "
+    "around it.\n"
+    "- Earlier widgets you produced appear in this conversation's history as bracketed "
+    "'[... displayed to the user]' blocks listing their contents. When the user asks "
+    "about one, answer from that recorded content — never claim no widget was created."
+)
+
 
 def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
@@ -240,13 +262,19 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
     fac = config.get('facilitator')
     facilitator_on = bool(isinstance(fac, dict) and fac.get('enabled'))
     chart_guide = '' if facilitator_on else CHART_GUIDE
-    # Tell the bot about the widget post-pass so it owns the widget it produced and
-    # can answer follow-ups about it (see FACILITATOR_AWARENESS).
-    facilitator_awareness = FACILITATOR_AWARENESS if facilitator_on else ''
+    # When the render_widget tool is available the bot CREATES widgets itself, inline
+    # (FACILITATOR_TOOL_GUIDE); otherwise the post-pass makes one from its answer and
+    # we only tell it that widgets exist (FACILITATOR_AWARENESS).
+    if 'render_widget' in tool_names:
+        facilitator_guide = FACILITATOR_TOOL_GUIDE
+    elif facilitator_on:
+        facilitator_guide = FACILITATOR_AWARENESS
+    else:
+        facilitator_guide = ''
 
     return (
         f"You are {bot_name}, an AI assistant.\n\n"
-        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}{facilitator_awareness}"
+        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}{facilitator_guide}"
     )
 
 
@@ -425,6 +453,7 @@ def stream_agentic_response(
             cap = MAX_USES_PER_TOOL.get(tu_name)
             current = tool_use_counts.get(tu_name, 0)
             tool_use_counts[tu_name] = current + 1
+            widget_payload = None
             if cap is not None and current >= cap:
                 content = (
                     f"Tool '{tu_name}' has reached its per-turn limit of {cap}. "
@@ -435,6 +464,11 @@ def stream_agentic_response(
                 result = execute(tu_name, tu_input, ctx)
                 content = result.get("content") or ""
                 is_error = bool(result.get("is_error"))
+                # render_widget hands back a validated widget on its side channel.
+                if tu_name == "render_widget" and not is_error:
+                    wp = result.get("facilitator")
+                    if isinstance(wp, dict) and wp.get("widget"):
+                        widget_payload = wp
 
             yield {
                 "type": "tool_result",
@@ -450,6 +484,17 @@ def stream_agentic_response(
                 "content": content,
                 "is_error": is_error,
             })
+
+            # Emit the widget inline, right after its tool_result, so the client
+            # renders it at this position between text segments. `id` is the
+            # tool_use id — the join key the reload path uses to re-interleave.
+            if widget_payload is not None:
+                yield {
+                    "type": "facilitator",
+                    "id": tu_id,
+                    "widget": widget_payload["widget"],
+                    "data": widget_payload["data"],
+                }
 
         full_trace.extend(tool_result_blocks)
         messages.append({"role": "user", "content": tool_result_blocks})

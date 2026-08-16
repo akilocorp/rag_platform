@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-07
-// @changed   Added Claude Opus 5 to the model picker.
+// @updated   2026-08-16
+// @changed   New Claude bots default the facilitator toggle ON (opt-out): initial state enabled, the model
+//            picker syncs enabled=isClaude until the professor touches the toggle.
+//            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
 //            carries the category, per-row field tag dropped).
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -179,7 +181,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
     web_access: true,
     audio_enabled: false,
     hume_config_id: '',
-    facilitator: { enabled: false, instruction: '', allowedWidgets: null, presets: [] },
+    // Default ON: the initial model is Claude, and new Claude bots default the
+    // facilitator on (opt-out). Kept in sync with the model until the professor
+    // touches the toggle (facilitatorTouchedRef).
+    facilitator: { enabled: true, instruction: '', allowedWidgets: null, presets: [] },
     bot_avatar: 'robot',
     introduction: '',
     // Video Analysis Specifics
@@ -257,6 +262,21 @@ const ConfigModal = ({ isOpen, onClose }) => {
       fetchAvatars();
     }
   }, [config.bot_type]);
+
+  // Set once the professor touches the facilitator toggle, which stops the
+  // model→facilitator default from overriding their explicit choice.
+  const facilitatorTouchedRef = useRef(false);
+
+  // Picking a model defaults the facilitator on for Claude / off otherwise, unless
+  // the professor has already set the toggle themselves.
+  const applyModel = (prev, modelId) => {
+    const next = { ...prev, model_name: modelId };
+    if (!facilitatorTouchedRef.current) {
+      const isClaude = (modelId || '').toLowerCase().startsWith('claude');
+      next.facilitator = { ...(prev.facilitator || {}), enabled: isClaude };
+    }
+    return next;
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -1051,7 +1071,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">{config.bot_type === 'group_chat' ? 'Select Default Lobby AI' : 'Pick the Base AI Model'}</h2>
                   <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
                     {aiModels.map(model => (
-                      <div key={model.id} onClick={() => setConfig(prev => ({...prev, model_name: model.id}))} className={`cursor-pointer p-4 border-2 rounded-xl transition-all ${config.model_name === model.id ? 'border-[#FA6C43] bg-[#F9D0C4]/10 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                      <div key={model.id} onClick={() => setConfig(prev => applyModel(prev, model.id))} className={`cursor-pointer p-4 border-2 rounded-xl transition-all ${config.model_name === model.id ? 'border-[#FA6C43] bg-[#F9D0C4]/10 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                         <h3 className="font-bold text-[#222]">{model.name}</h3>
                         {model.desc && <p className="text-sm text-gray-500 font-medium mt-1">{model.desc}</p>}
                       </div>
@@ -1093,7 +1113,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                           type="checkbox"
                           className="sr-only peer"
                           checked={!!config.facilitator?.enabled}
-                          onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                          onChange={(e) => { facilitatorTouchedRef.current = true; setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } })); }}
                         />
                         <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
                       </span>
@@ -1652,7 +1672,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                             type="checkbox"
                             className="sr-only peer"
                             checked={!!config.facilitator?.enabled}
-                            onChange={(e) => setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } }))}
+                            onChange={(e) => { facilitatorTouchedRef.current = true; setConfig(prev => ({ ...prev, facilitator: { ...(prev.facilitator || {}), enabled: e.target.checked } })); }}
                           />
                           <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
                         </span>
