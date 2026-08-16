@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-08-16
-# @changed   Added a render_widget per-turn cap (5) so a bot can render several inline widgets without
+# @changed   Tightened the render_widget per-turn cap 5->3: a widget that keeps failing validation could
+#            otherwise burn most of MAX_TOOL_ROUNDS invisibly (the thinking spinner froze for minutes).
+#            Prior: Added a render_widget per-turn cap (5) so a bot can render several inline widgets without
 #            running away against MAX_TOOL_ROUNDS.
 """
 Agentic safety + budget constants.
@@ -25,10 +27,12 @@ MAX_TOOL_ROUNDS = 8
 MAX_USES_PER_TOOL = {
     "web_search": 5,
     "web_fetch": 5,
-    # render_widget: multiple inline widgets per reply are the point, but each call
-    # costs a tool round against MAX_TOOL_ROUNDS (8), so 5 bounds a runaway while
-    # leaving room for a couple of search rounds in the same turn.
-    "render_widget": 5,
+    # render_widget: a few inline widgets per reply are the point, but each call
+    # costs a tool round against MAX_TOOL_ROUNDS (8). Capped at 3 so a widget that
+    # repeatedly fails validation can't quietly burn the whole turn (which showed
+    # up as a "frozen thinking" spinner); 3 still covers any realistic reply and
+    # leaves room for a couple of search rounds in the same turn.
+    "render_widget": 3,
 }
 
 # Anthropic max_tokens per stream round. 2048 covers synthesis + citations

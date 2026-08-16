@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-08-16
- * @changed   Inline widgets: an AI message now renders an ordered `parts` sequence (text segments +
+ * @changed   render_widget rounds show the "Preparing an interactive element…" skeleton instead of a frozen
+ *            thinking spinner: new `widget_pending` / `widget_failed` stream events toggle facilitatorPending,
+ *            cleared when text streams or the widget renders. (Skeleton also renders in inline `parts` mode.)
+ *            Prior: Inline widgets: an AI message now renders an ordered `parts` sequence (text segments +
  *            render_widget widgets interleaved at their stream position), built live from `facilitator`
  *            events and rebuilt on reload from the tool_trace ordering. render_widget is kept out of the
  *            thinking pills. Legacy single-block (dict) facilitator messages still render end-appended.
@@ -663,6 +666,8 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
                 if (!segText.trim()) return null;
                 return <MarkdownSegment key={`t${i}`} text={segText} />;
               })}
+              {/* A later render_widget in the same reply is still being prepared. */}
+              {message.facilitatorPending && <FacilitatorPending />}
             </div>
           ) : (
             <>
@@ -1452,6 +1457,7 @@ const ChatPage = () => {
                   ...newMsgs[lastIdx],
                   text: accumulatedText,
                   isTyping: false,
+                  facilitatorPending: false,
                   ...(livePartsToken ? { parts: livePartsToken } : {}),
                 };
                 return newMsgs;
@@ -1506,6 +1512,28 @@ const ChatPage = () => {
                 newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: true };
                 return newMsgs;
               });
+            } else if (data.type === 'widget_pending') {
+              // render_widget is preparing an inline widget. Without this the
+              // thinking spinner froze for the whole round (render_widget tool
+              // events aren't forwarded as pills); show the same skeleton so the
+              // user sees progress until the widget renders or fails.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: true };
+                return newMsgs;
+              });
+            } else if (data.type === 'widget_failed') {
+              // The widget didn't validate — clear the skeleton; the model
+              // follows up with prose or another widget.
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const lastIdx = newMsgs.length - 1;
+                if (lastIdx < 0) return newMsgs;
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], facilitatorPending: false };
+                return newMsgs;
+              });
             } else if (data.type === 'facilitator' && data.id) {
               // Inline widget from the render_widget tool (carries a tool_use `id`).
               // Close the open text segment, drop the widget in at this position,
@@ -1519,7 +1547,7 @@ const ChatPage = () => {
                 const newMsgs = [...prev];
                 const lastIdx = newMsgs.length - 1;
                 if (lastIdx < 0) return newMsgs;
-                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, parts: livePartsWidget };
+                newMsgs[lastIdx] = { ...newMsgs[lastIdx], isTyping: false, facilitatorPending: false, parts: livePartsWidget };
                 return newMsgs;
               });
             } else if (data.type === 'facilitator') {

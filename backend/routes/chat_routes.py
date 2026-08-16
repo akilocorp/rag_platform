@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-16
-# @changed   Agentic path: inline render_widget tool widgets. `facilitator` events from the runner are
+# @changed   render_widget rounds no longer freeze the thinking spinner: a swallowed render_widget tool_use
+#            now emits a `widget_pending` signal (and an errored result a `widget_failed`) so the UI shows
+#            the "Preparing an interactive element…" skeleton instead of an apparently-stuck spinner.
+#            Prior: Agentic path: inline render_widget tool widgets. `facilitator` events from the runner are
 #            forwarded at position and collected as a LIST on additional_kwargs.facilitator; the post-pass
 #            is skipped when the tool is active; render_widget tool_use/result aren't forwarded as pills;
 #            _inline_facilitator now replays a list or a legacy dict.
@@ -931,8 +934,17 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 })
                 yield json.dumps(event) + "\n"
             elif etype in ("tool_use", "tool_result"):
-                # render_widget surfaces as its own inline widget, not a tool pill.
+                # render_widget surfaces as its own inline widget (a `facilitator`
+                # event), not a tool pill — but swallowing it silently left the
+                # thinking spinner frozen for the whole round. Emit a lightweight
+                # pending/failed signal so the UI shows the "Preparing an interactive
+                # element…" skeleton instead of an apparently-stuck spinner. On
+                # success the `facilitator` event that follows clears the skeleton.
                 if event.get("name") == "render_widget":
+                    if etype == "tool_use":
+                        yield json.dumps({"type": "widget_pending"}) + "\n"
+                    elif etype == "tool_result" and event.get("is_error"):
+                        yield json.dumps({"type": "widget_failed"}) + "\n"
                     continue
                 if etype == "tool_result" and not event.get("is_error"):
                     content = event.get("content")
