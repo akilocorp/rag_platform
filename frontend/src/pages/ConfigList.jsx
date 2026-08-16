@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-12
-// @changed   Header gained a "Plan from syllabus" button into /course-plan.
+// @updated   2026-08-16
+// @changed   Categories sidebar gained Labs (experiential) and Exercises (manager_exercise), carved out of
+//            Text-based so each assistant sits in exactly one category.
+//            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
@@ -751,27 +753,41 @@ const ConfigListPage = () => {
     [configs, visibility],
   );
 
+  // Each assistant lands in exactly one category. Labs (experiential) and Exercises
+  // (manager_exercise) are carved OUT of Text-based, which is otherwise every non-video
+  // conversational bot (plain 1:1 + group-chat Drop-In Spaces).
   const isVideo = (c) => c.bot_type === 'video_analysis';
+  const isLab = (c) => c.bot_type === 'experiential';
+  const isExercise = (c) => c.bot_type === 'manager_exercise';
+  const isText = (c) => !isVideo(c) && !isLab(c) && !isExercise(c);
   const counts = {
     all: byVisibility.length,
-    text: byVisibility.filter(c => !isVideo(c)).length,
+    text: byVisibility.filter(isText).length,
+    lab: byVisibility.filter(isLab).length,
+    exercise: byVisibility.filter(isExercise).length,
     video: byVisibility.filter(isVideo).length,
   };
 
   const visible = useMemo(() => byVisibility.filter(c => {
-    if (category === 'text') return !isVideo(c);
+    if (category === 'text') return isText(c);
+    if (category === 'lab') return isLab(c);
+    if (category === 'exercise') return isExercise(c);
     if (category === 'video') return isVideo(c);
     return true;
   }), [byVisibility, category]);
 
   const sections = [
-    { key: 'text', label: 'Text-based', items: visible.filter(c => !isVideo(c)) },
+    { key: 'text', label: 'Text-based', items: visible.filter(isText) },
+    { key: 'lab', label: 'Labs', items: visible.filter(isLab) },
+    { key: 'exercise', label: 'Exercises', items: visible.filter(isExercise) },
     { key: 'video', label: 'Video-based', items: visible.filter(isVideo) },
   ].filter(s => s.items.length > 0);
 
   const CATEGORIES = [
     { key: 'all', label: 'All Assistants' },
     { key: 'text', label: 'Text-based' },
+    { key: 'lab', label: 'Labs' },
+    { key: 'exercise', label: 'Exercises' },
     { key: 'video', label: 'Video-based' },
   ];
 
