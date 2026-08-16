@@ -1,5 +1,11 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-16
+// @changed   Function mode now renders an embedded Desmos GraphingCalculator (no left formula panel)
+//            instead of the in-house SVG; our slider strip drives Desmos variables. Static data charts
+//            (line + bar) keep the in-house SVG — Desmos has no faithful categorical/bar representation.
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Parser } from 'expr-eval';
+import { loadDesmos } from '../../../utils/desmos';
 
 // chart — the single canonical renderer every chart in the app flows through.
 // Dependency-free SVG (line or bar), interactive: hover a crosshair to read
@@ -13,8 +19,12 @@ import { Parser } from 'expr-eval';
 //                  params:[{name,min,max,default,step?}],
 //                  functions:[{name, expr}],   // expr in terms of x + params
 //                  samples?, y_label?, caption? }
-//              Dragging a param slider re-evaluates the functions and re-plots
-//              live. Explicit y = f(x) only (this replaced the Desmos embed).
+//              Rendered by an embedded Desmos GraphingCalculator; our slider
+//              strip below drives the Desmos variables. Explicit y = f(x) only.
+//
+// Static data charts (line + bar) render with the in-house SVG below. Function
+// mode goes to Desmos because it draws math curves far better; Desmos has no
+// faithful categorical/bar representation, so data charts stay in-house.
 
 const PALETTE = ['#FA6C43', '#2563EB', '#16A34A', '#9333EA', '#D97706'];
 
@@ -334,6 +344,154 @@ function ParamSliders({ params, vals, onChange }) {
   );
 }
 
+// --- Desmos (function mode) --------------------------------------------------
+
+// Replace every balanced `name(...)` call with `wrap(inner)`. Runs over the whole
+// string so multiple/nested calls all convert (nested ones are picked up on later
+// passes for their own name). Bails on an unbalanced paren rather than mangling.
+function replaceCall(src, name, wrap) {
+  const re = new RegExp(`\\b${name}\\s*\\(`);
+  let out = src;
+  let guard = 0;
+  let m;
+  while ((m = re.exec(out)) !== null && guard++ < 50) {
+    const start = m.index;
+    const open = m.index + m[0].length - 1; // index of '('
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < out.length; i++) {
+      if (out[i] === '(') depth++;
+      else if (out[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    if (close === -1) break; // unbalanced — leave the rest alone
+    out = out.slice(0, start) + wrap(out.slice(open + 1, close)) + out.slice(close + 1);
+  }
+  return out;
+}
+
+// Brace exponents so Desmos reads multi-character powers correctly: b^x → b^{x},
+// 2^(k+1) → 2^{k+1}. A `^` already followed by `{` is left as-is.
+function braceExponents(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '^') { out += s[i]; continue; }
+    let j = i + 1;
+    while (j < s.length && s[j] === ' ') j++;
+    if (s[j] === '{') { out += '^'; continue; } // already braced
+    if (s[j] === '(') {
+      let depth = 0;
+      let close = -1;
+      for (let k = j; k < s.length; k++) {
+        if (s[k] === '(') depth++;
+        else if (s[k] === ')') { depth--; if (depth === 0) { close = k; break; } }
+      }
+      if (close !== -1) { out += `^{${s.slice(j + 1, close)}}`; i = close; continue; }
+    }
+    let k = j;
+    while (k < s.length && /[A-Za-z0-9._]/.test(s[k])) k++;
+    out += `^{${s.slice(j, k)}}`;
+    i = k - 1;
+  }
+  return out;
+}
+
+// Convert an expr-eval function body (e.g. "b^x", "1/(1+exp(-x))", "sin(k*x)")
+// into Desmos-friendly LaTeX. Covers the operators/functions the CHART_GUIDE
+// documents; anything exotic is passed through and Desmos does its best.
+function toDesmosLatex(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  s = replaceCall(s, 'exp', (arg) => `e^{${arg}}`);
+  s = replaceCall(s, 'sqrt', (arg) => `\\sqrt{${arg}}`);
+  s = replaceCall(s, 'abs', (arg) => `\\left|${arg}\\right|`);
+  s = s.replace(/\b(sinh|cosh|tanh|asin|acos|atan|sin|cos|tan|ln|log)\s*\(/g, (_m, f) => `\\${f}(`);
+  s = braceExponents(s);
+  s = s.replace(/\*/g, ' \\cdot ');
+  s = s.replace(/\bpi\b/g, '\\pi');
+  return s;
+}
+
+// A live Desmos calculator for function mode. Mounts once, plots each function as
+// its own y = … curve, and mirrors the external slider values into Desmos variables
+// so dragging a slider re-plots. Deliberately no formula panel / settings menu.
+function DesmosGraph({ data, vals, height }) {
+  const holderRef = useRef(null);
+  const calcRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  // Mount / tear down the calculator. Bounds are set once from the initial
+  // slider values; the user can pan/zoom from there.
+  useEffect(() => {
+    let disposed = false;
+    let calc = null;
+    loadDesmos()
+      .then((Desmos) => {
+        if (disposed || !holderRef.current) return;
+        calc = Desmos.GraphingCalculator(holderRef.current, {
+          expressions: false,   // no formula/expression panel on the left
+          settingsMenu: false,
+          keypad: false,
+          zoomButtons: true,
+          lockViewport: false,
+          border: false,
+          expressionsCollapsed: true,
+        });
+        calcRef.current = calc;
+
+        (data.functions || []).forEach((f, i) => {
+          const rhs = toDesmosLatex(f?.expr);
+          if (!rhs) return;
+          const latex = rhs.includes('=') ? rhs : `y=${rhs}`;
+          calc.setExpression({ id: `fn_${i}`, latex });
+        });
+        Object.entries(vals || {}).forEach(([k, v]) => {
+          calc.setExpression({ id: `p_${k}`, latex: `${k}=${v}` });
+        });
+
+        // Frame the graph: x from x_range, y sampled from the current curves.
+        try {
+          const [xmin, xmax] = data.x_range.map(Number);
+          const sampled = evalFunctions(data, vals).series
+            .flatMap((s) => s.points)
+            .filter(isFiniteNum);
+          let ymin = Math.min(...sampled);
+          let ymax = Math.max(...sampled);
+          if (!Number.isFinite(ymin) || !Number.isFinite(ymax) || ymin === ymax) { ymin = -10; ymax = 10; }
+          const padY = (ymax - ymin) * 0.1 || 1;
+          calc.setMathBounds({ left: xmin, right: xmax, bottom: ymin - padY, top: ymax + padY });
+        } catch { /* keep Desmos' default viewport */ }
+      })
+      .catch(() => { if (!disposed) setFailed(true); });
+
+    return () => {
+      disposed = true;
+      try { calc?.destroy(); } catch { /* already gone */ }
+      calcRef.current = null;
+    };
+    // Mount once per widget instance; slider changes flow through the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror slider values into the Desmos variables live.
+  useEffect(() => {
+    const calc = calcRef.current;
+    if (!calc) return;
+    Object.entries(vals || {}).forEach(([k, v]) => {
+      calc.setExpression({ id: `p_${k}`, latex: `${k}=${v}` });
+    });
+  }, [vals]);
+
+  if (failed) {
+    return (
+      <div className="mt-1 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-400"
+           style={{ height }}>
+        Couldn’t load the interactive graph.
+      </div>
+    );
+  }
+  return <div ref={holderRef} className="fac-enter mt-1 rounded-lg overflow-hidden" style={{ width: '100%', height }} />;
+}
+
 function Renderer({ data }) {
   const [full, setFull] = useState(false);
 
@@ -350,6 +508,64 @@ function Renderer({ data }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [full]);
+
+  // Function mode → Desmos. The graph is drag/zoom-interactive, so "Expand" is an
+  // explicit button (not a whole-card click, which would fight the panning). Our
+  // slider strip stays below and drives the Desmos variables. Static data charts
+  // fall through to the in-house SVG path below.
+  if (fnMode) {
+    const fnSliders = <ParamSliders params={params} vals={vals} onChange={setParam} />;
+    const modalHeight = Math.round(
+      Math.min(560, typeof window !== 'undefined' ? window.innerHeight * 0.6 : 480)
+    );
+    return (
+      <>
+        <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between mb-1 px-1">
+            {data.title ? <p className="text-lg font-semibold text-[#222]">{data.title}</p> : <span />}
+            <button
+              type="button"
+              onClick={() => setFull(true)}
+              className="text-[11px] font-medium text-gray-400 hover:text-[#FA6C43] transition-colors"
+            >
+              Expand ⤢
+            </button>
+          </div>
+          <DesmosGraph data={data} vals={vals} height={248} />
+          {fnSliders}
+          {data.caption && <p className="text-xs text-gray-500 mt-2 px-1">{data.caption}</p>}
+        </div>
+
+        {full && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 sm:p-8"
+            onClick={() => setFull(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="fac-enter relative w-full max-w-5xl rounded-2xl bg-white p-5 sm:p-7 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setFull(false)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+              {data.title && <p className="text-lg font-semibold text-[#222] mb-1 pr-8">{data.title}</p>}
+              <p className="text-[11px] text-gray-400 mb-3">Drag the sliders to change the parameters and watch the graph update.</p>
+              <DesmosGraph data={data} vals={vals} height={modalHeight} />
+              {fnSliders}
+              {data.caption && <p className="text-sm text-gray-500 mt-3">{data.caption}</p>}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
 
   if (view.xLabels.length < 2 || view.series.length === 0) return null;
 
