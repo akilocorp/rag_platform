@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-16
-// @changed   New Claude bots default the facilitator toggle ON (opt-out): initial state enabled, the model
+// @changed   Case Materials upload boxes now accept drag-and-drop (General Info, Candidate Summary,
+//            candidate-outcome and role-packet adders) with an orange drop-target highlight.
+//            Prior: New Claude bots default the facilitator toggle ON (opt-out): initial state enabled, the model
 //            picker syncs enabled=isClaude until the professor touches the toggle.
 //            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
@@ -327,6 +329,9 @@ const ConfigModal = ({ isOpen, onClose }) => {
   // document; `mgrUploadError` surfaces a failure inline next to the upload.
   const [mgrUploading, setMgrUploading] = useState(false);
   const [mgrUploadError, setMgrUploadError] = useState('');
+  // Tracks which Case Materials drop target is being hovered with a file, so
+  // only that box lights up orange (keyed by slot: 'general_info', 'outcome', …).
+  const [mgrDragTarget, setMgrDragTarget] = useState(null);
   // Case-pack analysis state for the step-4 review.
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState('');
@@ -539,6 +544,21 @@ const ConfigModal = ({ isOpen, onClose }) => {
       },
     }));
   };
+
+  // Drag-and-drop plumbing for the Case Materials upload boxes. `key` names the
+  // box (so only the hovered one highlights); `onFile` receives the dropped file
+  // and routes it to the right upload handler. Reuses the same handlers as the
+  // click-to-browse inputs, so a drop and a click do exactly the same thing.
+  const caseDropProps = (key, onFile) => ({
+    onDragOver: (e) => { e.preventDefault(); setMgrDragTarget(key); },
+    onDragLeave: (e) => { e.preventDefault(); setMgrDragTarget((cur) => (cur === key ? null : cur)); },
+    onDrop: (e) => {
+      e.preventDefault();
+      setMgrDragTarget(null);
+      const file = e.dataTransfer?.files?.[0];
+      if (file) onFile(file);
+    },
+  });
 
   const setRolePacketRole = (index, role) => {
     const role_packets = [...(config.manager_exercise.role_packets || [])];
@@ -1152,8 +1172,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   ].map(slot => {
                     const doc = config.manager_exercise[slot.field] || {};
                     const filled = (doc.text || '').trim().length > 0;
+                    const dragging = mgrDragTarget === slot.field;
                     return (
-                      <div key={slot.field} className={`p-4 rounded-2xl border-2 transition-all ${filled ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10' : 'border-dashed border-gray-300 bg-white'}`}>
+                      <div
+                        key={slot.field}
+                        {...caseDropProps(slot.field, (file) => handleCaseDocUpload(slot.field, file))}
+                        className={`p-4 rounded-2xl border-2 transition-all ${
+                          dragging
+                            ? 'border-[#FA6C43] bg-[#F9D0C4]/20 border-solid'
+                            : filled
+                              ? 'border-[#FA6C43]/40 bg-[#F9D0C4]/10'
+                              : 'border-dashed border-gray-300 bg-white'
+                        }`}
+                      >
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="font-bold text-sm text-[#222]">
@@ -1188,7 +1219,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         </div>
                       ))}
                     </div>
-                    <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                    <label
+                      {...caseDropProps('outcome', (file) => handleOutcomeUpload(file))}
+                      className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99] ${
+                        mgrDragTarget === 'outcome'
+                          ? 'border-solid border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43]'
+                          : 'border-dashed border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'
+                      }`}
+                    >
                       <FaPlus className="mr-2" /> Add a candidate outcome
                       <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
                     </label>
@@ -1235,7 +1273,14 @@ const ConfigModal = ({ isOpen, onClose }) => {
                             </div>
                           ))}
                         </div>
-                        <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                        <label
+                          {...caseDropProps('role_packet', (file) => handleRolePacketUpload(file))}
+                          className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99] ${
+                            mgrDragTarget === 'role_packet'
+                              ? 'border-solid border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43]'
+                              : 'border-dashed border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'
+                          }`}
+                        >
                           <FaPlus className="mr-2" /> Add a role packet
                           <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleRolePacketUpload(e.target.files?.[0])} />
                         </label>
