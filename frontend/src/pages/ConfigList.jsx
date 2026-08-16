@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-16
-// @changed   Categories sidebar gained Labs (experiential) and Exercises (manager_exercise), carved out of
+// @changed   Card no longer shows a hover lift/border/shadow or pointer cursor — the card body looked
+//            clickable when only the buttons (icons, Customize, primary action) are. The copy-select
+//            onClick/onHover handlers stay (Ctrl+C target); just the affordance is gone.
+//            Prior: Categories sidebar gained Labs (experiential) and Exercises (manager_exercise), carved out of
 //            Text-based so each assistant sits in exactly one category.
 //            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
@@ -420,7 +423,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 cursor-pointer hover:border-[#FA6C43]/40 hover:shadow-md hover:-translate-y-1 animate-send-fly-in ${
+      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 animate-send-fly-in ${
         isSelected ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/30' : 'border-gray-200'
       } ${isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'}`}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
