@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-04
-# @changed   M9 three-round rework. New `solo` phase (round 0): each student privately picks a candidate
+# @updated   2026-08-18
+# @changed   M13: one student decides for the group. Round 1 no longer votes — the first student seated
+#            in the room is the decider (`decider_uid`), the only one who can end the discussion early
+#            (`end_discussion`) and the only one who enters the hire (`record_group_choice`, which
+#            resolves on the spot). Removed the running tally, the per-student ballot, the ready-to-vote
+#            majority and `early_finalize`; a decider who never calls it falls back to `_fallback_choice`.
+# @changed   Prior: M9 three-round rework. New `solo` phase (round 0): each student privately picks a candidate
 #            before the group ever talks; the room opens round 1 once everyone has submitted
 #            (SOLO_GRACE_SECONDS force-advances a stalled room). New `debrief` phase (round 2): the
 #            ONLY phase ACTR exists in (facilitator_active), entered unconditionally from the kiosk.
@@ -26,10 +31,13 @@ The exercise runs in three rounds, and which round you are in is the phase:
                         student ever sees another's pick, and the tally is never
                         sent to a client. This is what makes it possible to show,
                         afterwards, that the group moved someone off their answer.
-  round 1 (`discuss`    the group deliberates and votes. NO FACILITATOR — see
-          + `choose`)   `facilitator_active` below. The point of the exercise is
-                        that a group reliably fails the hidden-profile trap, and a
-                        group coached through pooling does not fail it.
+  round 1 (`discuss`    the group deliberates and ONE of them enters the hire.
+          + `choose`)   NO FACILITATOR — see `facilitator_active` below. The point
+                        of the exercise is that a group reliably fails the
+                        hidden-profile trap, and a group coached through pooling
+                        does not fail it. The decider (see `decider_uid`) is named
+                        to the room from the moment they sit down, so the others
+                        know from the first message who they have to convince.
   round 2 (`debrief`)   six months on, the outcome document lands and ACTR joins
                         for the first time. One conversation, no second ballot.
 
@@ -128,8 +136,8 @@ PHASE_ORDER = [PHASE_WAITING, PHASE_SOLO, PHASE_DISCUSS, PHASE_CHOOSE,
                PHASE_KIOSK, PHASE_DEBRIEF, PHASE_DONE]
 
 # Chat is unlocked for the two conversations only. `solo` is locked because the
-# decision is private; `choose` is locked because the group speaks through the
-# ballot buttons, not the chat, so the pick is a single deliberate act.
+# decision is private; `choose` is locked because the talking is over by then —
+# the decider enters the hire, and that is a single deliberate act, not a debate.
 _UNLOCKED_PHASES = {PHASE_DISCUSS, PHASE_DEBRIEF}
 
 # Round number per phase — the student-facing numbering (0 private, 1 group
@@ -243,11 +251,11 @@ class ExerciseState:
             # M9 round 0: {uid: candidate}. Private — never tallied to a client, and
             # only ever leaves this object as the anonymous `solo_spread()` counts.
             self.solo_ballot: Dict = {"open": False, "votes": {}}
+            # M13: `votes` now holds at most ONE entry — the decider's. The dict
+            # shape is kept so the persisted document, `_tally` and
+            # `resolve_collective` all carry over from the ballot this replaced.
             self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
             self.continue_acks: List[str] = []
-            # M11: who has said the group is done deliberating and ready to vote.
-            # A majority opens the ballot early; see `record_ready_to_vote`.
-            self.ready_to_vote: List[str] = []
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
             self.pending_go_around: Optional[Dict] = None
@@ -303,7 +311,6 @@ class ExerciseState:
             "final_call": bool(cb.get("final_call", False)),
         }
         self.continue_acks = list(doc.get("continue_acks") or [])
-        self.ready_to_vote = list(doc.get("ready_to_vote") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
         self.pending_go_around = doc.get("pending_go_around") or None
@@ -350,6 +357,27 @@ class ExerciseState:
             if e.get("uid") == uid:
                 return e.get("name") or "Student"
         return f"Student {str(uid)[:4]}"
+
+    def decider_uid(self) -> Optional[str]:
+        """The ONE student who ends round 1 and enters the group's hire (M13).
+
+        Whoever sat down in this room first — derived from roster order rather than
+        stored, so it needs no migration and survives a rebuild for free (the roster
+        is persisted in join order and never re-sorted or shrunk).
+
+        Deliberately assigned on ENTRY, not when the ballot opens: every client
+        already receives a snapshot on entry, so the room knows who is deciding from
+        its first message without a mid-round push. They are never called a leader
+        anywhere a student can read — the room is told this person makes the call,
+        which is a job, not a rank.
+        """
+        uids = self.roster_uids()
+        return uids[0] if uids else None
+
+    def decider_name(self) -> str:
+        """The decider's display name for the room-wide notices ("" if the room is empty)."""
+        uid = self.decider_uid()
+        return self.display_name(uid) if uid else ""
 
     def forecast_text_for(self, name: Optional[str]) -> str:
         """The uploaded outcome document for a candidate name ("" if unknown).
@@ -528,19 +556,16 @@ class ExerciseState:
                 "solo_submitted": len(self.solo_ballot.get("votes", {})),
                 "solo_total": len(self.roster),
                 "collective_open": bool(self.collective_ballot.get("open")),
-                "you_voted_collective": uid in self.collective_ballot.get("votes", {}),
-                # M5: live decision state so the client can render the running tally,
-                # highlight this viewer's own vote, and flag the final-call window.
                 "collective_final_call": bool(self.collective_ballot.get("final_call")),
-                "collective_tally": self._tally(self.collective_ballot.get("votes", {})),
-                "your_vote": self.collective_ballot.get("votes", {}).get(uid),
+                # M13: who is making the call, and whether that is this viewer. The
+                # name is safe to send to everyone (it is already on the roster); the
+                # boolean is what gates the "end the discussion" button and the hire
+                # dialog, and it is computed per-viewer here rather than broadcast, so
+                # no client is ever handed another student's uid to spoof.
+                "decider_name": self.decider_name(),
+                "you_decide": bool(uid) and uid == self.decider_uid(),
                 # M6: kiosk progress so a (re)joining client renders the gate/wait
                 # accurately and knows whether it has already pressed Continue.
-                # M11: round-1 "we've decided" progress, so a reconnecting student
-                # sees the count and knows whether their own press was recorded.
-                "ready_count": len(self.ready_to_vote),
-                "ready_total": len(self.roster),
-                "you_are_ready": uid in self.ready_to_vote,
                 "kiosk_acked": len(self.continue_acks),
                 "kiosk_total": len(self.roster),
                 "you_continued": uid in self.continue_acks,
@@ -736,8 +761,8 @@ class ExerciseState:
     def record_solo_vote(self, uid: str, candidate: str) -> bool:
         """Record ONE student's private round-0 pick. Opens round 1 once all are in.
 
-        Deliberately unlike `record_collective_vote`: no tally is broadcast and no
-        majority resolves anything. The only thing the room learns is HOW MANY have
+        Deliberately unlike `record_group_choice`: everyone answers here, and no one
+        answer resolves anything. The only thing the room learns is HOW MANY have
         submitted, so the others know what they are waiting on without learning what
         anyone chose. A student may change their pick until the round closes.
         """
@@ -783,12 +808,15 @@ class ExerciseState:
                 self._finish_solo()
 
     def begin_choose(self):
-        """Enter `choose`: open the timed ballot and lock chat for the vote.
+        """Enter `choose`: put the hire in front of the decider and lock chat.
 
-        M3: this now follows the pre-vote deliberation rather than the lobby — it is
-        reached when the `discuss` timer lapses (`_run_discuss_window`), so the vote
-        clock only starts once the group has actually deliberated. Whoever is in the
-        room at that point is the group.
+        M3: this follows the deliberation rather than the lobby — it is reached when
+        the `discuss` timer lapses (`_run_discuss_window`) or the decider ends the
+        discussion early (`end_discussion`), so the decision clock only starts once
+        the group has actually talked.
+
+        M13: the window is still timed, and still ends in a final call, but only one
+        person can act on it — see `record_group_choice`.
         """
         with self._lock:
             if self._phase != PHASE_DISCUSS:
@@ -810,24 +838,25 @@ class ExerciseState:
             "room_id": self.room_id,
             "open": True,
             "final_call": False,
-            "tally": {},
+            "decider_name": self.decider_name(),
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
-        # A neutral "the ballot is open" notice, NOT a facilitator turn. The line
-        # itself is the same one ACTR used to post; posting it under ACTR's name made
-        # the facilitator present at the group's first decision for the sake of one
-        # sentence the ballot screen already says.
+        # A neutral "time to decide" notice, NOT a facilitator turn. The line itself
+        # is the same one ACTR used to post; posting it under ACTR's name made the
+        # facilitator present at the group's first decision for the sake of one
+        # sentence the decision screen already says.
         self._run_hook("on_ballot_open")
         if self._socketio:
             self._socketio.start_background_task(self._run_choose_window)
 
     def _run_choose_window(self):
-        """Background timer for the timed `choose` ballot (M5).
+        """Background timer for the timed decision window (M5).
 
         Sleeps out the main window, opens the 30s final-call window (client beeps),
-        then force-resolves whatever votes are in. Any earlier resolution — a
-        majority reached, everyone voted, or an early-decision — has already closed
-        the ballot, so this task then finds it closed and exits without forcing.
+        then force-resolves. M13: the decider entering the hire has already closed
+        the window by then, so this task normally finds it closed and exits; when it
+        does fire, `resolve_collective` falls back rather than leaving the room with
+        no hire at all.
         """
         with self._app.app_context():
             self._sleep_until(self.phase_deadline_ts)
@@ -862,7 +891,7 @@ class ExerciseState:
             "room_id": self.room_id,
             "open": True,
             "final_call": True,
-            "tally": self._tally(self.collective_ballot.get("votes", {})),
+            "decider_name": self.decider_name(),
             "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
         })
 
@@ -871,8 +900,8 @@ class ExerciseState:
 
         Arrives from `solo` — everyone has now committed privately, so the group can
         talk without anyone's answer being anchored by the room. The students pool
-        their role-sliced credentials and reason toward a hire; when the timer lapses
-        the ballot opens (`begin_choose`).
+        their role-sliced credentials and argue toward a hire; the decision screen
+        opens when the timer lapses or when the decider calls it (`end_discussion`).
 
         No hook fires here. This used to run `on_discuss_start`, which posted ACTR's
         opener; that is exactly the contamination this round now exists without.
@@ -888,11 +917,9 @@ class ExerciseState:
             # doesn't burn deliberation time; the grace watch below arms it anyway if
             # the room stays silent.
             self.phase_deadline_ts = None
-            self.ready_to_vote = []
             self._persist({
                 "phase": PHASE_DISCUSS,
                 "phase_deadline_ts": None,
-                "ready_to_vote": self.ready_to_vote,
             })
 
         self._broadcast_phase()
@@ -900,40 +927,22 @@ class ExerciseState:
         if self._socketio:
             self._socketio.start_background_task(self._prelude_grace_watch)
 
-    def record_ready_to_vote(self, uid: str) -> bool:
-        """One student signals the group is done deliberating (M11).
+    def end_discussion(self, uid: str) -> bool:
+        """The decider closes round 1 early and goes to the hire (M13).
 
-        Opens the ballot once a MAJORITY of the roster has pressed it — the same
-        quorum `early_finalize` uses on the ballot itself, and for the same reason:
-        one impatient student must not be able to end a discussion the rest of the
-        room is still having. Below quorum this only broadcasts the count, so the
-        others can see someone is waiting on them.
+        Replaces the ready-to-vote majority: the room does not agree on when it is
+        finished, one person judges it. Anyone else pressing this is rejected here
+        rather than trusted from the client, since the button is simply not rendered
+        for them.
 
-        Pressing again un-presses, because "we're ready" is a position a student can
-        change while the others talk them out of it.
-
-        Not requiring EVERYONE (unlike the kiosk gate) is deliberate: this is an
-        optimisation on a phase that already ends on its own clock, so a single idle
-        student should cost the group their early exit, not strand them entirely.
+        There is no un-press. The previous signal was a position a student could
+        change while the others talked them round; this is the act of ending the
+        discussion, and it takes effect immediately.
         """
-        open_ballot = False
         with self._lock:
-            if self._phase != PHASE_DISCUSS or uid not in self.roster_uids():
+            if self._phase != PHASE_DISCUSS or not uid or uid != self.decider_uid():
                 return False
-            if uid in self.ready_to_vote:
-                self.ready_to_vote.remove(uid)
-            else:
-                self.ready_to_vote.append(uid)
-            self._persist({"ready_to_vote": self.ready_to_vote})
-            open_ballot = len(self.ready_to_vote) * 2 > max(1, len(self.roster))
-
-        self._emit("ready_update", {
-            "room_id": self.room_id,
-            "ready": len(self.ready_to_vote),
-            "total": len(self.roster),
-        })
-        if open_ballot:
-            self.begin_choose()
+        self.begin_choose()
         return True
 
     def _prelude_grace_watch(self):
@@ -1060,66 +1069,55 @@ class ExerciseState:
         # cannot vote for something that was never on the ballot.
         return any(c.get("name") == candidate for c in self._ballot_candidates())
 
-    def record_collective_vote(self, uid: str, candidate: str) -> bool:
-        """Record ONE participant's vote (M5). Now a real tally, not first-past-post.
+    def record_group_choice(self, uid: str, candidate: str) -> bool:
+        """The decider enters the group's hire (M13). Resolves on the spot.
 
-        The decision is made live in the app: each roster member votes (and may
-        change their vote while the ballot is open). The ballot auto-resolves the
-        moment a candidate holds a strict majority of the room, or everyone present
-        has voted — otherwise it runs until the clock (and its final-call window)
-        forces a resolve. `early_finalize` covers the "decide now" button.
+        This replaced a tallied ballot, and the difference is the whole point: there
+        is no counting, no quorum and no window in which the choice can be changed —
+        one person is answerable for the hire, and the moment they enter it the
+        exercise moves on. Anyone but the decider is rejected here, not just hidden
+        from the dialog client-side.
+
+        The candidate is still validated against the authored list, so a stale or
+        hand-rolled client cannot enter someone who was never on the case.
         """
-        resolve = False
         with self._lock:
             if not self.collective_ballot.get("open"):
                 return False
-            if uid not in self.roster_uids() or not self._valid_candidate(candidate):
+            if not uid or uid != self.decider_uid() or not self._valid_candidate(candidate):
                 return False
-            self.collective_ballot["votes"][uid] = candidate
+            self.collective_ballot["votes"] = {uid: candidate}
             self._persist({"collective_ballot": self.collective_ballot})
 
-            votes = self.collective_ballot["votes"]
-            tally = self._tally(votes)
-            roster_n = max(1, len(self.roster))
-            leader = max(tally.values()) if tally else 0
-            # Strict majority for one candidate, or the whole room has voted.
-            resolve = leader * 2 > roster_n or len(votes) >= roster_n
-
-        self._emit("ballot_update", {
-            "room_id": self.room_id,
-            "open": True,
-            "final_call": bool(self.collective_ballot.get("final_call")),
-            "tally": self._tally(self.collective_ballot.get("votes", {})),
-            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
-        })
-        if resolve:
-            self.resolve_collective()
-        return True
-
-    def early_finalize(self, uid: str) -> bool:
-        """The group asks to decide before the clock runs out (M5).
-
-        Resolves iff a MAJORITY of the roster has already cast a vote (quorum),
-        taking the current plurality. Below quorum it is a no-op, so one impatient
-        student can't end the decision for a room that hasn't weighed in yet.
-        """
-        with self._lock:
-            if not self.collective_ballot.get("open") or uid not in self.roster_uids():
-                return False
-            votes = self.collective_ballot.get("votes", {})
-            if len(votes) * 2 <= max(1, len(self.roster)):
-                return False
         self.resolve_collective()
         return True
 
+    def _fallback_choice(self) -> Optional[str]:
+        """The hire when the decider never entered one before the clock ran out (M13).
+
+        Falls back to the plurality of the ROUND-0 private picks: it is the closest
+        thing to a decision this room actually made, and it stays anonymous — the
+        counts are aggregate, so no individual's private pick is identifiable from
+        the result. Only if nobody submitted a private pick either does it take the
+        first candidate on the case, so the room always has an outcome to read
+        rather than hanging on an empty reveal.
+        """
+        pooled = self._pick_winner(self.solo_spread())
+        if pooled:
+            return pooled
+        cands = self._ballot_candidates()
+        return cands[0].get("name") if cands else None
+
     def resolve_collective(self) -> Tuple[Optional[str], Dict]:
         """
-        Tally the ballot, set the group's pick, close the ballot, persist, emit
-        `collective_result`, then hold at the kiosk gate. Returns (winner, tally).
+        Read the decider's entry, set the group's pick, close the window, persist,
+        emit `collective_result`, then hold at the kiosk gate. Returns (winner, tally).
 
-        There is exactly one group decision now, so this no longer scores the pick
-        against the answer key — whether the group was right shows up where it should,
-        in the outcome document they read six months on.
+        Still tally-shaped because the timer can fire with nothing entered at all;
+        that case falls through to `_fallback_choice` rather than leaving the room
+        with no hire. This never scores the pick against the answer key — whether the
+        group was right shows up where it should, in the outcome document they read
+        six months on.
         """
         with self._lock:
             if not self.collective_ballot.get("open"):
@@ -1127,7 +1125,7 @@ class ExerciseState:
 
             votes = self.collective_ballot.get("votes", {})
             tally = self._tally(votes)
-            winner = self._pick_winner(tally)
+            winner = self._pick_winner(tally) or self._fallback_choice()
 
             self.chosen_candidate = winner
             self.collective_ballot["open"] = False

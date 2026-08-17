@@ -47,3 +47,6 @@ dist-ssr
 *.sln
 *.sw?
 
+
+# Facilitator sandbox output: one transcript per tuning run, regenerated freely.
+backend/tests/sim/runs/

@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-15
-# @changed   Quote-reply support: every message gets a stable `mid`; add_message accepts a `reply_to`
+# @updated   2026-08-18
+# @changed   add_message takes an optional `reasoning`, stored on the document only — ACTR's private
+#            narration of why it took the turn. Never rendered into the transcript and never broadcast,
+#            so it cannot leak to a student or back into the facilitator's own next prompt.
+#            Prior: Quote-reply support: every message gets a stable `mid`; add_message accepts a `reply_to`
 #            parent mid and stores a denormalized {mid, sender, snippet} so a quote survives the parent
 #            being trimmed/deleted; _message_by_mid resolver + legacy-mid backfill on load; get_context_summary
 #            annotates reply lines so the model sees thread structure.
@@ -75,7 +78,7 @@ class ConversationContext:
             "snippet": snippet,
         }
 
-    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None, sender_uid: str = None, reply_to: str = None) -> Dict:
+    def add_message(self, sender: str, text: str, sender_role: str = None, sender_seat: int = None, sender_uid: str = None, reply_to: str = None, reasoning: str = None) -> Dict:
         """Add message to in-memory history and persist to MongoDB. Returns the stored dict.
 
         `sender` is the attribution key (uid, or "ai:<idx>" for an AI seat) — kept
@@ -89,6 +92,13 @@ class ConversationContext:
         resolved here into a denormalized preview object; an unresolvable parent just
         drops the reply (renders as a normal message). Returning the stored dict lets
         the socket layer echo the new `mid`/`reply_to` on its broadcast.
+
+        `reasoning` is ACTR's private narration of why it took the turn, split off the
+        reply by `ai_manager._split_markers`. It is stored on the document and nowhere
+        else: `get_context_summary` renders only turn/sender/text, so it cannot leak
+        back into the facilitator's own next prompt, and `_post` broadcasts only
+        sender/text, so it never reaches a student. Kept for tuning — until now the
+        only record of why ACTR spoke was the message it produced.
         """
         timestamp = datetime.now().isoformat()
 
@@ -116,6 +126,8 @@ class ConversationContext:
             preview = self._build_reply_preview(reply_to)
             if preview:
                 message["reply_to"] = preview
+        if reasoning:
+            message["reasoning"] = reasoning
 
         # Sliding window — trim oldest in memory if over limit
         if len(self.messages) >= self.MAX_MESSAGES_PER_ROOM:

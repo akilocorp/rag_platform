@@ -1,20 +1,24 @@
 # @language  Python
-# @updated   2026-08-15
-# @changed   Finished breakout rooms survive a backend restart: the lobby room list and the join guard now
-#            fall back to the durable manager_exercise_sessions phase when no in-memory ExerciseState exists,
-#            so a "done" room stays Finished/closed instead of reverting to an empty joinable slot that
-#            replays the previous group's transcript.
+# @updated   2026-08-18
+# @changed   ACTR's private reasoning is split off its reply and persisted on the message document instead
+#            of being posted to the room; _post/_post_facilitator take `reasoning` and the socket emit
+#            deliberately omits it. The learning objectives are re-assessed every few messages so ACTR is
+#            told when to land the session. M13 leader-decides: `submit_collective_vote` →
+#            `submit_group_choice` (the decider only), `ready_to_vote`/`early_decision` collapse into one
+#            `end_discussion` handler, and the round-1 announcement names whoever enters the hire.
+#            Prior: Finished breakout rooms survive a backend restart: the lobby room list and the join guard
+#            fall back to the durable manager_exercise_sessions phase when no in-memory ExerciseState exists.
 #            Prior: Quote-reply plumbing: _post/_post_facilitator accept a parent `reply_to` mid and echo the
 #            stored mid + denormalized reply_to on every broadcast; the plain group-chat path persists the
-#            human message BEFORE broadcasting (so it always has a mid and always persists) and hands its
-#            mid to the bot so the bot's reply attaches to it; the facilitator resolves a [REPLY:name]
-#            marker to that student's latest message and attaches its turn.
+#            human message BEFORE broadcasting and hands its mid to the bot so the bot's reply attaches to it;
+#            the facilitator resolves a [REPLY:name] marker to that student's latest message.
 #            Prior: _facilitator_turn now passes ACTR its own recent turns (FACILITATOR_REPEAT_LOOKBACK) so a
 #            repeated question is caught, plus the chosen candidate's outcome document so it is pinned
 #            into every turn rather than aging out of the transcript window.
 #            Prior: M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
 #            hands off to a new backgrounded _open_debrief instead of posting a hardcoded line inline.
-#            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock.
+#            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock
+#            (superseded by M13 — see the banner).
 #            Prior: M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
 #            handler records each private pick. The round-1 ACTR hooks are GONE (on_discuss_start /
 #            on_choose_start); the ballot-open line is posted under a neutral system sender instead. All
@@ -55,6 +59,18 @@ FACILITATOR_HISTORY_MESSAGES = 20
 # covers the observed loop (one question across four turns) without reaching so far
 # back that a question legitimately revisited much later reads as a repeat.
 FACILITATOR_REPEAT_LOOKBACK = 4
+
+# How often the learning objectives are re-assessed, in student messages. It is a third
+# model call, and the answer moves slowly — a room does not go from "nothing established"
+# to "everything established" inside four messages. Without this reading ACTR has no sense
+# of an ending: it keeps finding one more good question and the debrief timer takes the
+# landing away from it.
+FACILITATOR_PROGRESS_EVERY = 4
+
+# Cached per room so the reading survives between turns and can only accumulate. Keyed by
+# room_id, in-process only — a restart re-derives it from the transcript within four
+# messages, which is a cheap enough loss not to persist.
+_progress_by_room: dict = {}
 
 # How long a pause is allowed to run before ACTR breaks it. This is a timer that
 # FIRES, not one that blocks: ACTR is still asked the instant a student posts, and
@@ -133,7 +149,7 @@ def register_socket_events(socketio, app):
     # as ACTR is what used to put the facilitator in the room during round 1.
     SYSTEM_SENDER = "Exercise"
 
-    def _post(state, sender, text, uid=None, reply_to=None):
+    def _post(state, sender, text, uid=None, reply_to=None, reasoning=None):
         """Persist + broadcast one room message under a display name.
 
         `sender` stays the DISPLAY NAME (the facilitator reads the transcript by name).
@@ -148,7 +164,10 @@ def register_socket_events(socketio, app):
         """
         stored = get_or_create_context(state.room_id).add_message(
             sender, text, sender_role=sender, sender_uid=uid, reply_to=reply_to,
+            reasoning=reasoning,
         )
+        # `reasoning` is deliberately absent from the emit payload — it is stored for
+        # tuning, never shown. Adding it here would put ACTR's private notes on screen.
         socketio.emit("message", {
             "room_id": state.room_id,
             "sender": sender,
@@ -158,7 +177,7 @@ def register_socket_events(socketio, app):
             "reply_to": stored.get("reply_to"),
         }, room=state.room_id)
 
-    def _post_facilitator(state, text, go_around=False, reply_to=None):
+    def _post_facilitator(state, text, go_around=False, reply_to=None, reasoning=None):
         """Post an ACTR turn and reset its turn-taking counters.
 
         `note_facilitator_spoke` arms the quorum gate when the message opened a
@@ -168,7 +187,7 @@ def register_socket_events(socketio, app):
         """
         if not text:
             return
-        _post(state, FACILITATOR_SENDER, text, reply_to=reply_to)
+        _post(state, FACILITATOR_SENDER, text, reply_to=reply_to, reasoning=reasoning)
         state.note_facilitator_spoke(go_around)
 
     def _register_exercise_hooks(state, config_doc):
@@ -185,13 +204,18 @@ def register_socket_events(socketio, app):
         """
 
         def on_ballot_open(st):
-            """Round-1 ballot opened → a plain announcement, NOT a facilitator turn.
+            """Round-1 decision opened → a plain announcement, NOT a facilitator turn.
 
             Posted under SYSTEM_SENDER. This line used to come from ACTR, which meant
             the facilitator appeared in the middle of the group's own decision for the
-            sake of one sentence the ballot screen already says."""
+            sake of one sentence the decision screen already says.
+
+            M13: names the decider, because the rest of the room now gets no dialog —
+            without this the screen would simply stop responding to them."""
+            who = st.decider_name()
             _post(st, SYSTEM_SENDER,
-                  "Time's up. Cast your vote for the candidate your group wants to hire.")
+                  f"Time's up. {who} is entering the hire for the group."
+                  if who else "Time's up. The hire is being entered for the group.")
 
         def on_pick_resolved(st):
             """Pick entered → post the outcome document.
@@ -238,10 +262,11 @@ def register_socket_events(socketio, app):
             st = ex_state.get_exercise(room_id)
             if st is None:
                 return
-            _post_facilitator(st, ai_manager.facilitator_open_debrief(
+            opener, reasoning = ai_manager.facilitator_open_debrief(
                 st.config, st.roster, st.active_group_size(),
                 chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
-            ))
+            )
+            _post_facilitator(st, opener, reasoning=reasoning)
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the debrief backstop timer expires.
@@ -305,6 +330,23 @@ def register_socket_events(socketio, app):
             ended = False
             try:
                 ctx = get_or_create_context(room_id)
+
+                # Re-read how far the group has actually got, on a cadence. The WHOLE
+                # debrief is passed, not the rolling window the facilitator itself reads:
+                # the question is what this room has ever established, and asking it
+                # against the last twenty messages makes an objective evaporate the moment
+                # its evidence scrolls away. `assess_progress` unions each reading with the
+                # previous one, so an objective once reached stays reached.
+                progress = _progress_by_room.get(room_id)
+                if len(ctx.messages) % FACILITATOR_PROGRESS_EVERY == 0:
+                    progress = ai_manager.assess_progress(
+                        ctx.get_context_summary(num_messages=len(ctx.messages)),
+                        st.chosen_candidate,
+                        previous=progress,
+                        candidates=[c.get("name") for c in st.candidates if c.get("name")],
+                    )
+                    _progress_by_room[room_id] = progress
+
                 result = ai_manager.facilitator_reply(
                     st.config, st.roster, st.active_group_size(),
                     ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
@@ -317,6 +359,7 @@ def register_socket_events(socketio, app):
                         FACILITATOR_SENDER, FACILITATOR_REPEAT_LOOKBACK
                     ),
                     outcome_text=st.forecast_text_for(st.chosen_candidate),
+                    progress=progress,
                 )
                 message = result.get("message")
                 if not message:
@@ -330,9 +373,11 @@ def register_socket_events(socketio, app):
                 # the pattern or moved past it, and either way ACTR is no longer
                 # waiting on anyone.
                 st.clear_go_around()
-                # A [REPLY:name] marker attaches this turn to that student's latest
-                # message. Resolve by display name against the transcript; an unmatched
-                # name just yields no reply (the message still posts, un-attached).
+                # The reply target attaches this turn to that student's latest message.
+                # It arrives as a `reply_to_name` field on the forced tool call, or from
+                # a [REPLY:name] marker on the text fallback — both surface identically
+                # here. Resolve by display name against the transcript; an unmatched name
+                # just yields no reply (the message still posts, un-attached).
                 reply_to_mid = None
                 reply_name = (result.get("reply_to_name") or "").strip().lower()
                 if reply_name:
@@ -341,7 +386,9 @@ def register_socket_events(socketio, app):
                         if disp.lower() == reply_name:
                             reply_to_mid = m.get("mid")
                             break
-                _post_facilitator(st, message, result.get("go_around", False), reply_to=reply_to_mid)
+                _post_facilitator(st, message, result.get("go_around", False),
+                                  reply_to=reply_to_mid,
+                                  reasoning=result.get("reasoning"))
                 ended = bool(result.get("ended"))
             finally:
                 st = ex_state.get_exercise(room_id)
@@ -701,6 +748,9 @@ def register_socket_events(socketio, app):
         # from Mongo on first access for a room_id, so without this the stale in-memory
         # ctx.messages survive the wipe and get replayed to the next session.
         remove_context(room_id)                    # cached chat transcript
+        # Same reasoning: the objectives reading is monotonic by design, so a stale one
+        # would tell the next session it had already finished work it never did.
+        _progress_by_room.pop(room_id, None)       # cached learning-objective reading
         try:
             ManagerExerciseSession.delete_by_room(room_id)                       # durable session doc
             app.config["MONGO_DB"]['group_chat_messages'].delete_many(          # persisted transcript
@@ -859,16 +909,14 @@ def register_socket_events(socketio, app):
             return
         state.record_solo_vote(uid, candidate)
 
-    @socketio.on('submit_collective_vote')
-    def handle_submit_collective_vote(data):
-        """One student casts their vote in the timed group ballot (M5).
+    @socketio.on('submit_group_choice')
+    def handle_submit_group_choice(data):
+        """The decider enters the hire the group is going with (M13).
 
-        record_collective_vote enforces an open ballot, roster membership and a
-        valid candidate, records the vote and broadcasts the running tally. It
-        auto-resolves on a strict majority or once everyone present has voted;
-        otherwise the clock (or the early-decision button) resolves it. Serves both
-        the first pick and a re-choice — every resulting event is broadcast by
-        ExerciseState, so the rest of the room updates without doing anything.
+        `record_group_choice` enforces an open decision window, that this uid really
+        is the room's decider, and a valid candidate — then resolves immediately.
+        Every resulting event is broadcast by ExerciseState, so the rest of the room
+        moves to the reveal without doing anything.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -878,15 +926,15 @@ def register_socket_events(socketio, app):
         state = ex_state.get_exercise(room_id)
         if state is None:
             return
-        state.record_collective_vote(uid, candidate)
+        state.record_group_choice(uid, candidate)
 
-    @socketio.on('ready_to_vote')
-    def handle_ready_to_vote(data):
-        """A student says the group is done deliberating in round 1 (M11).
+    @socketio.on('end_discussion')
+    def handle_end_discussion(data):
+        """The decider closes round 1 before the clock (M13).
 
-        `record_ready_to_vote` enforces the discuss phase and roster membership,
-        toggles this student's signal, and opens the ballot once a majority have
-        pressed it. Below majority it just broadcasts the count.
+        `end_discussion` enforces the discuss phase and rejects anyone who is not the
+        decider, so the button being hidden for the rest of the room is a UI courtesy
+        rather than the actual rule.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -895,24 +943,7 @@ def register_socket_events(socketio, app):
         state = ex_state.get_exercise(room_id)
         if state is None:
             return
-        state.record_ready_to_vote(uid)
-
-    @socketio.on('early_decision')
-    def handle_early_decision(data):
-        """The group presses "Decide now" to finalize before the clock (M5).
-
-        early_finalize only resolves if a majority of the roster has already voted
-        (quorum); below that it is a no-op, so one impatient student can't end the
-        decision for a room that hasn't weighed in yet.
-        """
-        room_id = (data or {}).get('room_id')
-        uid = (data or {}).get('uid')
-        if not room_id or not uid:
-            return
-        state = ex_state.get_exercise(room_id)
-        if state is None:
-            return
-        state.early_finalize(uid)
+        state.end_discussion(uid)
 
     @socketio.on('continue_ack')
     def handle_continue_ack(data):
