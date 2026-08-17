@@ -1,9 +1,9 @@
 /*
  * @language JavaScript (React / JSX)
- * @updated 2026-08-15
- * @changed Sidebar: Delivery View restyled from a +action button into a tab under a "View" category header
+ * @updated 2026-08-18
+ * @changed Fixed past analyses not rendering on re-select (ref -> state); show per-criterion scores
  */
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaFilePdf } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -29,6 +29,11 @@ function fmtTs(ts) {
   return new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// Criterion labels come back from the model per student, so a stray capital or trailing
+// period would otherwise fail to match its column. Normalize before comparing.
+const critKey = (n) => String(n || '').trim().toLowerCase().replace(/\.$/, '');
+const critScore = (criteria, name) => (criteria || []).find((c) => critKey(c.name) === critKey(name))?.score;
+
 function SidebarItem({ a, selected, onClick }) {
   return (
     <button
@@ -48,7 +53,7 @@ function SidebarItem({ a, selected, onClick }) {
   );
 }
 
-function StudentRow({ sub, configId, onRescored, analysisData, dimList }) {
+function StudentRow({ sub, configId, onRescored, analysisData, dimList, critList }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [rescoring, setRescoring] = useState(false);
@@ -85,11 +90,18 @@ function StudentRow({ sub, configId, onRescored, analysisData, dimList }) {
           <p className="text-sm font-semibold text-gray-800 truncate">{sub.name || 'Anonymous'}</p>
           <p className="text-xs text-gray-400 truncate">{sub.email}</p>
         </div>
-        {!analysisData && (
+        {!analysisData ? (
           <div className="hidden sm:flex gap-3">
             {(dimList || []).map((d) => {
               const v = rowDims.find((x) => x.id === d.id)?.score;
               return <span key={d.id} className="text-xs font-bold w-14 text-center" style={{ color: color(v) }}>{v == null ? '—' : Math.round(v)}</span>;
+            })}
+          </div>
+        ) : (critList || []).length > 0 && (
+          <div className="hidden sm:flex gap-3">
+            {critList.map((name) => {
+              const v = critScore(analysisData.criteria, name);
+              return <span key={name} className="text-xs font-bold w-20 text-center" style={{ color: color(v) }}>{v == null ? '—' : Math.round(v)}</span>;
             })}
           </div>
         )}
@@ -101,6 +113,22 @@ function StudentRow({ sub, configId, onRescored, analysisData, dimList }) {
         <div className="bg-gray-50 px-6 py-4">
           {analysisData ? (
             <div className="space-y-3">
+              {/* Per-criterion breakdown — the reason the professor typed several criteria */}
+              {(analysisData.criteria || []).length > 0 && (
+                <div className="space-y-2">
+                  {analysisData.criteria.map((c, i) => (
+                    <div key={i} className="flex gap-3 items-baseline">
+                      <span className="text-sm font-bold w-10 shrink-0 text-right" style={{ color: color(c.score) }}>
+                        {c.score == null ? '—' : Math.round(c.score)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-gray-700">{c.name}</p>
+                        {c.comment && <p className="text-sm text-gray-600">{c.comment}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {analysisData.summary && <p className="text-sm text-gray-700">{analysisData.summary}</p>}
               {(analysisData.strengths || []).length > 0 && (
                 <div>
@@ -168,9 +196,11 @@ export default function VideoDashboardPage() {
   const [copied, setCopied] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
 
-  // Analysis sidebar state
+  // Analysis sidebar state. `loaded` caches full analysis docs by id and MUST be state,
+  // not a ref — a ref write doesn't re-render, so a past analysis fetched on click would
+  // arrive with nothing on screen ever updating to show it.
   const [analyses, setAnalyses] = useState([]);
-  const loadedRef = useRef({});
+  const [loaded, setLoaded] = useState({});
   const [viewId, setViewId] = useState(null);  // null = delivery view
 
   // New analysis form state
@@ -198,11 +228,10 @@ export default function VideoDashboardPage() {
       .catch(() => {});
   }, [configId]);
 
-  const loadAnalysis = useCallback((id) => {
-    if (loadedRef.current[id]) return Promise.resolve(loadedRef.current[id]);
-    return apiClient.get(`/video/config/${configId}/ai-analyses/${id}`)
-      .then((res) => { loadedRef.current[id] = res.data; return res.data; });
-  }, [configId]);
+  const loadAnalysis = useCallback((id) => (
+    apiClient.get(`/video/config/${configId}/ai-analyses/${id}`)
+      .then((res) => { setLoaded((prev) => ({ ...prev, [id]: res.data })); return res.data; })
+  ), [configId]);
 
   useEffect(() => { loadDash(); refreshAnalyses(); }, [loadDash, refreshAnalyses]);
 
@@ -224,7 +253,8 @@ export default function VideoDashboardPage() {
                 const list = r.data.analyses || [];
                 setAnalyses(list);
                 if (list[0]) {
-                  loadedRef.current[list[0]._id] = { ...list[0], students: result.students, class_summary: result.class_summary };
+                  const fresh = { ...list[0], students: result.students, class_summary: result.class_summary };
+                  setLoaded((prev) => ({ ...prev, [list[0]._id]: fresh }));
                   setViewId(list[0]._id);
                 }
               });
@@ -254,7 +284,7 @@ export default function VideoDashboardPage() {
 
   const selectView = (id) => {
     setViewId(id);
-    loadAnalysis(id).catch(() => {});
+    if (!loaded[id]) loadAnalysis(id).catch(() => {});
   };
 
   const uploadLink = `${window.location.origin}/video-upload/${configId}`;
@@ -262,10 +292,12 @@ export default function VideoDashboardPage() {
   const copyLink = () => { navigator.clipboard.writeText(uploadLink); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const copyInvite = () => { navigator.clipboard.writeText(inviteLink); setCopiedInvite(true); setTimeout(() => setCopiedInvite(false), 2000); };
 
-  const activeAnalysis = viewId ? loadedRef.current[viewId] : null;
+  const activeAnalysis = viewId ? loaded[viewId] : null;
   const analysisStudentMap = activeAnalysis
     ? Object.fromEntries((activeAnalysis.students || []).map((s) => [s.submission_id, s]))
     : null;
+  // Column set for the analysis table: one column per criterion the professor named.
+  const critList = (activeAnalysis?.class_summary?.criteria_averages || []).map((c) => c.name);
 
   // Prof-defined scoring boxes + content checks are dynamic — derive the lists
   // from the dashboard payload rather than a fixed CCP set.
@@ -442,6 +474,17 @@ export default function VideoDashboardPage() {
                 {activeAnalysis.grading_prompt && (
                   <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-4 italic">"{activeAnalysis.grading_prompt}"</p>
                 )}
+                {/* Class average per criterion — shows which of the professor's criteria the class fell down on */}
+                {(activeAnalysis.class_summary.criteria_averages || []).length > 0 && (
+                  <div className="flex flex-wrap gap-3 mb-4">
+                    {activeAnalysis.class_summary.criteria_averages.map((c) => (
+                      <div key={c.name} className="flex-1 min-w-[140px] bg-gray-50 rounded-xl px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 truncate" title={c.name}>{c.name}</p>
+                        <p className="text-xl font-extrabold" style={{ color: color(c.avg_score) }}>{c.avg_score ?? '—'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {activeAnalysis.class_summary.overall_insight && (
                   <p className="text-sm text-gray-700 mb-4">{activeAnalysis.class_summary.overall_insight}</p>
                 )}
@@ -471,10 +514,12 @@ export default function VideoDashboardPage() {
               <div className="flex items-center gap-4 py-2.5 px-4 bg-gray-50 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400">
                 <span className="w-4" />
                 <span className="flex-1">Student</span>
-                {!analysisStudentMap && (
+                {!analysisStudentMap ? (
                   <span className="hidden sm:flex gap-3">{dimList.map(d => <span key={d.id} className="w-14 text-center">{(d.name || d.id).slice(0, 4)}</span>)}</span>
+                ) : critList.length > 0 && (
+                  <span className="hidden sm:flex gap-3">{critList.map(n => <span key={n} className="w-20 text-center truncate" title={n}>{n}</span>)}</span>
                 )}
-                <span className="w-12 text-right">{analysisStudentMap ? 'Score' : 'Overall'}</span>
+                <span className="w-12 text-right">Overall</span>
               </div>
               {subs.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-10">No submissions yet. Share the upload link above.</p>
@@ -486,6 +531,7 @@ export default function VideoDashboardPage() {
                   onRescored={loadDash}
                   analysisData={analysisStudentMap ? (analysisStudentMap[s.id] || null) : null}
                   dimList={dimList}
+                  critList={critList}
                 />
               ))}
             </div>

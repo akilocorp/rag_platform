@@ -1,6 +1,6 @@
 # @language  Python
-# @updated   2026-07-23
-# @changed   Add POST /video/rubric-from-doc — AI class builder from an uploaded rubric document.
+# @updated   2026-08-18
+# @changed   AI grading analysis scores each professor-named criterion separately and averages them class-wide.
 """Video-upload analysis HTTP API.
 
 Reuses existing platform patterns: optional-JWT identity resolution (audio.py),
@@ -684,6 +684,7 @@ def dashboard(config_id):
 
 _va_jobs = {}  # job_id -> {status, progress, result, error}
 _MAX_TRANSCRIPT_WORDS = 500
+_MAX_CRITERIA = 8  # caps how many columns the per-criterion table can grow to
 
 
 def _parse_json_va(text):
@@ -711,6 +712,53 @@ def _transcript_text(transcript):
     if isinstance(transcript, list):
         return ' '.join((w.get('word', '') if isinstance(w, dict) else str(w)) for w in transcript)
     return str(transcript)
+
+
+# Turns a professor's free-form grading prompt into an ordered list of short criterion
+# labels. Returns [] on any failure, in which case grading falls back to letting each
+# per-student call name its own criteria.
+def _extract_criteria(api_key, grading_prompt):
+    prompt = f"""A professor wrote these grading instructions for student video presentations:
+
+{grading_prompt.strip()}
+
+List every distinct criterion they want graded, as a short label of 2-5 words taken from
+their own wording, in the order they wrote them. If they described only one thing to grade,
+return a single label.
+
+Return JSON: {{"criteria": ["<label>", ...]}}
+Return only the JSON."""
+    try:
+        r = _parse_json_va(_llm_va(api_key, prompt, max_tokens=300))
+        names = [str(c).strip() for c in (r.get('criteria') or []) if str(c).strip()]
+        return names[:_MAX_CRITERIA]
+    except Exception as e:
+        logger.error('Criteria extraction failed: %s', e)
+        return []
+
+
+# Class average per criterion. Matches on a normalized label so a stray capital or trailing
+# period from the model doesn't split one criterion into two columns.
+def _criteria_averages(scored, criteria_names):
+    buckets, order = {}, []
+    for a in scored:
+        for c in (a.get('criteria') or []):
+            name = str(c.get('name') or '').strip()
+            score = c.get('score')
+            if not name or not isinstance(score, (int, float)):
+                continue
+            key = name.lower().rstrip('.')
+            if key not in buckets:
+                buckets[key] = {'name': name, 'scores': []}
+                order.append(key)
+            buckets[key]['scores'].append(score)
+    if criteria_names:  # keep the professor's stated order when we have it
+        pinned = [n.lower().rstrip('.') for n in criteria_names]
+        order = [k for k in pinned if k in buckets] + [k for k in order if k not in pinned]
+    return [
+        {'name': buckets[k]['name'], 'avg_score': round(sum(buckets[k]['scores']) / len(buckets[k]['scores']))}
+        for k in order
+    ]
 
 
 def _run_video_analysis(job_id, config_id, api_key, grading_prompt, db_client, db_name):
@@ -743,8 +791,26 @@ def _run_video_analysis(job_id, config_id, api_key, grading_prompt, db_client, d
                 'transcript': raw,
             })
 
+        # Split the professor's free-form prompt into criterion labels ONCE, then hand the
+        # same labels to every per-student call. Letting each call invent its own wording
+        # would drift ("Clarity" vs "Clear problem statement") and the class table could
+        # never line the columns up.
+        _va_jobs[job_id]['progress'] = 'Reading grading criteria…'
+        criteria_names = _extract_criteria(api_key, grading_prompt)
+
         _va_jobs[job_id]['progress'] = f'Grading {len(students)} submissions…'
 
+        criteria_block = (
+            'Score the student against EXACTLY these criteria, in this order, using these '
+            'names verbatim:\n' + '\n'.join(f'- {n}' for n in criteria_names)
+            if criteria_names else
+            'First split the professor\'s text into every distinct criterion they named, give '
+            'each a short label (2-5 words) from their own wording, and keep the order they wrote.'
+        )
+
+        # Grades one submission. The professor's prompt usually names several distinct
+        # criteria, so the model scores each one as its own line item — a single composite
+        # number hides which criterion the student actually failed.
         def _grade_one(s):
             text = s['transcript'] or '[no transcript available]'
             prompt = f"""You are grading a student video presentation.
@@ -756,20 +822,27 @@ Student: {s['name']}
 Video transcript:
 {text}
 
+{criteria_block}
+
 Return a JSON object:
-{{"score": <0-100>, "summary": "<2-3 sentences>", "strengths": ["..."], "improvements": ["..."]}}
+{{"criteria": [{{"name": "<criterion label>", "score": <0-100>, "comment": "<1-2 sentences>"}}],
+  "score": <0-100 overall>, "summary": "<2-3 sentences>", "strengths": ["..."], "improvements": ["..."]}}
+
+Every criterion must appear in "criteria", even if the transcript gives no evidence for it
+(score it low and say so in the comment). "score" is your holistic overall grade.
 
 Return ONLY the JSON object."""
             try:
-                raw = _llm_va(api_key, prompt, max_tokens=400)
+                raw = _llm_va(api_key, prompt, max_tokens=1200)
                 r = _parse_json_va(raw)
                 r.setdefault('score', 0)
+                r.setdefault('criteria', [])
                 r.setdefault('summary', '')
                 r.setdefault('strengths', [])
                 r.setdefault('improvements', [])
             except Exception as e:
                 logger.error('Video grade failed for %s: %s', s['submission_id'], e)
-                r = {'score': 0, 'summary': 'Analysis failed.', 'strengths': [], 'improvements': []}
+                r = {'score': 0, 'criteria': [], 'summary': 'Analysis failed.', 'strengths': [], 'improvements': []}
             return {**s, **r}
 
         analyses = []
@@ -783,7 +856,12 @@ Return ONLY the JSON object."""
 
         cs = {'overall_insight': 'No scored submissions to summarize.', 'common_strengths': [], 'common_weaknesses': []}
         if scored:
-            lines = '\n'.join(f'- Score {a["score"]}/100: {a["summary"]}' for a in scored)
+            # Feed the per-criterion breakdown into the class summary too, so "common
+            # weaknesses" can name the criterion instead of speaking about the grade overall.
+            def _line(a):
+                per = ', '.join(f'{c.get("name")} {c.get("score")}' for c in (a.get('criteria') or []) if c.get('name'))
+                return f'- Score {a["score"]}/100{f" ({per})" if per else ""}: {a["summary"]}'
+            lines = '\n'.join(_line(a) for a in scored)
             summary_prompt = f"""Summarize class-wide video presentation performance for a professor.
 
 Grading criteria used:
@@ -804,6 +882,7 @@ Return only the JSON."""
         result = {
             'class_summary': {
                 'avg_score': avg_score,
+                'criteria_averages': _criteria_averages(scored, criteria_names),
                 'total_submissions': len(analyses),
                 'overall_insight': cs.get('overall_insight', ''),
                 'common_strengths': cs.get('common_strengths', []),
