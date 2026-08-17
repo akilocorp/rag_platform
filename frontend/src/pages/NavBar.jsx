@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-03
-// @changed   Added a Guide link so the /userguide site is reachable before anyone signs in.
+// @updated   2026-08-12
+// @changed   Added a "Plan my course" link to the public syllabus advisor.
+//            Prior: added a Guide link so the /userguide site is reachable before anyone signs in.
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import logo from '../assets/logo.png'; // Adjust path if necessary
@@ -58,6 +59,19 @@ const Navbar = () => {
           }`}
         >
           Guide
+        </Link>
+
+        {/* Reachable logged out on purpose: a professor who has not signed up yet is
+            exactly who this is for, and it is the fastest thing to hand them in a demo. */}
+        <Link
+          to="/course-plan"
+          className={`text-sm lg:text-base transition-colors hidden sm:block ${
+            location.pathname.startsWith('/course-plan')
+              ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]'
+              : 'text-gray-700 font-medium hover:text-[#F8CABA]'
+          }`}
+        >
+          Plan my course
         </Link>
 
         {/* Logged in → Dashboard. On the login page → Register. Otherwise → Login. */}
