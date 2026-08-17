@@ -86,134 +86,35 @@ jobs:
           echo "Using compose file: $COMPOSE_FILE"
           echo "FRONTEND_API_URL=$FRONTEND_API_URL"
 
-          # ---- Build against the live site, verify it, then swap. ----
-          # Hard rule: nothing stops the running site except the swap at the very end,
-          # and the swap only happens after a successful build AND a passing pre-flight.
-          # A deploy that cannot proceed aborts with the old version still serving --
-          # there is deliberately no path that takes the site down to make room.
+          # ---- Traditional deploy: retire the old stack, then build and start the new. ----
+          # Dev accepts a downtime window in exchange for a simple, predictable deploy.
+          # Prod uses blue/green instead; the two jobs deliberately differ.
 
-          IMAGE_BACKEND="rag-platform-backend"
-          IMAGE_FRONTEND="rag-platform-frontend"
-          NEED_MB=6000          # rough headroom for a cold build of both images
-          KEEP_PREVIOUS_MB=8500 # above this we can also afford to retain a rollback copy
+          # Stop and remove the running stack.
+          compose -f $COMPOSE_FILE down --remove-orphans || true
 
-          free_mb() { df --output=avail -m / | tail -1 | tr -d ' '; }
-
-          # Is there anything live worth protecting? If the site is already down (a prior
-          # deploy died, a reboot, a manual stop) there is nothing to lose, so a tight disk
-          # must NOT block the build that would restore it.
-          SITE_UP=0
-          if [ -n "$(sudo docker ps -q --filter name=myapp- 2>/dev/null)" ]; then
-            SITE_UP=1
-          fi
-          AVAIL=$(free_mb)
-          echo "Site currently up: $SITE_UP | free disk: ${AVAIL}MB"
-
-          # Both of these are safe while containers are running: `container prune` only
-          # reaps stopped containers, and `image prune -a` never removes an image that a
-          # running container references. Neither can interrupt traffic.
+          # Remove the old images too - "the old one goes completely" - but NOT the build
+          # cache. That cache is what stops pip and npm reinstalling every deploy, and it
+          # is only rebuilt from scratch if something deletes it.
           sudo docker container prune -f || true
           sudo docker image prune -af || true
 
-          # Still short? Give up the BuildKit cache next. That costs build speed, never
-          # uptime, so it is always the right thing to trade before touching the site.
-          AVAIL=$(free_mb)
-          if [ "$AVAIL" -lt "$NEED_MB" ]; then
-            echo "Free disk ${AVAIL}MB below ${NEED_MB}MB - dropping the build cache to make room."
+          # Only if there is still not enough room does the cache get sacrificed. This
+          # costs a slow cold build, so it is the last resort, not the default.
+          NEED_MB=6000
+          AVAIL=$(df --output=avail -m / | tail -1 | tr -d ' ')
+          if [ "${AVAIL:-0}" -lt "$NEED_MB" ]; then
+            echo "Free disk ${AVAIL}MB below ${NEED_MB}MB - dropping the build cache (this deploy will be a cold build)."
             sudo docker builder prune -af || true
-            AVAIL=$(free_mb)
+            echo "Free disk now $(df --output=avail -m / | tail -1 | tr -d ' ')MB."
+          else
+            echo "Free disk ${AVAIL}MB - build cache kept, packages will not reinstall."
           fi
 
-          # Out of safe options. If a site is live, protect it: fail the deploy and leave
-          # the running version alone rather than stopping it for a build that may not fit.
-          if [ "$AVAIL" -lt "$NEED_MB" ] && [ "$SITE_UP" = "1" ]; then
-            echo "ABORTING: only ${AVAIL}MB free, need ${NEED_MB}MB to build safely."
-            echo "The running site was NOT touched and is still serving."
-            echo "Grow the EBS root volume (30GB recommended), then re-run this deploy."
-            exit 1
-          fi
-          if [ "$AVAIL" -lt "$NEED_MB" ]; then
-            echo "WARNING: only ${AVAIL}MB free, but nothing is currently serving - building anyway."
-          fi
+          # Build and start. `--wait` holds until the healthchecks pass, so a broken image
+          # fails the job loudly instead of reporting green over a dead site.
+          compose -f $COMPOSE_FILE up -d --build --remove-orphans --wait --wait-timeout 180
 
-          # Snapshot the running pair so a failed swap can be undone. Skipped when disk is
-          # tight: a rollback copy is insurance, and insurance never outranks the build.
-          # Must come AFTER the prunes above, which would otherwise reap the untagged copy.
-          HAVE_PREVIOUS=0
-          if [ "$AVAIL" -gt "$KEEP_PREVIOUS_MB" ]; then
-            for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
-              if sudo docker image inspect "$img:latest" >/dev/null 2>&1; then
-                sudo docker tag "$img:latest" "$img:previous"
-                HAVE_PREVIOUS=1
-              fi
-            done
-          fi
-          if [ "$HAVE_PREVIOUS" != "1" ]; then
-            echo "Rollback copy not retained this run (no prior image, or disk below ${KEEP_PREVIOUS_MB}MB)."
-          fi
-
-          # The old containers serve throughout this.
-          compose -f $COMPOSE_FILE build
-
-          # --- Pre-flight: prove the new images while the live ones still run. ---
-
-          # Frontend: a broken bundle already fails `build`, so the runtime risk left is
-          # the nginx config. Costs a second and needs no env.
-          sudo docker run --rm "$IMAGE_FRONTEND:latest" nginx -t
-
-          # Backend: boot the freshly built image as a profile-gated throwaway - no ports,
-          # no container_name - and wait for it to answer /health. A bad import or a
-          # missing env var dies here, with the live site still untouched.
-          if ! compose -f $COMPOSE_FILE --profile preflight up -d --wait --wait-timeout 90 backend-preflight; then
-            echo "PRE-FLIGHT FAILED: the new backend image never answered /health."
-            echo "The running site was NOT touched - it is still serving the previous build."
-            compose -f $COMPOSE_FILE --profile preflight logs --tail 80 backend-preflight || true
-            compose -f $COMPOSE_FILE --profile preflight rm -sf backend-preflight || true
-            exit 1
-          fi
-          compose -f $COMPOSE_FILE --profile preflight rm -sf backend-preflight || true
-          echo "Pre-flight passed."
-
-          # --- Swap. This is the first and only moment the live site stops. ---
-          if ! compose -f $COMPOSE_FILE up -d --remove-orphans --wait --wait-timeout 120; then
-            echo "SWAP FAILED the health gate after the containers were replaced."
-            if [ "$HAVE_PREVIOUS" = "1" ]; then
-              echo "Rolling back to the previous images."
-              for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
-                sudo docker tag "$img:previous" "$img:latest" || true
-              done
-              compose -f $COMPOSE_FILE up -d --remove-orphans --wait --wait-timeout 120 || true
-              compose -f $COMPOSE_FILE ps
-              echo "Rolled back. The failed build is NOT live."
-            else
-              echo "No :previous images to roll back to - the site is DOWN and needs a hand."
-            fi
-            exit 1
-          fi
-
-          # Safe now that the swap held: reaps only untagged layers, never `:previous`.
-          sudo docker image prune -f || true
-
-          compose -f $COMPOSE_FILE ps
-              echo "Rolled back. The failed build is NOT live."
-            else
-              echo "No :previous images to roll back to - the site is DOWN and needs a hand."
-            fi
-            exit 1
-          fi
-
-          # Safe now that the swap held: reaps only untagged layers, never `:previous`.
-          sudo docker image prune -f || true
-
-          compose -f $COMPOSE_FILE ps
-              echo "Rolled back. The failed build is NOT live."
-            else
-              echo "No :previous images to roll back to - the site is DOWN and needs a hand."
-            fi
-            exit 1
-          fi
-
-          # Safe now that the swap held: reaps only untagged layers, never `:previous`.
           sudo docker image prune -f || true
 
           compose -f $COMPOSE_FILE ps
@@ -398,26 +299,3 @@ jobs:
                   sudo docker image prune -f || true
 
                   compose -f $COMPOSE_FILE ps
-                      echo "Rolled back. The failed build is NOT live."
-                    else
-                      echo "No :previous images to roll back to - the site is DOWN and needs a hand."
-                    fi
-                    exit 1
-                  fi
-
-                  # Safe now that the swap held: reaps only untagged layers, never `:previous`.
-                  sudo docker image prune -f || true
-
-                  compose -f $COMPOSE_FILE ps
-                      echo "Rolled back. The failed build is NOT live."
-                    else
-                      echo "No :previous images to roll back to - the site is DOWN and needs a hand."
-                    fi
-                    exit 1
-                  fi
-
-                  # Safe now that the swap held: reaps only untagged layers, never `:previous`.
-                  sudo docker image prune -f || true
-
-                  compose -f $COMPOSE_FILE ps
-        
