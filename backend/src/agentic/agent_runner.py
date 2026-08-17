@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-16
-# @changed   render_widget tool support: when the tool is available the system prompt tells the bot to call
+# @updated   2026-08-18
+# @changed   Failures no longer speak to the student. Every failure path (missing key, missing SDK, dead
+#            stream, tool-round ceiling) now logs the real cause server-side and emits a structured `error`
+#            event carrying one neutral line — instead of writing "something went wrong" into the reply as if
+#            the bot had said it.
+#            Prior: render_widget tool support: when the tool is available the system prompt tells the bot to call
 #            it inline (multiple per reply), and the loop emits an inline `facilitator` event at the tool's
 #            stream position so the widget renders where it was called.
 #            Prior: When the facilitator is on, the system prompt now tells the bot its answer may become an
@@ -42,15 +46,11 @@ logger = logging.getLogger(__name__)
 STREAM_MAX_ATTEMPTS = 3
 STREAM_BACKOFF_BASE_SECONDS = 1.0
 
-# User-facing copy when retries are exhausted — never leak raw exception dicts.
-BUSY_MESSAGE = (
-    "⚠️ The assistant is experiencing high demand right now. "
-    "Please try again in a moment."
-)
-GENERIC_ERROR_MESSAGE = (
-    "⚠️ Something went wrong reaching the assistant. "
-    "Please try again in a moment."
-)
+# The only thing a student is ever told when a turn fails. Deliberately says
+# nothing about what broke — no exception text, no "high demand", no warning
+# glyph — because the cause is ours to fix, not theirs to read. Whatever
+# actually happened is logged with a full traceback at the failure site.
+SOFT_RETRY_MESSAGE = "Please refresh the page, or come back in a little while."
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -318,6 +318,7 @@ def stream_agentic_response(
       {"type": "tool_use", "id": "<id>", "name": "<name>", "input": {...}}
       {"type": "tool_result", "id": "<id>", "name": "<name>",
                               "content": "<text>", "is_error": bool}
+      {"type": "error", "data": "<neutral notice for the reader>"}
       {"type": "done", "stop_reason": "<reason>",
                        "assistant_blocks": [...full trace for persistence...]}
 
@@ -325,16 +326,20 @@ def stream_agentic_response(
     during the turn (text + tool_use + tool_result), in order. Step 5 stores
     it on the AI message as `additional_kwargs.tool_trace`.
     """
+    # Deployment faults (no key, no SDK) are ours, not the student's — they read
+    # the same neutral line as any other failure while the specifics go to the log.
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        yield {"type": "token", "data": "Anthropic API key is not configured on this server."}
+        logger.error("Agentic turn aborted: ANTHROPIC_API_KEY is not set on this server.")
+        yield {"type": "error", "data": SOFT_RETRY_MESSAGE}
         yield {"type": "done", "stop_reason": "error", "assistant_blocks": []}
         return
 
     try:
         import anthropic
     except ImportError:
-        yield {"type": "token", "data": "anthropic SDK is not installed on this server."}
+        logger.error("Agentic turn aborted: the `anthropic` SDK is not installed.", exc_info=True)
+        yield {"type": "error", "data": SOFT_RETRY_MESSAGE}
         yield {"type": "done", "stop_reason": "error", "assistant_blocks": []}
         return
 
@@ -414,10 +419,10 @@ def stream_agentic_response(
                 if retryable:
                     time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
                     continue
-                friendly = BUSY_MESSAGE if _is_transient_error(e) else GENERIC_ERROR_MESSAGE
-                # Space it off from any partial text already streamed.
-                prefix = "\n\n" if yielded_any else ""
-                yield {"type": "token", "data": prefix + friendly}
+                # Out of retries. The notice rides its own event rather than the
+                # token stream so the client can render it as chrome beside any
+                # half-written reply, not as another sentence the bot produced.
+                yield {"type": "error", "data": SOFT_RETRY_MESSAGE}
                 yield {"type": "done", "stop_reason": "error", "assistant_blocks": full_trace}
                 return
 
@@ -499,9 +504,10 @@ def stream_agentic_response(
         full_trace.extend(tool_result_blocks)
         messages.append({"role": "user", "content": tool_result_blocks})
     else:
-        # Loop exhausted without natural stop — let the user know.
+        # Loop exhausted without a natural stop. Whatever text the model produced
+        # along the way still stands, so this ends quietly — the ceiling is an
+        # internal budget and naming it in the bubble only confuses the reader.
         logger.warning("Agentic turn hit MAX_TOOL_ROUNDS=%d", MAX_TOOL_ROUNDS)
-        yield {"type": "token", "data": "\n\n[Reached the tool-use limit for this turn.]"}
         final_stop_reason = "max_rounds"
 
     yield {

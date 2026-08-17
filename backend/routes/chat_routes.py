@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-16
-# @changed   render_widget rounds no longer freeze the thinking spinner: a swallowed render_widget tool_use
+# @updated   2026-08-18
+# @changed   A broken stream no longer talks to the student. Both LangChain loops now retry a transient
+#            upstream drop (3 attempts, backoff, only before the first token), and every failure path emits
+#            the neutral `error` frame from `_stream_error_event` instead of `str(e)` — the exception itself
+#            goes to the log with a traceback. The agentic path's `error` events are forwarded too.
+#            Prior: render_widget rounds no longer freeze the thinking spinner: a swallowed render_widget tool_use
 #            now emits a `widget_pending` signal (and an errored result a `widget_failed`) so the UI shows
 #            the "Preparing an interactive element…" skeleton instead of an apparently-stuck spinner.
 #            Prior: Agentic path: inline render_widget tool widgets. `facilitator` events from the runner are
@@ -33,7 +37,14 @@ from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
 from langchain_anthropic import ChatAnthropic
 
-from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
+from src.agentic.agent_runner import (
+    stream_agentic_response,
+    FORMATTING_GUIDE,
+    SOFT_RETRY_MESSAGE,
+    STREAM_BACKOFF_BASE_SECONDS,
+    STREAM_MAX_ATTEMPTS,
+    _is_transient_error,
+)
 from src.agentic.tools.base import ToolContext
 from src.facilitator import registry as facilitator_registry
 from src.facilitator.runner import run_facilitator
@@ -54,6 +65,18 @@ def _set_device_cookie(resp, signed_value, request):
         max_age=usage_limits.DEVICE_COOKIE_MAX_AGE,
         httponly=True, secure=secure, samesite="None" if secure else "Lax",
     )
+
+def _stream_error_event(exc, where):
+    """The one frame a client ever receives for a turn that failed.
+
+    Logs the real exception with a traceback under `where`, and hands back a
+    notice carrying nothing about the cause — no exception text, no provider
+    name, no hint that anything is broken at all. Every stream failure in this
+    module goes through here so a raw `str(e)` can't reach a bubble again.
+    """
+    logger.error("Chat stream failed (%s): %s", where, exc, exc_info=True)
+    return {"type": "error", "data": SOFT_RETRY_MESSAGE}
+
 
 # Allowed template variables for the chat prompt - others are escaped to avoid LangChain errors
 ALLOWED_PROMPT_VARS = {"context", "history", "question"}
@@ -924,6 +947,11 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             if etype == "token":
                 accumulated_text += event.get("data") or ""
                 yield json.dumps(event) + "\n"
+            elif etype == "error":
+                # The runner already logged the cause and neutralised the copy —
+                # pass it straight through. It is NOT added to accumulated_text,
+                # so the notice never gets persisted as part of the reply.
+                yield json.dumps(event) + "\n"
             elif etype == "facilitator":
                 # An inline widget rendered by render_widget — forward at position and
                 # keep it (with its tool_use id) for persistence.
@@ -1010,8 +1038,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 logger.error("Failed to persist agentic turn: %s", e, exc_info=True)
 
     except Exception as e:
-        logger.error("Agentic stream error: %s", e, exc_info=True)
-        yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+        yield json.dumps(_stream_error_event(e, "agentic")) + "\n"
 
 # --- MAIN CHAT ROUTE ---
 
@@ -1360,19 +1387,37 @@ def chat(config_id, chat_id):
                     content=[{"type": "text", "text": user_input}] + image_blocks
                 ))
 
+                # Same retry contract as the agentic path: a transient upstream
+                # drop before the first token is invisible to the user, but once
+                # text has left for the browser a restart would duplicate it, so
+                # from that point the turn ends where it broke.
                 got_any = False
                 full_text = ""
-                for chunk in llm.stream(messages):
-                    piece = getattr(chunk, "content", "")
-                    # Some providers stream content as a list of blocks.
-                    if isinstance(piece, list):
-                        piece = "".join(
-                            b.get("text", "") for b in piece if isinstance(b, dict)
-                        )
-                    if piece:
-                        got_any = True
-                        full_text += piece
-                        yield json.dumps({"type": "token", "data": piece}) + "\n"
+                for attempt in range(STREAM_MAX_ATTEMPTS):
+                    try:
+                        for chunk in llm.stream(messages):
+                            piece = getattr(chunk, "content", "")
+                            # Some providers stream content as a list of blocks.
+                            if isinstance(piece, list):
+                                piece = "".join(
+                                    b.get("text", "") for b in piece if isinstance(b, dict)
+                                )
+                            if piece:
+                                got_any = True
+                                full_text += piece
+                                yield json.dumps({"type": "token", "data": piece}) + "\n"
+                        break
+                    except Exception as e:
+                        if (_is_transient_error(e) and not got_any
+                                and attempt < STREAM_MAX_ATTEMPTS - 1):
+                            logger.warning(
+                                "Multimodal stream retry %d/%d: %s",
+                                attempt + 1, STREAM_MAX_ATTEMPTS, e,
+                            )
+                            time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                            continue
+                        yield json.dumps(_stream_error_event(e, "multimodal")) + "\n"
+                        return
 
                 # Persist text-only user message + AI reply. The image is NOT
                 # saved (current-turn-only), so it won't survive a reload.
@@ -1419,16 +1464,36 @@ def chat(config_id, chat_id):
                 history_messages_key="history",
             )
 
+            # Retry guard for the main RAG path — the one that carries most of
+            # the traffic. `RunnableWithMessageHistory` only persists the turn
+            # once the stream finishes, so a failed attempt leaves no half-saved
+            # exchange behind and re-running it is safe. Retrying is gated on
+            # `not got_any` for the same reason as everywhere else: replayed
+            # tokens would double up in the bubble.
             got_any = False
             accumulated_text = ""
-            for chunk in chain_with_history.stream(
-                {"question": user_input, "context": context_text},
-                config={"configurable": {"session_id": chat_id}}
-            ):
-                if chunk:
-                    got_any = True
-                    accumulated_text += chunk
-                yield json.dumps({"type": "token", "data": chunk}) + "\n"
+            for attempt in range(STREAM_MAX_ATTEMPTS):
+                try:
+                    for chunk in chain_with_history.stream(
+                        {"question": user_input, "context": context_text},
+                        config={"configurable": {"session_id": chat_id}}
+                    ):
+                        if chunk:
+                            got_any = True
+                            accumulated_text += chunk
+                        yield json.dumps({"type": "token", "data": chunk}) + "\n"
+                    break
+                except Exception as e:
+                    if (_is_transient_error(e) and not got_any
+                            and attempt < STREAM_MAX_ATTEMPTS - 1):
+                        logger.warning(
+                            "Legacy stream retry %d/%d: %s",
+                            attempt + 1, STREAM_MAX_ATTEMPTS, e,
+                        )
+                        time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                        continue
+                    yield json.dumps(_stream_error_event(e, "legacy")) + "\n"
+                    return
 
             # Charge one message only if the turn actually produced output.
             done_payload = {"type": "done"}
@@ -1470,8 +1535,7 @@ def chat(config_id, chat_id):
                     _attach_facilitator_to_last_ai(chat_id, facilitator_block)
 
         except Exception as e:
-            logger.error(f"Stream Error: {e}")
-            yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+            yield json.dumps(_stream_error_event(e, "legacy-outer")) + "\n"
 
     resp = Response(generate(), mimetype='application/x-ndjson')
     if device_cookie:

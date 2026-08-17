@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-16
- * @changed   render_widget rounds show the "Preparing an interactive element…" skeleton instead of a frozen
+ * @updated   2026-08-18
+ * @changed   A turn that dies mid-stream now hands the view to StreamInterruptedPage — the server's `error`
+ *            frame (previously dropped on the floor) and a client-side connection failure both latch
+ *            `streamInterrupted`, replacing the half-written bubble with a "Please refresh the page" screen.
+ *            Replaces the red "Connection lost" banner.
+ *            Prior: render_widget rounds show the "Preparing an interactive element…" skeleton instead of a frozen
  *            thinking spinner: new `widget_pending` / `widget_failed` stream events toggle facilitatorPending,
  *            cleared when text streams or the widget renders. (Skeleton also renders in inline `parts` mode.)
  *            Prior: Inline widgets: an AI message now renders an ordered `parts` sequence (text segments +
@@ -21,6 +25,7 @@ import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
+import StreamInterruptedPage from '../components/StreamInterruptedPage';
 import ToolStatusPill from '../components/ToolStatusPill';
 import FacilitatorBlock, { FacilitatorPending } from '../facilitator/FacilitatorBlock';
 import ChatComposer from '../components/ChatComposer';
@@ -734,6 +739,8 @@ const ChatPage = () => {
   const [config, setConfig] = useState(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState(null);
+  // Latched once a turn fails; only a reload clears it, which is the point.
+  const [streamInterrupted, setStreamInterrupted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -1339,6 +1346,14 @@ const ChatPage = () => {
   // interactive widget: {widget, question, selected, correct?}. It rides beside
   // the message so the backend can tell the model the bare option text is an
   // answer to the question it just asked, rather than a new topic.
+  // Hand the whole view over to the refresh screen when a turn can't finish.
+  // Shared by the server's `error` frame and a connection that dies underneath
+  // us; the frame's copy is ignored on purpose — the page carries the wording,
+  // and the cause is already in the backend log either way.
+  const markStreamInterrupted = useCallback(() => {
+    setStreamInterrupted(true);
+  }, []);
+
   const handleMessageProcess = useCallback(async (textInput, facilitatorAnswer) => {
     if (!textInput || !textInput.trim() || isLoading) return;
 
@@ -1429,6 +1444,9 @@ const ChatPage = () => {
       // `openText` is the text accumulated since the last widget.
       let closedParts = null;
       let openText = '';
+      // Set when the turn ends on an `error` frame — suppresses the follow-up
+      // prompt call, which would otherwise be built from a truncated reply.
+      let turnFailed = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1565,6 +1583,13 @@ const ChatPage = () => {
                 };
                 return newMsgs;
               });
+            } else if (data.type === 'error') {
+              // The turn died upstream. Swap the whole view for the refresh
+              // screen rather than leaving a half-written bubble behind — the
+              // unfinished turn was never persisted, so a reload comes back to
+              // a clean conversation.
+              turnFailed = true;
+              markStreamInterrupted();
             } else if (data.type === 'done' && data.usage) {
               const u = data.usage;
               if (u.status === 'warn' && typeof u.remaining === 'number') {
@@ -1591,7 +1616,7 @@ const ChatPage = () => {
 
       // Fire-and-forget: ask the backend for 3 tailored follow-up prompts
       // based on this reply. Drives the send-button hover fan.
-      if (accumulatedText.trim()) {
+      if (accumulatedText.trim() && !turnFailed) {
         fetch('/api/quick_prompts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1608,13 +1633,15 @@ const ChatPage = () => {
       if (isNewChat) fetchSessions(true);
 
     } catch (e) {
+        // The connection died before the server could say anything — same
+        // landing as a server-sent error, no red banner. Cause stays in the console.
         console.error("Stream Error:", e);
-        setError("Connection lost. Please try again.");
+        markStreamInterrupted();
     } finally {
       setIsLoading(false);
       isStreamingRef.current = false; // "Unlock" the history loader
     }
-  }, [configId, navigate, avatarSession, fetchSessions, isLoading, selectedFileIds, sessionUploads, libraryFiles, pendingImages, sessionModel]);
+  }, [configId, navigate, avatarSession, fetchSessions, isLoading, selectedFileIds, sessionUploads, libraryFiles, pendingImages, sessionModel, markStreamInterrupted]);
 
   // Auto-send the message typed in the v2 composer once the config is ready.
   useEffect(() => {
@@ -1753,6 +1780,10 @@ const ChatPage = () => {
   // the render is config-null-safe and messages stream in as they arrive, so
   // there's nothing to block on. Flows straight into the composer.
   if (isInitializing) return <div className="h-screen bg-[#F8FAFC]" />;
+
+  // A turn that couldn't finish takes over the view. Ahead of every other gate
+  // below: the half-written bubble it replaces is the thing we don't want seen.
+  if (streamInterrupted) return <StreamInterruptedPage />;
 
   if (!isAuthenticated && config?.is_public && !guestInfo) return (
     <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
