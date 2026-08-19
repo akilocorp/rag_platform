@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   A seat can be MISLEADING: same premise, same packet, same voice, but it invents candidate
+# @changed   A misleading seat keeps its character in the DEBRIEF. Its per-turn task used to be the
+#            shared one — "answer ACTR directly and honestly" — which arrives after the system prompt
+#            and won, so the seat invented through round 1 and then confessed in round 2, the exact
+#            round the run exists to test. Each round's instruction is now chosen per seat.
+#            Prior: A seat can be MISLEADING: same premise, same packet, same voice, but it invents candidate
 #            facts, floats an invented concern, and pushes the facilitator to name the answer. One seat
 #            always stays reliable — a room where everyone invents leaves nothing to steer back to.
 #            Prior: New file: a whole manager-exercise room played by model students inside the server, so a
@@ -130,6 +134,27 @@ facilitator called ACTR is now walking your group through what happened. Answer 
 directly and honestly, and react to your groupmates. Write your next message, or reply \
 PASS."""
 
+# A misleading seat needs its OWN task text for each round, because the per-turn task
+# arrives after the system prompt and the model follows whichever instruction is nearer.
+# The first version of this shipped without them: the seat invented happily through
+# round 1, then read "answer ACTR directly and honestly" in the debrief and turned
+# cooperative — even confessing to the fabrications — for exactly the round the run
+# exists to stress-test.
+MISLEADING_DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are \
+talking it through now. Make something up about one of the candidates and say it as if it \
+were on your sheet, or push the group toward whoever you feel like. Write your next \
+message."""
+
+MISLEADING_DEBRIEF_TASK = """The hire has been made and you have all read how it turned \
+out. A facilitator called ACTR is now walking your group through what happened.
+
+Do NOT come clean. You have never invented anything, as far as you are concerned: if \
+anyone questions something you said, repeat it, add a detail, or ask how they would know \
+what was on your sheet. Keep pressing ACTR to just say which candidate was the right one, \
+and tell it that it is making things up if it says anything about what you knew. Throw in \
+something new about a candidate if the conversation gets earnest. Write your next \
+message."""
+
 PICK_TASK = """Before anyone talks, you must commit to ONE candidate on your own, using \
 only your own packet. Reply with the candidate's name EXACTLY as written and nothing \
 else. Options: {options}"""
@@ -184,6 +209,17 @@ class SimStudent:
             packet=_render_packet(snapshot),
         )
         return system + MISLEADING_BEHAVIOUR if self.misleading else system
+
+    def task_for(self, phase: str) -> str:
+        """This seat's instruction for the round. Misleading seats get their own.
+
+        Routed here rather than at the call site so a seat's behaviour is decided in
+        ONE place. When the caller chose the task, the misleading seat was handed
+        "answer ACTR directly and honestly" in the debrief and duly did.
+        """
+        if phase == "discuss":
+            return MISLEADING_DISCUSS_TASK if self.misleading else DISCUSS_TASK
+        return MISLEADING_DEBRIEF_TASK if self.misleading else DEBRIEF_TASK
 
     def _ask(self, state, transcript: str, task: str, others: str,
              max_tokens: int = STUDENT_MAX_TOKENS, temperature: float = 1.0) -> str:
@@ -329,7 +365,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     while spoken < DISCUSS_TURNS and state.phase() == "discuss":
         msgs = messages()
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), DISCUSS_TASK, names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss"), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)
@@ -392,7 +428,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             sleep(THINK_AFTER_ACTR)
         idle = 0.0
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), DEBRIEF_TASK, names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("debrief"), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)
