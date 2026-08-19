@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   New package: tool contracts for the manager exercise, starting with take_turn.
+# @updated   2026-08-19
+# @changed   Export CHECK_ENABLED, which ai_manager already imported by name.
+#            Prior: New package: tool contracts for the manager exercise, starting with take_turn.
 """Tool contracts for the manager exercise.
 
 One module per tool, each owning its JSON schema and the parser that turns a tool input
@@ -13,6 +14,7 @@ call during a loop. Nothing here is optional or discoverable: these are forced o
 shapes, used to stop the model picking its own.
 """
 from src.managers.tools.constraints import (
+    CHECK_ENABLED,
     CHECK_TOOL,
     HARD_CONSTRAINTS,
     check_mechanical,
@@ -30,7 +32,7 @@ from src.managers.tools.take_turn import TURN_TOOL, parse_turn
 
 __all__ = [
     "TURN_TOOL", "parse_turn",
-    "CHECK_TOOL", "HARD_CONSTRAINTS", "check_mechanical", "parse_check",
+    "CHECK_ENABLED", "CHECK_TOOL", "HARD_CONSTRAINTS", "check_mechanical", "parse_check",
     "render_constraints",
     "PROGRESS_TOOL", "MILESTONES", "parse_progress", "render_close_directive",
     "render_milestones",

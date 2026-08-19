@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   A facilitator turn is now a FORCED tool call (src/managers/tools/take_turn.py): `reasoning` and
+# @updated   2026-08-19
+# @changed   Write `_check_turn`, the missing half of the constraint checker: `_checked` has called it
+#            since the checker shipped but it was never defined, so every drafted facilitator turn died
+#            on a NameError inside a background task. Fails open — a transport error must not mute ACTR.
+#            Prior: A facilitator turn is now a FORCED tool call (src/managers/tools/take_turn.py): `reasoning` and
 #            `message` are separate fields, so private deliberation has no channel to the room. The prompt
 #            asked for the same split and was overridden under load — a room was shown the case pack's
 #            collapse pairs verbatim. `reply_to_name` rides the tool too, so quote-reply survives the new
@@ -58,6 +61,7 @@ from src.managers.facilitator_prompt import (
     render_turn_brief,
 )
 from src.managers.tools import (
+    CHECK_ENABLED,
     CHECK_TOOL,
     PROGRESS_TOOL,
     TURN_TOOL,
@@ -336,6 +340,61 @@ def assess_progress(transcript, chosen_name=None, previous=None, candidates=None
         if getattr(block, "type", None) == "tool_use" and block.name == PROGRESS_TOOL["name"]:
             return parse_progress(block.input, previous, candidates)
     return previous
+
+
+_CHECK_SYSTEM = (
+    "You are auditing ONE drafted message from the facilitator of a hidden-profile group "
+    "exercise, against the rules that exercise runs on. You are not judging whether the "
+    "message is good, useful, warm or well-timed — only whether it breaks a listed rule.\n\n"
+    "Report a rule ONLY when the draft actually breaks it, and quote the exact words that "
+    "do. An empty list is the expected answer for most turns: the facilitator is usually "
+    "asking a short question, which breaks nothing. Inventing a violation costs the room a "
+    "turn it should have had.\n\n"
+    "THE RULES\n" + render_constraints()
+)
+
+
+def _check_turn(draft, transcript):
+    """Judge one drafted turn against the hard constraints. `[{"id", "quote"}]`, possibly empty.
+
+    Two passes with different natures. `check_mechanical` counts sentences and question
+    marks — arithmetic, free, and not delegated to a model that was observed waving through
+    a five-sentence draft. The model pass handles the seven rules that need reading.
+
+    Fails OPEN: if the checker errors or the client is missing, the draft is treated as
+    clean. The alternative is a facilitator silenced by an unrelated transport failure,
+    and an occasional unclean turn is much the cheaper of the two.
+    """
+    violations = check_mechanical(draft)
+
+    client = _get_client()
+    if client is None or not (draft or "").strip():
+        return violations
+
+    user = (f"RECENT TRANSCRIPT\n{(transcript or '(nothing yet)').strip()}\n\n"
+            f"THE DRAFT TO JUDGE\n{draft.strip()}")
+    try:
+        msg = client.messages.create(
+            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS, temperature=0,
+            system=[{"type": "text", "text": _CHECK_SYSTEM,
+                     "cache_control": {"type": "ephemeral"}}],
+            tools=[CHECK_TOOL],
+            tool_choice={"type": "tool", "name": CHECK_TOOL["name"]},
+            messages=[{"role": "user", "content": user}],
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("ai_manager constraint check failed")
+        return violations
+
+    seen = {v["id"] for v in violations}
+    for block in (getattr(msg, "content", None) or []):
+        if getattr(block, "type", None) == "tool_use" and block.name == CHECK_TOOL["name"]:
+            for v in parse_check(block.input):
+                # The mechanical verdict wins on a shared id: it counted, the model guessed.
+                if v["id"] not in seen:
+                    violations.append(v)
+                    seen.add(v["id"])
+    return violations
 
 
 def _checked(system, user, result, transcript):

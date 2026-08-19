@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   New: the eight hard constraints as data plus a forced `check_turn` tool, so a drafted turn
+# @updated   2026-08-19
+# @changed   Define CHECK_ENABLED here. `ai_manager.facilitator_reply` has referenced it since the
+#            checker shipped but nothing ever defined it, so every reactive facilitator turn raised
+#            NameError inside a background task and ACTR went mute after its opener in every live room.
+#            Prior: New: the eight hard constraints as data plus a forced `check_turn` tool, so a drafted turn
 #            can be judged against them instead of the author being asked to hold all eight while writing.
 """The eight hard constraints, as data rather than prose.
 
@@ -29,7 +32,14 @@ USING IT
     transcript and it returns the ids it judges violated. Nothing here decides what to do
     about a violation; `parse_check` just normalizes the answer.
 """
+import os
 import re
+
+# Whether a drafted turn is audited before it is posted. On by default — that is the
+# whole point of this module — but a kill switch matters here: the check is a second
+# model call on the room's critical path, and a facilitator that posts an occasional
+# unclean turn is better than one that cannot speak at all.
+CHECK_ENABLED = os.getenv("ACTR_CONSTRAINT_CHECK", "1").strip().lower() not in ("0", "false", "no")
 
 # id, the rule as the checker sees it, and why it exists (never sent to the model).
 HARD_CONSTRAINTS = [
