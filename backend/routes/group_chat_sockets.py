@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   A professor can now test their own exercise: `start_test_run` builds a room the student
+# @changed   `_open_debrief` takes the facilitator lock, so the silence watcher can no longer open the
+#            debrief a second time while the opener is still with the model — rooms were seeing step 1
+#            posted twice.
+#            Prior: A professor can now test their own exercise: `start_test_run` builds a room the student
 #            lobby never lists and hands it to exercise_sim, whose model-played students post through
 #            the same path a real socket message takes (so ACTR is woken identically).
 #            Prior: ACTR's private reasoning is split off its reply and persisted on the message document instead
@@ -281,16 +284,31 @@ def register_socket_events(socketio, app):
         Model-generated from step 1 of the facilitator prompt, so a professor editing
         `facilitator_prompt_override` changes the first thing the room hears. Posts
         nothing if the call fails — see `facilitator_open_debrief`.
+
+        Takes the facilitator lock like every other path that speaks. It used to be the
+        one exception, and that opened the session TWICE: the silence watcher armed by
+        the last round-1 message wakes 8s later, finds the room already in the debrief,
+        finds no facilitator message yet (this call is still with the model) and finds
+        `last_message_ts` unmoved (the outcome document is not a student message) — so
+        all three of its guards pass and it opens step 1 a second time. Holding the lock
+        for the whole call closes that window: the watcher finds it busy and returns.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
                 return
-            opener, reasoning = ai_manager.facilitator_open_debrief(
-                st.config, st.roster, st.active_group_size(),
-                chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
-            )
-            _post_facilitator(st, opener, reasoning=reasoning)
+            if not st.claim_facilitator():
+                return   # something is already speaking for ACTR; it opens the room
+            try:
+                opener, reasoning = ai_manager.facilitator_open_debrief(
+                    st.config, st.roster, st.active_group_size(),
+                    chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
+                )
+                _post_facilitator(st, opener, reasoning=reasoning)
+            finally:
+                # Released whatever happened, or the room goes permanently quiet —
+                # the failure mode `claim_facilitator` warns about in its docstring.
+                st.release_facilitator()
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the debrief backstop timer expires.
