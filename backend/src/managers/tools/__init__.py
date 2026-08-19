@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   Export CHECK_ENABLED, which ai_manager already imported by name.
+# @changed   Export the step gate (steps.py) alongside the turn, check and progress tools.
+#            Prior: Export CHECK_ENABLED, which ai_manager already imported by name.
 #            Prior: New package: tool contracts for the manager exercise, starting with take_turn.
 """Tool contracts for the manager exercise.
 
@@ -28,6 +29,18 @@ from src.managers.tools.progress import (
     render_close_directive,
     render_milestones,
 )
+from src.managers.tools.steps import (
+    ADVANCE_TOOL,
+    FIRST_STEP,
+    STEP_IDS,
+    is_forward,
+    parse_advance,
+    render_current_step,
+    render_refusal,
+    render_sequence,
+    skipped_between,
+    step_exists,
+)
 from src.managers.tools.take_turn import TURN_TOOL, parse_turn
 
 __all__ = [
@@ -36,4 +49,7 @@ __all__ = [
     "render_constraints",
     "PROGRESS_TOOL", "MILESTONES", "parse_progress", "render_close_directive",
     "render_milestones",
+    "ADVANCE_TOOL", "FIRST_STEP", "STEP_IDS", "is_forward", "parse_advance",
+    "render_current_step", "render_refusal", "render_sequence", "skipped_between",
+    "step_exists",
 ]

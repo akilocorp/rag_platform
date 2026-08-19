@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   New: the `take_turn` forced-tool contract for a facilitator turn. Splits ACTR's private
+# @updated   2026-08-19
+# @changed   Two fields for the step gate: `step` (the step being moved to) and `step_done_because`
+#            (what the students said that finished the one being left). A step request with no reason
+#            is dropped in parse_turn, so the room stays put rather than the gate ruling on nothing.
+#            Prior: New: the `take_turn` forced-tool contract for a facilitator turn. Splits ACTR's private
 #            deliberation from the words it says out loud at the transport layer, after a prompt
 #            instruction to do the same was ignored and posted the case pack's collapse pairs to a room.
 """The shape of one ACTR turn, as a forced tool call.
@@ -99,6 +102,24 @@ TURN_TOOL = {
                     "message is your close. It ends the session, so use it once."
                 ),
             },
+            "step": {
+                "type": "string",
+                "description": (
+                    "Only when you are MOVING to a different step of the sequence: the "
+                    "step you are moving to. Omit it to stay where you are, which is the "
+                    "usual answer — a step normally takes several turns. Your request is "
+                    "checked against the transcript and can be refused."
+                ),
+            },
+            "step_done_because": {
+                "type": "string",
+                "description": (
+                    "Required whenever you set `step`. What the STUDENTS said that "
+                    "finished the step you are leaving — and, if you are skipping any "
+                    "steps, what they said that already did that work too. This is read "
+                    "by a checker, so an unfinished step gets sent back to you."
+                ),
+            },
         },
         "required": ["reasoning", "speak"],
     },
@@ -119,7 +140,16 @@ def parse_turn(payload):
 
     if not speak or not message or message.upper().rstrip(".!") == "SILENT":
         message = None
+    # A step request without a reason is not a request. Dropping it here rather than
+    # letting it through means the gate is never asked to rule on an empty justification,
+    # and the room simply stays where it is — the safe direction.
+    step = str(data.get("step") or "").strip().upper() or None
+    because = str(data.get("step_done_because") or "").strip()
+    if step and not because:
+        step = None
     return {
+        "step": step,
+        "step_done_because": because if step else "",
         "message": message,
         "go_around": bool(data.get("go_around")) and message is not None,
         "ended": bool(data.get("ended")) and message is not None,

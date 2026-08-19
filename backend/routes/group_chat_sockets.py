@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   `start_test_run` passes a `misleading` seat count through to the simulator.
+# @changed   The facilitator turn carries its step in and out: `facilitator_reply` is handed the room's
+#            current step plus the WHOLE debrief for the gate to rule against, and whatever step the gate
+#            settles on is written back. A refused move is logged with what the room still owes.
+#            Prior: `start_test_run` passes a `misleading` seat count through to the simulator.
 #            Prior: `_open_debrief` takes the facilitator lock, so the silence watcher can no longer open the
 #            debrief a second time while the opener is still with the model — rooms were seeing step 1
 #            posted twice.
@@ -407,7 +410,22 @@ def register_socket_events(socketio, app):
                     ),
                     outcome_text=st.forecast_text_for(st.chosen_candidate),
                     progress=progress,
+                    # Where the sequence is, and the WHOLE debrief for the step gate to
+                    # rule against — the rolling window is the wrong input for "did the
+                    # room already pool the concerns", since the evidence scrolls out.
+                    step=st.facilitator_step,
+                    full_transcript=ctx.get_context_summary(num_messages=len(ctx.messages)),
                 )
+                # Recorded whether or not ACTR speaks: a refused move is still a fact
+                # about the room, and the step it stayed on has to survive this turn.
+                st.set_facilitator_step(result.get("step"))
+                gate = result.get("step_gate")
+                if gate:
+                    logger.info(
+                        "🚦 %s step %s→%s %s %s", room_id, gate.get("from"), gate.get("to"),
+                        "approved" if gate.get("approved") else "REFUSED",
+                        (gate.get("evidence") or gate.get("missing") or "")[:120],
+                    )
                 message = result.get("message")
                 if not message:
                     return

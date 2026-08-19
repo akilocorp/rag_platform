@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-19  @changed New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
+/* @language JSX  @updated 2026-08-19  @changed Shows the facilitator's current step during the debrief. Prior: New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaFlask, FaSpinner, FaCheckCircle } from 'react-icons/fa';
@@ -128,6 +128,14 @@ export default function ManagerExerciseRunPage() {
               <span className="text-sm font-bold">
                 {PHASES[phaseIndex]?.label || phase}
               </span>
+              {/* Which step of the facilitator's sequence the debrief is on. Only
+                  meaningful during the debrief, and it is where a session that skips
+                  its own pedagogy does the skipping. */}
+              {run?.facilitator_step && phase === 'debrief' && (
+                <span className="rounded-full bg-[#F9D0C4]/50 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-[#C2410C]">
+                  step {run.facilitator_step}
+                </span>
+              )}
               {running && <span className="text-[11px] font-semibold text-gray-400">live</span>}
             </div>
             <div className="flex gap-1">

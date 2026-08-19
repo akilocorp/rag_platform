@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   M13: one student decides for the group. Round 1 no longer votes — the first student seated
+# @updated   2026-08-19
+# @changed   Persist `facilitator_step`: which step of ACTR's own sequence the debrief is on, set to
+#            FIRST_STEP on entry and written through on every approved move. It is the one thing the
+#            model could not recover by re-reading the transcript, and it was re-deriving it each turn.
+#            Prior: M13: one student decides for the group. Round 1 no longer votes — the first student seated
 #            in the room is the decider (`decider_uid`), the only one who can end the discussion early
 #            (`end_discussion`) and the only one who enters the hire (`record_group_choice`, which
 #            resolves on the spot). Removed the running tally, the per-student ballot, the ready-to-vote
@@ -56,6 +59,7 @@ import time
 from threading import RLock
 from typing import Callable, Dict, List, Optional, Tuple
 
+from src.managers.tools.steps import FIRST_STEP
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -262,6 +266,10 @@ class ExerciseState:
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
             self.last_message_ts: Optional[float] = None
+            # Which step of the facilitator's own sequence the debrief is on. Persisted
+            # because it is the one thing the model cannot recover by re-reading the
+            # transcript — it was re-deriving its position every turn and jumping.
+            self.facilitator_step: Optional[str] = None
 
     # ==================================================================
     # CONFIG NORMALIZATION
@@ -317,6 +325,7 @@ class ExerciseState:
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
         self.last_message_ts = doc.get("last_message_ts")
+        self.facilitator_step = doc.get("facilitator_step")
 
     # ==================================================================
     # PUBLIC READ ACCESSORS
@@ -996,9 +1005,13 @@ class ExerciseState:
                 return
             self._phase = PHASE_DEBRIEF
             self.phase_deadline_ts = time.time() + self.debrief_seconds
+            # The sequence starts at its opening step. Both tracks share it — which
+            # branch the room is on is decided by the opener, not here.
+            self.facilitator_step = FIRST_STEP
             self._persist({
                 "phase": PHASE_DEBRIEF,
                 "phase_deadline_ts": self.phase_deadline_ts,
+                "facilitator_step": self.facilitator_step,
             })
 
         self._broadcast_phase()
@@ -1339,6 +1352,19 @@ class ExerciseState:
                     round(now - self.last_facilitator_at, 1) if self.last_facilitator_at else None
                 ),
             }
+
+    def set_facilitator_step(self, step: Optional[str]):
+        """Record the step the facilitator is on. No-op when it hasn't moved.
+
+        Written through to Mongo like every other piece of turn-taking state, so a room
+        that spans a restart resumes on its step instead of starting the sequence again
+        from the opening — which would re-ask a question the room already answered.
+        """
+        if not step or step == self.facilitator_step:
+            return
+        with self._lock:
+            self.facilitator_step = step
+            self._persist({"facilitator_step": step})
 
     def facilitator_active(self) -> bool:
         """The ONE phase ACTR exists in. Round 1 never reaches the model.

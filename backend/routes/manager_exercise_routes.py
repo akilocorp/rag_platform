@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   POST /test-run takes `misleading`, the number of seats that invent case facts.
+# @changed   The run payload carries `facilitator_step`, so a session that skips its own pedagogy is
+#            visible as a step number rather than only as a transcript that feels wrong.
+#            Prior: POST /test-run takes `misleading`, the number of seats that invent case facts.
 #            Prior: New file: the professor's Test button — POST starts a model-played room on your own config,
 #            GET streams its transcript back, so you can read the debrief ACTR gives your case pack
 #            without booking three people.
@@ -181,6 +183,11 @@ def get_run(room_id):
         "phase": state.phase() if state else (doc.get("phase") or "waiting"),
         "roster": doc.get("roster") or [],
         "chosen_candidate": doc.get("chosen_candidate"),
+        # Which step of the facilitator's own sequence the debrief is on. Surfaced
+        # because a session that skips or stalls does it HERE, and until this was
+        # visible the only symptom was a transcript that felt wrong.
+        "facilitator_step": ((state.facilitator_step if state else None)
+                             or doc.get("facilitator_step")),
         # The private round-0 picks, as anonymous counts. Safe for the config's
         # owner — they authored the answer key — and it is the one number that
         # tells them whether their case pack actually splits a room.

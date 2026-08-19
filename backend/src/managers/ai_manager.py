@@ -1,6 +1,12 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   Write `_check_turn`, the missing half of the constraint checker: `_checked` has called it
+# @changed   The step gate: `facilitator_reply` takes the room's current step, renders it into the turn
+#            brief, and rules on any forward move via `judge_step_advance` before it is allowed. A refused
+#            move sends the draft back to be rewritten for the step it is on — the message was composed
+#            for the step it wanted, so refusing the move alone would still advance the conversation.
+#            Fails CLOSED, opposite to the constraint checker: staying costs a turn, advancing wrongly
+#            costs the session.
+#            Prior: Write `_check_turn`, the missing half of the constraint checker: `_checked` has called it
 #            since the checker shipped but it was never defined, so every drafted facilitator turn died
 #            on a NameError inside a background task. Fails open — a transport error must not mute ACTR.
 #            Prior: A facilitator turn is now a FORCED tool call (src/managers/tools/take_turn.py): `reasoning` and
@@ -61,17 +67,25 @@ from src.managers.facilitator_prompt import (
     render_turn_brief,
 )
 from src.managers.tools import (
+    ADVANCE_TOOL,
     CHECK_ENABLED,
     CHECK_TOOL,
     PROGRESS_TOOL,
     TURN_TOOL,
     check_mechanical,
+    is_forward,
+    parse_advance,
     parse_check,
     parse_progress,
     parse_turn,
     render_close_directive,
     render_constraints,
+    render_current_step,
     render_milestones,
+    render_refusal,
+    render_sequence,
+    skipped_between,
+    step_exists,
 )
 
 logger = logging.getLogger(__name__)
@@ -514,9 +528,110 @@ def facilitator_open_debrief(config, roster, group_size, chosen_name=None, verdi
     return body, reasoning
 
 
+_ADVANCE_SYSTEM = (
+    "You are the gatekeeper on a facilitated debrief. The facilitator works through a "
+    "fixed sequence of steps and wants to leave the step it is on. Your only job is to "
+    "decide whether that step's exit condition is ACTUALLY satisfied by what the STUDENTS "
+    "have said in the transcript.\n\n"
+    "Be strict, and be strict in one direction: a step left early cannot be returned to, "
+    "because the facilitator will believe that work is behind it for the rest of the "
+    "session. Work the facilitator merely RAISED does not count. Work the facilitator did "
+    "FOR them counts for nothing at all — if it supplied a count, named a candidate or "
+    "explained the mechanism, the students have not done that step.\n\n"
+    "When steps are being skipped, every skipped step's condition must be met too. A room "
+    "that genuinely did the work on its own should not be made to re-run it, but "
+    "'they seem to understand' is not evidence that they did it.\n\n"
+    "THE SEQUENCE\n"
+)
+
+
+def judge_step_advance(current_step, proposed_step, justification, transcript, skipped=None):
+    """Rule on a step move. Returns `{approved, evidence, missing}`.
+
+    Fails CLOSED, unlike the constraint checker: a transport error here means the room
+    stays on the step it is on, and staying costs a turn while advancing wrongly costs
+    the rest of the session. The two checkers fail in opposite directions on purpose.
+    """
+    refusal = {"approved": False, "evidence": "",
+               "missing": "The step check could not be run, so nothing has moved."}
+    client = _get_client()
+    if client is None:
+        return refusal
+
+    skipped = skipped or []
+    user = "\n\n".join([
+        f"The facilitator is on step {current_step} and wants to move to {proposed_step}.",
+        (f"Doing so SKIPS these steps entirely: {', '.join(skipped)}. Each of their exit "
+         f"conditions must also be satisfied, or refuse.") if skipped else
+        "This is a move to the next step, skipping nothing.",
+        f"Its stated reason:\n{(justification or '(none given)').strip()}",
+        f"TRANSCRIPT\n{(transcript or '').strip() or '(nothing yet)'}",
+    ])
+    try:
+        msg = client.messages.create(
+            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS, temperature=0,
+            system=[{"type": "text", "text": _ADVANCE_SYSTEM + render_sequence(),
+                     "cache_control": {"type": "ephemeral"}}],
+            tools=[ADVANCE_TOOL],
+            tool_choice={"type": "tool", "name": ADVANCE_TOOL["name"]},
+            messages=[{"role": "user", "content": user}],
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("ai_manager step gate failed")
+        return refusal
+
+    for block in (getattr(msg, "content", None) or []):
+        if getattr(block, "type", None) == "tool_use" and block.name == ADVANCE_TOOL["name"]:
+            return parse_advance(block.input)
+    return refusal
+
+
+def _gated(system, user, result, current_step, transcript):
+    """Rule on a step move and, when it is refused, make the model write the turn again.
+
+    Rewriting matters. The drafted message was composed FOR the step ACTR was moving to —
+    in the run that prompted all this, a jump to F7 produced "write down the procedure,
+    number them". Refusing the move but posting that message anyway would advance the
+    conversation to the skipped step regardless, so the refusal has to reach the author,
+    not just the bookkeeping. Same one-retry shape as `_checked`.
+
+    Returns the result with `step` set to wherever the room actually is now, plus
+    `step_gate` for the run report — the only record of a refusal that ever existed.
+    """
+    proposed = result.get("step")
+    if not current_step:
+        # No step is being tracked (an old room, or the very first turn) — adopt whatever
+        # it proposed rather than gating a move from nowhere to somewhere.
+        return {**result, "step": proposed if proposed and step_exists(proposed) else None}
+    if not proposed or proposed == current_step or not step_exists(proposed):
+        return {**result, "step": current_step}
+    # Backwards is always allowed and never gated: the lucky-guess pivot (S6 → F3) is a
+    # move the prompt explicitly calls for, and going back to redo work is never the
+    # failure this gate exists to prevent.
+    if not is_forward(current_step, proposed):
+        return {**result, "step": proposed}
+
+    skipped = skipped_between(current_step, proposed)
+    verdict = judge_step_advance(current_step, proposed,
+                                 result.get("step_done_because"), transcript, skipped)
+    if verdict.get("approved"):
+        return {**result, "step": proposed, "step_gate": {**verdict, "from": current_step,
+                                                          "to": proposed}}
+
+    retry = _call_turn(system, user + "\n\n" + render_refusal(current_step,
+                                                              verdict.get("missing")))
+    gate = {**verdict, "from": current_step, "to": proposed, "refused": True}
+    if retry is None or not retry.get("message"):
+        # It could not write a turn for the step it is on. Silence is a valid turn and
+        # the room keeps its position, which is the whole point of refusing.
+        return {**result, "message": None, "go_around": False, "ended": False,
+                "step": current_step, "step_gate": gate}
+    return {**retry, "step": current_step, "step_gate": gate}
+
+
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,
                       turn_context=None, solo_spread=None, recent_asks=None,
-                      outcome_text=None, progress=None):
+                      outcome_text=None, progress=None, step=None, full_transcript=None):
     """A reactive facilitator turn during the debrief.
 
     Returns `{"message": str|None, "go_around": bool, "ended": bool, "reasoning": str}`
@@ -575,8 +690,16 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     if closing:
         task.append(closing)
 
+    # The step block goes INSIDE the turn brief rather than beside it, because "where am
+    # I in the sequence" is the same kind of fact as "who still owes me an answer" — and
+    # because the brief is the one block the model is told to read first.
+    brief = render_turn_brief(turn_context)
+    step_block = render_current_step(step) if step else ""
+    if step_block:
+        brief = step_block + "\n" + brief
+
     blocks = [
-        "WHERE THE TURN STANDS\n" + render_turn_brief(turn_context),
+        "WHERE THE TURN STANDS\n" + brief,
         f"The group hired: {chosen_name or '(nobody)'}",
         render_solo_spread(solo_spread, chosen_name) or "No private picks were recorded.",
     ]
@@ -605,6 +728,8 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     # since silence caused by a 500 is worse than a slightly leaky turn.
     result = _call_turn(system, user)
     if result is not None:
+        result = _gated(system, user, result, step,
+                        full_transcript or transcript_summary)
         if CHECK_ENABLED and result.get("message"):
             result = _checked(system, user, result, transcript_summary)
         return result

@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-18
-# @changed   Endurance runs: students keep participating once their scripted beats are spent, a pass now
+# @changed   Threads the facilitator's STEP through, so a tuning run exercises the step gate production
+#            now has instead of reporting on a facilitator that no longer exists; prints each transition
+#            and every refusal. Also reconfigures stdout to UTF-8, which this file never did.
+#            Prior: Endurance runs: students keep participating once their scripted beats are spent, a pass now
 #            hands ACTR the silence flag, and every run ends with an audit against the prompt's own four
 #            ENDING conditions — so "did it finish?" is answered by evidence, not by the turn count.
 #            Prior: --live hybrid students; --name run files; --series fixtures; the original replay.
@@ -64,6 +67,12 @@ from dotenv import load_dotenv                                         # noqa: E
 load_dotenv(os.path.join(_BACKEND, ".env"))
 
 from src.managers import ai_manager                                    # noqa: E402
+from src.managers.tools.steps import FIRST_STEP                       # noqa: E402
+
+
+def ai_manager_first_step():
+    """Where a fresh room starts in the facilitator's sequence."""
+    return FIRST_STEP
 from src.managers.facilitator_prompt import (                          # noqa: E402
     FACILITATOR_PROMPT as FACILITATOR_PROMPT_TEXT,
     build_facilitator_system,
@@ -809,6 +818,11 @@ def replay(source, session, messages, config, args, personas=None):
     # every few student turns rather than every one — it is a third model call and the
     # answer moves slowly.
     progress = [None]
+    # Boxed for the same reason as `progress`: `take_turn` reads the latest value and
+    # writes the one the gate settled on. Without threading this the harness would call
+    # facilitator_reply with step=None, the gate would never run, and a tuning run would
+    # report on a facilitator that production no longer has.
+    step = [ai_manager_first_step()]
     room = ReplayRoom(roster, group_size, args.history)
     # A scripted series has no outcome document in its transcript, so the debrief is
     # already open at message one; a recorded room opens it when the document is posted.
@@ -826,8 +840,16 @@ def replay(source, session, messages, config, args, personas=None):
             chosen_name=chosen,
             turn_context=room.turn_context(addressed, silence, quiet),
             solo_spread=spread, recent_asks=room.recent_asks(), outcome_text=outcome,
-            progress=progress[0],
+            progress=progress[0], step=step[0], full_transcript=room.full_transcript(),
         )
+        if result.get("step"):
+            if result["step"] != step[0]:
+                out(f"      [95m(step {step[0]} -> {result['step']})[0m")
+            step[0] = result["step"]
+        gate = result.get("step_gate")
+        if gate and gate.get("refused"):
+            out(f"      [95m(step gate REFUSED {gate['from']} -> {gate['to']}: "
+                f"{(gate.get('missing') or '')[:110]})[0m")
         reply = result.get("message")
         # Shown here because this is a tuning tool — in the live room it is stored on the
         # message document and never rendered.
@@ -1041,6 +1063,13 @@ def replay(source, session, messages, config, args, personas=None):
 
 
 def main():
+    # A Windows console defaults to cp1252 and the transcript carries em-dashes and the
+    # outcome document's emoji sender. `live_room.py` reconfigures for the same reason.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_argument_group("what to run")
