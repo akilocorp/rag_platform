@@ -43,6 +43,7 @@ from routes.calibrate_routes import calibrate_bp
 from routes.experiential_routes import experiential_bp
 from routes.define_routes import define_bp
 from routes.advisor_routes import advisor_bp
+from routes.manager_exercise_routes import manager_exercise_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ def create_app():
     app.register_blueprint(experiential_bp, url_prefix='/api')
     app.register_blueprint(define_bp, url_prefix='/api')
     app.register_blueprint(advisor_bp, url_prefix='/api')
+    app.register_blueprint(manager_exercise_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 

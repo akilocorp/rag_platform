@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   ACTR's private reasoning is split off its reply and persisted on the message document instead
+# @updated   2026-08-19
+# @changed   A professor can now test their own exercise: `start_test_run` builds a room the student
+#            lobby never lists and hands it to exercise_sim, whose model-played students post through
+#            the same path a real socket message takes (so ACTR is woken identically).
+#            Prior: ACTR's private reasoning is split off its reply and persisted on the message document instead
 #            of being posted to the room; _post/_post_facilitator take `reasoning` and the socket emit
 #            deliberately omits it. The learning objectives are re-assessed every few messages so ACTR is
 #            told when to land the session. M13 leader-decides: `submit_collective_vote` →
@@ -32,6 +35,7 @@ from flask_jwt_extended import decode_token
 import logging
 import json
 import time
+import uuid
 from bson import ObjectId
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 
@@ -43,6 +47,7 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import ai_manager
+from src.managers import exercise_sim
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -83,6 +88,25 @@ FACILITATOR_SILENCE_SECONDS = 8
 # slot. In-process only — a restart empties the lobby, which is the right default
 # since every socket has dropped anyway.
 _room_members: dict = {}
+
+# Set by `register_socket_events` below. The HTTP layer launches a test room
+# through this rather than importing the socket server, which it cannot do: the
+# launcher has to close over `socketio` and `app` to start a background task and
+# to post messages down the same path a real student's socket uses.
+_test_run_launcher = None
+
+
+def start_test_run(config_doc, bots=None):
+    """Launch a model-played test room for a config and return its room_id.
+
+    The room is real in every way that matters — real phase machine, real timers,
+    real ACTR, messages persisted to `group_chat_messages` — and differs from a
+    class room only in who is typing and in a room_id the student lobby never
+    enumerates. See `src/managers/exercise_sim.py`.
+    """
+    if _test_run_launcher is None:
+        raise RuntimeError("socket events have not been registered yet")
+    return _test_run_launcher(config_doc, bots)
 
 
 def register_socket_events(socketio, app):
@@ -517,6 +541,59 @@ def register_socket_events(socketio, app):
         _register_exercise_hooks(state, config_doc)
         state.start(socketio, app)
         return state
+
+    def _launch_test_run(config_doc, bots=None):
+        """Build a test room and hand it to the simulator. Returns the room_id.
+
+        The room id is `{config_id}_t{hex}`, deliberately NOT the `_g{i}` shape
+        `_room_id_for` produces: the lobby enumerates groups 1..num_rooms by name,
+        so a test room cannot appear there, cannot be joined by a student, and
+        cannot consume a group a class is about to use.
+        """
+        config_id = str(config_doc.get("_id"))
+        room_id = f"{config_id}_t{uuid.uuid4().hex[:6]}"
+        me_config = _manager_exercise_config(config_doc)
+        try:
+            capacity = max(1, int(me_config.get("num_students") or 3))
+        except (TypeError, ValueError):
+            capacity = 3
+        state = _bootstrap_exercise(room_id, config_doc, create_session=True)
+
+        def _post_as_student(uid, text):
+            """Everything `handle_message` does for a student, minus the socket.
+
+            Written out rather than shared with the handler because the handler is
+            about a REQUEST — it reads `request.sid`, enforces the chat lock by
+            emitting back to that socket, and answers a client. A simulated student
+            has no socket to answer. What matters is that the four things after the
+            post are identical, since they are what wakes ACTR.
+            """
+            state.note_participant(uid)
+            state.arm_discuss_timer()
+            _post(state, state.display_name(uid), text, uid)
+            state.note_student_message(uid)
+            socketio.start_background_task(_facilitator_turn, room_id, False, False)
+            socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
+
+        def _run():
+            with app.app_context():
+                try:
+                    exercise_sim.run_test_room(
+                        state, _post_as_student, socketio.sleep,
+                        lambda: get_or_create_context(room_id).messages,
+                        bots=bots or capacity,
+                    )
+                except Exception:  # noqa: BLE001 — a crashed sim must not take the worker
+                    logger.exception(f"test run {room_id} failed")
+
+        socketio.start_background_task(_run)
+        logger.info(f"🧪 test run started for config {config_id} in {room_id}")
+        return room_id
+
+    # Publish the launcher for the HTTP layer. Done here, at definition, rather
+    # than at the end of registration, so the two can never drift apart.
+    global _test_run_launcher
+    _test_run_launcher = _launch_test_run
 
     # ==================================================================
     # CONNECTION / UPLOAD SUBSCRIPTIONS (unchanged)
