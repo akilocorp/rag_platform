@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   The step gate: `facilitator_reply` takes the room's current step, renders it into the turn
+# @changed   The close directive is handed the step too, so it cannot point past a step the gate has
+#            not cleared.
+#            Prior: The step gate: `facilitator_reply` takes the room's current step, renders it into the turn
 #            brief, and rules on any forward move via `judge_step_advance` before it is allowed. A refused
 #            move sends the draft back to be rewritten for the step it is on — the message was composed
 #            for the step it wanted, so refusing the move alone would still advance the conversation.
@@ -686,7 +688,10 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
         )
     # Appended LAST so it is the final thing read before the decision. Pace only — it
     # carries no case content, and every constraint still binds whatever it writes.
-    closing = render_close_directive(progress)
+    # The STEP is passed as well as the objectives: where the gate has the room
+    # overrules a generous objective reading, which is what let a debrief reach the
+    # SOP before anyone had counted anything.
+    closing = render_close_directive(progress, step)
     if closing:
         task.append(closing)
 

@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   New: the two tracks as data, plus a forced `advance_step` gate. ACTR had no idea which step
+# @changed   WINNER_STEPS / FINAL_STEPS / reached(): the ordering the close directive has to respect,
+#            so it can no longer tell ACTR to converge on the SOP while the gate still has the room
+#            before the count and the winner.
+#            Prior: New: the two tracks as data, plus a forced `advance_step` gate. ACTR had no idea which step
 #            it was on — the sequence was prose it re-read every turn — so it went F1 → F7 in four
 #            messages, skipping the pooling, the counts and "who is the best candidate" entirely.
 """Where the facilitator is in its own sequence, and what it takes to leave a step.
@@ -112,6 +115,28 @@ def is_forward(current, proposed):
     if current not in order:
         return True
     return order.index(proposed) > order.index(current)
+
+
+# The two milestones the SOP is not allowed to arrive before. The close directive reads
+# these: the whole exercise turns on the students counting for themselves and then saying
+# aloud who the counts favour, and a procedure written before either has happened is a
+# procedure for a comparison they never made.
+WINNER_STEPS = {"F6", "S6"}
+FINAL_STEPS = {"F7", "S7"}
+
+
+def reached(step, targets):
+    """True when `step` is AT or PAST any of `targets` on its own track.
+
+    Reuses the same per-track ordering `is_forward` walks rather than introducing a
+    second notion of sequence — two orderings that can disagree is how the close
+    directive and the step gate ended up pointing at different steps in the first place.
+    """
+    if not step_exists(step):
+        return False
+    order = steps_for_track(track_of(step))
+    here = order.index(step)
+    return any(t in order and here >= order.index(t) for t in targets)
 
 
 def skipped_between(current, proposed):

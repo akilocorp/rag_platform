@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-08-18
-# @changed   New: the four learning objectives as data, a forced `check_progress` tool that judges which
+# @changed   The close directive is now STEP-AWARE and no longer forbids the count. It used to tell a
+#            room three-of-four done to converge on the SOP and "do not chase a more precise count",
+#            which is how a debrief reached the procedure before anyone had said a number aloud.
+#            `best_identified` also now requires the naming to rest on tallies the students said.
+#            Prior: New: the four learning objectives as data, a forced `check_progress` tool that judges which
 #            the STUDENTS have reached, and the closing directive that lands the session once they have —
 #            because ACTR had a written procedure in hand at turn 29 and was still opening lines at turn 40.
 """What the debrief is FOR, and how to tell when it is done.
@@ -30,6 +34,7 @@ WHAT THE DIRECTIVE MAY NOT DO
     shape of the conversation and nothing here touches its content. Every hard constraint
     still applies to whatever ACTR writes in response to it.
 """
+from src.managers.tools.steps import FINAL_STEPS, WINNER_STEPS, reached
 
 # id, and what the checker looks for. The wording IS the strictness — "the students have
 # said", never "the group understands" — and each carries its own explicit near-miss,
@@ -47,9 +52,12 @@ MILESTONES = [
      "The students have named which candidate the POOLED information favours, as a "
      "conclusion drawn from the comparison they just made. "
      "NOT MET if it merely restates the choice they already made before the debrief — in "
-     "a room that happened to pick well, saying the same name again proves nothing. It "
-     "must be visibly grounded in what was put on the table. The facilitator naming it "
-     "never counts, and is forbidden."),
+     "a room that happened to pick well, saying the same name again proves nothing. "
+     "NOT MET unless the naming rests on the TALLIES the students themselves put on the "
+     "table: a candidate named from general impressions, from the outcome document, or by "
+     "elimination is not this objective. This is the moment the arithmetic convicts the "
+     "choice, so if no student has said a number aloud, it has not happened. The "
+     "facilitator naming it never counts, and is forbidden."),
     ("mechanism_understood",
      "The students have articulated why their first decision went the way it did — that "
      "they each held different pieces, that what everyone shared got over-weighted, and "
@@ -174,20 +182,53 @@ def render_milestones():
     return "\n".join(f"{i}. [{mid}] {what}" for i, (mid, what) in enumerate(MILESTONES, 1))
 
 
-def render_close_directive(progress):
-    """The pacing line appended to a turn's TASK. "" while the group is not close.
+def render_close_directive(progress, step=None):
+    """The pacing line appended to a turn's TASK. "" while there is nothing to say.
 
-    Two states, needing opposite pressure. All four met: stop opening anything and land
-    it. Three of four: converge on the one that is missing rather than exploring — which
-    is precisely the behaviour that ran an observed room past its own ending.
+    Reads BOTH readings, and the step is the senior one. The objectives say what the
+    students have achieved; the step says where the facilitator actually is. When they
+    disagree the step wins, because a generous objective reading is exactly the failure
+    this guard exists for: three of four were granted in a room that had counted nothing,
+    the directive named the procedure as all that remained, and ACTR asked for the SOP
+    before a single number had been said out loud.
 
     Contains no case content by design. It governs pace only; what ACTR says in response
-    is still bound by every constraint, including never naming the best option.
+    is still bound by every constraint — including `does_their_counting`, which is why
+    every branch below asks the students for numbers and never supplies one.
     """
     if not progress:
         return ""
     met = progress.get("met") or []
     closest = progress.get("closest_unmet") or ""
+    at_winner = reached(step, WINNER_STEPS) if step else False
+    at_final = reached(step, FINAL_STEPS) if step else False
+
+    # Before the count and the winner there is no closing to converge on, whatever the
+    # objectives say. This branch replaces the one that used to send such a room straight
+    # at the procedure, and it pushes the count rather than forbidding it.
+    if step and not at_winner:
+        return (
+            "DO NOT MOVE TOWARD CLOSING. The room has not put the counts on the table and "
+            "nobody has named which candidate they favour. The session cannot end before "
+            "both have happened.\n"
+            "Work toward exactly that. Get the students to say the tallies out loud, one "
+            "candidate at a time — how many strengths, how many concerns — and then to say "
+            "which candidate those numbers point to. ASK them for the numbers; never supply "
+            "one yourself, never top up a short list they gave, and never lay the "
+            "candidates out side by side for them. Repeating back a figure a student has "
+            "already said is fine, and is often the whole move."
+        )
+
+    # They have the counts and are being asked to read them. Exactly one thing to do.
+    if at_winner and not at_final:
+        return (
+            "THE COUNTS ARE ON THE TABLE. What is missing is the students saying, in their "
+            "own words, which candidate those numbers favour — reasoning from the figures "
+            "in front of them, not restating the pick they walked in with.\n"
+            "Get that and nothing else before you move on. You may not name the candidate, "
+            "hint at it, or confirm a guess: ask what the numbers say and let the "
+            "arithmetic do the work."
+        )
 
     if progress.get("ready"):
         return (
@@ -195,19 +236,22 @@ def render_close_directive(progress):
             "compared the candidates in their own words, named which one the information "
             "favours, said why their first decision went the way it did, and written a "
             "procedure down.\n"
-            "LAND THE SESSION NOW. Do not open a new line of enquiry, do not ask one more "
-            "interesting question, and do not go back to tidy up a count. Rooms run on a "
-            "clock and a room cut off by the timer loses its ending. Write your closing "
-            "turn and set `ended` true. Do not summarise the lesson — they have just said "
-            "it themselves, and saying it back takes it off them."
+            "LAND THE SESSION NOW. Do not open a new line of enquiry and do not ask one "
+            "more interesting question. Rooms run on a clock and a room cut off by the "
+            "timer loses its ending. Write your closing turn and set `ended` true. Do not "
+            "summarise the lesson — they have just said it themselves, and saying it back "
+            "takes it off them."
         )
 
     if len(met) >= len(MILESTONES) - 1 and closest:
         return (
             "THE GROUP IS ONE STEP FROM DONE. Everything is in place except this:\n"
             f"  {dict(MILESTONES).get(closest, '')}\n"
-            "Spend your remaining turns on THAT and nothing else. Do not start a new "
-            "topic, do not reopen anything already settled, and do not chase a more "
-            "precise count. Get that last piece from them, then close."
+            "Spend your remaining turns on THAT. Do not start a new topic and do not "
+            "reopen anything already settled.\n"
+            "One exception, and it matters: if the count behind their comparison is thin — "
+            "figures they never actually said, or a candidate nobody tallied — go back and "
+            "get it from them first. A procedure built on a comparison they never made is "
+            "worth nothing, and this is the last moment it can be fixed."
         )
     return ""

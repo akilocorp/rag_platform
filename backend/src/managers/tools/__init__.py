@@ -31,10 +31,13 @@ from src.managers.tools.progress import (
 )
 from src.managers.tools.steps import (
     ADVANCE_TOOL,
+    FINAL_STEPS,
     FIRST_STEP,
     STEP_IDS,
+    WINNER_STEPS,
     is_forward,
     parse_advance,
+    reached,
     render_current_step,
     render_refusal,
     render_sequence,
@@ -50,6 +53,7 @@ __all__ = [
     "PROGRESS_TOOL", "MILESTONES", "parse_progress", "render_close_directive",
     "render_milestones",
     "ADVANCE_TOOL", "FIRST_STEP", "STEP_IDS", "is_forward", "parse_advance",
+    "WINNER_STEPS", "FINAL_STEPS", "reached",
     "render_current_step", "render_refusal", "render_sequence", "skipped_between",
     "step_exists",
 ]
