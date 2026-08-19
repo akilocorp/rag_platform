@@ -1,12 +1,16 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-03
- * @changed   New file: renders guide markdown, turns images into captioned screenshot
- *            slots, and routes internal links through react-router.
+ * @updated   2026-08-19
+ * @changed   Added mountWidgets: `<div data-guide-widget="...">` placeholders in a page's
+ *            markdown now mount a live, playable FacilitatorBlock instance instead of a
+ *            static screenshot.
  */
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Marked } from 'marked';
+import { createRoot } from 'react-dom/client';
+import FacilitatorBlock from '../facilitator/FacilitatorBlock';
+import { WIDGET_DEMOS } from './widgetDemos';
 
 // A private Marked instance. The shared `marked` singleton is configured app-wide with
 // `breaks: true` for chat (utils/markdown.js), which would turn every wrapped line of
@@ -51,6 +55,31 @@ function decorateScreenshots(root) {
   });
 }
 
+// A page writes `<div data-guide-widget="chart"></div>` where it wants a live widget.
+// This mounts the same FacilitatorBlock/Renderer the chat uses, fed canned demo data —
+// so a reader can actually play with it, with no backend and no onSubmit behind it.
+// Unknown ids (a typo, or a widget not in WIDGET_DEMOS yet) are left as empty divs rather
+// than throwing, matching the "unknown widget renders nothing" contract in FacilitatorBlock.
+function mountWidgets(root, rootsRef) {
+  root.querySelectorAll('[data-guide-widget]').forEach((el) => {
+    const id = el.getAttribute('data-guide-widget');
+    const demo = WIDGET_DEMOS[id];
+    if (!demo) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'guide-widget';
+    const label = document.createElement('div');
+    label.className = 'guide-widget__label';
+    label.textContent = 'Try it — live widget, nothing is sent anywhere';
+    const mountPoint = document.createElement('div');
+    wrap.appendChild(label);
+    wrap.appendChild(mountPoint);
+    el.replaceWith(wrap);
+    const widgetRoot = createRoot(mountPoint);
+    widgetRoot.render(<FacilitatorBlock block={{ widget: id, data: demo }} />);
+    rootsRef.current.push(widgetRoot);
+  });
+}
+
 // Slug for a heading, so other parts of the app can deep-link into a section — the
 // student dashboard points each class type at its own heading here. Numbered headings
 // ("## 2. Submitting a video") drop the number so the anchor stays stable if the
@@ -74,6 +103,7 @@ function addHeadingIds(root) {
 
 export default function GuideMarkdown({ source }) {
   const ref = useRef(null);
+  const widgetRootsRef = useRef([]);
   const navigate = useNavigate();
 
   const html = useMemo(() => guideMarked.parse(source || ''), [source]);
@@ -82,6 +112,14 @@ export default function GuideMarkdown({ source }) {
     if (!ref.current) return;
     decorateScreenshots(ref.current);
     addHeadingIds(ref.current);
+    mountWidgets(ref.current, widgetRootsRef);
+    // dangerouslySetInnerHTML already replaced the DOM this effect mounted into by the
+    // time `html` next changes (page nav), so these roots are unmounting detached nodes —
+    // that's fine, it's just React state/listener teardown, not a DOM operation.
+    return () => {
+      widgetRootsRef.current.forEach((r) => r.unmount());
+      widgetRootsRef.current = [];
+    };
   }, [html]);
 
   // The body is injected HTML, so in-guide links are plain <a> tags that would trigger a
