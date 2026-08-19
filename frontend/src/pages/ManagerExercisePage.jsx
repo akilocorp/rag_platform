@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-15  @changed WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-19  @changed Round 1 and the hire were wired to socket events the backend no longer listens for (`ready_to_vote`, `early_decision`, `submit_collective_vote`), so both buttons were dead on the served site: rebuilt around the M13 decider (`you_decide`/`decider_name` off the snapshot, `end_discussion` + `submit_group_choice`), and the vote tally/badges/quorum copy are gone with the ballot they described. Prior: WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -423,18 +423,19 @@ const ManagerExercisePage = () => {
   const [flashMid, setFlashMid] = useState(null);
 
   // ---- the pick ----
-  // One member enters the decision on the team's behalf, so `voted` only guards
-  // this client's own double-submit; the ballot closes for everyone on the first
-  // valid entry.
+  // M13: there is no tally. ONE student — the decider, whoever sat down first —
+  // ends round 1 and enters the hire, and the server rejects both actions from
+  // anyone else. `youDecide` is computed per-viewer server-side so no client is
+  // ever handed another student's uid; `deciderName` is what the rest of the room
+  // is told instead. `submitted` only guards this client's own double-tap, since
+  // the entry resolves the room immediately.
   const [ballotOpen, setBallotOpen] = useState(false);
   const [pick, setPick] = useState(null);
-  const [voted, setVoted] = useState(false);
-  // M5: the ballot is a live tally now. `tally` is votes-per-candidate, `yourVote`
-  // is this client's current pick (restored on reconnect), `finalCall` flags the
-  // 30s anxiety window. `ballotWasOpenRef` distinguishes a fresh open (reset the
-  // local pick) from a mid-ballot tally update (keep it).
-  const [tally, setTally] = useState({});
-  const [yourVote, setYourVote] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [youDecide, setYouDecide] = useState(false);
+  const [deciderName, setDeciderName] = useState('');
+  // `finalCall` flags the 30s anxiety window. `ballotWasOpenRef` distinguishes a
+  // fresh open (reset the local pick) from a re-broadcast (keep it).
   const [finalCall, setFinalCall] = useState(false);
   const ballotWasOpenRef = useRef(false);
   const audioCtxRef = useRef(null);
@@ -449,11 +450,6 @@ const ManagerExercisePage = () => {
   // the phase. In a solo room the phase jumps to 'debrief' the instant you press
   // Continue, which would otherwise skip the "6 months later" clock entirely.
   const [inKioskWalkthrough, setInKioskWalkthrough] = useState(false);
-  // M11: round-1 "we've decided" signal. A majority of the room opens the ballot
-  // early; below that these counts just show the others someone is waiting.
-  const [readyCount, setReadyCount] = useState(0);
-  const [readyTotal, setReadyTotal] = useState(0);
-  const [youAreReady, setYouAreReady] = useState(false);
 
   const [kioskAcked, setKioskAcked] = useState(0);
   const [kioskTotal, setKioskTotal] = useState(0);
@@ -621,12 +617,12 @@ const ManagerExercisePage = () => {
       setBallotOpen(s.collective_open);
       ballotWasOpenRef.current = s.collective_open;
     }
-    if (typeof s.you_voted_collective === 'boolean') setVoted(s.you_voted_collective);
-    // M5: restore the live tally, this viewer's own vote, and the final-call flag
-    // so a reconnecting student re-enters the ballot exactly where they left it.
-    if (s.collective_tally) setTally(s.collective_tally);
-    if (s.your_vote !== undefined) { setYourVote(s.your_vote); if (s.your_vote) setPick(s.your_vote); }
     if (typeof s.collective_final_call === 'boolean') setFinalCall(s.collective_final_call);
+    // M13: who is making the call. Carried on every snapshot, not pushed when the
+    // ballot opens, so a client that joins or reconnects mid-round already knows
+    // whether the round-1 close button and the hire dialog belong to it.
+    if (typeof s.you_decide === 'boolean') setYouDecide(s.you_decide);
+    if (typeof s.decider_name === 'string') setDeciderName(s.decider_name);
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
     if (s.chosen_verdict !== undefined) setChosenVerdict(s.chosen_verdict);
@@ -782,16 +778,17 @@ const ManagerExercisePage = () => {
           }]);
         });
 
-        // Ballot opened/closed + live tally (M5). A FRESH open (closed→open) clears
-        // the local pick so a re-choice is a deliberate re-entry; a mid-ballot tally
-        // update keeps it. `final_call` flips the UI into the anxiety window.
+        // The decision window opening/closing (M5). A FRESH open (closed→open)
+        // clears the local pick so the dialog starts empty; a re-broadcast (the
+        // final call re-emits the same ballot) keeps it. `final_call` flips the UI
+        // into the anxiety window.
         socket.on('ballot_update', (d) => {
           const nowOpen = Boolean(d.open);
-          if (nowOpen && !ballotWasOpenRef.current) { setVoted(false); setPick(null); setYourVote(null); }
+          if (nowOpen && !ballotWasOpenRef.current) { setSubmitted(false); setPick(null); }
           ballotWasOpenRef.current = nowOpen;
           setBallotOpen(nowOpen);
           if (Array.isArray(d.candidates) && d.candidates.length) setCandidates(d.candidates);
-          if (d.tally) setTally(d.tally);
+          if (typeof d.decider_name === 'string') setDeciderName(d.decider_name);
           if (typeof d.final_call === 'boolean') setFinalCall(d.final_call);
           if (!nowOpen) setFinalCall(false);
         });
@@ -800,18 +797,11 @@ const ManagerExercisePage = () => {
           setChosenCandidate(d.chosen_candidate);
           setBallotOpen(false);
           setFinalCall(false);
-          if (d.tally) setTally(d.tally);
         });
 
         // M6: live kiosk tally — how many of the room have pressed Continue. Kiosk
         // entry also carries the reveal payload (chosen candidate/verdict/outcome)
         // so the per-student reveal loads live; no full snapshot is pushed here.
-        // M11: how many of the room have said they're done deliberating.
-        socket.on('ready_update', (d) => {
-          if (typeof d.ready === 'number') setReadyCount(d.ready);
-          if (typeof d.total === 'number') setReadyTotal(d.total);
-        });
-
         socket.on('kiosk_update', (d) => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
@@ -937,33 +927,26 @@ const ManagerExercisePage = () => {
     setSoloStage('handoff');
   };
 
-  // M5: a real vote the student may change while the ballot is open, not a one-shot
-  // team entry. The server tallies and auto-resolves on a majority.
+  // M13: the decider enters the hire on the group's behalf — a one-shot entry, not
+  // a vote. The server resolves the room the moment it lands, and rejects it from
+  // anyone who is not the decider, so the gating below is a courtesy not the rule.
   const submitPick = () => {
-    if (!pick || !ballotOpen || !socketRef.current) return;
-    socketRef.current.emit('submit_collective_vote', {
+    if (!pick || !ballotOpen || !youDecide || !socketRef.current) return;
+    socketRef.current.emit('submit_group_choice', {
       room_id: roomId, uid: userIdRef.current, candidate: pick,
     });
-    setVoted(true);
-    setYourVote(pick);
+    setSubmitted(true);
   };
 
-  // "Decide now" — asks the server to finalize early. The server ignores it unless
-  // a majority of the room has already voted (quorum lives server-side).
-  const earlyDecision = () => {
-    socketRef.current?.emit('early_decision', { room_id: roomId, uid: userIdRef.current });
+  // M13: the decider closes round 1 before the clock and takes the room to the
+  // hire. There is deliberately no un-press — this is the act of ending the
+  // discussion, not a position to be talked out of.
+  const endDiscussion = () => {
+    socketRef.current?.emit('end_discussion', { room_id: roomId, uid: userIdRef.current });
   };
 
   // M6: press Continue at the kiosk. Advances THIS client into the time-skip at
   // once; the server holds the shared discussion until the whole room has pressed.
-  // M11: "we've made our decision" — the group's way out of round 1 before the
-  // clock. Toggles this student's signal; the server opens the ballot once a
-  // majority have pressed it, so one person can't end the discussion alone.
-  const toggleReadyToVote = () => {
-    socketRef.current?.emit('ready_to_vote', { room_id: roomId, uid: userIdRef.current });
-    setYouAreReady((prev) => !prev);
-  };
-
   const continueAck = () => {
     socketRef.current?.emit('continue_ack', { room_id: roomId, uid: userIdRef.current });
     setYouContinued(true);
@@ -1052,25 +1035,24 @@ const ManagerExercisePage = () => {
     </div>
   );
 
-  // The candidate voting grid (M5). Shared by the `choose` phase and the inline
-  // re-choice mid-discussion. Each row shows a live vote count; students may change
-  // their vote while the ballot is open, and the server resolves on a majority.
+  // The hire dialog (M13). Only the decider can act on it; everyone else reads the
+  // same candidate list with the options inert, so the room watches the decision
+  // being made rather than being shown a spinner. There are no vote counts here —
+  // nothing is tallied any more.
   const CandidateGrid = ({ compact }) => {
-    const totalVotes = Object.values(tally).reduce((a, b) => a + b, 0);
-    const headcount = roster.length || capacity || 0;
+    const canAct = youDecide && ballotOpen && !submitted;
     return (
     <>
       <div className="grid gap-3">
         {candidates.map((c, i) => {
           const selected = pick === c.name;
-          const count = tally[c.name] || 0;
           return (
             // Hover response is border tint + soft shadow only. A translate-y lift
             // here moved the option out from under the pointer, dropping the hover
             // state and snapping it back — a shake. active:scale keeps a press feel.
             <button
               key={c.name}
-              disabled={!ballotOpen}
+              disabled={!canAct}
               onClick={() => setPick(c.name)}
               style={{ animationDelay: `${i * 50}ms` }}
               className={`relative text-left rounded-2xl border-2 transition-all animate-in fade-in slide-in-from-bottom-1 disabled:cursor-default active:scale-[0.99] ${
@@ -1089,49 +1071,33 @@ const ManagerExercisePage = () => {
                 </span>
                 <span className="flex-1 font-semibold text-[#222]">{c.name}</span>
               </div>
-              {/* App-style vote badge: how many of the group have voted for this
-                  option. Keyed on `count` so it re-pops (zoom-in) each time it
-                  ticks up; ring-2 ring-white floats it over the card edge like an
-                  app-icon badge. Hidden at 0, matching app-badge behaviour. */}
-              {count > 0 && (
-                <span
-                  key={count}
-                  title={`${count} ${count === 1 ? 'vote' : 'votes'}`}
-                  aria-label={`${count} ${count === 1 ? 'vote' : 'votes'}`}
-                  className="absolute -top-2 -right-2 min-w-[1.375rem] h-[1.375rem] px-1 flex items-center justify-center rounded-full bg-[#FA6C43] text-white text-xs font-extrabold tabular-nums ring-2 ring-white shadow-md animate-in zoom-in-50 duration-200"
-                >
-                  {count}
-                </span>
-              )}
             </button>
           );
         })}
       </div>
-      <div className="mt-5 flex flex-col sm:flex-row gap-3">
-        <button
-          onClick={submitPick}
-          disabled={!pick || !ballotOpen}
-          className="flex-1 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
-        >
-          {voted ? 'Update our vote' : 'Cast our vote'}
-        </button>
-        <button
-          onClick={earlyDecision}
-          disabled={!ballotOpen}
-          title="Finalize now (once most of the group has voted)"
-          className="rounded-2xl border-2 border-[#FA6C43]/40 text-[#C2410C] font-bold px-5 py-3.5 hover:bg-[#F9D0C4]/20 disabled:opacity-40 transition-all active:scale-[0.98]"
-        >
-          Decide now
-        </button>
-      </div>
-      {voted ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-          <FaCheckCircle /> You voted for {yourVote}. {totalVotes}{headcount ? ` of ${headcount}` : ''} in.
-        </p>
+      {/* The entry button belongs to the decider alone. The rest of the room gets
+          the same space filled with who they are waiting on, so nobody is left
+          hunting for a button that was never theirs. */}
+      {youDecide ? (
+        <>
+          <button
+            onClick={submitPick}
+            disabled={!pick || !canAct}
+            className="mt-5 w-full rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
+          >
+            {submitted ? 'Entered' : 'Enter our hire'}
+          </button>
+          <p className="mt-3 text-xs font-semibold text-gray-500">
+            {submitted
+              ? 'Entered. Your group is moving on.'
+              : "You're entering this on the group's behalf. It can't be changed."}
+          </p>
+        </>
       ) : (
-        totalVotes > 0 && (
-          <p className="mt-3 text-xs font-semibold text-gray-500">{totalVotes}{headcount ? ` of ${headcount}` : ''} voted so far.</p>
-        )
+        <p className="mt-5 inline-flex items-center gap-1.5 text-xs font-bold text-gray-500">
+          <FaRegClock className="text-[11px]" />
+          {deciderName ? `${deciderName} is entering the hire for the group.` : 'Waiting on the group.'}
+        </p>
       )}
     </>
     );
@@ -1531,11 +1497,13 @@ const ManagerExercisePage = () => {
                 )}
               </div>
               <p className="text-sm text-gray-500 mb-5">
-                Vote for the candidate your group should hire. The room resolves on a majority — or press <span className="font-semibold text-[#222]">Decide now</span> once most of you have voted. This is the group's only decision.
+                {youDecide
+                  ? "You're making the call for your group. Enter the candidate you all settled on — this is the group's only decision, and it's final."
+                  : <>{deciderName || 'One of you'} is entering the hire your group settled on. This is the group's only decision.</>}
               </p>
               {finalCall && (
                 <div className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-600 animate-pulse">
-                  Final call — lock in your vote now.
+                  {youDecide ? 'Final call — enter the hire now.' : 'Final call — the clock is nearly out.'}
                 </div>
               )}
               {CandidateGrid({})}
@@ -1866,27 +1834,22 @@ const ManagerExercisePage = () => {
           </div>
         )}
 
-        {/* M11: the group's way out of round 1 before the clock. Sits above the
-            composer rather than in the header so it reads as an action about the
-            discussion, not a piece of room furniture. Round 1 only — there is no
-            ballot after the debrief. */}
+        {/* M13: the way out of round 1 before the clock, and it belongs to the
+            decider. Sits above the composer rather than in the header so it reads
+            as an action about the discussion, not a piece of room furniture. Round
+            1 only — there is no hire to enter after the debrief. */}
         {!isDebrief && !chatLocked && (
           <div className="mb-3 flex flex-wrap items-center justify-center gap-3 animate-in fade-in">
-            <button
-              onClick={toggleReadyToVote}
-              className={`inline-flex items-center gap-2 rounded-2xl border-2 px-5 py-2.5 text-sm font-bold transition-all active:scale-[0.98] ${
-                youAreReady
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                  : 'border-[#FA6C43]/40 text-[#C2410C] hover:bg-[#F9D0C4]/20'
-              }`}
-            >
-              {youAreReady
-                ? <><FaCheckCircle className="text-xs" /> We've decided — waiting on the others</>
-                : <>We've made our decision</>}
-            </button>
-            {readyCount > 0 && (
-              <span className="text-xs font-semibold text-gray-500 tabular-nums">
-                {readyCount}{readyTotal ? ` of ${readyTotal}` : ''} ready to vote
+            {youDecide ? (
+              <button
+                onClick={endDiscussion}
+                className="inline-flex items-center gap-2 rounded-2xl border-2 border-[#FA6C43]/40 px-5 py-2.5 text-sm font-bold text-[#C2410C] hover:bg-[#F9D0C4]/20 transition-all active:scale-[0.98]"
+              >
+                We've made our decision
+              </button>
+            ) : (
+              <span className="text-xs font-semibold text-gray-500">
+                {deciderName ? `${deciderName} closes the discussion when you're ready.` : ''}
               </span>
             )}
           </div>
