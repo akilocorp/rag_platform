@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   `_open_debrief` takes the facilitator lock, so the silence watcher can no longer open the
+# @changed   `start_test_run` passes a `misleading` seat count through to the simulator.
+#            Prior: `_open_debrief` takes the facilitator lock, so the silence watcher can no longer open the
 #            debrief a second time while the opener is still with the model — rooms were seeing step 1
 #            posted twice.
 #            Prior: A professor can now test their own exercise: `start_test_run` builds a room the student
@@ -99,17 +100,21 @@ _room_members: dict = {}
 _test_run_launcher = None
 
 
-def start_test_run(config_doc, bots=None):
+def start_test_run(config_doc, bots=None, misleading=0):
     """Launch a model-played test room for a config and return its room_id.
 
     The room is real in every way that matters — real phase machine, real timers,
     real ACTR, messages persisted to `group_chat_messages` — and differs from a
     class room only in who is typing and in a room_id the student lobby never
     enumerates. See `src/managers/exercise_sim.py`.
+
+    `misleading` seats invent case facts instead of reporting theirs, so the run
+    answers "does the facilitator pull the room back" rather than only "does it work
+    when everyone cooperates".
     """
     if _test_run_launcher is None:
         raise RuntimeError("socket events have not been registered yet")
-    return _test_run_launcher(config_doc, bots)
+    return _test_run_launcher(config_doc, bots, misleading)
 
 
 def register_socket_events(socketio, app):
@@ -560,7 +565,7 @@ def register_socket_events(socketio, app):
         state.start(socketio, app)
         return state
 
-    def _launch_test_run(config_doc, bots=None):
+    def _launch_test_run(config_doc, bots=None, misleading=0):
         """Build a test room and hand it to the simulator. Returns the room_id.
 
         The room id is `{config_id}_t{hex}`, deliberately NOT the `_g{i}` shape
@@ -599,7 +604,7 @@ def register_socket_events(socketio, app):
                     exercise_sim.run_test_room(
                         state, _post_as_student, socketio.sleep,
                         lambda: get_or_create_context(room_id).messages,
-                        bots=bots or capacity,
+                        bots=bots or capacity, misleading=misleading,
                     )
                 except Exception:  # noqa: BLE001 — a crashed sim must not take the worker
                     logger.exception(f"test run {room_id} failed")

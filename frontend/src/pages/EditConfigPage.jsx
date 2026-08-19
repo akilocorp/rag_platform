@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-19
-// @changed   Manager Exercise gets a Test panel: one button fills a room with simulated students,
+// @changed   The Test panel gets a room composition dropdown: all-reliable, or one seat that invents
+//            case facts and pushes ACTR to name the answer — the run that shows whether the
+//            facilitator steers a derailed room back.
+//            Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
 //            plays the whole exercise through and opens the transcript, with past runs listed under it.
 //            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
@@ -72,6 +75,9 @@ const EditConfigPage = () => {
   // version of the exercise the professor has already edited away from.
   const [testRuns, setTestRuns] = useState([]);
   const [testBusy, setTestBusy] = useState(false);
+  // How many of the seats invent case facts instead of reporting what they hold.
+  // 0 is the plain run; 1 is the room that tests whether ACTR pulls it back.
+  const [testMisleading, setTestMisleading] = useState(0);
   const [testErr, setTestErr] = useState('');
 
   // Class rollout usage tiers
@@ -403,7 +409,8 @@ const EditConfigPage = () => {
     setTestBusy(true);
     setTestErr('');
     try {
-      const res = await apiClient.post(`/manager-exercise/${config.config_id}/test-run`);
+      const res = await apiClient.post(`/manager-exercise/${config.config_id}/test-run`,
+        { misleading: testMisleading });
       navigate(`/manager-exercise/${config.config_id}/run/${res.data.room_id}`);
     } catch (e) {
       setTestErr(e?.response?.data?.error || 'Could not start the test run.');
@@ -1104,7 +1111,7 @@ const EditConfigPage = () => {
                             <FaFlask className="text-[#FA6C43]" /> Test this exercise
                           </h4>
                           <p className="text-[11px] text-gray-500 mt-1 max-w-md">
-                            Fills a room with {me.num_students || 3} simulated students and plays the whole thing
+                            Fills a room with simulated students and plays the whole thing
                             through — private picks, the group's own discussion, the outcome, then the
                             debrief with ACTR. Takes a few minutes and costs real model calls.
                             <strong className="text-gray-700"> Uses the last saved version</strong>, so save your edits first.
@@ -1119,6 +1126,40 @@ const EditConfigPage = () => {
                           {testBusy ? <><FaSpinner className="animate-spin" /> Starting…</> : <>Run a test</>}
                         </button>
                       </div>
+
+                      {/* Who is in the room. A misleading seat holds a real packet and
+                          refuses to use it — it invents candidate facts instead, and
+                          pushes ACTR to just name the answer. That is the run that says
+                          whether the facilitator steers a derailed room back, which a
+                          cooperative room can never tell you. One seat always stays
+                          reliable: a room where everyone invents leaves nothing to
+                          steer back to. */}
+                      {(() => {
+                        const seats = Math.max(1, me.num_students || 3);
+                        return (
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <label className="text-[11px] font-semibold text-gray-600">Test with</label>
+                            <select
+                              value={testMisleading}
+                              onChange={(e) => setTestMisleading(parseInt(e.target.value, 10) || 0)}
+                              disabled={seats < 2}
+                              className="p-2 bg-white border border-gray-200 rounded-lg text-[11px] font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all disabled:opacity-50"
+                            >
+                              <option value={0}>{seats} reliable students</option>
+                              {seats >= 2 && (
+                                <option value={1}>
+                                  {seats - 1} reliable {seats - 1 === 1 ? 'student' : 'students'} and 1 misleading student
+                                </option>
+                              )}
+                            </select>
+                            {testMisleading > 0 && (
+                              <span className="text-[10px] font-semibold text-[#C2410C]">
+                                invents facts, pushes for the answer — watch whether ACTR pulls it back
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {testErr && <p className="mt-3 text-[11px] font-semibold text-red-500">{testErr}</p>}
                       {testRuns.length > 0 && (
                         <div className="mt-4 pt-3 border-t border-gray-100">

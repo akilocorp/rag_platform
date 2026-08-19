@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-08-19
-# @changed   New file: the professor's Test button — POST starts a model-played room on your own config,
+# @changed   POST /test-run takes `misleading`, the number of seats that invent case facts.
+#            Prior: New file: the professor's Test button — POST starts a model-played room on your own config,
 #            GET streams its transcript back, so you can read the debrief ACTR gives your case pack
 #            without booking three people.
 """HTTP for manager-exercise test runs.
@@ -27,7 +28,7 @@ WHY A TEST RUN IS A REAL ROOM
 import logging
 
 from bson import ObjectId
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models.config import Config
@@ -106,8 +107,16 @@ def create_test_run(config_id):
         if state is not None and state.phase() != "done":
             return jsonify({"room_id": doc["room_id"], "already_running": True}), 200
 
+    # How many seats invent case facts instead of reporting theirs. Clamped in the
+    # simulator, which always keeps one reliable seat — a room where everyone makes
+    # things up gives the facilitator nothing to steer back to.
     try:
-        room_id = start_test_run(config_doc)
+        misleading = int((request.get_json(silent=True) or {}).get("misleading") or 0)
+    except (TypeError, ValueError):
+        misleading = 0
+
+    try:
+        room_id = start_test_run(config_doc, misleading=misleading)
     except RuntimeError as e:
         # The launcher is registered when socket events are, so this means the app
         # came up without them — worth saying plainly rather than as a 500.
