@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   A misleading seat keeps its character in the DEBRIEF. Its per-turn task used to be the
+# @updated   2026-08-20
+# @changed   Raised MAX_DEBRIEF_TURNS 40->80 and MAX_DEBRIEF_SPINS 400->800 (kept proportional):
+#            the spins backstop was exhausting after ~20 student turns whenever ACTR held its
+#            18s wait window without replying, cutting test runs short well before the turns
+#            cap or ACTR's own conclusion.
+#            Prior: A misleading seat keeps its character in the DEBRIEF. Its per-turn task used to be the
 #            shared one — "answer ACTR directly and honestly" — which arrives after the system prompt
 #            and won, so the seat invented through round 1 and then confessed in round 2, the exact
 #            round the run exists to test. Each round's instruction is now chosen per seat.
@@ -67,10 +71,14 @@ DISCUSS_TURNS = 6
 
 # Hard stops. A test run is unattended and costs money per turn, so every loop
 # here is bounded by something other than the room agreeing to end.
-MAX_DEBRIEF_TURNS = 40
+MAX_DEBRIEF_TURNS = 80
 # Loop passes, not turns: a room where every student passes never spends a turn,
-# so this is what stops a silent debrief spinning until the process dies.
-MAX_DEBRIEF_SPINS = 400
+# so this is what stops a silent debrief spinning until the process dies. Kept
+# proportional to MAX_DEBRIEF_TURNS — each turn can burn up to ACTR_WAIT spins
+# idling for ACTR before a student is allowed to speak again, so a spins budget
+# too close to the turns budget cuts the run short well before either the turn
+# cap or ACTR's own conclusion is reached.
+MAX_DEBRIEF_SPINS = 800
 PHASE_WAIT_SECONDS = 90
 
 FACILITATOR = "ACTR"
