@@ -1,8 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-16
-// @changed   Function mode now renders an embedded Desmos GraphingCalculator (no left formula panel)
-//            instead of the in-house SVG; our slider strip drives Desmos variables. Static data charts
-//            (line + bar) keep the in-house SVG — Desmos has no faithful categorical/bar representation.
+// @updated   2026-08-20
+// @changed   Static charts: thin x-axis labels to whatever fits legibly instead of drawing every one, and
+//            size left padding to the actual tick text (+ title strip) instead of a flat constant — fixes
+//            dense/wide data overlapping the axis labels.
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Parser } from 'expr-eval';
 import { loadDesmos } from '../../../utils/desmos';
@@ -30,7 +30,15 @@ const PALETTE = ['#FA6C43', '#2563EB', '#16A34A', '#9333EA', '#D97706'];
 
 const WIDTH = 560;
 const HEIGHT = 248;
-const PAD = { top: 16, right: 16, bottom: 30, left: 44 };
+// `left` isn't here — it's computed per-chart in useGeom from the actual tick labels being
+// drawn, because a flat constant is either too narrow (wide/negative numbers collide with
+// the rotated y-axis title) or wastes space (short numbers with no title at all).
+const PAD = { top: 16, right: 16, bottom: 30 };
+const LEFT_PAD_MIN = 30;
+const TICK_CHAR_W = 5.7;    // ~px per glyph at fontSize 10, the size tick/x-axis text renders at
+const TICK_GAP = 6;         // gap between the axis line and a tick label's near edge
+const TITLE_STRIP_W = 16;   // width reserved for the rotated y-axis title, when there is one
+const Y_TITLE_X = 8;        // rotated title's x anchor, centered in that reserved strip
 
 const fmt = (v) => {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -96,14 +104,34 @@ function evalFunctions(data, vals) {
   return { type: 'line', xLabels, xHeaders, series, y_label: data.y_label, title: data.title };
 }
 
+// A static series can carry far more x labels than there's room to draw without them
+// overlapping (e.g. one per year across two decades). Blank out all but however many fit
+// at a legible glyph-width, always keeping the first and last — the same idea evalFunctions
+// already applies above via its own `step`, generalized to arbitrary label lengths. Blanked
+// entries stay in the array (same length in, same length out) since xAt(i) still needs an
+// index per data point; only the label *text* is dropped.
+function thinXLabels(labels) {
+  const n = labels.length;
+  if (n <= 1) return labels;
+  // Left padding is data-dependent (see useGeom) and unknown at this point, so estimate
+  // conservatively — this only ever under-fills the available width, never overflows it.
+  const plotW = WIDTH - PAD.right - 60;
+  const avgLen = labels.reduce((sum, l) => sum + l.length, 0) / n;
+  const slotW = avgLen * TICK_CHAR_W + 8;
+  const maxVisible = Math.max(2, Math.floor(plotW / slotW) + 1);
+  if (n <= maxVisible) return labels;
+  const step = Math.ceil(n / maxVisible);
+  return labels.map((l, i) => (i % step === 0 || i === n - 1 ? l : ''));
+}
+
 // Resolve either mode into a common view the SVG understands.
 function resolveView(data, vals) {
   if (isFunctionMode(data)) return evalFunctions(data, vals);
-  const xLabels = (Array.isArray(data?.x_labels) ? data.x_labels : []).map((l) => String(l));
+  const rawLabels = (Array.isArray(data?.x_labels) ? data.x_labels : []).map((l) => String(l));
   return {
     type: data?.type === 'bar' ? 'bar' : 'line',
-    xLabels,
-    xHeaders: xLabels,
+    xLabels: thinXLabels(rawLabels),
+    xHeaders: rawLabels,
     series: Array.isArray(data?.series) ? data.series : [],
     y_label: data?.y_label,
     title: data?.title,
@@ -127,8 +155,7 @@ function linePath(points, xLine, yPos) {
 
 function useGeom(view) {
   return useMemo(() => {
-    const { xLabels, series, type } = view;
-    const plotW = WIDTH - PAD.left - PAD.right;
+    const { xLabels, series, type, y_label: yLabel } = view;
     const plotH = HEIGHT - PAD.top - PAD.bottom;
     const n = xLabels.length;
     if (n < 2 || series.length === 0) return null;
@@ -141,17 +168,30 @@ function useGeom(view) {
     min -= span * 0.08;
     max += span * 0.08;
 
+    // yPos only depends on top/bottom padding, so ticks can be resolved before we know how
+    // much left padding they'll need — solving that chicken-and-egg order is the whole fix.
     const yPos = (v) => PAD.top + plotH - ((v - min) / (max - min)) * plotH;
-    const xLine = (i) => PAD.left + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-    const bandW = plotW / n;
-    const xBand = (i) => PAD.left + bandW * i + bandW / 2;
-    const xAt = (i) => (type === 'bar' ? xBand(i) : xLine(i));
-
     const ticks = [];
     for (let t = 0; t <= 4; t++) {
       const v = min + (t / 4) * (max - min);
       ticks.push({ v, yp: yPos(v) });
     }
+
+    // Left padding sized to the widest tick label actually being drawn, plus a reserved
+    // strip for the rotated y-axis title when there is one — so neither ever runs into the
+    // other regardless of the data's magnitude (the bug: a flat 44px only worked for
+    // short, title-less numbers).
+    const widestTick = Math.max(0, ...ticks.map((t) => fmt(t.v).length));
+    const leftPad = Math.max(
+      LEFT_PAD_MIN,
+      Math.ceil(TICK_GAP + widestTick * TICK_CHAR_W + (yLabel ? TITLE_STRIP_W : 0))
+    );
+    const plotW = WIDTH - leftPad - PAD.right;
+
+    const xLine = (i) => leftPad + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const bandW = plotW / n;
+    const xBand = (i) => leftPad + bandW * i + bandW / 2;
+    const xAt = (i) => (type === 'bar' ? xBand(i) : xLine(i));
 
     const lines = series.map((s, idx) => ({
       name: s.name,
@@ -173,7 +213,7 @@ function useGeom(view) {
       }),
     }));
 
-    return { min, max, yPos, xAt, ticks, lines, bars, n, plotH, plotW, zeroY: yPos(0) };
+    return { min, max, yPos, xAt, ticks, lines, bars, n, plotH, plotW, leftPad, zeroY: yPos(0) };
   }, [view]);
 }
 
@@ -233,14 +273,14 @@ function ChartSvg({ view, animate = true }) {
       {/* y gridlines + labels */}
       {geom.ticks.map((t, i) => (
         <g key={i}>
-          <line x1={PAD.left} x2={WIDTH - PAD.right} y1={t.yp} y2={t.yp} stroke="#EEF2F6" strokeWidth="1" />
-          <text x={PAD.left - 6} y={t.yp + 3} textAnchor="end" fontSize="10" fill="#94A3B8">{fmt(t.v)}</text>
+          <line x1={geom.leftPad} x2={WIDTH - PAD.right} y1={t.yp} y2={t.yp} stroke="#EEF2F6" strokeWidth="1" />
+          <text x={geom.leftPad - TICK_GAP} y={t.yp + 3} textAnchor="end" fontSize="10" fill="#94A3B8">{fmt(t.v)}</text>
         </g>
       ))}
 
       {/* zero baseline */}
       {geom.min < 0 && geom.max > 0 && (
-        <line x1={PAD.left} x2={WIDTH - PAD.right} y1={geom.zeroY} y2={geom.zeroY} stroke="#CBD5E1" strokeWidth="1.25" strokeDasharray="2 2" />
+        <line x1={geom.leftPad} x2={WIDTH - PAD.right} y1={geom.zeroY} y2={geom.zeroY} stroke="#CBD5E1" strokeWidth="1.25" strokeDasharray="2 2" />
       )}
 
       {/* x labels */}
@@ -253,10 +293,10 @@ function ChartSvg({ view, animate = true }) {
         ) : null
       ))}
 
-      {/* y axis label */}
+      {/* y axis label — sits in the TITLE_STRIP_W reserved by useGeom, left of the tick numbers */}
       {yLabel && (
-        <text x={12} y={PAD.top + geom.plotH / 2} fontSize="10" fill="#94A3B8" textAnchor="middle"
-              transform={`rotate(-90 12 ${PAD.top + geom.plotH / 2})`}>
+        <text x={Y_TITLE_X} y={PAD.top + geom.plotH / 2} fontSize="10" fill="#94A3B8" textAnchor="middle"
+              transform={`rotate(-90 ${Y_TITLE_X} ${PAD.top + geom.plotH / 2})`}>
           {yLabel}
         </text>
       )}
