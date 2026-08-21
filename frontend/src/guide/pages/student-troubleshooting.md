@@ -26,21 +26,26 @@ reminder banner.
 The link is wrong or expired. Make sure you copied the whole thing including the code at
 the end, then ask your professor to resend.
 
-**"It says I need to be logged in, but I have an account."**
-You've probably been given a direct link to a private space rather than a class link. Sign
-in first in another tab, then reopen the link, or ask your professor for the `/join/...`
-version.
+**"It sent me to the login screen and I thought I was signed in."**
+You still are. A link to a space you don't have access to used to bounce you here; now it
+says **"This space is private"** instead and leaves your session alone. If you do get the
+login screen, signing in returns you to the link you clicked.
+
+**"This space is private."**
+You're signed in, but this assistant isn't shared with you and you aren't in its class.
+Check you're on the right account, then ask your professor for the `/join/...` link.
 
 ## Your dashboard
 
-**"No assignments yet."**
+**"No classes yet."**
 You're not enrolled in anything. Open your professor's invite link
-(`yoursite.com/join/CODE`) and the assignment will appear. See
+(`yoursite.com/join/CODE`), accept the invitation, and the class will appear. See
 [Join your class](/userguide/student-join).
 
-Not everything appears here. Chat assistants, simulation labs and group
-exercises are opened from the link your professor sends. The dashboard tracks video
-assignments.
+**"A class I joined isn't listed."**
+Every kind of class belongs here, so a missing one means the enrolment didn't stick. Open
+the invite link again and check you press **Accept & Join** rather than Decline. If you
+have more than one account, make sure you're signed into the one you joined with.
 
 **"I can't find the Logout button."**
 Click your **username** in the top-right corner. Logout, Change password, and this guide
@@ -61,7 +66,8 @@ You've used all your attempts. Ask your professor whether they can reset them.
 
 **"My results haven't arrived."**
 Scoring takes about 2–4 minutes. Check your email — including spam — for the private
-results link, or reload your dashboard and look for **View Results**.
+results link, or press **Enter class** on the card and look at your attempt history on the
+upload page.
 
 ## During an exercise
 

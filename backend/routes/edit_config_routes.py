@@ -1,7 +1,8 @@
 # @language  Python
-# @updated   2026-07-26
-# @changed   manager_exercise now syncs group_size to num_students (was num_managers) after the facilitated
-#            rework; still reuses config_routes.validate_manager_exercise for the PUT path.
+# @updated   2026-08-10
+# @changed   Saving a config no longer blanks its prompt_template — rebuild it from `instructions` via the
+#            shared config_routes.build_prompt_template, restoring the persona + grounding line the legacy
+#            chat path lost on every edit. Prior: manager_exercise syncs group_size to num_students.
 from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
@@ -11,7 +12,11 @@ import json
 
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
-from routes.config_routes import validate_class_usage, validate_manager_exercise
+from routes.config_routes import (
+    build_prompt_template,
+    validate_class_usage,
+    validate_manager_exercise,
+)
 from src.facilitator.config import normalize_config as normalize_facilitator
 
 
@@ -101,7 +106,25 @@ def update_existing_config(config_id):
             
         group_size = data.get('group_size')
         group_duration = data.get('group_duration')
-        
+
+        # The edit form posts an empty prompt_template and relies on the backend
+        # to re-wrap `instructions` (only the create route used to do this). Left
+        # as "", the legacy chat path read it as the base instruction and lost
+        # BOTH the professor's persona and the "if the context doesn't contain
+        # the answer, say so" grounding line on every save. Rebuild it here from
+        # the same helper the create route uses; honour a genuinely custom
+        # template when one is supplied.
+        edited_instructions = data.get('instructions')
+        submitted_template = (data.get('prompt_template') or '').strip()
+        if submitted_template:
+            final_prompt_template = submitted_template
+        elif edited_instructions:
+            final_prompt_template = build_prompt_template(
+                data.get('bot_name'), edited_instructions,
+            )
+        else:
+            final_prompt_template = ''
+
         # Prepare update data
         update_data = {
             "bot_name": data.get('bot_name'),
@@ -116,8 +139,8 @@ def update_existing_config(config_id):
             "qualtrics_enabled": str(data.get('qualtrics_enabled', 'false')).lower() in ['true', '1'],
             "audio_enabled": str(data.get('audio_enabled', 'false')).lower() in ['true', '1'],
             "hume_config_id": (data.get('hume_config_id') or '').strip(),
-            "instructions": data.get('instructions'),
-            "prompt_template": data.get('prompt_template'),
+            "instructions": edited_instructions,
+            "prompt_template": final_prompt_template,
             "collection_name": data.get('collection_name'),
             "documents": updated_documents,
 

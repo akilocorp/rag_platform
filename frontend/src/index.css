@@ -1,7 +1,7 @@
 /*
  * @language  CSS
- * @updated   2026-08-03
- * @changed   Add .guide-md prose styles + .guide-shot screenshot slots for the /userguide site.
+ * @updated   2026-08-19
+ * @changed   Add .guide-widget slot styles for live, playable widget demos on the Widgets guide page.
  */
 @tailwind base;
 @tailwind components;
@@ -963,11 +963,24 @@ a:focus-visible {
   font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
+/* Live widget slots, mounted by GuideMarkdown.mountWidgets() over a `data-guide-widget`
+   placeholder — the same Renderer chat uses, fed canned demo data. */
+.guide-widget { margin: 1.5rem 0; }
+.guide-widget__label {
+  margin-bottom: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #FA6C43;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* Printing: the card chrome and dark code blocks waste ink; flatten them. */
 @media print {
   .guide-md pre { background: #f4f4f5; color: #111; border: 1px solid #ddd; }
   .guide-md h2 { break-after: avoid; }
   .guide-shot { break-inside: avoid; }
   .guide-shot__pending { display: none; }
+  .guide-widget { display: none; }
 }
 

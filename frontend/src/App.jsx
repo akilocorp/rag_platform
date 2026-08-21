@@ -21,6 +21,7 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
 import ManagerExercisePage from './pages/ManagerExercisePage';
+import ManagerExerciseRunPage from './pages/ManagerExerciseRunPage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
@@ -158,6 +159,10 @@ function App() {
             <Route path="/responses/:configId" element={<ResponsesPage />} />
             <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
             <Route path="/experiential-dashboard/:configId" element={<ExperientialDashboardPage />} />
+            {/* A test run's transcript. Professor-only: it carries the case
+                pack's answer key in the open, which is the one thing a student
+                must not read. */}
+            <Route path="/manager-exercise/:configId/run/:roomId" element={<ManagerExerciseRunPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

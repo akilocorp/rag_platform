@@ -1,8 +1,34 @@
 # @language  Python
-# @updated   2026-08-05
-# @changed   M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
+# @updated   2026-08-19
+# @changed   The facilitator turn carries its step in and out: `facilitator_reply` is handed the room's
+#            current step plus the WHOLE debrief for the gate to rule against, and whatever step the gate
+#            settles on is written back. A refused move is logged with what the room still owes.
+#            Prior: `start_test_run` passes a `misleading` seat count through to the simulator.
+#            Prior: `_open_debrief` takes the facilitator lock, so the silence watcher can no longer open the
+#            debrief a second time while the opener is still with the model — rooms were seeing step 1
+#            posted twice.
+#            Prior: A professor can now test their own exercise: `start_test_run` builds a room the student
+#            lobby never lists and hands it to exercise_sim, whose model-played students post through
+#            the same path a real socket message takes (so ACTR is woken identically).
+#            Prior: ACTR's private reasoning is split off its reply and persisted on the message document instead
+#            of being posted to the room; _post/_post_facilitator take `reasoning` and the socket emit
+#            deliberately omits it. The learning objectives are re-assessed every few messages so ACTR is
+#            told when to land the session. M13 leader-decides: `submit_collective_vote` →
+#            `submit_group_choice` (the decider only), `ready_to_vote`/`early_decision` collapse into one
+#            `end_discussion` handler, and the round-1 announcement names whoever enters the hire.
+#            Prior: Finished breakout rooms survive a backend restart: the lobby room list and the join guard
+#            fall back to the durable manager_exercise_sessions phase when no in-memory ExerciseState exists.
+#            Prior: Quote-reply plumbing: _post/_post_facilitator accept a parent `reply_to` mid and echo the
+#            stored mid + denormalized reply_to on every broadcast; the plain group-chat path persists the
+#            human message BEFORE broadcasting and hands its mid to the bot so the bot's reply attaches to it;
+#            the facilitator resolves a [REPLY:name] marker to that student's latest message.
+#            Prior: _facilitator_turn now passes ACTR its own recent turns (FACILITATOR_REPEAT_LOOKBACK) so a
+#            repeated question is caught, plus the chosen candidate's outcome document so it is pinned
+#            into every turn rather than aging out of the transcript window.
+#            Prior: M12: the debrief opener is model-generated from the facilitator prompt, so on_debrief_start
 #            hands off to a new backgrounded _open_debrief instead of posting a hardcoded line inline.
-#            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock.
+#            Also M11: a ready_to_vote handler lets a majority of the room end round 1 before the clock
+#            (superseded by M13 — see the banner).
 #            Prior: M9 three-round rework. start_exercise now opens `solo` (round 0) and a new submit_solo_vote
 #            handler records each private pick. The round-1 ACTR hooks are GONE (on_discuss_start /
 #            on_choose_start); the ballot-open line is posted under a neutral system sender instead. All
@@ -16,6 +42,7 @@ from flask_jwt_extended import decode_token
 import logging
 import json
 import time
+import uuid
 from bson import ObjectId
 from langchain_mongodb.vectorstores import MongoDBAtlasVectorSearch
 
@@ -27,6 +54,7 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import ai_manager
+from src.managers import exercise_sim
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -39,6 +67,23 @@ uid_to_sid: dict = {}
 # the start of a go-around is never scrolled off — it has to see who it asked.
 FACILITATOR_HISTORY_MESSAGES = 20
 
+# How many of ACTR's own past turns are checked for "you already asked this". Four
+# covers the observed loop (one question across four turns) without reaching so far
+# back that a question legitimately revisited much later reads as a repeat.
+FACILITATOR_REPEAT_LOOKBACK = 4
+
+# How often the learning objectives are re-assessed, in student messages. It is a third
+# model call, and the answer moves slowly — a room does not go from "nothing established"
+# to "everything established" inside four messages. Without this reading ACTR has no sense
+# of an ending: it keeps finding one more good question and the debrief timer takes the
+# landing away from it.
+FACILITATOR_PROGRESS_EVERY = 4
+
+# Cached per room so the reading survives between turns and can only accumulate. Keyed by
+# room_id, in-process only — a restart re-derives it from the transcript within four
+# messages, which is a cheap enough loss not to persist.
+_progress_by_room: dict = {}
+
 # How long a pause is allowed to run before ACTR breaks it. This is a timer that
 # FIRES, not one that blocks: ACTR is still asked the instant a student posts, and
 # never waits when it judges it should speak. The timer only covers the case where
@@ -50,6 +95,29 @@ FACILITATOR_SILENCE_SECONDS = 8
 # slot. In-process only — a restart empties the lobby, which is the right default
 # since every socket has dropped anyway.
 _room_members: dict = {}
+
+# Set by `register_socket_events` below. The HTTP layer launches a test room
+# through this rather than importing the socket server, which it cannot do: the
+# launcher has to close over `socketio` and `app` to start a background task and
+# to post messages down the same path a real student's socket uses.
+_test_run_launcher = None
+
+
+def start_test_run(config_doc, bots=None, misleading=0):
+    """Launch a model-played test room for a config and return its room_id.
+
+    The room is real in every way that matters — real phase machine, real timers,
+    real ACTR, messages persisted to `group_chat_messages` — and differs from a
+    class room only in who is typing and in a room_id the student lobby never
+    enumerates. See `src/managers/exercise_sim.py`.
+
+    `misleading` seats invent case facts instead of reporting theirs, so the run
+    answers "does the facilitator pull the room back" rather than only "does it work
+    when everyone cooperates".
+    """
+    if _test_run_launcher is None:
+        raise RuntimeError("socket events have not been registered yet")
+    return _test_run_launcher(config_doc, bots, misleading)
 
 
 def register_socket_events(socketio, app):
@@ -116,7 +184,7 @@ def register_socket_events(socketio, app):
     # as ACTR is what used to put the facilitator in the room during round 1.
     SYSTEM_SENDER = "Exercise"
 
-    def _post(state, sender, text, uid=None):
+    def _post(state, sender, text, uid=None, reply_to=None, reasoning=None):
         """Persist + broadcast one room message under a display name.
 
         `sender` stays the DISPLAY NAME (the facilitator reads the transcript by name).
@@ -124,27 +192,37 @@ def register_socket_events(socketio, app):
         and broadcast — so the client marks a viewer's OWN messages by stable id rather
         than by a display name that can drift from the roster (which rendered your own
         text as someone else's). ACTR / system / outcome posts pass no uid.
+
+        `reply_to` (a parent mid) makes this a quote-reply; the stored message's `mid`
+        and denormalized `reply_to` preview are echoed on the broadcast so every client
+        can render the quote block and scroll to the parent.
         """
-        get_or_create_context(state.room_id).add_message(
-            sender, text, sender_role=sender, sender_uid=uid,
+        stored = get_or_create_context(state.room_id).add_message(
+            sender, text, sender_role=sender, sender_uid=uid, reply_to=reply_to,
+            reasoning=reasoning,
         )
+        # `reasoning` is deliberately absent from the emit payload — it is stored for
+        # tuning, never shown. Adding it here would put ACTR's private notes on screen.
         socketio.emit("message", {
             "room_id": state.room_id,
             "sender": sender,
             "sender_uid": uid,
             "text": text,
+            "mid": stored.get("mid"),
+            "reply_to": stored.get("reply_to"),
         }, room=state.room_id)
 
-    def _post_facilitator(state, text, go_around=False):
+    def _post_facilitator(state, text, go_around=False, reply_to=None, reasoning=None):
         """Post an ACTR turn and reset its turn-taking counters.
 
         `note_facilitator_spoke` arms the quorum gate when the message opened a
         go-around — that is what stops ACTR replying to each student individually
-        as their answers trickle in.
+        as their answers trickle in. `reply_to` (a parent mid) attaches the turn to
+        the one student it answers instead of prefixing their name.
         """
         if not text:
             return
-        _post(state, FACILITATOR_SENDER, text)
+        _post(state, FACILITATOR_SENDER, text, reply_to=reply_to, reasoning=reasoning)
         state.note_facilitator_spoke(go_around)
 
     def _register_exercise_hooks(state, config_doc):
@@ -161,13 +239,18 @@ def register_socket_events(socketio, app):
         """
 
         def on_ballot_open(st):
-            """Round-1 ballot opened → a plain announcement, NOT a facilitator turn.
+            """Round-1 decision opened → a plain announcement, NOT a facilitator turn.
 
             Posted under SYSTEM_SENDER. This line used to come from ACTR, which meant
             the facilitator appeared in the middle of the group's own decision for the
-            sake of one sentence the ballot screen already says."""
+            sake of one sentence the decision screen already says.
+
+            M13: names the decider, because the rest of the room now gets no dialog —
+            without this the screen would simply stop responding to them."""
+            who = st.decider_name()
             _post(st, SYSTEM_SENDER,
-                  "Time's up. Cast your vote for the candidate your group wants to hire.")
+                  f"Time's up. {who} is entering the hire for the group."
+                  if who else "Time's up. The hire is being entered for the group.")
 
         def on_pick_resolved(st):
             """Pick entered → post the outcome document.
@@ -209,15 +292,31 @@ def register_socket_events(socketio, app):
         Model-generated from step 1 of the facilitator prompt, so a professor editing
         `facilitator_prompt_override` changes the first thing the room hears. Posts
         nothing if the call fails — see `facilitator_open_debrief`.
+
+        Takes the facilitator lock like every other path that speaks. It used to be the
+        one exception, and that opened the session TWICE: the silence watcher armed by
+        the last round-1 message wakes 8s later, finds the room already in the debrief,
+        finds no facilitator message yet (this call is still with the model) and finds
+        `last_message_ts` unmoved (the outcome document is not a student message) — so
+        all three of its guards pass and it opens step 1 a second time. Holding the lock
+        for the whole call closes that window: the watcher finds it busy and returns.
         """
         with app.app_context():
             st = ex_state.get_exercise(room_id)
             if st is None:
                 return
-            _post_facilitator(st, ai_manager.facilitator_open_debrief(
-                st.config, st.roster, st.active_group_size(),
-                chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
-            ))
+            if not st.claim_facilitator():
+                return   # something is already speaking for ACTR; it opens the room
+            try:
+                opener, reasoning = ai_manager.facilitator_open_debrief(
+                    st.config, st.roster, st.active_group_size(),
+                    chosen_name=st.chosen_candidate, verdict=st.chosen_verdict(),
+                )
+                _post_facilitator(st, opener, reasoning=reasoning)
+            finally:
+                # Released whatever happened, or the room goes permanently quiet —
+                # the failure mode `claim_facilitator` warns about in its docstring.
+                st.release_facilitator()
 
     def _wrapup(room_id):
         """Background: ACTR's closing message when the debrief backstop timer expires.
@@ -281,13 +380,52 @@ def register_socket_events(socketio, app):
             ended = False
             try:
                 ctx = get_or_create_context(room_id)
+
+                # Re-read how far the group has actually got, on a cadence. The WHOLE
+                # debrief is passed, not the rolling window the facilitator itself reads:
+                # the question is what this room has ever established, and asking it
+                # against the last twenty messages makes an objective evaporate the moment
+                # its evidence scrolls away. `assess_progress` unions each reading with the
+                # previous one, so an objective once reached stays reached.
+                progress = _progress_by_room.get(room_id)
+                if len(ctx.messages) % FACILITATOR_PROGRESS_EVERY == 0:
+                    progress = ai_manager.assess_progress(
+                        ctx.get_context_summary(num_messages=len(ctx.messages)),
+                        st.chosen_candidate,
+                        previous=progress,
+                        candidates=[c.get("name") for c in st.candidates if c.get("name")],
+                    )
+                    _progress_by_room[room_id] = progress
+
                 result = ai_manager.facilitator_reply(
                     st.config, st.roster, st.active_group_size(),
                     ctx.summary_for_nudge(num_messages=FACILITATOR_HISTORY_MESSAGES),
                     chosen_name=st.chosen_candidate,
                     turn_context=st.turn_context(addressed=addressed, silence=silence),
                     solo_spread=st.solo_spread(),
+                    # ACTR's own recent turns, so a question it has already asked can be
+                    # detected as a repeat instead of asked a third time.
+                    recent_asks=ctx.recent_by_sender(
+                        FACILITATOR_SENDER, FACILITATOR_REPEAT_LOOKBACK
+                    ),
+                    outcome_text=st.forecast_text_for(st.chosen_candidate),
+                    progress=progress,
+                    # Where the sequence is, and the WHOLE debrief for the step gate to
+                    # rule against — the rolling window is the wrong input for "did the
+                    # room already pool the concerns", since the evidence scrolls out.
+                    step=st.facilitator_step,
+                    full_transcript=ctx.get_context_summary(num_messages=len(ctx.messages)),
                 )
+                # Recorded whether or not ACTR speaks: a refused move is still a fact
+                # about the room, and the step it stayed on has to survive this turn.
+                st.set_facilitator_step(result.get("step"))
+                gate = result.get("step_gate")
+                if gate:
+                    logger.info(
+                        "🚦 %s step %s→%s %s %s", room_id, gate.get("from"), gate.get("to"),
+                        "approved" if gate.get("approved") else "REFUSED",
+                        (gate.get("evidence") or gate.get("missing") or "")[:120],
+                    )
                 message = result.get("message")
                 if not message:
                     return
@@ -300,7 +438,22 @@ def register_socket_events(socketio, app):
                 # the pattern or moved past it, and either way ACTR is no longer
                 # waiting on anyone.
                 st.clear_go_around()
-                _post_facilitator(st, message, result.get("go_around", False))
+                # The reply target attaches this turn to that student's latest message.
+                # It arrives as a `reply_to_name` field on the forced tool call, or from
+                # a [REPLY:name] marker on the text fallback — both surface identically
+                # here. Resolve by display name against the transcript; an unmatched name
+                # just yields no reply (the message still posts, un-attached).
+                reply_to_mid = None
+                reply_name = (result.get("reply_to_name") or "").strip().lower()
+                if reply_name:
+                    for m in reversed(ctx.messages):
+                        disp = (m.get("sender_role") or m.get("sender") or "")
+                        if disp.lower() == reply_name:
+                            reply_to_mid = m.get("mid")
+                            break
+                _post_facilitator(st, message, result.get("go_around", False),
+                                  reply_to=reply_to_mid,
+                                  reasoning=result.get("reasoning"))
                 ended = bool(result.get("ended"))
             finally:
                 st = ex_state.get_exercise(room_id)
@@ -328,6 +481,20 @@ def register_socket_events(socketio, app):
     def _lobby_channel(config_id):
         return f"lobby:{config_id}"
 
+    def _durable_room_phase(room_id):
+        """Phase from the durable `manager_exercise_sessions` doc, or WAITING if none.
+
+        Used when no in-memory ExerciseState exists (e.g. after a backend restart):
+        _enter_done persists phase="done", so this keeps a finished room finished even
+        though `ex_state.get_exercise` returns None until something rebuilds it.
+        """
+        try:
+            doc = ManagerExerciseSession.find_by_room(room_id)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"durable phase lookup failed for {room_id}: {e}")
+            return ex_state.PHASE_WAITING
+        return (doc or {}).get("phase") or ex_state.PHASE_WAITING
+
     def _lobby_rooms(config_id, me_config):
         """Live view of every breakout room: who's in it and whether it has begun.
 
@@ -344,12 +511,24 @@ def register_socket_events(socketio, app):
         except (TypeError, ValueError):
             capacity = 3
 
+        # Durable phase per room in ONE query, so a finished room survives a restart
+        # in the lobby (in-memory ex_state is gone then, but the session doc isn't).
+        durable_phase = {}
+        try:
+            for doc in ManagerExerciseSession.find_by_config(config_id):
+                rid = doc.get("room_id")
+                if rid:
+                    durable_phase[rid] = doc.get("phase") or ex_state.PHASE_WAITING
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"lobby durable-phase load failed for {config_id}: {e}")
+
         rooms = []
         for i in range(1, num_rooms + 1):
             rid = _room_id_for(config_id, i)
             members = _room_members.get(rid, {})
             st = ex_state.get_exercise(rid)
-            phase = st.phase() if st else ex_state.PHASE_WAITING
+            # Prefer live state; fall back to the durable phase so "Finished" sticks.
+            phase = st.phase() if st else durable_phase.get(rid, ex_state.PHASE_WAITING)
             rooms.append({
                 "room_id": rid,
                 "index": i,
@@ -403,6 +582,59 @@ def register_socket_events(socketio, app):
         _register_exercise_hooks(state, config_doc)
         state.start(socketio, app)
         return state
+
+    def _launch_test_run(config_doc, bots=None, misleading=0):
+        """Build a test room and hand it to the simulator. Returns the room_id.
+
+        The room id is `{config_id}_t{hex}`, deliberately NOT the `_g{i}` shape
+        `_room_id_for` produces: the lobby enumerates groups 1..num_rooms by name,
+        so a test room cannot appear there, cannot be joined by a student, and
+        cannot consume a group a class is about to use.
+        """
+        config_id = str(config_doc.get("_id"))
+        room_id = f"{config_id}_t{uuid.uuid4().hex[:6]}"
+        me_config = _manager_exercise_config(config_doc)
+        try:
+            capacity = max(1, int(me_config.get("num_students") or 3))
+        except (TypeError, ValueError):
+            capacity = 3
+        state = _bootstrap_exercise(room_id, config_doc, create_session=True)
+
+        def _post_as_student(uid, text):
+            """Everything `handle_message` does for a student, minus the socket.
+
+            Written out rather than shared with the handler because the handler is
+            about a REQUEST — it reads `request.sid`, enforces the chat lock by
+            emitting back to that socket, and answers a client. A simulated student
+            has no socket to answer. What matters is that the four things after the
+            post are identical, since they are what wakes ACTR.
+            """
+            state.note_participant(uid)
+            state.arm_discuss_timer()
+            _post(state, state.display_name(uid), text, uid)
+            state.note_student_message(uid)
+            socketio.start_background_task(_facilitator_turn, room_id, False, False)
+            socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
+
+        def _run():
+            with app.app_context():
+                try:
+                    exercise_sim.run_test_room(
+                        state, _post_as_student, socketio.sleep,
+                        lambda: get_or_create_context(room_id).messages,
+                        bots=bots or capacity, misleading=misleading,
+                    )
+                except Exception:  # noqa: BLE001 — a crashed sim must not take the worker
+                    logger.exception(f"test run {room_id} failed")
+
+        socketio.start_background_task(_run)
+        logger.info(f"🧪 test run started for config {config_id} in {room_id}")
+        return room_id
+
+    # Publish the launcher for the HTTP layer. Done here, at definition, rather
+    # than at the end of registration, so the two can never drift apart.
+    global _test_run_launcher
+    _test_run_launcher = _launch_test_run
 
     # ==================================================================
     # CONNECTION / UPLOAD SUBSCRIPTIONS (unchanged)
@@ -549,7 +781,10 @@ def register_socket_events(socketio, app):
         room_id = _room_id_for(config_id, index)
 
         state = ex_state.get_exercise(room_id)
-        if state is not None and state.phase() == ex_state.PHASE_DONE:
+        # Honour the durable phase when there's no live state (post-restart), so a
+        # finished room refuses entry instead of replaying its transcript to a joiner.
+        phase = state.phase() if state is not None else _durable_room_phase(room_id)
+        if phase == ex_state.PHASE_DONE:
             emit('breakout_error', {'reason': 'finished', 'room_id': room_id}, to=request.sid)
             return
         try:
@@ -631,6 +866,9 @@ def register_socket_events(socketio, app):
         # from Mongo on first access for a room_id, so without this the stale in-memory
         # ctx.messages survive the wipe and get replayed to the next session.
         remove_context(room_id)                    # cached chat transcript
+        # Same reasoning: the objectives reading is monotonic by design, so a stale one
+        # would tell the next session it had already finished work it never did.
+        _progress_by_room.pop(room_id, None)       # cached learning-objective reading
         try:
             ManagerExerciseSession.delete_by_room(room_id)                       # durable session doc
             app.config["MONGO_DB"]['group_chat_messages'].delete_many(          # persisted transcript
@@ -713,6 +951,8 @@ def register_socket_events(socketio, app):
         room_id = data.get('room_id')
         uid = data.get('uid')
         text = data.get('text')
+        # Quote-reply: the parent message's mid, if this message replies to one.
+        reply_to = data.get('reply_to')
 
         if not text or not room_id:
             return
@@ -735,7 +975,7 @@ def register_socket_events(socketio, app):
             # this doesn't count against deliberation. Idempotent after the first, and
             # a no-op outside round 1.
             state.arm_discuss_timer()
-            _post(state, state.display_name(uid), text, uid)
+            _post(state, state.display_name(uid), text, uid, reply_to=reply_to)
             state.note_student_message(uid)
             addressed = FACILITATOR_SENDER.lower() in (text or "").lower()
             # Two paths, and they do different jobs. The immediate one asks ACTR
@@ -750,11 +990,21 @@ def register_socket_events(socketio, app):
             socketio.start_background_task(_silence_watch, room_id, state.last_message_ts)
             return
 
-        # ------------------- PLAIN GROUP CHAT PATH (unchanged) -------------------
-        # 1. Immediate broadcast to humans in the room
-        emit('message', {'sender': uid, 'text': text}, room=room_id)
-        # 2. Trigger AI background processing
-        socketio.start_background_task(process_ai_logic, app, room_id, uid, text, socketio)
+        # ------------------- PLAIN GROUP CHAT PATH -------------------
+        # 1. Persist the human message FIRST so it owns a stable mid and always
+        #    persists (previously it was broadcast un-stored, and never saved at all
+        #    in a bots-less group). Then broadcast with that mid + reply_to preview.
+        ctx = get_or_create_context(room_id)
+        stored = ctx.add_message(uid, text, reply_to=reply_to)
+        emit('message', {
+            'sender': uid,
+            'text': text,
+            'mid': stored.get('mid'),
+            'reply_to': stored.get('reply_to'),
+        }, room=room_id)
+        # 2. Trigger AI background processing, handing it the human message's mid so the
+        #    bot's reply attaches to it (the structured replacement for a "Name, …" prefix).
+        socketio.start_background_task(process_ai_logic, app, room_id, uid, text, socketio, stored.get('mid'))
 
     # ==================================================================
     # THE PICK (manager_exercise only)
@@ -777,16 +1027,14 @@ def register_socket_events(socketio, app):
             return
         state.record_solo_vote(uid, candidate)
 
-    @socketio.on('submit_collective_vote')
-    def handle_submit_collective_vote(data):
-        """One student casts their vote in the timed group ballot (M5).
+    @socketio.on('submit_group_choice')
+    def handle_submit_group_choice(data):
+        """The decider enters the hire the group is going with (M13).
 
-        record_collective_vote enforces an open ballot, roster membership and a
-        valid candidate, records the vote and broadcasts the running tally. It
-        auto-resolves on a strict majority or once everyone present has voted;
-        otherwise the clock (or the early-decision button) resolves it. Serves both
-        the first pick and a re-choice — every resulting event is broadcast by
-        ExerciseState, so the rest of the room updates without doing anything.
+        `record_group_choice` enforces an open decision window, that this uid really
+        is the room's decider, and a valid candidate — then resolves immediately.
+        Every resulting event is broadcast by ExerciseState, so the rest of the room
+        moves to the reveal without doing anything.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -796,15 +1044,15 @@ def register_socket_events(socketio, app):
         state = ex_state.get_exercise(room_id)
         if state is None:
             return
-        state.record_collective_vote(uid, candidate)
+        state.record_group_choice(uid, candidate)
 
-    @socketio.on('ready_to_vote')
-    def handle_ready_to_vote(data):
-        """A student says the group is done deliberating in round 1 (M11).
+    @socketio.on('end_discussion')
+    def handle_end_discussion(data):
+        """The decider closes round 1 before the clock (M13).
 
-        `record_ready_to_vote` enforces the discuss phase and roster membership,
-        toggles this student's signal, and opens the ballot once a majority have
-        pressed it. Below majority it just broadcasts the count.
+        `end_discussion` enforces the discuss phase and rejects anyone who is not the
+        decider, so the button being hidden for the rest of the room is a UI courtesy
+        rather than the actual rule.
         """
         room_id = (data or {}).get('room_id')
         uid = (data or {}).get('uid')
@@ -813,24 +1061,7 @@ def register_socket_events(socketio, app):
         state = ex_state.get_exercise(room_id)
         if state is None:
             return
-        state.record_ready_to_vote(uid)
-
-    @socketio.on('early_decision')
-    def handle_early_decision(data):
-        """The group presses "Decide now" to finalize before the clock (M5).
-
-        early_finalize only resolves if a majority of the roster has already voted
-        (quorum); below that it is a no-op, so one impatient student can't end the
-        decision for a room that hasn't weighed in yet.
-        """
-        room_id = (data or {}).get('room_id')
-        uid = (data or {}).get('uid')
-        if not room_id or not uid:
-            return
-        state = ex_state.get_exercise(room_id)
-        if state is None:
-            return
-        state.early_finalize(uid)
+        state.end_discussion(uid)
 
     @socketio.on('continue_ack')
     def handle_continue_ack(data):
@@ -867,8 +1098,13 @@ def register_socket_events(socketio, app):
             logger.info(f"🔌 {uid} disconnected and removed from queue")
 
 
-def process_ai_logic(app, room_id, uid, text, socketio):
-    """Background task for RAG and AI Generation (plain group_chat only)."""
+def process_ai_logic(app, room_id, uid, text, socketio, parent_mid=None):
+    """Background task for RAG and AI Generation (plain group_chat only).
+
+    `parent_mid` is the human message's stable mid (already persisted by the socket
+    handler), so the bot reply can quote-attach to it. The handler owns persistence
+    now — this task no longer re-adds the human message.
+    """
     with app.app_context():
         try:
             # room_id format is "{config_id}_{8chars}" — extract the real config_id
@@ -897,8 +1133,9 @@ def process_ai_logic(app, room_id, uid, text, socketio):
             if not bots_config:
                 return
 
+            # The human message is already persisted by the socket handler (which owns
+            # its mid), so we only read the shared context here — no re-add.
             ctx = get_or_create_context(room_id)
-            ctx.add_message(uid, text)
 
             orch_history = ctx.get_context_summary(num_messages=10)
             chosen_bot_names = analyze_intent(text, bots_config, orch_history)
@@ -933,11 +1170,18 @@ def process_ai_logic(app, room_id, uid, text, socketio):
                 reply = bot_instance.generate_response(uid, text, full_summary, rag_context)
 
                 if reply:
-                    ctx.add_message(bot_instance.name, reply)
+                    # Attach the bot reply to the message that triggered it, so its
+                    # bubble quotes the exact student turn it answers.
+                    stored_reply = ctx.add_message(bot_instance.name, reply, reply_to=parent_mid)
                     socketio.sleep(1)
                     socketio.emit(
                         "message",
-                        {"sender": bot_instance.name, "text": reply},
+                        {
+                            "sender": bot_instance.name,
+                            "text": reply,
+                            "mid": stored_reply.get("mid"),
+                            "reply_to": stored_reply.get("reply_to"),
+                        },
                         room=room_id,
                     )
                 else:

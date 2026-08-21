@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the table's columns/rows/cells replay into history — the bot
+#            can answer questions about the comparison instead of denying a table was made.
 """
 comparison_table — a display-only side-by-side comparison grid.
 
@@ -10,6 +14,20 @@ The validator is STRICT — every row's `cells` array MUST line up 1:1 with
 at least two columns and one usable row survive.
 """
 from src.facilitator.base import widget
+
+
+def _to_transcript(data):
+    """Render the table (columns + each row's cells) into history so the bot can
+    answer questions about the comparison it produced."""
+    cols = data.get("columns") or []
+    lines = ["[Comparison table displayed to the user]"]
+    if data.get("title"):
+        lines.append(f"Title: {data['title']}")
+    lines.append("Columns: " + " | ".join(str(c) for c in cols))
+    for r in data.get("rows") or []:
+        cells = " | ".join(str(c) for c in r.get("cells") or [])
+        lines.append(f"{r.get('label')}: {cells}")
+    return "\n".join(lines)
 
 
 @widget(
@@ -33,6 +51,7 @@ from src.facilitator.base import widget
         ),
     },
     interactive=False,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

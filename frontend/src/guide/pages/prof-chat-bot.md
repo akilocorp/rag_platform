@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-08-19  @changed Linked the Facilitator section to the new Widgets page. -->
 
 # Create a Chat Bot
 
@@ -102,7 +102,8 @@ You are a teaching assistant for an undergraduate macroeconomics course.
 
 Switch this on and the bot can follow a reply with an interactive element instead of only
 text: a multiple-choice question, a chart, flashcards, a timeline, a comparison table, a
-mind map, or an impact map.
+mind map, or an impact map. See [Widgets](/userguide/prof-widgets) to try each one and
+read what it's for.
 
 You control when, using the **"What should the facilitator do?"** box:
 

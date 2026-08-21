@@ -1,6 +1,11 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-12
-// @changed   Header gained a "Plan from syllabus" button into /course-plan.
+// @updated   2026-08-16
+// @changed   Card no longer shows a hover lift/border/shadow or pointer cursor — the card body looked
+//            clickable when only the buttons (icons, Customize, primary action) are. The copy-select
+//            onClick/onHover handlers stay (Ctrl+C target); just the affordance is gone.
+//            Prior: Categories sidebar gained Labs (experiential) and Exercises (manager_exercise), carved out of
+//            Text-based so each assistant sits in exactly one category.
+//            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
@@ -11,6 +16,7 @@ import UserInfo from '../components/UserInfo';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
+import { studentPathFor } from '../utils/botTypes';
 import apiClient from '../api/apiClient';
 // Import your modal components here (adjust paths as needed)
 import ConfigModal from './ConfigPage';
@@ -29,17 +35,10 @@ const primaryActionLabel = (botType) => {
 };
 
 // The direct student-facing URL for a config, by bot_type (fallback when no
-// class code is set).
-const directStudentLink = (config) => {
-  const origin = window.location.origin;
-  switch (config.bot_type) {
-    case 'experiential':   return `${origin}/experiential/c/${config.config_id}`;
-    case 'group_chat':     return `${origin}/group-chat/${config.config_id}`;
-    case 'manager_exercise': return `${origin}/manager-exercise/${config.config_id}`;
-    case 'video_analysis': return `${origin}/video-upload/${config.config_id}`;
-    default:               return `${origin}/chat/${config.config_id}`;
-  }
-};
+// class code is set). The bot_type → path map lives in utils/botTypes so the
+// student dashboard and the join page route to the same places.
+const directStudentLink = (config) =>
+  `${window.location.origin}${studentPathFor(config.bot_type, config.config_id)}`;
 
 // --- Clipboard transfer -------------------------------------------------------
 // Ctrl+C puts one readable line on the clipboard. The payload is a server-minted
@@ -424,7 +423,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 cursor-pointer hover:border-[#FA6C43]/40 hover:shadow-md hover:-translate-y-1 animate-send-fly-in ${
+      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 animate-send-fly-in ${
         isSelected ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/30' : 'border-gray-200'
       } ${isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'}`}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
@@ -757,27 +756,41 @@ const ConfigListPage = () => {
     [configs, visibility],
   );
 
+  // Each assistant lands in exactly one category. Labs (experiential) and Exercises
+  // (manager_exercise) are carved OUT of Text-based, which is otherwise every non-video
+  // conversational bot (plain 1:1 + group-chat Drop-In Spaces).
   const isVideo = (c) => c.bot_type === 'video_analysis';
+  const isLab = (c) => c.bot_type === 'experiential';
+  const isExercise = (c) => c.bot_type === 'manager_exercise';
+  const isText = (c) => !isVideo(c) && !isLab(c) && !isExercise(c);
   const counts = {
     all: byVisibility.length,
-    text: byVisibility.filter(c => !isVideo(c)).length,
+    text: byVisibility.filter(isText).length,
+    lab: byVisibility.filter(isLab).length,
+    exercise: byVisibility.filter(isExercise).length,
     video: byVisibility.filter(isVideo).length,
   };
 
   const visible = useMemo(() => byVisibility.filter(c => {
-    if (category === 'text') return !isVideo(c);
+    if (category === 'text') return isText(c);
+    if (category === 'lab') return isLab(c);
+    if (category === 'exercise') return isExercise(c);
     if (category === 'video') return isVideo(c);
     return true;
   }), [byVisibility, category]);
 
   const sections = [
-    { key: 'text', label: 'Text-based', items: visible.filter(c => !isVideo(c)) },
+    { key: 'text', label: 'Text-based', items: visible.filter(isText) },
+    { key: 'lab', label: 'Labs', items: visible.filter(isLab) },
+    { key: 'exercise', label: 'Exercises', items: visible.filter(isExercise) },
     { key: 'video', label: 'Video-based', items: visible.filter(isVideo) },
   ].filter(s => s.items.length > 0);
 
   const CATEGORIES = [
     { key: 'all', label: 'All Assistants' },
     { key: 'text', label: 'Text-based' },
+    { key: 'lab', label: 'Labs' },
+    { key: 'exercise', label: 'Exercises' },
     { key: 'video', label: 'Video-based' },
   ];
 

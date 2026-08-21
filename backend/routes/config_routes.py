@@ -1,8 +1,9 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   Config copy/paste: POST /config/<id>/copy mints a clipboard token, GET+POST /config/paste/<token>
-#            preview and clone a config (plus its knowledge base) into any professor's account as a fresh class.
-#            Prior: GET /config/<id> returns an `owned` flag so the client can surface owner-only controls.
+# @updated   2026-08-16
+# @changed   New Claude bots default the facilitator ON (opt-out kept): _default_facilitator_raw seeds an
+#            enabled block on create when the payload omits one and the model is Claude.
+#            Prior: Extracted the legacy prompt wrapper into `build_prompt_template` so the edit route can reuse it
+#            and stop blanking prompt_template on save. Prior: config copy/paste via clipboard tokens.
 from flask import Flask, Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request, unset_jwt_cookies
 import urllib.parse
@@ -17,6 +18,16 @@ from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
+
+
+def _default_facilitator_raw(raw, model_name):
+    """Seed an enabled facilitator block for a new Claude bot when the create payload
+    omits one, so widgets are on by default (opt-out). An explicit block is returned
+    unchanged, so an unchecked toggle (enabled:false) is honoured. Non-Claude / present
+    blocks are untouched."""
+    if raw is None and str(model_name or '').lower().startswith('claude'):
+        return {"enabled": True}
+    return raw
 from src.managers import class_presets
 from src.managers import facilitator_prompt
 
@@ -37,6 +48,29 @@ config_bp = Blueprint('config_routes', __name__)
 def allowed_file(filename):
     """Checks if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def build_prompt_template(bot_name, instructions):
+    """Wrap a professor's raw `instructions` into the LangChain prompt template
+    the legacy (non-agentic) chat path renders.
+
+    Shared by create and edit so the two can never drift. This is the ONLY place
+    the grounding line ("If the context doesn't contain the answer, say so") is
+    produced — the edit route used to persist an empty prompt_template, which
+    silently stripped both the persona and that line from every legacy-path bot.
+    Uses an f-string so instructions may contain "{" / "}" without breaking
+    str.format; `{context}` / `{question}` stay as template vars.
+    """
+    return f"""You are a helpful AI assistant named '{bot_name or "Assistant"}'.
+Your goal is to answer questions accurately based on the context provided.
+
+Follow these specific instructions:
+{instructions}
+
+Based on the context below, please answer the user's question. If the context doesn't contain the answer, say so.
+Context: {{context}}
+Question: {{question}}
+Answer:"""
 
 
 def validate_class_usage(source, target, current_config_id=None):
@@ -577,14 +611,21 @@ def get_single_config(config_id):
             return jsonify({"message": "Authentication required for this private chat"}), 401
 
         # Check if the authenticated user is the owner of the config
-        if config_document.get("user_id") != user_id:
-            return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
+        owned = config_document.get("user_id") == user_id
+        if not owned:
+            # Not the owner, but a student enrolled in this bot's class is still
+            # allowed in — that is the entire point of a class link. Without this
+            # every private space was unreachable through /join.
+            class_code = (config_document.get("class_code") or "").strip().lower()
+            user = User.find_by_id(user_id) if class_code else None
+            enrolled_codes = {str(c).strip().lower() for c in ((user or {}).get('classes') or [])}
+            if not class_code or class_code not in enrolled_codes:
+                return jsonify({"message": "Access denied. You are not the owner of this configuration."}), 403
 
-        # 5. Serialize the document for the JSON response. Reaching here means the
-        # caller passed the ownership check above, so `owned` is unconditionally true.
+        # 5. Serialize the document for the JSON response.
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
-        config_document["owned"] = True
+        config_document["owned"] = owned
         return jsonify({"config": config_document}), 200
         
     except Exception as e:
@@ -673,17 +714,7 @@ def configure_model():
             # If a full template is provided, use it directly (highest priority)
             final_prompt_template = custom_prompt_template
         elif instructions:
-            # Use f-string so user instructions may contain "{" / "}" without breaking str.format
-            final_prompt_template = f"""You are a helpful AI assistant named '{bot_name}'.
-Your goal is to answer questions accurately based on the context provided.
-
-Follow these specific instructions:
-{instructions}
-
-Based on the context below, please answer the user's question. If the context doesn't contain the answer, say so.
-Context: {{context}}
-Question: {{question}}
-Answer:"""
+            final_prompt_template = build_prompt_template(bot_name, instructions)
         else:
             # If neither is provided, it's an error
             return jsonify({"error": "Missing required field: please provide either 'instructions' or a 'prompt_template'"}), 400
@@ -750,7 +781,13 @@ Answer:"""
             "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
-            "facilitator": normalize_facilitator(config_data.get('facilitator')),
+            # Default the facilitator ON for new Claude bots (opt-out kept). When the
+            # create payload carries no facilitator block AND the model is Claude, seed
+            # an enabled one; an explicit block (the wizard always sends one) passes
+            # through untouched, so unchecking it still yields enabled:false. Create
+            # route only — existing configs are never modified.
+            "facilitator": normalize_facilitator(_default_facilitator_raw(
+                config_data.get('facilitator'), llm_type)),
         }
 
         # Video-analysis configs carry an assignment type + an editable scoring spec.
@@ -918,11 +955,25 @@ def get_config_by_class(class_code):
         )
         if not doc:
             return jsonify({"error": "Class code not found"}), 404
+
+        # Optional JWT: the join page asks a signed-in student to confirm before
+        # enrolling, but a student who already joined shouldn't be asked again.
+        enrolled = False
+        try:
+            verify_jwt_in_request(optional=True)
+            caller_id = get_jwt_identity()
+            if caller_id:
+                user = User.find_by_id(caller_id)
+                enrolled = class_code.strip().lower() in ((user or {}).get('classes') or [])
+        except Exception:
+            enrolled = False
+
         return jsonify({
             "config_id": str(doc["_id"]),
             "bot_name": doc.get("bot_name", "Assignment"),
             "assignment_type": doc.get("assignment_type", ""),
             "bot_type": doc.get("bot_type", "chat"),
+            "enrolled": enrolled,
         }), 200
     except Exception as e:
         current_app.logger.error(f"Error in /config/by-class: {e}", exc_info=True)

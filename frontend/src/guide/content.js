@@ -1,6 +1,6 @@
 // @language  JavaScript
-// @updated   2026-08-03
-// @changed   New file: the user-guide nav tree plus the ?raw markdown loader that fills it.
+// @updated   2026-08-19
+// @changed   Added the Widgets page to the professor track, after "Create a Chat Bot".
 
 // Every page body lives in ./pages/<id>.md and is pulled in at build time as a raw
 // string. Eager so the whole guide is in the bundle — there are ~18 short files and
@@ -19,6 +19,7 @@ export const TRACKS = [
       { id: 'prof-start', title: 'Getting started' },
       { id: 'prof-concepts', title: 'Key ideas' },
       { id: 'prof-chat-bot', title: 'Create a Chat Bot' },
+      { id: 'prof-widgets', title: 'Widgets' },
       { id: 'prof-video-analysis', title: 'Create a Video Analysis' },
       { id: 'prof-experiential', title: 'Create an Experiential Lab' },
       { id: 'prof-manager-exercise', title: 'Create a Manager Exercise' },

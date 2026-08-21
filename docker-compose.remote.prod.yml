@@ -1,6 +1,14 @@
+# @language  YAML (Docker Compose)
+# @updated   2026-08-18
+# @changed   Deploy safety: explicit `image:` names so the pipeline can tag the running pair `:previous` and
+#            roll back, a profile-gated `backend-preflight` service that proves a new image boots before the
+#            live one is stopped, plus healthchecks for `up -d --wait` and `restart: unless-stopped`.
 services:
   backend:
     build: ./backend
+    # Named explicitly (compose would otherwise derive it from the directory) so
+    # the deploy can tag the running image `:previous` and roll back to it.
+    image: rag-platform-backend:latest
     container_name: myapp-backend
     env_file:
       - ./backend/.env
@@ -8,12 +16,43 @@ services:
       - "5000:5000"
     networks:
       - rag_network
+    restart: unless-stopped
+    # `start_period` covers the import-heavy boot — without it those seconds count
+    # as failing retries and the deploy's --wait abandons a container that was fine.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Throwaway copy of the freshly built backend, started before the swap to prove
+  # the image actually boots and answers /health. Behind a profile so a normal
+  # `up` never touches it, and with no ports and no container_name so it runs
+  # alongside the live container without conflicting for either. It reads the
+  # same env_file through compose, which strips the quotes that `docker run
+  # --env-file` would leave in the values.
+  backend-preflight:
+    profiles: ["preflight"]
+    image: rag-platform-backend:latest
+    env_file:
+      - ./backend/.env
+    networks:
+      - rag_network
+    # Tighter than the live check: this one is being waited on, not monitored.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
   frontend:
     build:
       context: ./frontend
       args:
         API_URL: ${FRONTEND_API_URL}
+    image: rag-platform-frontend:latest
     container_name: myapp-frontend
     env_file:
       - ./frontend/.env
@@ -23,8 +62,16 @@ services:
       - backend
     networks:
       - rag_network
+    restart: unless-stopped
+    # busybox wget, not curl — the nginx:stable-alpine base has no curl.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   rag_network:
     driver: bridge
-    name: rag_network 
+    name: rag_network

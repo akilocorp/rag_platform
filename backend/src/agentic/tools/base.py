@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-16
+# @changed   @tool gained an optional build_spec(config) hook so a tool can rebuild its Anthropic spec
+#            per-request (e.g. render_widget's widget enum derived from the facilitator catalog).
 """
 Tool primitives — `@tool` decorator + `ToolContext` + the module-level
 registry dict that decorators populate.
@@ -32,6 +36,7 @@ def tool(
     description: str,
     input_schema: Dict[str, Any],
     enabled_when: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    build_spec: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
 ):
     """Register a function as an agent tool.
 
@@ -43,6 +48,12 @@ def tool(
 
     `enabled_when(config) -> bool` runs per-request to decide whether to
     expose the tool. Defaults to always-on.
+
+    `build_spec(config) -> spec` optionally rebuilds the Anthropic tool spec
+    per-request (e.g. an enum whose values depend on the config). When omitted,
+    the static spec from `name`/`description`/`input_schema` is used. This lets a
+    tool keep its schema in sync with config-derived data without the registry
+    knowing anything tool-specific.
     """
     if enabled_when is None:
         enabled_when = lambda _config: True
@@ -61,6 +72,7 @@ def tool(
                 "input_schema": input_schema,
             },
             "enabled_when": enabled_when,
+            "build_spec": build_spec,
         }
         return fn
 

@@ -1,7 +1,13 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-31
-// @changed   "Counted as one item" merges now group into Strengths / Concerns sections (section header
-//            carries the category, per-row field tag dropped). Prior: M8 grading-rubric field + round-trip.
+// @updated   2026-08-19
+// @changed   The Test panel gets a room composition dropdown: all-reliable, or one seat that invents
+//            case facts and pushes ACTR to name the answer — the run that shows whether the
+//            facilitator steers a derailed room back.
+//            Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
+//            plays the whole exercise through and opens the transcript, with past runs listed under it.
+//            Prior: Added Claude Opus 5 to the model picker.
+//            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
+//            carries the category, per-row field tag dropped).
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -12,7 +18,7 @@ import AvatarSelector from '../components/AvatarSelector';
 // those surfaces — a group chat, a video assignment, a lab and the manager exercise
 // each open on their own framing — so both fields are chat-only.
 const isChatLike = (t) => t === 'chat' || t === 'avatar';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -64,6 +70,16 @@ const EditConfigPage = () => {
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptErr, setPromptErr] = useState('');
 
+  // Test runs (manager_exercise). A run is a whole room played by model students
+  // against the SAVED config, so the button warns rather than silently testing a
+  // version of the exercise the professor has already edited away from.
+  const [testRuns, setTestRuns] = useState([]);
+  const [testBusy, setTestBusy] = useState(false);
+  // How many of the seats invent case facts instead of reporting what they hold.
+  // 0 is the plain run; 1 is the room that tests whether ACTR pulls it back.
+  const [testMisleading, setTestMisleading] = useState(0);
+  const [testErr, setTestErr] = useState('');
+
   // Class rollout usage tiers
   const [usageTiers, setUsageTiers] = useState([]);
   useEffect(() => {
@@ -79,6 +95,7 @@ const EditConfigPage = () => {
     // { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
     // { id: 'gpt-4.1', name: 'GPT-4.1' },
     // { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'claude-opus-5', name: 'Claude Opus 5' },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }
   ];
@@ -374,6 +391,32 @@ const EditConfigPage = () => {
 
   // The derived case pack, if this config has one. Read throughout the review block.
   const mePack = config.manager_exercise?.case_pack || null;
+
+  // Past test runs, so a professor who ran one yesterday can reread it instead of
+  // paying for another. Only fetched for the bot type that has them.
+  useEffect(() => {
+    if (config.bot_type !== 'manager_exercise' || !config.config_id) return;
+    apiClient.get(`/manager-exercise/${config.config_id}/test-runs`)
+      .then(res => setTestRuns(res.data.runs || []))
+      .catch(() => {});
+  }, [config.bot_type, config.config_id]);
+
+  // Start a run and open it. The room plays itself out over the next few minutes;
+  // the page it opens polls, so the professor watches it happen rather than
+  // waiting on this request.
+  const startTestRun = async () => {
+    if (!config.config_id) return;
+    setTestBusy(true);
+    setTestErr('');
+    try {
+      const res = await apiClient.post(`/manager-exercise/${config.config_id}/test-run`,
+        { misleading: testMisleading });
+      navigate(`/manager-exercise/${config.config_id}/run/${res.data.room_id}`);
+    } catch (e) {
+      setTestErr(e?.response?.data?.error || 'Could not start the test run.');
+      setTestBusy(false);
+    }
+  };
 
   // Patch a single field on the manager_exercise sub-object.
   const setMgr = (field, value) => {
@@ -1054,6 +1097,97 @@ const EditConfigPage = () => {
                   <div className="border-t border-gray-100 pt-8 mt-8">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-1"><FaUserTie className="mr-2 text-[#FA6C43]"/> Manager Exercise</h3>
                     <p className="text-[11px] text-gray-400 mb-6">The decision itself happens offline on printed packets. Everything below is what ACTR needs for the debrief afterwards.</p>
+
+                    {/* Test run. Sits at the top of the section because it is the
+                        answer to "is any of this any good", and reading one run
+                        beats reading the whole form back. Runs against the SAVED
+                        config — said out loud, because a professor who has just
+                        rewritten the prompt above would otherwise be testing the
+                        version they replaced. */}
+                    <div className="bg-white border-2 border-dashed border-[#FA6C43]/40 p-5 rounded-2xl mb-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold text-gray-800 inline-flex items-center gap-1.5">
+                            <FaFlask className="text-[#FA6C43]" /> Test this exercise
+                          </h4>
+                          <p className="text-[11px] text-gray-500 mt-1 max-w-md">
+                            Fills a room with simulated students and plays the whole thing
+                            through — private picks, the group's own discussion, the outcome, then the
+                            debrief with ACTR. Takes a few minutes and costs real model calls.
+                            <strong className="text-gray-700"> Uses the last saved version</strong>, so save your edits first.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={startTestRun}
+                          disabled={testBusy || !config.config_id}
+                          className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-xs px-4 py-2.5 shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                        >
+                          {testBusy ? <><FaSpinner className="animate-spin" /> Starting…</> : <>Run a test</>}
+                        </button>
+                      </div>
+
+                      {/* Who is in the room. A misleading seat holds a real packet and
+                          refuses to use it — it invents candidate facts instead, and
+                          pushes ACTR to just name the answer. That is the run that says
+                          whether the facilitator steers a derailed room back, which a
+                          cooperative room can never tell you. One seat always stays
+                          reliable: a room where everyone invents leaves nothing to
+                          steer back to. */}
+                      {(() => {
+                        const seats = Math.max(1, me.num_students || 3);
+                        return (
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <label className="text-[11px] font-semibold text-gray-600">Test with</label>
+                            <select
+                              value={testMisleading}
+                              onChange={(e) => setTestMisleading(parseInt(e.target.value, 10) || 0)}
+                              disabled={seats < 2}
+                              className="p-2 bg-white border border-gray-200 rounded-lg text-[11px] font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all disabled:opacity-50"
+                            >
+                              <option value={0}>{seats} reliable students</option>
+                              {seats >= 2 && (
+                                <option value={1}>
+                                  {seats - 1} reliable {seats - 1 === 1 ? 'student' : 'students'} and 1 misleading student
+                                </option>
+                              )}
+                            </select>
+                            {testMisleading > 0 && (
+                              <span className="text-[10px] font-semibold text-[#C2410C]">
+                                invents facts, pushes for the answer — watch whether ACTR pulls it back
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {testErr && <p className="mt-3 text-[11px] font-semibold text-red-500">{testErr}</p>}
+                      {testRuns.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-gray-100">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Past runs</p>
+                          <div className="space-y-1">
+                            {testRuns.slice(0, 5).map((r) => (
+                              <button
+                                key={r.room_id}
+                                type="button"
+                                onClick={() => navigate(`/manager-exercise/${config.config_id}/run/${r.room_id}`)}
+                                className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                              >
+                                <span className="text-[11px] font-semibold text-gray-700 truncate">
+                                  {r.chosen_candidate ? `Hired ${r.chosen_candidate}` : 'No hire recorded'}
+                                  <span className="text-gray-400 font-normal"> · {r.messages} messages</span>
+                                </span>
+                                <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide ${
+                                  r.phase === 'done' ? 'text-emerald-600' : 'text-[#C2410C]'
+                                }`}>
+                                  {r.phase === 'done' ? 'Finished' : r.phase}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
 
                     {/* Group size + the one timed phase. num_students drives group_size. */}
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">

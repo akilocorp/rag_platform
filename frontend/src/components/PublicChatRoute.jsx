@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Navigate, Outlet, useParams } from 'react-router-dom';
+import { Link, Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { FaSpinner } from 'react-icons/fa';
+import { FaLock } from 'react-icons/fa';
+import LoadingScreen from './LoadingScreen';
 
 const PublicChatRoute = ({ children }) => {
   const { configId } = useParams();
-  const [canAccess, setCanAccess] = useState(null); // null=loading, true=show, false=redirect
-  
+  const location = useLocation();
+  // null=loading, true=show, 'login'=needs sign-in, 'denied'=signed in but not permitted
+  const [canAccess, setCanAccess] = useState(null);
+
   // 1. Check for Token (Are we logged in?)
   const token = localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
   const isAuthenticated = !!token;
@@ -14,7 +17,7 @@ const PublicChatRoute = ({ children }) => {
   useEffect(() => {
     const checkAccess = async () => {
       if (!configId) {
-        setCanAccess(false);
+        setCanAccess('denied');
         return;
       }
 
@@ -38,15 +41,16 @@ const PublicChatRoute = ({ children }) => {
             setCanAccess(true);
           } else {
             // Private + No Token -> Login
-            setCanAccess(false);
+            setCanAccess('login');
           }
         }
 
       } catch (error) {
         console.error('Access check failed:', error);
-        // If the backend returned 401 (Unauthorized) or 403 (Forbidden),
-        // it means we are definitely not allowed in.
-        setCanAccess(false);
+        // 401 means "we don't know who you are" — signing in can fix that.
+        // 403 means the server knows exactly who we are and said no, so bouncing
+        // to the login screen would just look like a surprise logout.
+        setCanAccess(error.response?.status === 403 ? 'denied' : 'login');
       }
     };
 
@@ -55,25 +59,45 @@ const PublicChatRoute = ({ children }) => {
 
   // --- RENDER STATES ---
 
-  if (canAccess === null) {
+  // Same loader the route transition uses, so entering a class is one continuous
+  // screen rather than an illustrated overlay that fades into a bare spinner.
+  if (canAccess === null) return <LoadingScreen />;
+
+  // If allowed, render the Chat Page (children or Outlet)
+  if (canAccess === true) {
+    return children ? children : <Outlet />;
+  }
+
+  // Signed in, but this space isn't ours and we're not in its class. Say so —
+  // don't dump the user on /login, which reads as being logged out.
+  if (canAccess === 'denied') {
     return (
       <div
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        className="flex flex-col items-center justify-center min-h-screen bg-[#F0F6FB] text-[#222]"
+        className="min-h-screen bg-[#F0F6FB] flex items-center justify-center px-4"
       >
-        <FaSpinner className="animate-spin text-4xl text-[#FA6C43] mb-4" />
-        <p className="text-gray-600 font-medium">Verifying access...</p>
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-16 h-16 bg-[#FFF5F2] rounded-full flex items-center justify-center mx-auto mb-5">
+            <FaLock className="text-2xl text-[#FA6C43]" />
+          </div>
+          <h2 className="text-xl font-extrabold text-[#222] mb-2">This space is private</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            You're still signed in, but this assistant isn't shared with you. Ask your
+            professor for the class link, or check that you're on the right account.
+          </p>
+          <Link
+            to="/student-dashboard"
+            className="block w-full py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-colors"
+          >
+            Back to my dashboard
+          </Link>
+        </div>
       </div>
     );
   }
 
-  // If allowed, render the Chat Page (children or Outlet)
-  if (canAccess) {
-    return children ? children : <Outlet />;
-  }
-
-  // If not allowed, Redirect to Login
-  return <Navigate to="/login" replace />;
+  // Genuinely not signed in — send them to log in, and back here afterwards.
+  return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
 };
 
 export default PublicChatRoute;

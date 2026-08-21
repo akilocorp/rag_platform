@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-08-15
+# @changed   Added a faithful to_transcript so the plotted series/functions replay into history — the bot
+#            can now answer questions about the chart's numbers instead of denying a chart was made.
 """
 chart — a display-only line or bar chart of one or more numeric series over a
 shared set of x-axis labels.
@@ -82,6 +86,36 @@ def _validate_function_mode(data):
     return out
 
 
+def _to_transcript(data):
+    """Render the chart's full data back into history so the bot can answer
+    questions about the numbers it plotted (or the functions it graphed)."""
+    lines = ["[Chart displayed to the user]"]
+    if data.get("title"):
+        lines.append(f"Title: {data['title']}")
+    if data.get("functions"):
+        rng = data.get("x_range") or []
+        if len(rng) == 2:
+            lines.append(f"x range: {rng[0]} to {rng[1]}")
+        for f in data["functions"]:
+            lines.append(f"Function {f.get('name')}: y = {f.get('expr')}")
+        for p in data.get("params") or []:
+            lines.append(
+                f"Slider {p.get('name')}: {p.get('min')}..{p.get('max')} "
+                f"(default {p.get('default')})"
+            )
+    else:
+        lines.append(f"Type: {data.get('type', 'line')}")
+        if data.get("y_label"):
+            lines.append(f"Y axis: {data['y_label']}")
+        lines.append("X axis: " + ", ".join(str(x) for x in data.get("x_labels") or []))
+        for s in data.get("series") or []:
+            pts = ", ".join(str(p) for p in s.get("points") or [])
+            lines.append(f"Series {s.get('name')}: {pts}")
+    if data.get("caption"):
+        lines.append(f"Caption: {data['caption']}")
+    return "\n".join(lines)
+
+
 @widget(
     id="chart",
     label="Chart",
@@ -112,6 +146,7 @@ def _validate_function_mode(data):
         ),
     },
     interactive=False,
+    to_transcript=_to_transcript,
 )
 def validate(data):
     if not isinstance(data, dict):

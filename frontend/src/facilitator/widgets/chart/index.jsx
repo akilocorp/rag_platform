@@ -1,5 +1,11 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-08-20
+// @changed   Static charts: thin x-axis labels to whatever fits legibly instead of drawing every one, and
+//            size left padding to the actual tick text (+ title strip) instead of a flat constant — fixes
+//            dense/wide data overlapping the axis labels.
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Parser } from 'expr-eval';
+import { loadDesmos } from '../../../utils/desmos';
 
 // chart — the single canonical renderer every chart in the app flows through.
 // Dependency-free SVG (line or bar), interactive: hover a crosshair to read
@@ -13,14 +19,26 @@ import { Parser } from 'expr-eval';
 //                  params:[{name,min,max,default,step?}],
 //                  functions:[{name, expr}],   // expr in terms of x + params
 //                  samples?, y_label?, caption? }
-//              Dragging a param slider re-evaluates the functions and re-plots
-//              live. Explicit y = f(x) only (this replaced the Desmos embed).
+//              Rendered by an embedded Desmos GraphingCalculator; our slider
+//              strip below drives the Desmos variables. Explicit y = f(x) only.
+//
+// Static data charts (line + bar) render with the in-house SVG below. Function
+// mode goes to Desmos because it draws math curves far better; Desmos has no
+// faithful categorical/bar representation, so data charts stay in-house.
 
 const PALETTE = ['#FA6C43', '#2563EB', '#16A34A', '#9333EA', '#D97706'];
 
 const WIDTH = 560;
 const HEIGHT = 248;
-const PAD = { top: 16, right: 16, bottom: 30, left: 44 };
+// `left` isn't here — it's computed per-chart in useGeom from the actual tick labels being
+// drawn, because a flat constant is either too narrow (wide/negative numbers collide with
+// the rotated y-axis title) or wastes space (short numbers with no title at all).
+const PAD = { top: 16, right: 16, bottom: 30 };
+const LEFT_PAD_MIN = 30;
+const TICK_CHAR_W = 5.7;    // ~px per glyph at fontSize 10, the size tick/x-axis text renders at
+const TICK_GAP = 6;         // gap between the axis line and a tick label's near edge
+const TITLE_STRIP_W = 16;   // width reserved for the rotated y-axis title, when there is one
+const Y_TITLE_X = 8;        // rotated title's x anchor, centered in that reserved strip
 
 const fmt = (v) => {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -86,14 +104,34 @@ function evalFunctions(data, vals) {
   return { type: 'line', xLabels, xHeaders, series, y_label: data.y_label, title: data.title };
 }
 
+// A static series can carry far more x labels than there's room to draw without them
+// overlapping (e.g. one per year across two decades). Blank out all but however many fit
+// at a legible glyph-width, always keeping the first and last — the same idea evalFunctions
+// already applies above via its own `step`, generalized to arbitrary label lengths. Blanked
+// entries stay in the array (same length in, same length out) since xAt(i) still needs an
+// index per data point; only the label *text* is dropped.
+function thinXLabels(labels) {
+  const n = labels.length;
+  if (n <= 1) return labels;
+  // Left padding is data-dependent (see useGeom) and unknown at this point, so estimate
+  // conservatively — this only ever under-fills the available width, never overflows it.
+  const plotW = WIDTH - PAD.right - 60;
+  const avgLen = labels.reduce((sum, l) => sum + l.length, 0) / n;
+  const slotW = avgLen * TICK_CHAR_W + 8;
+  const maxVisible = Math.max(2, Math.floor(plotW / slotW) + 1);
+  if (n <= maxVisible) return labels;
+  const step = Math.ceil(n / maxVisible);
+  return labels.map((l, i) => (i % step === 0 || i === n - 1 ? l : ''));
+}
+
 // Resolve either mode into a common view the SVG understands.
 function resolveView(data, vals) {
   if (isFunctionMode(data)) return evalFunctions(data, vals);
-  const xLabels = (Array.isArray(data?.x_labels) ? data.x_labels : []).map((l) => String(l));
+  const rawLabels = (Array.isArray(data?.x_labels) ? data.x_labels : []).map((l) => String(l));
   return {
     type: data?.type === 'bar' ? 'bar' : 'line',
-    xLabels,
-    xHeaders: xLabels,
+    xLabels: thinXLabels(rawLabels),
+    xHeaders: rawLabels,
     series: Array.isArray(data?.series) ? data.series : [],
     y_label: data?.y_label,
     title: data?.title,
@@ -117,8 +155,7 @@ function linePath(points, xLine, yPos) {
 
 function useGeom(view) {
   return useMemo(() => {
-    const { xLabels, series, type } = view;
-    const plotW = WIDTH - PAD.left - PAD.right;
+    const { xLabels, series, type, y_label: yLabel } = view;
     const plotH = HEIGHT - PAD.top - PAD.bottom;
     const n = xLabels.length;
     if (n < 2 || series.length === 0) return null;
@@ -131,17 +168,30 @@ function useGeom(view) {
     min -= span * 0.08;
     max += span * 0.08;
 
+    // yPos only depends on top/bottom padding, so ticks can be resolved before we know how
+    // much left padding they'll need — solving that chicken-and-egg order is the whole fix.
     const yPos = (v) => PAD.top + plotH - ((v - min) / (max - min)) * plotH;
-    const xLine = (i) => PAD.left + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-    const bandW = plotW / n;
-    const xBand = (i) => PAD.left + bandW * i + bandW / 2;
-    const xAt = (i) => (type === 'bar' ? xBand(i) : xLine(i));
-
     const ticks = [];
     for (let t = 0; t <= 4; t++) {
       const v = min + (t / 4) * (max - min);
       ticks.push({ v, yp: yPos(v) });
     }
+
+    // Left padding sized to the widest tick label actually being drawn, plus a reserved
+    // strip for the rotated y-axis title when there is one — so neither ever runs into the
+    // other regardless of the data's magnitude (the bug: a flat 44px only worked for
+    // short, title-less numbers).
+    const widestTick = Math.max(0, ...ticks.map((t) => fmt(t.v).length));
+    const leftPad = Math.max(
+      LEFT_PAD_MIN,
+      Math.ceil(TICK_GAP + widestTick * TICK_CHAR_W + (yLabel ? TITLE_STRIP_W : 0))
+    );
+    const plotW = WIDTH - leftPad - PAD.right;
+
+    const xLine = (i) => leftPad + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const bandW = plotW / n;
+    const xBand = (i) => leftPad + bandW * i + bandW / 2;
+    const xAt = (i) => (type === 'bar' ? xBand(i) : xLine(i));
 
     const lines = series.map((s, idx) => ({
       name: s.name,
@@ -163,7 +213,7 @@ function useGeom(view) {
       }),
     }));
 
-    return { min, max, yPos, xAt, ticks, lines, bars, n, plotH, plotW, zeroY: yPos(0) };
+    return { min, max, yPos, xAt, ticks, lines, bars, n, plotH, plotW, leftPad, zeroY: yPos(0) };
   }, [view]);
 }
 
@@ -223,14 +273,14 @@ function ChartSvg({ view, animate = true }) {
       {/* y gridlines + labels */}
       {geom.ticks.map((t, i) => (
         <g key={i}>
-          <line x1={PAD.left} x2={WIDTH - PAD.right} y1={t.yp} y2={t.yp} stroke="#EEF2F6" strokeWidth="1" />
-          <text x={PAD.left - 6} y={t.yp + 3} textAnchor="end" fontSize="10" fill="#94A3B8">{fmt(t.v)}</text>
+          <line x1={geom.leftPad} x2={WIDTH - PAD.right} y1={t.yp} y2={t.yp} stroke="#EEF2F6" strokeWidth="1" />
+          <text x={geom.leftPad - TICK_GAP} y={t.yp + 3} textAnchor="end" fontSize="10" fill="#94A3B8">{fmt(t.v)}</text>
         </g>
       ))}
 
       {/* zero baseline */}
       {geom.min < 0 && geom.max > 0 && (
-        <line x1={PAD.left} x2={WIDTH - PAD.right} y1={geom.zeroY} y2={geom.zeroY} stroke="#CBD5E1" strokeWidth="1.25" strokeDasharray="2 2" />
+        <line x1={geom.leftPad} x2={WIDTH - PAD.right} y1={geom.zeroY} y2={geom.zeroY} stroke="#CBD5E1" strokeWidth="1.25" strokeDasharray="2 2" />
       )}
 
       {/* x labels */}
@@ -243,10 +293,10 @@ function ChartSvg({ view, animate = true }) {
         ) : null
       ))}
 
-      {/* y axis label */}
+      {/* y axis label — sits in the TITLE_STRIP_W reserved by useGeom, left of the tick numbers */}
       {yLabel && (
-        <text x={12} y={PAD.top + geom.plotH / 2} fontSize="10" fill="#94A3B8" textAnchor="middle"
-              transform={`rotate(-90 12 ${PAD.top + geom.plotH / 2})`}>
+        <text x={Y_TITLE_X} y={PAD.top + geom.plotH / 2} fontSize="10" fill="#94A3B8" textAnchor="middle"
+              transform={`rotate(-90 ${Y_TITLE_X} ${PAD.top + geom.plotH / 2})`}>
           {yLabel}
         </text>
       )}
@@ -334,6 +384,154 @@ function ParamSliders({ params, vals, onChange }) {
   );
 }
 
+// --- Desmos (function mode) --------------------------------------------------
+
+// Replace every balanced `name(...)` call with `wrap(inner)`. Runs over the whole
+// string so multiple/nested calls all convert (nested ones are picked up on later
+// passes for their own name). Bails on an unbalanced paren rather than mangling.
+function replaceCall(src, name, wrap) {
+  const re = new RegExp(`\\b${name}\\s*\\(`);
+  let out = src;
+  let guard = 0;
+  let m;
+  while ((m = re.exec(out)) !== null && guard++ < 50) {
+    const start = m.index;
+    const open = m.index + m[0].length - 1; // index of '('
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < out.length; i++) {
+      if (out[i] === '(') depth++;
+      else if (out[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    if (close === -1) break; // unbalanced — leave the rest alone
+    out = out.slice(0, start) + wrap(out.slice(open + 1, close)) + out.slice(close + 1);
+  }
+  return out;
+}
+
+// Brace exponents so Desmos reads multi-character powers correctly: b^x → b^{x},
+// 2^(k+1) → 2^{k+1}. A `^` already followed by `{` is left as-is.
+function braceExponents(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '^') { out += s[i]; continue; }
+    let j = i + 1;
+    while (j < s.length && s[j] === ' ') j++;
+    if (s[j] === '{') { out += '^'; continue; } // already braced
+    if (s[j] === '(') {
+      let depth = 0;
+      let close = -1;
+      for (let k = j; k < s.length; k++) {
+        if (s[k] === '(') depth++;
+        else if (s[k] === ')') { depth--; if (depth === 0) { close = k; break; } }
+      }
+      if (close !== -1) { out += `^{${s.slice(j + 1, close)}}`; i = close; continue; }
+    }
+    let k = j;
+    while (k < s.length && /[A-Za-z0-9._]/.test(s[k])) k++;
+    out += `^{${s.slice(j, k)}}`;
+    i = k - 1;
+  }
+  return out;
+}
+
+// Convert an expr-eval function body (e.g. "b^x", "1/(1+exp(-x))", "sin(k*x)")
+// into Desmos-friendly LaTeX. Covers the operators/functions the CHART_GUIDE
+// documents; anything exotic is passed through and Desmos does its best.
+function toDesmosLatex(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  s = replaceCall(s, 'exp', (arg) => `e^{${arg}}`);
+  s = replaceCall(s, 'sqrt', (arg) => `\\sqrt{${arg}}`);
+  s = replaceCall(s, 'abs', (arg) => `\\left|${arg}\\right|`);
+  s = s.replace(/\b(sinh|cosh|tanh|asin|acos|atan|sin|cos|tan|ln|log)\s*\(/g, (_m, f) => `\\${f}(`);
+  s = braceExponents(s);
+  s = s.replace(/\*/g, ' \\cdot ');
+  s = s.replace(/\bpi\b/g, '\\pi');
+  return s;
+}
+
+// A live Desmos calculator for function mode. Mounts once, plots each function as
+// its own y = … curve, and mirrors the external slider values into Desmos variables
+// so dragging a slider re-plots. Deliberately no formula panel / settings menu.
+function DesmosGraph({ data, vals, height }) {
+  const holderRef = useRef(null);
+  const calcRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  // Mount / tear down the calculator. Bounds are set once from the initial
+  // slider values; the user can pan/zoom from there.
+  useEffect(() => {
+    let disposed = false;
+    let calc = null;
+    loadDesmos()
+      .then((Desmos) => {
+        if (disposed || !holderRef.current) return;
+        calc = Desmos.GraphingCalculator(holderRef.current, {
+          expressions: false,   // no formula/expression panel on the left
+          settingsMenu: false,
+          keypad: false,
+          zoomButtons: true,
+          lockViewport: false,
+          border: false,
+          expressionsCollapsed: true,
+        });
+        calcRef.current = calc;
+
+        (data.functions || []).forEach((f, i) => {
+          const rhs = toDesmosLatex(f?.expr);
+          if (!rhs) return;
+          const latex = rhs.includes('=') ? rhs : `y=${rhs}`;
+          calc.setExpression({ id: `fn_${i}`, latex });
+        });
+        Object.entries(vals || {}).forEach(([k, v]) => {
+          calc.setExpression({ id: `p_${k}`, latex: `${k}=${v}` });
+        });
+
+        // Frame the graph: x from x_range, y sampled from the current curves.
+        try {
+          const [xmin, xmax] = data.x_range.map(Number);
+          const sampled = evalFunctions(data, vals).series
+            .flatMap((s) => s.points)
+            .filter(isFiniteNum);
+          let ymin = Math.min(...sampled);
+          let ymax = Math.max(...sampled);
+          if (!Number.isFinite(ymin) || !Number.isFinite(ymax) || ymin === ymax) { ymin = -10; ymax = 10; }
+          const padY = (ymax - ymin) * 0.1 || 1;
+          calc.setMathBounds({ left: xmin, right: xmax, bottom: ymin - padY, top: ymax + padY });
+        } catch { /* keep Desmos' default viewport */ }
+      })
+      .catch(() => { if (!disposed) setFailed(true); });
+
+    return () => {
+      disposed = true;
+      try { calc?.destroy(); } catch { /* already gone */ }
+      calcRef.current = null;
+    };
+    // Mount once per widget instance; slider changes flow through the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror slider values into the Desmos variables live.
+  useEffect(() => {
+    const calc = calcRef.current;
+    if (!calc) return;
+    Object.entries(vals || {}).forEach(([k, v]) => {
+      calc.setExpression({ id: `p_${k}`, latex: `${k}=${v}` });
+    });
+  }, [vals]);
+
+  if (failed) {
+    return (
+      <div className="mt-1 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-400"
+           style={{ height }}>
+        Couldn’t load the interactive graph.
+      </div>
+    );
+  }
+  return <div ref={holderRef} className="fac-enter mt-1 rounded-lg overflow-hidden" style={{ width: '100%', height }} />;
+}
+
 function Renderer({ data }) {
   const [full, setFull] = useState(false);
 
@@ -350,6 +548,64 @@ function Renderer({ data }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [full]);
+
+  // Function mode → Desmos. The graph is drag/zoom-interactive, so "Expand" is an
+  // explicit button (not a whole-card click, which would fight the panning). Our
+  // slider strip stays below and drives the Desmos variables. Static data charts
+  // fall through to the in-house SVG path below.
+  if (fnMode) {
+    const fnSliders = <ParamSliders params={params} vals={vals} onChange={setParam} />;
+    const modalHeight = Math.round(
+      Math.min(560, typeof window !== 'undefined' ? window.innerHeight * 0.6 : 480)
+    );
+    return (
+      <>
+        <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between mb-1 px-1">
+            {data.title ? <p className="text-lg font-semibold text-[#222]">{data.title}</p> : <span />}
+            <button
+              type="button"
+              onClick={() => setFull(true)}
+              className="text-[11px] font-medium text-gray-400 hover:text-[#FA6C43] transition-colors"
+            >
+              Expand ⤢
+            </button>
+          </div>
+          <DesmosGraph data={data} vals={vals} height={248} />
+          {fnSliders}
+          {data.caption && <p className="text-xs text-gray-500 mt-2 px-1">{data.caption}</p>}
+        </div>
+
+        {full && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 sm:p-8"
+            onClick={() => setFull(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="fac-enter relative w-full max-w-5xl rounded-2xl bg-white p-5 sm:p-7 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setFull(false)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+              {data.title && <p className="text-lg font-semibold text-[#222] mb-1 pr-8">{data.title}</p>}
+              <p className="text-[11px] text-gray-400 mb-3">Drag the sliders to change the parameters and watch the graph update.</p>
+              <DesmosGraph data={data} vals={vals} height={modalHeight} />
+              {fnSliders}
+              {data.caption && <p className="text-sm text-gray-500 mt-3">{data.caption}</p>}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
 
   if (view.xLabels.length < 2 || view.series.length === 0) return null;
 

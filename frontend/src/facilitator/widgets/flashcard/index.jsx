@@ -1,3 +1,8 @@
+/*
+ * @language JavaScript (React / JSX)
+ * @updated 2026-08-16
+ * @changed Add vertical padding around the flip-card row for more breathing room above/below the white card
+ */
 import React, { useState } from 'react';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 
@@ -33,7 +38,7 @@ function Renderer({ data }) {
     <div className="mt-2 rounded-xl border border-gray-200 bg-[#F0F6FB] p-3">
       {data.title && <p className="mb-2 text-sm font-semibold text-[#222]">{data.title}</p>}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 py-1.5">
         <button type="button" onClick={() => go(-1)} disabled={atStart} aria-label="Previous card" className={arrowClass(atStart)}>
           <FiChevronLeft />
         </button>

@@ -1,10 +1,25 @@
 # @language  Python
-# @updated   2026-07-19
-# @changed   Legacy chat path: give the facilitator the real conversation history so sequential MCQ widgets keep firing.
+# @updated   2026-08-18
+# @changed   A broken stream no longer talks to the student. Both LangChain loops now retry a transient
+#            upstream drop (3 attempts, backoff, only before the first token), and every failure path emits
+#            the neutral `error` frame from `_stream_error_event` instead of `str(e)` — the exception itself
+#            goes to the log with a traceback. The agentic path's `error` events are forwarded too.
+#            Prior: render_widget rounds no longer freeze the thinking spinner: a swallowed render_widget tool_use
+#            now emits a `widget_pending` signal (and an errored result a `widget_failed`) so the UI shows
+#            the "Preparing an interactive element…" skeleton instead of an apparently-stuck spinner.
+#            Prior: Agentic path: inline render_widget tool widgets. `facilitator` events from the runner are
+#            forwarded at position and collected as a LIST on additional_kwargs.facilitator; the post-pass
+#            is skipped when the tool is active; render_widget tool_use/result aren't forwarded as pills;
+#            _inline_facilitator now replays a list or a legacy dict.
+#            Prior: Facilitator widgets are no longer invisible to the bot: stored blocks replay into history as text
+#            (`_inline_facilitator`), a clicked option carries a model-only note back to its question
+#            (`_facilitator_answer_note`) and steers retrieval, and an empty prompt_template now falls back.
+#            Prior: the Claude branch omits `temperature` for models that reject sampling parameters.
 from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 import logging
 import json
+import os
 import re
 import time
 import requests
@@ -22,10 +37,19 @@ from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
 from langchain_anthropic import ChatAnthropic
 
-from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
+from src.agentic.agent_runner import (
+    stream_agentic_response,
+    FORMATTING_GUIDE,
+    SOFT_RETRY_MESSAGE,
+    STREAM_BACKOFF_BASE_SECONDS,
+    STREAM_MAX_ATTEMPTS,
+    _is_transient_error,
+)
 from src.agentic.tools.base import ToolContext
+from src.facilitator import registry as facilitator_registry
 from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
+from src.utils.models import accepts_temperature
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -41,6 +65,18 @@ def _set_device_cookie(resp, signed_value, request):
         max_age=usage_limits.DEVICE_COOKIE_MAX_AGE,
         httponly=True, secure=secure, samesite="None" if secure else "Lax",
     )
+
+def _stream_error_event(exc, where):
+    """The one frame a client ever receives for a turn that failed.
+
+    Logs the real exception with a traceback under `where`, and hands back a
+    notice carrying nothing about the cause — no exception text, no provider
+    name, no hint that anything is broken at all. Every stream failure in this
+    module goes through here so a raw `str(e)` can't reach a bubble again.
+    """
+    logger.error("Chat stream failed (%s): %s", where, exc, exc_info=True)
+    return {"type": "error", "data": SOFT_RETRY_MESSAGE}
+
 
 # Allowed template variables for the chat prompt - others are escaped to avoid LangChain errors
 ALLOWED_PROMPT_VARS = {"context", "history", "question"}
@@ -457,13 +493,64 @@ def delete_chat(config_id, chat_id):
 
 # --- FACTORY & HELPERS ---
 
+def _inline_facilitator(message):
+    """Fold an AI message's stored facilitator widget back into its text.
+
+    The facilitator's question and options are persisted to
+    `additional_kwargs.facilitator`, never to `content`, and history replay
+    feeds the model `content` only. The bot therefore had no record of the
+    widget it rendered, so a reply of just "Berlin" read as a fresh question
+    about Berlin rather than an answer to its own multiple choice.
+
+    Returns a *new* message — the stored document is untouched, so this stays a
+    read-time transform and frontend replay (which reads the raw doc through its
+    own history object) is unaffected.
+    """
+    if not isinstance(message, AIMessage):
+        return message
+    stored = (message.additional_kwargs or {}).get("facilitator")
+    # Two shapes: a single dict (legacy post-pass) or a list of inline widgets
+    # (render_widget tool). Render each to its transcript and fold all in, in order.
+    if isinstance(stored, dict):
+        blocks = [stored]
+    elif isinstance(stored, list):
+        blocks = [b for b in stored if isinstance(b, dict)]
+    else:
+        return message
+    rendered_parts = []
+    for block in blocks:
+        if not block.get("widget"):
+            continue
+        rendered = facilitator_registry.to_transcript(block["widget"], block.get("data"))
+        if rendered:
+            rendered_parts.append(rendered)
+    if not rendered_parts:
+        return message
+    content = message.content if isinstance(message.content, str) else ""
+    return AIMessage(
+        content=(content + "\n\n" + "\n\n".join(rendered_parts)).strip(),
+        additional_kwargs=message.additional_kwargs,
+    )
+
+
 class _AttachedFilesMongoHistory(MongoDBChatMessageHistory):
     """MongoDBChatMessageHistory that injects `attached_files` into the
-    `additional_kwargs` of the next HumanMessage it persists.
+    `additional_kwargs` of the next HumanMessage it persists, and replays stored
+    facilitator widgets as text on read.
 
     Set `pending_attached_files` on the instance before the chain (or
     direct add_user_message call) runs; it's consumed once and cleared.
     """
+
+    @property
+    def messages(self):
+        """Read side for both chat paths — the agentic loader
+        (`_load_anthropic_history`) and the legacy `RunnableWithMessageHistory`
+        chain both come through here, so inlining the widget once covers both.
+        `GET /history` builds a plain MongoDBChatMessageHistory instead, so the
+        browser still receives the untouched content plus the raw block.
+        """
+        return [_inline_facilitator(m) for m in super().messages]
 
     def _maybe_inject(self, message):
         files = getattr(self, "pending_attached_files", None) or []
@@ -595,6 +682,43 @@ def _load_anthropic_history(history_obj):
     return out
 
 
+def _facilitator_answer_note(facilitator_answer):
+    """Frame a widget answer for the model, or "" when this turn isn't one.
+
+    An interactive widget sends back only the option the user clicked, so the
+    turn arrives as a bare string like "Berlin" with nothing tying it to the
+    question. This note restores that link (and the verdict, when the widget
+    carried an answer key). Model-only, in the same spirit as
+    `_selected_files_context_note` — the persisted user message stays the clean
+    option text so the transcript still reads like a conversation.
+    """
+    if not isinstance(facilitator_answer, dict):
+        return ""
+    question = str(facilitator_answer.get('question') or '').strip()
+    selected = str(facilitator_answer.get('selected') or '').strip()
+    if not question or not selected:
+        return ""
+    # Only graded questions carry an answer key; a preference or next-step
+    # question has none, and telling the model to mark it right or wrong would
+    # invent a verdict where there isn't one.
+    correct = str(facilitator_answer.get('correct') or '').strip()
+    if correct:
+        verdict = (
+            " That is the correct answer."
+            if correct == selected
+            else f" That is incorrect — the correct answer is \"{correct}\"."
+        )
+        closing = "Tell them plainly whether they were right or wrong, and why, before continuing."
+    else:
+        verdict = ""
+        closing = "Continue from that choice."
+    return (
+        f"[System note: You asked the user \"{question}\" as a multiple-choice "
+        f"question and they selected \"{selected}\".{verdict} Respond to it as "
+        f"their answer to that question, not as a new topic. {closing}]\n\n"
+    )
+
+
 def _selected_files_context_note(selected_file_ids, user_id_for_history):
     """Return a short bracketed note listing names of the user's selected
     library files, or empty string if none. Prepended to the user input so
@@ -709,9 +833,14 @@ def _facilitator_enabled(config_doc):
     return bool(isinstance(fac_cfg, dict) and fac_cfg.get("enabled"))
 
 
-def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
+def _facilitator_stage(config_doc, reply_text, history_messages, user_input, context=None):
     """Run the facilitator post-pass for this turn; returns a {widget, data}
-    block or None. Never raises — degrades to None on any failure."""
+    block or None. Never raises — degrades to None on any failure.
+
+    `context` is the turn's source material (retrieved passages on the legacy
+    path, tool results on the agentic one) so the widget — and any answer key —
+    is grounded in the documents rather than in the bot's prose about them.
+    """
     fac_cfg = config_doc.get("facilitator")
     if not (isinstance(fac_cfg, dict) and fac_cfg.get("enabled")):
         return None
@@ -719,7 +848,9 @@ def _facilitator_stage(config_doc, reply_text, history_messages, user_input):
         history = list(history_messages or [])
         if user_input:
             history = history + [{"role": "user", "content": user_input}]
-        return run_facilitator(reply_text, history=history, facilitator_cfg=fac_cfg)
+        return run_facilitator(
+            reply_text, history=history, facilitator_cfg=fac_cfg, context=context,
+        )
     except Exception:
         logger.exception("facilitator stage failed")
         return None
@@ -749,7 +880,8 @@ def _attach_facilitator_to_last_ai(chat_id, block):
 def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
-                     student_email=None, marketing_opt_in=None, identity=None):
+                     student_email=None, marketing_opt_in=None, identity=None,
+                     facilitator_answer=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -769,10 +901,12 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         )
         history_messages = _load_anthropic_history(history_obj)
 
-        # Prepend a context note about selected library files so the agent
-        # knows what "this" / "the document" refers to. Persisted user input
-        # below stays clean — the note is model-only.
+        # Prepend context notes so the agent knows what "this" / "the document"
+        # refers to, and that a bare option string is an answer to the widget it
+        # just rendered. Persisted user input below stays clean — both are
+        # model-only.
         note = _selected_files_context_note(selected_file_ids, user_id_for_history)
+        note = _facilitator_answer_note(facilitator_answer) + note
         agent_input = note + user_input if note else user_input
         image_blocks = _parse_image_blocks(images)
 
@@ -787,6 +921,20 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         accumulated_text = ""
         full_trace = []
         final_stop_reason = "end_turn"
+        # The agentic path has no single `context_text` — its source material is
+        # whatever the tools returned this turn. Collected here so the facilitator
+        # can ground its widget in the passages rather than in the bot's prose.
+        tool_context = []
+        # Inline widgets the model rendered via the render_widget tool this turn, in
+        # stream order. Each carries its tool_use_id so the reload path can re-interleave
+        # them against the text using the tool_trace ordering.
+        facilitator_blocks = []
+        # When the render_widget tool owns widgets, the post-pass is skipped (no double
+        # widget). Mirrors the tool's own gate: kill-switch on AND facilitator enabled.
+        widget_tool_on = (
+            os.getenv("FACILITATOR_TOOL", "1").strip().lower() not in ("0", "false", "no", "off", "")
+            and _facilitator_enabled(config_doc)
+        )
 
         for event in stream_agentic_response(
             config=config_doc,
@@ -799,7 +947,37 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             if etype == "token":
                 accumulated_text += event.get("data") or ""
                 yield json.dumps(event) + "\n"
+            elif etype == "error":
+                # The runner already logged the cause and neutralised the copy —
+                # pass it straight through. It is NOT added to accumulated_text,
+                # so the notice never gets persisted as part of the reply.
+                yield json.dumps(event) + "\n"
+            elif etype == "facilitator":
+                # An inline widget rendered by render_widget — forward at position and
+                # keep it (with its tool_use id) for persistence.
+                facilitator_blocks.append({
+                    "widget": event.get("widget"),
+                    "data": event.get("data"),
+                    "tool_use_id": event.get("id"),
+                })
+                yield json.dumps(event) + "\n"
             elif etype in ("tool_use", "tool_result"):
+                # render_widget surfaces as its own inline widget (a `facilitator`
+                # event), not a tool pill — but swallowing it silently left the
+                # thinking spinner frozen for the whole round. Emit a lightweight
+                # pending/failed signal so the UI shows the "Preparing an interactive
+                # element…" skeleton instead of an apparently-stuck spinner. On
+                # success the `facilitator` event that follows clears the skeleton.
+                if event.get("name") == "render_widget":
+                    if etype == "tool_use":
+                        yield json.dumps({"type": "widget_pending"}) + "\n"
+                    elif etype == "tool_result" and event.get("is_error"):
+                        yield json.dumps({"type": "widget_failed"}) + "\n"
+                    continue
+                if etype == "tool_result" and not event.get("is_error"):
+                    content = event.get("content")
+                    if isinstance(content, str) and content.strip():
+                        tool_context.append(f"[{event.get('name')}]\n{content.strip()}")
                 yield json.dumps(event) + "\n"
             elif etype == "done":
                 full_trace = event.get("assistant_blocks") or []
@@ -807,25 +985,25 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 # Don't ship assistant_blocks to the client (large + redundant
                 # with the token stream and individual tool events).
                 done_payload = {"type": "done", "stop_reason": final_stop_reason}
-                # Charge one message only on a successful turn.
-                if identity is not None and final_stop_reason != "error" and accumulated_text.strip():
+                # Charge one message only on a successful turn (a widget-only turn counts).
+                if (identity is not None and final_stop_reason != "error"
+                        and (accumulated_text.strip() or facilitator_blocks)):
                     try:
                         done_payload["usage"] = usage_limits.consume(identity, 1)
                     except Exception as e:
                         logger.error("usage consume (agentic) failed: %s", e)
                 yield json.dumps(done_payload) + "\n"
 
-        # Facilitator post-pass — wrap the reply with an interactive UI widget
-        # (e.g. multiple choice or a chart) when the bot's config enables it.
-        # Best-effort; a failure never affects the turn. Emit a `pending` signal
-        # first so the UI can show a "building…" skeleton during the extra call,
-        # then always emit a result (widget or null) so the skeleton clears.
+        # Legacy facilitator post-pass — ONLY when the render_widget tool is NOT the
+        # widget owner (kill-switch off, or facilitator disabled). Emits a single
+        # end-appended widget, exactly as before. Best-effort; never affects the turn.
         facilitator_block = None
-        if (final_stop_reason != "error" and accumulated_text.strip()
+        if (not widget_tool_on and final_stop_reason != "error" and accumulated_text.strip()
                 and _facilitator_enabled(config_doc)):
             yield json.dumps({"type": "facilitator_pending"}) + "\n"
             facilitator_block = _facilitator_stage(
                 config_doc, accumulated_text, history_messages, user_input,
+                context=tool_context,
             )
             yield json.dumps({
                 "type": "facilitator",
@@ -836,8 +1014,8 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
         # Persist this turn. User message first, then AI message with the
         # full trace so frontend replay can re-render the tool pills.
         # Skip on error — don't write a user-visible error string as if it
-        # were a real model response.
-        if final_stop_reason != "error" and accumulated_text.strip():
+        # were a real model response. A widget-only turn (sparse text) still persists.
+        if final_stop_reason != "error" and (accumulated_text.strip() or facilitator_blocks):
             try:
                 if attached_files:
                     history_obj.pending_attached_files = attached_files
@@ -845,7 +1023,11 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 extra_kwargs = {}
                 if full_trace:
                     extra_kwargs["tool_trace"] = full_trace
-                if facilitator_block:
+                # Inline widgets persist as a LIST (re-interleaved on reload via the
+                # trace); the legacy post-pass persists a single dict block.
+                if facilitator_blocks:
+                    extra_kwargs["facilitator"] = facilitator_blocks
+                elif facilitator_block:
                     extra_kwargs["facilitator"] = facilitator_block
                 ai_msg = AIMessage(
                     content=accumulated_text,
@@ -856,8 +1038,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                 logger.error("Failed to persist agentic turn: %s", e, exc_info=True)
 
     except Exception as e:
-        logger.error("Agentic stream error: %s", e, exc_info=True)
-        yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+        yield json.dumps(_stream_error_event(e, "agentic")) + "\n"
 
 # --- MAIN CHAT ROUTE ---
 
@@ -874,6 +1055,10 @@ def chat(config_id, chat_id):
     # persisted on the user message so the chips survive a history reload.
     attached_files = data.get('attached_files', []) or []
     images = data.get('images', []) or []
+    # Set when this turn came from clicking an interactive facilitator widget:
+    # {widget, question, selected, correct?}. Used to build a model-only note and
+    # to steer retrieval at the question rather than the bare option text.
+    facilitator_answer = data.get('facilitator_answer') or None
     qualtrics_id = data.get('qualtrics_id') or None
     student_label = data.get('student_label') or None
     student_email = data.get('student_email') or None
@@ -968,6 +1153,7 @@ def chat(config_id, chat_id):
                 student_email=student_email,
                 marketing_opt_in=marketing_opt_in,
                 identity=identity,
+                facilitator_answer=facilitator_answer,
             )),
             mimetype='application/x-ndjson',
         )
@@ -986,17 +1172,24 @@ def chat(config_id, chat_id):
             vector_store = get_vector_store()
             is_authenticated = user_id_for_history and user_id_for_history != "anonymous"
 
+            # On a widget answer the input is a bare option ("Berlin"), which
+            # retrieves the topic of the option instead of the material the
+            # question came from. Search on the question plus the pick.
+            retrieval_query = user_input
+            if isinstance(facilitator_answer, dict) and facilitator_answer.get('question'):
+                retrieval_query = f"{facilitator_answer['question']} {user_input}".strip()
+
             if file_variant == 'B':
                 # Variant B: files are scoped to this bot's config_id — no user library merge
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=3,
                     pre_filter={"config_id": config_id}
                 )
             elif selected_file_ids and is_authenticated:
                 # Variant A with explicit selection: config baseline + selected files only
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=5,
                     pre_filter={"$or": [
                         {"config_id": config_id},
@@ -1008,7 +1201,7 @@ def chat(config_id, chat_id):
                 # f"user:{id}" personal-library bucket is global to the user, so
                 # merging it here leaked one bot's files into every other bot.
                 docs = vector_store.similarity_search(
-                    query=user_input,
+                    query=retrieval_query,
                     k=3,
                     pre_filter={"config_id": config_id}
                 )
@@ -1027,7 +1220,10 @@ def chat(config_id, chat_id):
             image_blocks = _image_url_blocks(images) if images else []
             supports_vision = _model_supports_vision(config_doc.get("model_name"))
 
-            base_instruction = config_doc.get("prompt_template", "Answer based on context.")
+            # `or` not `.get(default)`: the edit route used to persist an empty
+            # string here, and a present-but-empty key silently stripped the
+            # persona and the grounding line instead of falling back.
+            base_instruction = config_doc.get("prompt_template") or "Answer based on context."
             # Escape any {var} in user prompt that isn't our template vars (context, history, question)
             base_instruction = _escape_prompt_variables(base_instruction)
 
@@ -1040,6 +1236,14 @@ def chat(config_id, chat_id):
             Context:
             {{context}}
             """ + _escape_prompt_variables(FORMATTING_GUIDE)
+
+            # Widget answers ride in the system message, not the question: the
+            # legacy chain persists whatever `question` holds, and the note is
+            # meant to be model-only. Escaped — it splices in model/user text
+            # that may contain braces.
+            fac_note = _facilitator_answer_note(facilitator_answer)
+            if fac_note:
+                system_message += "\n\n" + _escape_prompt_variables(fac_note.strip())
 
             # Image attached but this model can't see it: tell the model so it
             # answers honestly instead of erroring or pretending. (No braces in
@@ -1109,14 +1313,19 @@ def chat(config_id, chat_id):
                 )
 
             elif model_name.lower().startswith("claude"):
-                # CASE 3b: Anthropic Claude models
-                llm = ChatAnthropic(
-                    model=model_name,
-                    temperature=temperature,
-                    api_key=current_app.config.get("ANTHROPIC_API_KEY"),
-                    max_tokens=500,
-                    streaming=True
-                )
+                # CASE 3b: Anthropic Claude models. `temperature` is omitted for the
+                # models that reject sampling parameters outright — passing it there
+                # is a 400, not a warning, so the professor's slider is simply not
+                # applied rather than breaking the chat.
+                claude_kwargs = {
+                    "model": model_name,
+                    "api_key": current_app.config.get("ANTHROPIC_API_KEY"),
+                    "max_tokens": 500,
+                    "streaming": True,
+                }
+                if accepts_temperature(model_name):
+                    claude_kwargs["temperature"] = temperature
+                llm = ChatAnthropic(**claude_kwargs)
 
             else:
                 # CASE 4: Standard OpenAI
@@ -1160,7 +1369,7 @@ def chat(config_id, chat_id):
                 # Rebuild the system text from the RAW prompt template — the
                 # {{ }}-escaped `system_message` above is only correct once a
                 # ChatPromptTemplate unescapes it, which we don't use here.
-                raw_instruction = config_doc.get("prompt_template", "Answer based on context.")
+                raw_instruction = config_doc.get("prompt_template") or "Answer based on context."
                 system_text = (
                     f"{raw_instruction}\n\n"
                     "Use the provided Context (retrieved documents) and the "
@@ -1168,6 +1377,9 @@ def chat(config_id, chat_id):
                     "If the user asks about previous messages, look at the History.\n\n"
                     f"Context:\n{context_text}\n" + FORMATTING_GUIDE
                 )
+                # Raw text here (no ChatPromptTemplate), so no brace escaping.
+                if fac_note:
+                    system_text += "\n\n" + fac_note.strip()
 
                 messages = [SystemMessage(content=system_text)]
                 messages.extend(history_obj.messages)  # prior turns (text only)
@@ -1175,19 +1387,37 @@ def chat(config_id, chat_id):
                     content=[{"type": "text", "text": user_input}] + image_blocks
                 ))
 
+                # Same retry contract as the agentic path: a transient upstream
+                # drop before the first token is invisible to the user, but once
+                # text has left for the browser a restart would duplicate it, so
+                # from that point the turn ends where it broke.
                 got_any = False
                 full_text = ""
-                for chunk in llm.stream(messages):
-                    piece = getattr(chunk, "content", "")
-                    # Some providers stream content as a list of blocks.
-                    if isinstance(piece, list):
-                        piece = "".join(
-                            b.get("text", "") for b in piece if isinstance(b, dict)
-                        )
-                    if piece:
-                        got_any = True
-                        full_text += piece
-                        yield json.dumps({"type": "token", "data": piece}) + "\n"
+                for attempt in range(STREAM_MAX_ATTEMPTS):
+                    try:
+                        for chunk in llm.stream(messages):
+                            piece = getattr(chunk, "content", "")
+                            # Some providers stream content as a list of blocks.
+                            if isinstance(piece, list):
+                                piece = "".join(
+                                    b.get("text", "") for b in piece if isinstance(b, dict)
+                                )
+                            if piece:
+                                got_any = True
+                                full_text += piece
+                                yield json.dumps({"type": "token", "data": piece}) + "\n"
+                        break
+                    except Exception as e:
+                        if (_is_transient_error(e) and not got_any
+                                and attempt < STREAM_MAX_ATTEMPTS - 1):
+                            logger.warning(
+                                "Multimodal stream retry %d/%d: %s",
+                                attempt + 1, STREAM_MAX_ATTEMPTS, e,
+                            )
+                            time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                            continue
+                        yield json.dumps(_stream_error_event(e, "multimodal")) + "\n"
+                        return
 
                 # Persist text-only user message + AI reply. The image is NOT
                 # saved (current-turn-only), so it won't survive a reload.
@@ -1234,16 +1464,36 @@ def chat(config_id, chat_id):
                 history_messages_key="history",
             )
 
+            # Retry guard for the main RAG path — the one that carries most of
+            # the traffic. `RunnableWithMessageHistory` only persists the turn
+            # once the stream finishes, so a failed attempt leaves no half-saved
+            # exchange behind and re-running it is safe. Retrying is gated on
+            # `not got_any` for the same reason as everywhere else: replayed
+            # tokens would double up in the bubble.
             got_any = False
             accumulated_text = ""
-            for chunk in chain_with_history.stream(
-                {"question": user_input, "context": context_text},
-                config={"configurable": {"session_id": chat_id}}
-            ):
-                if chunk:
-                    got_any = True
-                    accumulated_text += chunk
-                yield json.dumps({"type": "token", "data": chunk}) + "\n"
+            for attempt in range(STREAM_MAX_ATTEMPTS):
+                try:
+                    for chunk in chain_with_history.stream(
+                        {"question": user_input, "context": context_text},
+                        config={"configurable": {"session_id": chat_id}}
+                    ):
+                        if chunk:
+                            got_any = True
+                            accumulated_text += chunk
+                        yield json.dumps({"type": "token", "data": chunk}) + "\n"
+                    break
+                except Exception as e:
+                    if (_is_transient_error(e) and not got_any
+                            and attempt < STREAM_MAX_ATTEMPTS - 1):
+                        logger.warning(
+                            "Legacy stream retry %d/%d: %s",
+                            attempt + 1, STREAM_MAX_ATTEMPTS, e,
+                        )
+                        time.sleep(STREAM_BACKOFF_BASE_SECONDS * (2 ** attempt))
+                        continue
+                    yield json.dumps(_stream_error_event(e, "legacy")) + "\n"
+                    return
 
             # Charge one message only if the turn actually produced output.
             done_payload = {"type": "done"}
@@ -1274,6 +1524,7 @@ def chat(config_id, chat_id):
                     fac_history = [{"role": "user", "content": user_input}]
                 facilitator_block = _facilitator_stage(
                     config_doc, accumulated_text, fac_history, None,
+                    context=context_text,
                 )
                 yield json.dumps({
                     "type": "facilitator",
@@ -1284,8 +1535,7 @@ def chat(config_id, chat_id):
                     _attach_facilitator_to_last_ai(chat_id, facilitator_block)
 
         except Exception as e:
-            logger.error(f"Stream Error: {e}")
-            yield json.dumps({"type": "error", "data": str(e)}) + "\n"
+            yield json.dumps(_stream_error_event(e, "legacy-outer")) + "\n"
 
     resp = Response(generate(), mimetype='application/x-ndjson')
     if device_cookie:
