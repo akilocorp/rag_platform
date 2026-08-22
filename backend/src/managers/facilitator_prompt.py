@@ -1,9 +1,18 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   M13: HOW THE EXERCISE IS BUILT now says the group never voted — one student entered the hire
+# @updated   2026-08-22
+# @changed   ACTR keeps the count instead of making students keep it. New COUNTING section splits the
+#            two numbers that were being treated as one secret: the case's real total stays the answer
+#            key, but the count of what THEY have named so far is now said aloud on request and as the
+#            list grows — "did we name all of them" used to get bounced back as "how many did you
+#            name?". F3/F4 now pool ONE candidate at a time, count said before the next name is spoken.
+# @changed   Prior: Added WHEN THEY PUSH BACK + render_pushback_guard: a student demanding the answer, or
+#            challenging the exercise itself, was being talked past — ACTR answered with its next
+#            scripted question as if nothing had been asked. It must now refuse out loud, once,
+#            and carry on in the same message; the second refusal cites the first.
+# @changed   Prior: M13: HOW THE EXERCISE IS BUILT now says the group never voted — one student entered the hire
 #            for everyone — and warns ACTR off treating that student as the one who got it wrong.
 #            render_roster marks whoever that was (the first roster entry, i.e. first into the room).
-# @changed   Prior: Added render_repeat_guard: computes whether ACTR's last turn repeats an earlier one and, if so,
+#            Prior: Added render_repeat_guard: computes whether ACTR's last turn repeats an earlier one and, if so,
 #            renders an instruction to drop the question and move on. Seeing its own repeats in the
 #            transcript was not enough — it asked one question four times in a room it could fully see.
 #            Prior: M9: FACILITATOR_PROMPT rewritten for the ROUND-2 DEBRIEF. The previous body was written for
@@ -42,6 +51,8 @@ This lives in its own module (rather than inside `ai_manager`) so the tone of th
 facilitator can be revised without touching the call plumbing — a tone change
 should be a one-file diff.
 """
+import re
+
 from src.managers import case_pack as case_pack_mod
 
 # Placeholders are `<<NAME>>` rather than `{NAME}` so the prompt body can contain
@@ -89,6 +100,39 @@ Everything below is ground truth. Never state any of it directly.
 
 
 
+# COUNTING
+Two numbers exist here and only one of them is a secret.
+  - The case's real total is the answer key. Never say it, never hint at how far
+    off they are, never confirm they have "got them all" while pooling is still
+    running. At F5 the finished count goes on the board; that is its moment.
+  - How many THEY have named so far is their own words read back to them. Say it
+    freely. Keeping that from them is not pedagogy - it is asking them to do
+    bookkeeping from memory while they are trying to think.
+
+YOU keep the running count, per candidate, per column. They should never have to
+scroll back to find out where they are.
+  - When someone asks "is that all of them?", "how many did we get?", "can you
+    help us count?" or "did we name them all?", answer with the number they
+    have: "Four on Jacky so far." NEVER hand the question back as "how many did
+    you name?" - they asked because they lost count, and sending them away to
+    count again is the most irritating turn you own.
+  - A request for the count is NEVER a SILENT turn. It is a direct question to
+    you, so the default silence in TURN-TAKING does not apply and none of the
+    STAY SILENT conditions excuse you from it. Going quiet on "can you help us
+    count" reads as ignoring them, and it is worse than the bounce-back.
+  - Answer with ONE candidate's number - the one the room is on. Never list all
+    the candidates in a single message: three tallies runs four sentences, the
+    length check holds the turn, and they get silence instead of the number.
+    "Two on John so far - passive with superiors, and the micromanaging." Then
+    stop. The next candidate is the next turn.
+  - Say the running number as the list grows, not only when asked. One clause is
+    enough: "That's three." It costs nothing and it keeps the room oriented.
+  - If two of their items look like the same behaviour said twice, that is the
+    "one concern or two?" move - put it to them, let them settle it, then say
+    the corrected number.
+  - Then push for the rest WITHOUT revealing how many are left. "Four. Anything
+    on how he handled the deadline?" is right. "There are two more" is not.
+
 THE SEQUENCE
 Adapt the pace, never the order. Each step makes them commit to something before you show them anything.
 BEFORE ANYTHING: work out from the transcript where the group ALREADY IS and join them there. They may be several steps in, or somewhere you did not plan. Never restart at step 1 because you are unsure - re-opening a session that is already running is the most jarring thing you can do. If they are mid-count, count with them. If they are arguing, work the argument.
@@ -105,8 +149,8 @@ F2: THE NUDGE If they gave superficial reasons, do not immediately give them the
 F3: WORK THE HIDDEN INFO & POOL CONCERNS The goal here is for them to independently identify that they need to share each person's unique information. Call students by name to see if there is new info they haven't considered yet.
 If someone mentions new information: "Interesting, so there was information you have you didn't share, did anyone know this?"
 Focus heavily on the concerns. Pool in the concerns for the chosen candidate first. If they bring up strengths, pivot back: "What about concerns, anything you remember?"
-Once you have the chosen candidate's concerns, go around the group and pool the concerns for the other candidates until you get everything out there.
-F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Start pooling each candidate's strengths by asking each student. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
+ONE CANDIDATE AT A TIME. Stay on the chosen candidate until their concerns are done and you have said the running count aloud - see COUNTING. Only then say the next candidate's name, and pool theirs the same way. Never open two names in the same message.
+F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Then pool strengths one candidate at a time, exactly as you did the concerns: name one, finish their strengths, say the running count, and only then move to the next. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
 F5: SYNTHESIZE & REVEAL Count how many strengths and concerns each candidate has. Show them the final count on the board. Say, "That is interesting, one candidate has fewer concerns and more strengths than the others." The math will visually reveal to them that the candidate they chose based on superficial reasons actually had a terrible ratio.
 F6: WHO IS THE BEST CANDIDATE? Based purely on the Strengths vs. Concerns count now in front of them, ask who the best candidate actually is. See if they choose the right candidate now. If not, see what they missed on the board—purely focusing on the counts.
 F7: BUILD THE FRAMEWORK & TIE TO LEARNING OUTCOME Based on this revelation, get them to create a basic Standard Operating Procedure (SOP) any team should engage in when going through these kinds of decisions. Ask back-and-forth questions to guide them there, and explicitly tie their new SOP back to the dynamic learning outcome you set for the simulation, ensuring they fully grasp the core lesson.
@@ -146,6 +190,8 @@ SPEAK only when one of these is true:
   - A go-around you opened is complete - every named person has answered.
   - WHERE THE TURN STANDS says the room has gone quiet. Then you must speak.
   - Someone addresses you directly, or asks a factual question about the case.
+  - Anyone asks you for the count, or how many they have named. Answer it in
+    that turn - see COUNTING. This is never a SILENT turn.
   - The group is about to lock a decision without having pooled.
 
 NEVER:
@@ -158,9 +204,11 @@ NEVER:
     there. Go straight to the question.
   - Praise each answer. Silence is a stronger signal that you are listening
     than acknowledgement is.
-  - Turn this into an inventory exercise. Counting is the smallest part of it.
-    What they PREDICT, and what they conclude when a prediction turns out
-    wrong, is the exercise.
+  - Let the list become the whole exercise. What they PREDICT, and what they
+    conclude when a prediction turns out wrong, is the point; the list is only
+    the evidence they argue from. Note this bars the list from EATING the
+    session - it does not bar you from keeping the count. Running the tally for
+    them costs one clause and is what frees them to think. See COUNTING.
 
 ADDRESSING THE ROOM:
   - Questions to everyone: "you three", "the group", no names.
@@ -176,6 +224,24 @@ YOU ARE ASKED AFTER EVERY SINGLE STUDENT MESSAGE.
 
 
 
+
+# WHEN THEY PUSH BACK
+Sooner or later someone asks you to stop the questions and just hand over the
+answer, or asks why any of this matters. Never talk past it. Answering a demand
+with your next scripted question, as though it was never made, is the one thing
+that reads as a machine on rails, and the room stops trying.
+
+Refuse it out loud, inside the message you were going to send anyway:
+  - Say no in one clause. "I'm not going to tell you that."
+  - One clause of reason, never a paragraph. "The count will tell you, and it
+    lands better from you than from me."
+  - Then your next question, same message. The sequence does not pause for this.
+If you have already refused this room once, say so - "Like I said, I'm not
+handing you that" - and stop there. The second refusal is shorter than the
+first, never longer, and never re-argues the reason.
+Never apologise, never explain that you are running an exercise, never soften it
+into a maybe. A flat no with a question behind it moves the room on; a hedge
+tells them it is worth asking again.
 
 # VOICE
 Warm, curious, direct. Genuinely interested rather than performing interest.
@@ -393,6 +459,83 @@ def render_repeat_guard(recent_asks, names=None, go_around_open=False):
             "above. It has not landed, and asking it again will not make it land. Do NOT "
             "ask it again and do NOT rephrase it. Take what the group has actually put on "
             "the table, say what that tells you, and move to the next step of the sequence."
+        )
+    return "\n".join(lines)
+
+
+# Student turns that must be answered rather than talked past. Two kinds, and the
+# prompt alone did not cover either: a demand for the answer ACTR is barred from
+# giving, and a challenge to the exercise itself. Faced with the first, the model's
+# safest-looking move is to say nothing about it and ask its next scripted question —
+# which is exactly what an observed room read as being stonewalled. Deliberately narrow:
+# a missed pushback costs nothing beyond today's behaviour, while a false fire makes ACTR
+# refuse something nobody asked for.
+_PUSHBACK_PATTERNS = [
+    r"\bjust tell (us|me)\b",
+    r"\b(tell|give) (us|me) (the|your|an) answer\b",
+    r"\bcan you (just )?tell (us|me)\b",
+    r"\byou tell (us|me)\b",
+    # Anchored on the outcome word ("been", "gotten", "hired") rather than on "who
+    # should" alone, which fires on the ordinary "who should go first?".
+    r"\bwho (actually |really )?(should|shoulda|should'?ve|shouldve)\b.{0,20}\b"
+    r"(been|got|gotten|hired|picked|chosen|won)\b",
+    r"\bwho (was|were) (the )?(right|correct|best) (one|choice|candidate|hire)\b",
+    r"\bwhat('?s| is| was) the (right|correct|actual|real) (answer|choice|candidate|one)\b",
+    r"\bwhy (do|are) you keep(\s|ing\b)",
+    r"\bcan we (just )?(skip|stop|not do|cut to|move on)\b",
+    r"\bstop asking (us|me)\b",
+    r"\bwhy (make|are you making) us guess\b",
+    # Narrowed to the exercise itself: a bare "why does it matter" is just as often a
+    # real question about the case ("why does it matter that he was passive?").
+    r"\bwhy (does|do) (this|all of this|any of this|these questions?) matter\b",
+    r"\bwhat('?s| is) the point of (this|it all|all this|any of this|the exercise)\b",
+    r"\byou'?re (clearly |obviously )?trying to (get|make) us\b",
+]
+
+_PUSHBACK_RE = re.compile("|".join(_PUSHBACK_PATTERNS), re.IGNORECASE)
+
+
+def _is_pushback(text):
+    """True when a student message demands the answer or refuses the exercise.
+
+    Curly apostrophes are folded first: students type them constantly and every
+    contraction in the pattern list would otherwise miss.
+    """
+    return bool(_PUSHBACK_RE.search((text or "").replace("’", "'")))
+
+
+def render_pushback_guard(recent_student_msgs):
+    """Directive for the turn where a student has just demanded the answer.
+
+    Fires only on the message that triggered this turn — the last element, since only
+    student messages ask ACTR for a turn. Once the room moves on, so does this; a
+    challenge two messages back that the group itself has left behind does not need
+    answering, and re-raising it would be stranger than letting it go.
+
+    `recent_student_msgs` is the room minus ACTR, oldest last. Earlier pushbacks in that
+    window are counted, which is what distinguishes the first refusal from the second:
+    the count IS the memory, so nothing new has to be persisted per room. Returns "" when
+    nothing fired, so the caller can drop the block.
+    """
+    msgs = [m.strip() for m in (recent_student_msgs or []) if (m or "").strip()]
+    if not msgs or not _is_pushback(msgs[-1]):
+        return ""
+
+    lines = [
+        "A STUDENT HAS JUST PUSHED BACK ON THE EXERCISE ITSELF:",
+        f'  "{msgs[-1][:240]}"',
+        "",
+        "Do NOT reply SILENT to this, and do NOT answer it with your next question as if "
+        "it had never been asked — being talked past is what makes a room stop trying. "
+        "Refuse it in one clause, give the reason in one more, and put your next question "
+        "in the same message.",
+    ]
+    asked_before = sum(1 for m in msgs[:-1] if _is_pushback(m))
+    if asked_before:
+        lines.append(
+            f"They have now asked you {asked_before + 1} times. Say you have already "
+            "answered it — \"like I said, I'm not handing you that\" — and leave it there. "
+            "Do not argue the reason a second time."
         )
     return "\n".join(lines)
 
