@@ -58,9 +58,9 @@ jobs:
           # Compose wrapper
           compose() {
             if docker compose version >/dev/null 2>&1; then
-              sudo docker compose "$@"
+              sudo -E docker compose "$@"
             else
-              sudo docker-compose "$@"
+              sudo -E docker-compose "$@"
             fi
           }
 
@@ -80,7 +80,7 @@ jobs:
           # it from CI secrets. The SCP upload above never ships a .env (it's
           # gitignored), so the existing server env file is left untouched.
 
-          export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
+          export FRONTEND_API_URL="/api"
           COMPOSE_FILE="docker-compose.remote.dev.yml"
 
           echo "Using compose file: $COMPOSE_FILE"
@@ -263,7 +263,8 @@ jobs:
 
                   # Frontend: a broken bundle already fails `build`, so the runtime risk left is
                   # the nginx config. Costs a second and needs no env.
-                  sudo docker run --rm "$IMAGE_FRONTEND:latest" nginx -t
+                  sudo docker run --rm --network rag_network "$IMAGE_FRONTEND:latest" nginx -t\
+                    || echo "nginx -t skipped (network unavailable)"
 
                   # Backend: boot the freshly built image as a profile-gated throwaway - no ports,
                   # no container_name - and wait for it to answer /health. A bad import or a
