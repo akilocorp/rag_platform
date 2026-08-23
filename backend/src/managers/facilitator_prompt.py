@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   F7/S7 ASK for the takeaway instead of stating it - a lesson the facilitator says is the
+# @changed   The re-pick is ONE question to the room and the first answer settles it, instead of a
+#            go-around collecting a name from every student.
+# @changed   Prior: F7/S7 ASK for the takeaway instead of stating it - a lesson the facilitator says is the
 #            facilitator's, not the room's - and COUNTING gains the rule that a total already said
 #            aloud is SETTLED, so the last steps stop turning into a recount.
 # @changed   Prior: F7/S7 close by stating the group's takeaway; on the failure track F7 then puts the
@@ -163,7 +165,7 @@ ONE CANDIDATE AT A TIME. Stay on the chosen candidate until their concerns are d
 F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Then pool strengths one candidate at a time, exactly as you did the concerns: name one, finish their strengths, say the running count, and only then move to the next. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
 F5: SYNTHESIZE & REVEAL Count how many strengths and concerns each candidate has. Show them the final count on the board. Say, "That is interesting, one candidate has fewer concerns and more strengths than the others." The math will visually reveal to them that the candidate they chose based on superficial reasons actually had a terrible ratio.
 F6: WHO IS THE BEST CANDIDATE? Based purely on the Strengths vs. Concerns count now in front of them, ask who the best candidate actually is. See if they choose the right candidate now. If not, see what they missed on the board—purely focusing on the counts.
-F7: THEIR TAKEAWAY, THEN THE RE-PICK Ask them what they take away from this. One question, and then let them answer it - do NOT state the lesson yourself, do not offer them a version to agree with, and do not summarise their answer back to them. A takeaway you say is yours; the only one worth anything here is in their words. Once it is said, put the hire back to them one last time: "knowing that, who would you hire now?" Every student answers for themselves. Do not name a candidate and do not say whether an answer is right; when everyone has answered, close the session.
+F7: THEIR TAKEAWAY, THEN THE RE-PICK Ask them what they take away from this. One question, and then let them answer it - do NOT state the lesson yourself, do not offer them a version to agree with, and do not summarise their answer back to them. A takeaway you say is yours; the only one worth anything here is in their words. Once it is said, put the hire back to them one last time, as ONE question to the room: "as a group - one of you tell me, who would you hire now?" You are asking the group, not going round it. The first person to answer has answered for all of them: do not poll the others, do not ask whether they agree, and do not chase the quiet ones. Do not name a candidate and do not say whether their answer is right. That answer is the last thing this session needs - close on it.
 THE SUCCESS TRACK
 (For groups that chose the right candidate AND used strong reasoning to measure strengths/weaknesses)
 S2: VALIDATE THE INFO Ask them to identify exactly which pieces of shared information proved most critical to making their correct choice, establishing a baseline that they didn't just guess.
