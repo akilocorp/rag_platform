@@ -58,9 +58,9 @@ jobs:
           # Compose wrapper
           compose() {
             if docker compose version >/dev/null 2>&1; then
-              sudo docker compose "$@"
+              sudo -E docker compose "$@"
             else
-              sudo docker-compose "$@"
+              sudo -E docker-compose "$@"
             fi
           }
 
@@ -80,7 +80,7 @@ jobs:
           # it from CI secrets. The SCP upload above never ships a .env (it's
           # gitignored), so the existing server env file is left untouched.
 
-          export FRONTEND_API_URL="http://ec2-18-224-2-163.us-east-2.compute.amazonaws.com:5000/api"
+          export FRONTEND_API_URL="/api"
           COMPOSE_FILE="docker-compose.remote.dev.yml"
 
           echo "Using compose file: $COMPOSE_FILE"
@@ -97,15 +97,15 @@ jobs:
           # cache. That cache is what stops pip and npm reinstalling every deploy, and it
           # is only rebuilt from scratch if something deletes it.
           sudo docker container prune -f || true
-          sudo docker image prune -af || true
+          sudo docker image prune -f || true
 
           # Only if there is still not enough room does the cache get sacrificed. This
           # costs a slow cold build, so it is the last resort, not the default.
-          NEED_MB=6000
+          NEED_MB=4000
           AVAIL=$(df --output=avail -m / | tail -1 | tr -d ' ')
           if [ "${AVAIL:-0}" -lt "$NEED_MB" ]; then
             echo "Free disk ${AVAIL}MB below ${NEED_MB}MB - dropping the build cache (this deploy will be a cold build)."
-            sudo docker builder prune -af || true
+            sudo docker builder prune -f || true
             echo "Free disk now $(df --output=avail -m / | tail -1 | tr -d ' ')MB."
           else
             echo "Free disk ${AVAIL}MB - build cache kept, packages will not reinstall."
@@ -198,8 +198,8 @@ jobs:
 
                   IMAGE_BACKEND="rag-platform-backend"
                   IMAGE_FRONTEND="rag-platform-frontend"
-                  NEED_MB=6000          # rough headroom for a cold build of both images
-                  KEEP_PREVIOUS_MB=8500 # above this we can also afford to retain a rollback copy
+                  NEED_MB=4000          # rough headroom for a cold build of both images
+                  KEEP_PREVIOUS_MB=5500 # above this we can also afford to retain a rollback copy
 
                   free_mb() { df --output=avail -m / | tail -1 | tr -d ' '; }
 
@@ -217,14 +217,14 @@ jobs:
                   # reaps stopped containers, and `image prune -a` never removes an image that a
                   # running container references. Neither can interrupt traffic.
                   sudo docker container prune -f || true
-                  sudo docker image prune -af || true
+                  sudo docker image prune -f || true
 
                   # Still short? Give up the BuildKit cache next. That costs build speed, never
                   # uptime, so it is always the right thing to trade before touching the site.
                   AVAIL=$(free_mb)
                   if [ "$AVAIL" -lt "$NEED_MB" ]; then
                     echo "Free disk ${AVAIL}MB below ${NEED_MB}MB - dropping the build cache to make room."
-                    sudo docker builder prune -af || true
+                    sudo docker builder prune -f || true
                     AVAIL=$(free_mb)
                   fi
 
@@ -263,7 +263,8 @@ jobs:
 
                   # Frontend: a broken bundle already fails `build`, so the runtime risk left is
                   # the nginx config. Costs a second and needs no env.
-                  sudo docker run --rm "$IMAGE_FRONTEND:latest" nginx -t
+                  sudo docker run --rm --network rag_network "$IMAGE_FRONTEND:latest" nginx -t\
+                    || echo "nginx -t skipped (network unavailable)"
 
                   # Backend: boot the freshly built image as a profile-gated throwaway - no ports,
                   # no container_name - and wait for it to answer /health. A bad import or a

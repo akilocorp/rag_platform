@@ -1,0 +1,113 @@
+ACTR COUNTING FIX — replay evidence
+2026-08-22
+
+THE COMPLAINT
+  Students list strengths/concerns, then ask ACTR how many they have.
+  ACTR refused to count, and asked about several candidates at once.
+
+  Real log, room 6a81a35061f74539d0a836d4_g1 (config "Team exercises", mgmt5555):
+
+    ACTR   So you have strengths and concerns on the table for all three. How many
+           distinct concerns does each candidate have - Jacky, Jet Li, John Law?
+    yona   can you help us count, we listed it out
+    ACTR   You listed them - just count what you said. How many concerns did you
+           name for Jacky?
+    yona   I think we named about 4, did we name all of them
+    ACTR   Go back through what you actually said about Jacky's concerns - how many
+           different behaviours did you name?
+    ACTR   Before we close - what's the one-sentence procedure you'd hand to the
+           next committee so they don't end up where you started?
+
+  Note ACTR also posted twice in a row, and jumped to the SOP with the count
+  unresolved. Neither of those is fixed here.
+
+
+ROOT CAUSE — THREE LAYERS, NOT ONE
+  Fixing the prompt alone was not enough. Each fix exposed the next blocker.
+
+  1. PROMPT (facilitator_prompt.py)
+     case_pack.py rendered the tally under "never state these numbers - students
+     must count them out loud", and the prompt listed "turn this into an inventory
+     exercise" under NEVER. Two different numbers were being treated as one secret:
+       - the case's REAL total          = answer key, must stay hidden
+       - what the students NAMED so far = their own words, safe to say
+
+  2. CONSTRAINT CHECKER (tools/constraints.py)
+     does_their_counting barred "a number the students did not say". A running
+     tally IS a number they did not literally say, so ACTR's drafts were vetoed:
+       (caught does_their_counting: "Two concerns for John: passive with
+        superiors, and micromanages his team.")
+       (held - could not write it cleanly in two tries)  ->  (silent)
+
+  3. TURN-TAKING + LENGTH
+     With the checker fixed, ACTR still went silent - the SILENT default outranked
+     the counting rule. With silence overridden, too_long held the turn instead:
+     counting all three candidates ran 4 sentences against a 2-3 sentence cap.
+
+
+WHAT CHANGED
+  facilitator_prompt.py
+    - New "# COUNTING" section. ACTR keeps the running count per candidate per
+      column and says it aloud, on request and as the list grows. The case's real
+      total stays secret; it never says how many are left.
+    - A request for the count is NEVER a SILENT turn (also added to TURN-TAKING).
+    - Answer with ONE candidate's number, not all of them - three tallies trips
+      the length check and the room gets silence instead of a number.
+    - F3 / F4 pool ONE CANDIDATE AT A TIME: finish their list, say the count,
+      then say the next name. Never two names in one message.
+
+  case_pack.py
+    - Tally header no longer says "students must count them out loud". It bars
+      only the real totals and states that the running count is ACTR's job.
+
+  tools/constraints.py
+    - does_their_counting now bars only numbers taken from the CASE DATA (true
+      totals, topped-up lists, how many remain). Totalling up the students' own
+      named items is explicitly allowed and required.
+
+
+REPLAY RESULTS — room _g1, your real messages, replayed verbatim
+  Four runs, same transcript, prompt changing between them.
+
+  run 1  2026-08-22_1757_counting-fix-g1.txt
+         4x does_their_counting, 4x too_long. "can you help us count" -> silent.
+
+  run 2  2026-08-22_1806_counting-fix-g1-v2.txt   (checker fixed)
+         Running counts start appearing unprompted:
+           "One strength on Jet Li so far - the leadership program."
+           "Two on Jet Li - leadership program and fifteen years."
+         But both direct asks still -> silent.
+
+  run 3  2026-08-22_1812_counting-fix-g1-v3.txt   (silence overridden)
+         does_their_counting now 0. ACTR's reasoning: "yona asked for a count.
+         I must answer." Blocked by too_long instead - tried all three candidates.
+
+  run 4  2026-08-22_1818_counting-fix-g1-final.txt   (one candidate per turn)
+         WORKS:
+           yona   can you help us count, we listed it out
+           ACTR   Zero concerns named for Jacky so far. Look at your notes right
+                  now - is there anything in the concerns column next to his name?
+
+           yona   I think we named about 4, did we name all of them
+           ACTR   For John's concerns, I have two: passive with powerful
+                  executives, and micromanaging subordinates. Is that what you had?
+
+  Second session replayed: room _g5 (2026-08-19). Only 2 student messages before
+  it stops, so it never reaches the counting stage - nothing to measure there.
+
+
+CAVEATS
+  - Replay students are FIXED. They cannot react to a facilitator that now
+    behaves differently, so turns after a divergence are answering a conversation
+    that never happened. The two counting turns above are direct responses to
+    your actual messages, so those are the trustworthy ones.
+  - Run 4 still caught 2x does_their_counting and 1x tells_them_they_were_wrong
+    elsewhere in the room. Not investigated.
+  - Speak rate rose to 88% (21 of 24 turns). The prompt asks for one turn every
+    4-6 student messages; this room runs at 1.1. Counting more may be making it
+    talk more. Worth watching in a live session.
+  - Config "Team exercises" (mgmt5555) has NO facilitator_prompt_override, so it
+    picks these changes up directly. "Yaping Class" (mgmt2000) DOES have one
+    (17,156 chars) and will NOT get any of this.
+  - Still unfixed from the original log: ACTR posting twice in a row, and the SOP
+    question arriving before the count was settled despite commit f5bf2be.
