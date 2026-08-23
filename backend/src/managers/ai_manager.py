@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   The close directive is handed the step too, so it cannot point past a step the gate has
+# @updated   2026-08-23
+# @changed   _ADVANCE_SYSTEM and _PROGRESS_SYSTEM both carry a named exception for F7/S7 / takeaway_stated
+#            ("state the takeaway"): that move/objective is satisfied by the facilitator's own line, not
+#            a student's, since steps.py and progress.py now define it as ACTR stating the takeaway itself.
+# @changed   Prior: The close directive is handed the step too, so it cannot point past a step the gate has
 #            not cleared.
 #            Prior: The step gate: `facilitator_reply` takes the room's current step, renders it into the turn
 #            brief, and rules on any forward move via `judge_step_advance` before it is allowed. A refused
@@ -312,6 +315,9 @@ _PROGRESS_SYSTEM = (
     "themselves. If the facilitator supplied a count, named a candidate, or explained the "
     "mechanism, that objective is NOT met — the facilitator doing their work for them is "
     "the failure this exercise exists to prevent.\n\n"
+    "One named exception: takeaway_stated is ACTR's OWN final act, not the students' — "
+    "mark it met once the facilitator has stated the group's takeaway itself, tied to the "
+    "learning outcome. Every other objective keeps the student-evidence rule above.\n\n"
     "THE OBJECTIVES\n" + render_milestones()
 )
 
@@ -543,6 +549,12 @@ _ADVANCE_SYSTEM = (
     "When steps are being skipped, every skipped step's condition must be met too. A room "
     "that genuinely did the work on its own should not be made to re-run it, but "
     "'they seem to understand' is not evidence that they did it.\n\n"
+    "One named exception: F7 and S7 ('state the takeaway') are NOT judged against the "
+    "students' words — that step is ACTR's own final act, not something the room does. "
+    "Approve a move into F7/S7 when the facilitator's stated reason itself states the "
+    "group's takeaway clearly and ties it to the learning outcome; do not require a "
+    "student to have said it, and do not refuse for lack of a student line on this one "
+    "step only. Every other step keeps the student-evidence rule above.\n\n"
     "THE SEQUENCE\n"
 )
 

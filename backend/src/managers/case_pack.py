@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   render_case_pack binds the "one concern or two?" move to its operands — the COLLAPSE PAIRS
+# @updated   2026-08-22
+# @changed   The rendered Tally header no longer tells ACTR that "students must count them out loud".
+#            It now bars only the case's real totals (the answer key) and says outright that counting
+#            what the students have named SO FAR is a different number and ACTR's own job — the old
+#            wording fought the new COUNTING section in facilitator_prompt.
+# @changed   Prior: render_case_pack binds the "one concern or two?" move to its operands — the COLLAPSE PAIRS
 #            block is now declared the only permitted pairing, strength-vs-concern is ruled out explicitly,
 #            and options with no pairs say so instead of staying silent (ACTR was inventing a pair).
 #            Prior: restored the optional general-information document, carried onto the pack verbatim so the
@@ -595,7 +599,12 @@ def render_case_pack(pack):
 
     lines += [
         "",
-        "## Tally (never state these numbers — students must count them out loud)",
+        # Only the case's real totals are the answer key. The count of what the students
+        # have actually named so far is a different number and ACTR is required to keep
+        # it — see COUNTING in the facilitator prompt. Conflating the two is what made it
+        # refuse to answer "did we name all of them".
+        "## Tally (the answer key — never state these numbers. Counting what the students",
+        "have named SO FAR is a different number and is your job: say that one freely.)",
     ]
     for opt in pack["options"]:
         lines.append(

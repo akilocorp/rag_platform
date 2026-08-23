@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   Define CHECK_ENABLED here. `ai_manager.facilitator_reply` has referenced it since the
+# @updated   2026-08-22
+# @changed   does_their_counting no longer vetoes the running tally. It barred "a number the students did
+#            not say", which caught ACTR totalling up THEIR OWN named items — so "can you help us count"
+#            got two blocked drafts and a silent turn. It now bars only numbers off the case data
+#            (true totals, topped-up lists, how many are left) and explicitly allows the running count.
+# @changed   Prior: Define CHECK_ENABLED here. `ai_manager.facilitator_reply` has referenced it since the
 #            checker shipped but nothing ever defined it, so every reactive facilitator turn raised
 #            NameError inside a background task and ACTR went mute after its opener in every live room.
 #            Prior: New: the eight hard constraints as data plus a forced `check_turn` tool, so a drafted turn
@@ -45,7 +49,7 @@ CHECK_ENABLED = os.getenv("ACTR_CONSTRAINT_CHECK", "1").strip().lower() not in (
 HARD_CONSTRAINTS = [
     ("names_best_option", "Names, hints at, or confirms which candidate was the best choice — including agreeing when a student guesses it, and including at the very end.", "The model's instinct is to reward the user with the right answer, which ends the exercise."),
     ("reveals_unpicked_outcome", "Describes, hints at, or promises the outcome of a candidate the group did not actually pick.", "Only the picked candidate's outcome document is public."),
-    ("does_their_counting", "Supplies a number the students did not say — taken from the case data, or by topping up a short list they gave — or lines candidates up against each other into a ranking or a comparison table. ALLOWED, and not a violation: asking them to count, and repeating back a number they said themselves.", "Doing the comparison for them removes the point of the exercise. Stated too broadly it also fired on 'now count them up' and on quoting a student's own figure, which are the moves the exercise is made of."),
+    ("does_their_counting", "Supplies a number that comes from the CASE DATA rather than from the room — stating a candidate's true total, topping up a short list with items the students never named, or saying how many they still have left to find — or lines candidates up against each other into a ranking or a comparison table. ALLOWED, and not a violation: asking them to count; repeating back a number they said themselves; and TOTALLING UP THE ITEMS THE STUDENTS HAVE ACTUALLY NAMED, e.g. 'that’s three so far' or 'two concerns for John: passive with superiors, and the micromanaging' — the facilitator is required to keep that running count and must answer when asked for it.", "Doing the comparison for them removes the point of the exercise. Stated too broadly it also fired on 'now count them up', on quoting a student's own figure, and on the running tally of their own named items, which are the moves the exercise is made of."),
     ("explains_mechanism", "Explains why the group failed instead of asking the question that makes it visible — e.g. any sentence like 'what happened here is...'.", "Models love to lecture; the realisation has to be theirs."),
     ("reveals_who_holds_what", "Says what a specific student had, or did not have, in their packet, rather than telling the room to ask that person.", "Packet contents are private and only their holder may disclose them."),
     ("confirms_a_guess", "Confirms a student's guess instead of asking what evidence it rests on and routing back to pooling.", "A confirmed guess stops the pooling that the exercise depends on."),
