@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   New fifth objective `repick_made` and the close directive that holds for it: on the
+# @changed   `takeaway_stated` goes back to being the STUDENTS' line, and the near-done directive no
+#            longer sends a finished room back to re-count what it has already tallied.
+# @changed   Prior: New fifth objective `repick_made` and the close directive that holds for it: on the
 #            FAILURE track, stating the takeaway no longer ends the session - every student has to
 #            say who they would hire now first. Readiness is computed from the CORE four so a
 #            success room, which is never asked, can still close.
@@ -70,10 +72,10 @@ MILESTONES = [
      "NOT MET if only the facilitator has said this, or if the students have merely "
      "admitted they 'rushed' or 'should have talked more'."),
     ("takeaway_stated",
-     "ACTR itself has stated the group's key takeaway from the exercise, tied explicitly "
-     "to the learning outcome. Unlike the other three, this one is met by the "
-     "FACILITATOR's own line, not a student's — NOT MET while ACTR is still drawing "
-     "questions out of the group instead of stating the lesson directly."),
+     "The STUDENTS have said what they take away from this, in their own words. "
+     "NOT MET when the facilitator stated the lesson and the room agreed with it, and "
+     "NOT MET by a summary the facilitator handed back to them - a takeaway they only "
+     "assented to is the facilitator's takeaway, not theirs."),
     # FAILURE TRACK ONLY, and the only objective that comes after the takeaway. A
     # takeaway nobody applies is a lesson agreed to in the abstract, so the room that
     # hired badly has to spend it on the decision it was written for before it closes.
@@ -246,7 +248,8 @@ def render_close_directive(progress, step=None):
             "which candidate those numbers point to. ASK them for the numbers; never supply "
             "one yourself, never top up a short list they gave, and never lay the "
             "candidates out side by side for them. Repeating back a figure a student has "
-            "already said is fine, and is often the whole move."
+            "already said is fine, and is often the whole move. A total they have "
+            "already given you is done - never ask them to re-total that candidate."
         )
 
     # They have the counts and are being asked to read them. Exactly one thing to do.
@@ -267,8 +270,8 @@ def render_close_directive(progress, step=None):
     if (progress.get("ready") and step and track_of(step) == "failure"
             and REPICK_MILESTONE not in met):
         return (
-            "DO NOT CLOSE YET. You have stated the takeaway, and there is exactly one "
-            "thing left.\n"
+            "DO NOT CLOSE YET. They have said what they take away from it, and there is exactly "
+            "one thing left.\n"
             "Put the hire back to them: knowing that, who would they hire now? Every "
             "student answers for themselves, in their own words - one answer each, and you "
             "wait for all of them. Do not name a candidate, do not say whether an answer is "
@@ -280,8 +283,8 @@ def render_close_directive(progress, step=None):
         return (
             "THE GROUP HAS GOT THERE. All four learning objectives are met: they have "
             "compared the candidates in their own words, named which one the information "
-            "favours, said why their first decision went the way it did, and heard your "
-            "takeaway.\n"
+            "favours, said why their first decision went the way it did, and said what they "
+            "take away from it.\n"
             "LAND THE SESSION NOW. Do not open a new line of enquiry and do not ask one "
             "more interesting question. Rooms run on a clock and a room cut off by the "
             "timer loses its ending. Write your closing turn and set `ended` true. Do not "
@@ -294,10 +297,7 @@ def render_close_directive(progress, step=None):
             "THE GROUP IS ONE STEP FROM DONE. Everything is in place except this:\n"
             f"  {dict(MILESTONES).get(closest, '')}\n"
             "Spend your remaining turns on THAT. Do not start a new topic and do not "
-            "reopen anything already settled.\n"
-            "One exception, and it matters: if the count behind their comparison is thin — "
-            "figures they never actually said, or a candidate nobody tallied — go back and "
-            "get it from them first. A procedure built on a comparison they never made is "
-            "worth nothing, and this is the last moment it can be fixed."
+            "reopen anything already settled. A total this room has already said aloud is "
+            "settled: do not send them back to count it a second time."
         )
     return ""
