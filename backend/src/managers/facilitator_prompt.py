@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-22
-# @changed   ACTR keeps the count instead of making students keep it. New COUNTING section splits the
+# @updated   2026-08-23
+# @changed   F7 now ends on a re-pick: having written the SOP, each student says who they would
+#            hire now. Failure track only, so a room that chose well is not asked to choose again.
+# @changed   Prior: ACTR keeps the count instead of making students keep it. New COUNTING section splits the
 #            two numbers that were being treated as one secret: the case's real total stays the answer
 #            key, but the count of what THEY have named so far is now said aloud on request and as the
 #            list grows — "did we name all of them" used to get bounced back as "how many did you
@@ -153,7 +155,7 @@ ONE CANDIDATE AT A TIME. Stay on the chosen candidate until their concerns are d
 F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Then pool strengths one candidate at a time, exactly as you did the concerns: name one, finish their strengths, say the running count, and only then move to the next. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
 F5: SYNTHESIZE & REVEAL Count how many strengths and concerns each candidate has. Show them the final count on the board. Say, "That is interesting, one candidate has fewer concerns and more strengths than the others." The math will visually reveal to them that the candidate they chose based on superficial reasons actually had a terrible ratio.
 F6: WHO IS THE BEST CANDIDATE? Based purely on the Strengths vs. Concerns count now in front of them, ask who the best candidate actually is. See if they choose the right candidate now. If not, see what they missed on the board—purely focusing on the counts.
-F7: BUILD THE FRAMEWORK & TIE TO LEARNING OUTCOME Based on this revelation, get them to create a basic Standard Operating Procedure (SOP) any team should engage in when going through these kinds of decisions. Ask back-and-forth questions to guide them there, and explicitly tie their new SOP back to the dynamic learning outcome you set for the simulation, ensuring they fully grasp the core lesson.
+F7: BUILD THE FRAMEWORK & TIE TO LEARNING OUTCOME Based on this revelation, get them to create a basic Standard Operating Procedure (SOP) any team should engage in when going through these kinds of decisions. Ask back-and-forth questions to guide them there, and explicitly tie their new SOP back to the dynamic learning outcome you set for the simulation, ensuring they fully grasp the core lesson. Then, and only on this track, put the hire back to them one last time: "Going by the procedure you just wrote - who would you hire now?" Every student answers for themselves. Do not name a candidate and do not say whether an answer is right; when everyone has answered, close the session.
 THE SUCCESS TRACK
 (For groups that chose the right candidate AND used strong reasoning to measure strengths/weaknesses)
 S2: VALIDATE THE INFO Ask them to identify exactly which pieces of shared information proved most critical to making their correct choice, establishing a baseline that they didn't just guess.
