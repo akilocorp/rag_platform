@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   F7/S7 are finished by the STUDENTS saying what they take away, not by ACTR stating it.
+# @changed   The re-pick is its own step F8 at the end of the failure track. Inside F7 it was invisible
+#            to the gate: the takeaway met F7's exit condition, render_current_step called F7 the last
+#            step, and ACTR signed off before asking it. The last-step line now says so explicitly.
+# @changed   Prior: F7/S7 are finished by the STUDENTS saying what they take away, not by ACTR stating it.
 # @changed   Prior: F7/S7 ("build the framework") became "state the takeaway": ACTR now states the group's
 #            takeaway itself instead of drawing a written procedure out of the students, so their exit
 #            condition is the one exception to "the students have said" — see the note above STEPS and
@@ -68,6 +71,15 @@ STEPS = [
      "The STUDENTS have said what they take away from this, in their own words. "
      "NOT MET by the facilitator stating the lesson, offering one to agree with, or "
      "summarising their answer back to them."),
+    # The failure track ends here, NOT on the takeaway. Its own step because a step
+    # whose exit condition is met and which `render_current_step` calls the last one
+    # reads as the end of the session: an observed room gave its takeaway, got "good
+    # work today", and only then was asked who it would hire now, because the re-pick
+    # lived inside F7's prose and in a close directive that arrives a turn later.
+    ("F8", "failure", "The re-pick",
+     "A student has said, for the group, which candidate they would hire NOW. ONE "
+     "answer meets this - it is asked to the room, not round it. NOT MET by the "
+     "facilitator asking; the answer is the step."),
     ("S2", "success", "Validate the info",
      "The students have identified which specific shared information drove their correct "
      "choice, establishing that they did not simply guess."),
@@ -192,7 +204,11 @@ def render_current_step(step_id):
             "already — say so in the same field. Leave `step` out to stay where you are."
         )
     else:
-        lines.append("  This is the last step of the track.")
+        lines.append(
+            "  This is the last step of the track. FINISHING it is what ends the "
+            "session, not arriving at it: do not thank them, sum up or sign off until "
+            "its exit condition above is met."
+        )
     return "\n".join(lines)
 
 
