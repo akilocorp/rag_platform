@@ -1,10 +1,13 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-24
-// @changed   New page: edit a video config's scoring boxes and content checks inside a replica of the
-//            student's results report, so a professor sees the thing they are editing.
-import React, { useEffect, useRef, useState } from 'react';
+// @changed   Cards are read-only until you press Edit. The fields used to be transparent inputs sitting
+//            in the card, which read as plain text — you could edit them without ever knowing you could.
+//            Edit is now a visible button, and it swaps the card for a labelled form with Delete + Done.
+// @changed   Prior: New page: edit a video config's scoring boxes and content checks inside a replica of
+//            the student's results report, so a professor sees the thing they are editing.
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaTrash, FaPlus, FaArrowLeft, FaSpinner, FaCheck } from 'react-icons/fa';
+import { FaTrash, FaPlus, FaArrowLeft, FaSpinner, FaCheck, FaPen } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 /**
@@ -14,15 +17,21 @@ import apiClient from '../api/apiClient';
  *   The old editor was a stack of grey form rows in Advanced mode, and nothing about
  *   it told a professor what a "box" or a "content check" actually becomes. Here the
  *   card IS the card the student gets — same shell, same type scale, same score-out-of-ten
- *   on the right, same two-column grid for the checks — with the name and definition
- *   turned into fields. The markup is deliberately kept in step with
- *   `VideoResultsPage.jsx` (DimensionCard, ComponentCard); if that page's card changes,
- *   this one should change with it.
+ *   on the right, same two-column grid for the checks. The markup is deliberately kept
+ *   in step with `VideoResultsPage.jsx` (DimensionCard, ComponentCard); if that page's
+ *   card changes, this one should change with it.
+ *
+ * VIEW FIRST, THEN EDIT
+ *   Every card is read-only until its Edit button is pressed. The first version made the
+ *   name and definition into borderless inputs living in the card, which looked exactly
+ *   like text: you could edit them, but nothing said so, and the definition picked up a
+ *   spellcheck underline that made the preview look broken. Read-only also means the
+ *   preview is honest — what you see is what the student sees, with no input chrome in it.
  *
  * THE SCORES ARE FAKE, AND SAY SO
  *   A real score only exists after a student submits, but a card with an empty right-hand
- *   side does not read as the student's card at all — the number is the loudest thing on
- *   it. So the preview carries fixed sample numbers in grey, under a "sample scores" chip.
+ *   side does not read as the student's card — the number is the loudest thing on it. So
+ *   the preview carries fixed sample numbers in grey, under a "sample scores" chip.
  *
  * SAVING
  *   Through PUT /video/config/:id/scoring-spec, which writes `scoring_spec` and nothing
@@ -39,6 +48,47 @@ const sampleFor = (i) => SAMPLE[i % SAMPLE.length];
 // like a verdict on anything.
 const PREVIEW_GREY = '#cbd5e1';
 
+const FIELD =
+  'w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none ' +
+  'focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all';
+const LABEL = 'block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5';
+
+// The Edit affordance. Always visible — a control that appears on hover is the same
+// problem as no control at all for anyone who does not happen to hover the right card.
+function EditButton({ onClick, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-[#FA6C43] bg-gray-50 hover:bg-[#FFF3EF] border border-gray-200 hover:border-[#FA6C43] rounded-lg px-2.5 py-1.5 transition-all shrink-0"
+    >
+      <FaPen className="text-[10px]" /> {label}
+    </button>
+  );
+}
+
+// Shared footer for a card in edit mode: destructive action far left, confirm right.
+function EditActions({ onDelete, onDone, deleteLabel }) {
+  return (
+    <div className="flex items-center justify-between pt-1">
+      <button
+        type="button"
+        onClick={onDelete}
+        className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
+      >
+        <FaTrash className="text-[10px]" /> {deleteLabel}
+      </button>
+      <button
+        type="button"
+        onClick={onDone}
+        className="text-xs font-bold text-white bg-[#FA6C43] hover:bg-[#e85f38] rounded-lg px-4 py-2 transition-all"
+      >
+        Done
+      </button>
+    </div>
+  );
+}
+
 export default function VideoBoxesPage() {
   const { configId } = useParams();
   const navigate = useNavigate();
@@ -51,7 +101,10 @@ export default function VideoBoxesPage() {
   const [error, setError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
   const [dirty, setDirty] = useState(false);
-  const addedRef = useRef(null);   // focuses the name field of a freshly added row
+  // Index of the card currently open for editing, or null. One at a time: several
+  // open forms turn the page back into the wall of grey rows this replaced.
+  const [editingDim, setEditingDim] = useState(null);
+  const [editingCheck, setEditingCheck] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -84,12 +137,18 @@ export default function VideoBoxesPage() {
     setDimensions((prev) => prev.map((d, i) => (i === idx ? { ...d, [field]: value } : d)));
     touch();
   };
+  // A new box opens straight into edit mode — it has no name yet, so there is
+  // nothing to look at and exactly one thing to do.
   const addDim = () => {
     setDimensions((prev) => [...prev, { id: '', name: '', definition: '' }]);
-    addedRef.current = `dim-${dimensions.length}`;
+    setEditingDim(dimensions.length);
     touch();
   };
-  const removeDim = (idx) => { setDimensions((prev) => prev.filter((_, i) => i !== idx)); touch(); };
+  const removeDim = (idx) => {
+    setDimensions((prev) => prev.filter((_, i) => i !== idx));
+    setEditingDim(null);
+    touch();
+  };
 
   const setCheck = (idx, field, value) => {
     setChecks((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: value } : c)));
@@ -97,10 +156,14 @@ export default function VideoBoxesPage() {
   };
   const addCheck = () => {
     setChecks((prev) => [...prev, { id: '', label: '', description: '' }]);
-    addedRef.current = `check-${checks.length}`;
+    setEditingCheck(checks.length);
     touch();
   };
-  const removeCheck = (idx) => { setChecks((prev) => prev.filter((_, i) => i !== idx)); touch(); };
+  const removeCheck = (idx) => {
+    setChecks((prev) => prev.filter((_, i) => i !== idx));
+    setEditingCheck(null);
+    touch();
+  };
 
   const save = async () => {
     setSaving(true); setError(null);
@@ -109,10 +172,11 @@ export default function VideoBoxesPage() {
         dimensions, content_checks: checks,
       });
       // Take the server's normalized rows back: it assigns ids to new boxes and drops
-      // unnamed ones, so the page would otherwise be showing something that was not saved.
+      // unnamed ones, so the page would otherwise show something that was not saved.
       const spec = res.data?.scoring_spec || {};
       setDimensions(spec.dimensions || []);
       setChecks(spec.content_checks || []);
+      setEditingDim(null); setEditingCheck(null);
       setDirty(false);
       setSavedAt(Date.now());
     } catch (e) {
@@ -170,9 +234,9 @@ export default function VideoBoxesPage() {
       <div className="max-w-3xl mx-auto px-4 py-6">
         <div className="mb-6">
           <p className="text-sm text-gray-600 leading-relaxed">
-            This is your students' report. Every box below is scored out of 10 with a short written
-            rationale — edit a name or a definition in place, and the AI evaluator grades against
-            whatever you write here.
+            This is your students' report. Every box is scored out of 10 with a short written
+            rationale — press <span className="font-semibold text-gray-700">Edit</span> on any card to
+            change its name or what it measures, then Save.
           </p>
           {error && (
             <p className="mt-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-2.5">{error}</p>
@@ -202,50 +266,73 @@ export default function VideoBoxesPage() {
           </span>
         </div>
 
-        {/* ── The student's DimensionCard, with name and definition made editable ── */}
+        {/* ── The student's DimensionCard, read-only, with an Edit button ── */}
         <div className="space-y-4 mb-4">
           {dimensions.map((d, idx) => (
-            <div key={idx} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 group">
-              <div className="flex items-start justify-between mb-3 gap-3">
-                <div className="flex-1 min-w-0">
-                  <input
-                    autoFocus={addedRef.current === `dim-${idx}`}
-                    value={d.name || ''}
-                    onChange={(e) => setDim(idx, 'name', e.target.value)}
-                    placeholder="Box name (e.g. Confidence)"
-                    className="w-full text-base font-bold text-[#222] bg-transparent border border-transparent hover:border-gray-200 focus:border-[#FA6C43] focus:bg-white rounded-lg px-2 py-1 -ml-2 outline-none transition-all placeholder:text-gray-300"
-                  />
-                  <textarea
-                    rows="2"
-                    value={d.definition || ''}
-                    onChange={(e) => setDim(idx, 'definition', e.target.value)}
-                    placeholder="What does this box measure? e.g. 'How composed and assured the speaker appears — steady gaze, grounded posture, a steady voice.'"
-                    className="w-full mt-1 text-xs text-gray-500 leading-relaxed bg-transparent border border-transparent hover:border-gray-200 focus:border-[#FA6C43] focus:bg-white rounded-lg px-2 py-1 -ml-2 outline-none resize-none transition-all placeholder:text-gray-300"
-                  />
-                </div>
-                <div className="text-right shrink-0 flex items-start gap-2">
+            <div
+              key={idx}
+              className={`bg-white rounded-2xl shadow-sm p-5 transition-all ${
+                editingDim === idx ? 'border-2 border-[#FA6C43]' : 'border border-gray-100'
+              }`}
+            >
+              {editingDim === idx ? (
+                <div className="space-y-4">
                   <div>
-                    <span className="text-3xl font-extrabold" style={{ color: PREVIEW_GREY }}>
-                      {sampleFor(idx).toFixed(1)}
-                    </span>
-                    <span className="text-sm text-gray-300 font-bold"> / 10</span>
+                    <label className={LABEL}>Box name</label>
+                    <input
+                      autoFocus
+                      value={d.name || ''}
+                      onChange={(e) => setDim(idx, 'name', e.target.value)}
+                      placeholder="e.g. Confidence"
+                      className={`${FIELD} font-semibold`}
+                    />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeDim(idx)}
-                    title="Delete this box"
-                    className="text-gray-300 hover:text-red-500 p-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                  >
-                    <FaTrash className="text-sm" />
-                  </button>
+                  <div>
+                    <label className={LABEL}>What it measures</label>
+                    <textarea
+                      rows="3"
+                      value={d.definition || ''}
+                      onChange={(e) => setDim(idx, 'definition', e.target.value)}
+                      placeholder="e.g. 'How composed and assured the speaker appears — steady gaze, grounded posture, a steady voice.'"
+                      className={FIELD}
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1.5">
+                      The AI grades against exactly what you write here, and students read it under the box name.
+                    </p>
+                  </div>
+                  <EditActions
+                    deleteLabel="Delete this box"
+                    onDelete={() => removeDim(idx)}
+                    onDone={() => setEditingDim(null)}
+                  />
                 </div>
-              </div>
-              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
-                <div className="h-full rounded-full" style={{ width: `${sampleFor(idx) * 10}%`, background: PREVIEW_GREY }} />
-              </div>
-              <p className="text-sm text-gray-300 italic">
-                The AI writes a short rationale here for each student.
-              </p>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between mb-3 gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-bold text-[#222]">{d.name || <span className="text-gray-300">Untitled box</span>}</h3>
+                      {d.definition
+                        ? <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{d.definition}</p>
+                        : <p className="text-xs text-gray-300 italic mt-0.5">No definition yet — press Edit to describe what this measures.</p>}
+                    </div>
+                    <div className="flex items-start gap-3 shrink-0">
+                      <EditButton label="Edit" onClick={() => { setEditingDim(idx); setEditingCheck(null); }} />
+                      <div className="text-right">
+                        <span className="text-3xl font-extrabold" style={{ color: PREVIEW_GREY }}>
+                          {sampleFor(idx).toFixed(1)}
+                        </span>
+                        <span className="text-sm text-gray-300 font-bold"> / 10</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
+                    <div className="h-full rounded-full" style={{ width: `${sampleFor(idx) * 10}%`, background: PREVIEW_GREY }} />
+                  </div>
+                  <p className="text-sm text-gray-300 italic">
+                    The AI writes a short rationale here for each student.
+                  </p>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -259,49 +346,69 @@ export default function VideoBoxesPage() {
           <FaPlus className="text-xs" /> Add a scoring box
         </button>
 
-        {/* ── Content checks: the student's two-column grid, made editable ── */}
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-bold text-[#222]">Content Checks</h2>
-        </div>
+        {/* ── Content checks: the student's two-column grid ── */}
+        <h2 className="text-base font-bold text-[#222] mb-1">Content Checks</h2>
         <p className="text-xs text-gray-500 mb-3">
           Graded against the transcript — did they actually say it. Students see the name and the
           score; the definition is yours, and only the AI reads it.
         </p>
         <div className="grid sm:grid-cols-2 gap-3 mb-8">
           {checks.map((c, idx) => (
-            <div key={idx} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 group">
-              <div className="flex items-start justify-between mb-2 gap-2">
-                <input
-                  autoFocus={addedRef.current === `check-${idx}`}
-                  value={c.label || ''}
-                  onChange={(e) => setCheck(idx, 'label', e.target.value)}
-                  placeholder="Check name (e.g. Opening hook)"
-                  className="flex-1 min-w-0 text-sm font-bold text-[#222] bg-transparent border border-transparent hover:border-gray-200 focus:border-[#FA6C43] rounded-lg px-2 py-1 -ml-2 outline-none transition-all placeholder:text-gray-300"
-                />
-                <div className="flex items-start gap-1 shrink-0">
-                  <span className="text-2xl font-extrabold" style={{ color: PREVIEW_GREY }}>
-                    {sampleFor(idx + 2).toFixed(1)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeCheck(idx)}
-                    title="Delete this check"
-                    className="text-gray-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                  >
-                    <FaTrash className="text-xs" />
-                  </button>
+            <div
+              key={idx}
+              className={`bg-white rounded-2xl shadow-sm p-4 transition-all ${
+                editingCheck === idx ? 'border-2 border-[#FA6C43]' : 'border border-gray-100'
+              }`}
+            >
+              {editingCheck === idx ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className={LABEL}>Check name</label>
+                    <input
+                      autoFocus
+                      value={c.label || ''}
+                      onChange={(e) => setCheck(idx, 'label', e.target.value)}
+                      placeholder="e.g. Opening hook"
+                      className={`${FIELD} font-semibold`}
+                    />
+                  </div>
+                  <div>
+                    <label className={LABEL}>What satisfies it</label>
+                    <textarea
+                      rows="3"
+                      value={c.description || ''}
+                      onChange={(e) => setCheck(idx, 'description', e.target.value)}
+                      placeholder="e.g. 'Opens with a question, statistic or story rather than a name and title.'"
+                      className={FIELD}
+                    />
+                  </div>
+                  <EditActions
+                    deleteLabel="Delete"
+                    onDelete={() => removeCheck(idx)}
+                    onDone={() => setEditingCheck(null)}
+                  />
                 </div>
-              </div>
-              <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2.5">
-                <div className="h-full rounded-full" style={{ width: `${sampleFor(idx + 2) * 10}%`, background: PREVIEW_GREY }} />
-              </div>
-              <textarea
-                rows="2"
-                value={c.description || ''}
-                onChange={(e) => setCheck(idx, 'description', e.target.value)}
-                placeholder="What satisfies this check?"
-                className="w-full text-xs text-gray-500 leading-relaxed bg-gray-50 border border-transparent hover:border-gray-200 focus:border-[#FA6C43] focus:bg-white rounded-lg px-2 py-1.5 outline-none resize-none transition-all placeholder:text-gray-300"
-              />
+              ) : (
+                <>
+                  <div className="flex items-start justify-between mb-2 gap-2">
+                    <span className="text-sm font-bold text-[#222] min-w-0 flex-1">
+                      {c.label || <span className="text-gray-300">Untitled check</span>}
+                    </span>
+                    <span className="text-2xl font-extrabold shrink-0" style={{ color: PREVIEW_GREY }}>
+                      {sampleFor(idx + 2).toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2.5">
+                    <div className="h-full rounded-full" style={{ width: `${sampleFor(idx + 2) * 10}%`, background: PREVIEW_GREY }} />
+                  </div>
+                  <div className="flex items-end justify-between gap-2">
+                    <p className="text-xs text-gray-400 leading-relaxed min-w-0 flex-1">
+                      {c.description || <span className="text-gray-300 italic">No definition yet.</span>}
+                    </p>
+                    <EditButton label="Edit" onClick={() => { setEditingCheck(idx); setEditingDim(null); }} />
+                  </div>
+                </>
+              )}
             </div>
           ))}
 
