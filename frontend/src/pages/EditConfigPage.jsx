@@ -1,9 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-19
-// @changed   The Test panel gets a room composition dropdown: all-reliable, or one seat that invents
-//            case facts and pushes ACTR to name the answer — the run that shows whether the
-//            facilitator steers a derailed room back.
-//            Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
+// @updated   2026-08-24
+// @changed   Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
+//            (/video-boxes/:configId); the old Advanced row-editor is gone. Saving now returns to the
+//            config list for every bot type instead of dropping the professor inside the config.
+// @changed   Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
 //            plays the whole exercise through and opens the transcript, with past runs listed under it.
 //            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
@@ -18,7 +18,7 @@ import AvatarSelector from '../components/AvatarSelector';
 // those surfaces — a group chat, a video assignment, a lab and the manager exercise
 // each open on their own framing — so both fields are chat-only.
 const isChatLike = (t) => t === 'chat' || t === 'avatar';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask, FaChevronRight } from 'react-icons/fa';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -26,6 +26,7 @@ import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import AdvancedReveal from '../components/AdvancedReveal';
+import FacilitatorAttempts, { DEFAULT_MAX_ATTEMPTS } from '../components/FacilitatorAttempts';
 import useConfigMode from '../hooks/useConfigMode';
 
 // Learning-point presets offered for the manager exercise. Only the KEY is sent —
@@ -209,9 +210,11 @@ const EditConfigPage = () => {
         qualtrics_enabled: !!configFromState.qualtrics_enabled,
         audio_enabled: !!configFromState.audio_enabled,
         hume_config_id: configFromState.hume_config_id || '',
+        // maxAttempts postdates most saved configs, so the spread order matters:
+        // a config without it falls back to the default rather than to undefined.
         facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
-            ? { enabled: false, instruction: '', allowedWidgets: null, presets: [], ...configFromState.facilitator }
-            : { enabled: false, instruction: '', allowedWidgets: null, presets: [] }
+            ? { enabled: false, instruction: '', allowedWidgets: null, presets: [], maxAttempts: DEFAULT_MAX_ATTEMPTS, ...configFromState.facilitator }
+            : { enabled: false, instruction: '', allowedWidgets: null, presets: [], maxAttempts: DEFAULT_MAX_ATTEMPTS }
     });
     
     setInitialDocuments(configFromState.documents || []);
@@ -749,11 +752,10 @@ const EditConfigPage = () => {
 
       await apiClient.put(`/config/${config.config_id}`, formData);
 
-      if (config.bot_type === 'group_chat') navigate(`/group-chat/${config.config_id}`);
-      else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${config.config_id}`);
-      else if (config.bot_type === 'experiential') navigate(`/experiential/c/${config.config_id}`);
-      else if (config.bot_type === 'manager_exercise') navigate(`/manager-exercise/${config.config_id}`);
-      else navigate(`/chat/${config.config_id}`, { state: { fromEdit: true, message: 'Updated successfully.' } });
+      // Back to the list, not into the thing just edited. Saving a config is a
+      // housekeeping act — the professor is usually mid-way through setting several
+      // up, and being dropped into a chat/dashboard meant navigating back every time.
+      navigate('/config_list', { state: { message: 'Updated successfully.' } });
       
     } catch (error) {
       console.error('Error updating config:', error);
@@ -965,6 +967,7 @@ const EditConfigPage = () => {
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart. More coming soon.</p>
+                      <FacilitatorAttempts config={config} setConfig={setConfig} />
                     </div>
                   )}
                 </div>
@@ -996,6 +999,26 @@ const EditConfigPage = () => {
                   onChange={({ assignment_type, scoring_spec }) =>
                     setConfig(prev => ({ ...prev, assignment_type, scoring_spec }))}
                 />
+
+                {/* Simple mode too — the boxes ARE the assignment, so editing them
+                    should not be behind an Advanced toggle. Its own page saves on its
+                    own, hence the warning: this form's Save Changes does not carry it. */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/video-boxes/${config.config_id}`)}
+                  className="mt-4 w-full text-left bg-white border border-gray-200 hover:border-[#FA6C43] rounded-2xl p-4 flex items-center justify-between gap-4 transition-all group"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-gray-800 group-hover:text-[#FA6C43]">Edit boxes</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      {(config.scoring_spec?.dimensions || []).length} scoring boxes,{' '}
+                      {(config.scoring_spec?.content_checks || []).length} content checks — open them as your students see them.
+                    </span>
+                  </span>
+                  <FaChevronRight className="text-gray-300 group-hover:text-[#FA6C43] shrink-0" />
+                </button>
+                <p className="text-[11px] text-gray-400 mt-1.5">Opens its own page and saves there — save any changes here first.</p>
+
                 <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
@@ -1187,7 +1210,6 @@ const EditConfigPage = () => {
                         </div>
                       )}
                     </div>
-
 
                     {/* Group size + the one timed phase. num_students drives group_size. */}
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">
@@ -1670,6 +1692,7 @@ const EditConfigPage = () => {
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1.5">Available widgets: multiple choice, chart, flashcards, timeline, comparison table, mind map, impact map. More coming soon.</p>
+                      <FacilitatorAttempts config={config} setConfig={setConfig} />
                     </div>
                   )}
                 </div>
