@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   F7/S7 ("build the framework") became "state the takeaway": ACTR now states the group's
+# @changed   F7/S7 are finished by the STUDENTS saying what they take away, not by ACTR stating it.
+# @changed   Prior: F7/S7 ("build the framework") became "state the takeaway": ACTR now states the group's
 #            takeaway itself instead of drawing a written procedure out of the students, so their exit
 #            condition is the one exception to "the students have said" — see the note above STEPS and
 #            the evidence field on ADVANCE_TOOL.
@@ -63,9 +64,10 @@ STEPS = [
     ("F6", "failure", "Who is the best candidate?",
      "The students have named which candidate the counts actually favour, reasoning from "
      "the numbers in front of them rather than restating their original pick."),
-    ("F7", "failure", "State the takeaway",
-     "ACTR itself has stated the group's key takeaway from the exercise, tied "
-     "explicitly to the learning outcome — its own line, not a student's."),
+    ("F7", "failure", "Their takeaway",
+     "The STUDENTS have said what they take away from this, in their own words. "
+     "NOT MET by the facilitator stating the lesson, offering one to agree with, or "
+     "summarising their answer back to them."),
     ("S2", "success", "Validate the info",
      "The students have identified which specific shared information drove their correct "
      "choice, establishing that they did not simply guess."),
@@ -81,9 +83,10 @@ STEPS = [
     ("S6", "success", "Synthesize & validate",
      "The full strength-to-concern picture has been assembled and checked against their "
      "original choice — including the lucky-guess pivot if the numbers point elsewhere."),
-    ("S7", "success", "State the takeaway",
-     "ACTR itself has stated the group's key takeaway from the exercise, tied "
-     "explicitly to the learning outcome — its own line, not a student's."),
+    ("S7", "success", "Their takeaway",
+     "The STUDENTS have said what they take away from this, in their own words. "
+     "NOT MET by the facilitator stating the lesson, offering one to agree with, or "
+     "summarising their answer back to them."),
 ]
 
 STEP_IDS = [sid for sid, _, _, _ in STEPS]
