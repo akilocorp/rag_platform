@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   AI grading analysis scores each professor-named criterion separately and averages them class-wide.
+# @updated   2026-08-24
+# @changed   GET/PUT /video/config/<id>/scoring-spec: the rubric on its own, for the visual box editor.
+#            The generic PUT /config/<id> rebuilds the whole doc from the edit form, so a boxes-only
+#            page saving through it would blank bot_name, instructions and documents. Also extracted
+#            `_effective_spec` (preset + prof overrides) so rescore and the editor cannot disagree.
+# @changed   Prior: AI grading analysis scores each professor-named criterion separately and averages them class-wide.
 """Video-upload analysis HTTP API.
 
 Reuses existing platform patterns: optional-JWT identity resolution (audio.py),
@@ -84,6 +88,58 @@ def _user_email(user_id):
         return (u or {}).get('email')
     except Exception:
         return None
+
+
+# The keys a professor may override on top of the code preset. Anything else in
+# the preset (and anything the professor never touched) is left as the registry
+# defines it, so a config saved before a preset gained a field still gets it.
+_SPEC_OVERRIDES = ("submetric_weights", "composite_weights", "feedback_prompt_template",
+                   "dimensions", "content_checks", "target_duration_sec")
+
+
+def _effective_spec(config, assignment_type=None):
+    """The scoring spec actually in force for a config: its assignment type's preset
+    with whatever the professor has overridden on the config doc laid over the top.
+
+    Extracted because rescore and the rubric editor must agree on what "the spec"
+    means — two copies of this merge is how a box edited in one place fails to show
+    up in the other.
+    """
+    spec = registry.get_default_spec(assignment_type or config.get("assignment_type") or "")
+    stored = config.get("scoring_spec")
+    if isinstance(stored, dict):
+        for key in _SPEC_OVERRIDES:
+            if stored.get(key):
+                spec[key] = stored[key]
+    return spec
+
+
+def _slug(text, fallback):
+    s = re.sub(r'[^a-z0-9]+', '_', (text or '').lower()).strip('_')
+    return s or fallback
+
+
+def _clean_rubric_rows(rows, title_key, body_key, prefix):
+    """Normalize submitted boxes/checks into storable rows.
+
+    Ids are PRESERVED when the client sends one, because `video_scores` documents
+    join back to a box by id — regenerating it from a renamed box would orphan every
+    score already on file. A new row gets a slug of its title, de-duplicated, and a
+    row with a blank title is dropped rather than stored as an unnamed box.
+    """
+    out, seen = [], set()
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        title = (row.get(title_key) or '').strip()
+        if not title:
+            continue
+        rid = (row.get('id') or '').strip() or _slug(title, f"{prefix}_{i + 1}")
+        while rid in seen:
+            rid = f"{rid}_2"
+        seen.add(rid)
+        out.append({"id": rid, title_key: title, body_key: (row.get(body_key) or '').strip()})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -525,22 +581,7 @@ def rescore(sub_id):
     if not collected:
         return jsonify({"error": "No collected data to score yet"}), 400
 
-    spec = registry.get_default_spec(sub.get("assignment_type") or "")
-    if isinstance(_config.get("scoring_spec"), dict):
-        stored = _config["scoring_spec"]
-        if stored.get("submetric_weights"):
-            spec["submetric_weights"] = stored["submetric_weights"]
-        if stored.get("composite_weights"):
-            spec["composite_weights"] = stored["composite_weights"]
-        if stored.get("feedback_prompt_template"):
-            spec["feedback_prompt_template"] = stored["feedback_prompt_template"]
-        if stored.get("dimensions"):
-            spec["dimensions"] = stored["dimensions"]
-        if stored.get("content_checks"):
-            spec["content_checks"] = stored["content_checks"]
-        if stored.get("target_duration_sec"):
-            spec["target_duration_sec"] = stored["target_duration_sec"]
-    scoring_spec = spec
+    scoring_spec = _effective_spec(_config, sub.get("assignment_type"))
     openai_key = current_app.config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     score_doc = score_submission(sub, collected, scoring_spec, openai_key)
     db['video_scores'].replace_one({"submission_id": sub_id}, score_doc, upsert=True)
@@ -552,6 +593,48 @@ def rescore(sub_id):
 # ---------------------------------------------------------------------------
 # Professor dashboard
 # ---------------------------------------------------------------------------
+
+@video_bp.route('/video/config/<config_id>/scoring-spec', methods=['GET', 'PUT'])
+def scoring_spec_endpoint(config_id):
+    """Read and write ONLY the rubric half of a video config.
+
+    Deliberately not `PUT /config/<id>`: that route rebuilds the whole document from
+    the edit form — bot_name, instructions, model, documents and all — so a page that
+    knows about nothing but boxes cannot save through it without blanking everything
+    it did not send. This touches `scoring_spec` and leaves the rest of the doc alone.
+
+    GET returns the EFFECTIVE spec (preset + overrides), which is what the students'
+    reports are actually built from, so the editor opens on the real thing rather
+    than on an empty override.
+    """
+    config, err = _require_config_owner(config_id)
+    if err:
+        return err
+
+    spec = _effective_spec(config)
+
+    if request.method == 'GET':
+        return jsonify({
+            "bot_name": config.get('bot_name', ''),
+            "assignment_type": config.get('assignment_type', ''),
+            "scoring_spec": spec,
+        })
+
+    body = request.get_json(silent=True) or {}
+    dims, checks = body.get('dimensions'), body.get('content_checks')
+    if not isinstance(dims, list) or not isinstance(checks, list):
+        return jsonify({"error": "dimensions and content_checks must both be lists"}), 400
+
+    clean_dims = _clean_rubric_rows(dims, 'name', 'definition', 'dim')
+    if not clean_dims:
+        return jsonify({"error": "Keep at least one scoring box — the student's report is built from them."}), 400
+
+    spec['dimensions'] = clean_dims
+    spec['content_checks'] = _clean_rubric_rows(checks, 'label', 'description', 'check')
+    current_app.config['MONGO_DB']['config_collections'].update_one(
+        {'_id': ObjectId(config_id)}, {'$set': {'scoring_spec': spec}})
+    return jsonify({"ok": True, "scoring_spec": spec})
+
 
 @video_bp.route('/video/config/<config_id>/submissions', methods=['GET'])
 def list_submissions(config_id):

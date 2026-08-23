@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-12  @changed Added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. Prior: added the public /userguide routes. */
+/* @language JSX  @updated 2026-08-24  @changed Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -29,6 +29,7 @@ import VideoUploadPage from './pages/VideoUploadPage';
 import VideoResultsPage from './pages/VideoResultsPage';
 import VideoComparePage from './pages/VideoComparePage';
 import VideoDashboardPage from './pages/VideoDashboardPage';
+import VideoBoxesPage from './pages/VideoBoxesPage';
 import JoinPage from './pages/JoinPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
 import ExperientialPage from './pages/ExperientialPage';
@@ -158,6 +159,9 @@ function App() {
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />
             <Route path="/video-dashboard/:configId" element={<VideoDashboardPage />} />
+            {/* The rubric editor, shown as the report a student gets. Professor-only:
+                it writes the scoring spec every submission is graded against. */}
+            <Route path="/video-boxes/:configId" element={<VideoBoxesPage />} />
             <Route path="/experiential-dashboard/:configId" element={<ExperientialDashboardPage />} />
             {/* A test run's transcript. Professor-only: it carries the case
                 pack's answer key in the open, which is the one thing a student

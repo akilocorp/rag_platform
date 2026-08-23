@@ -1,8 +1,11 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-23
-// @changed   Add drag-and-drop rubric-document import — AI builds the scoring spec from a prof's doc.
+// @updated   2026-08-24
+// @changed   Dropped the scoring-box and content-check row editors; both now live on the visual
+//            /video-boxes/:configId page, which shows them as the student's own report. What is
+//            left here is the rubric-doc dropzone, the assignment-type picker and the grading prompt.
+// @changed   Prior: Add drag-and-drop rubric-document import — AI builds the scoring spec from a prof's doc.
 import React, { useEffect, useRef, useState } from 'react';
-import { FaTrash, FaPlus, FaFileUpload, FaSpinner } from 'react-icons/fa';
+import { FaFileUpload, FaSpinner } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import AdvancedReveal from './AdvancedReveal';
 
@@ -15,13 +18,16 @@ import AdvancedReveal from './AdvancedReveal';
  * scoring agent reads whichever signals (delivery report and/or transcript) are
  * relevant to each definition — there is no per-source picker by design. Each
  * box renders on the results page as a score /10 + a one-paragraph rationale.
+ * They are EDITED on `pages/VideoBoxesPage.jsx` (/video-boxes/:configId), not
+ * here: a preset picker that also let you rewrite the preset was the confusing
+ * part, and the boxes only make sense next to the report they produce.
  *
  * Props:
  *   assignmentType : string
  *   scoringSpec    : object | null
  *   onChange({ assignment_type, scoring_spec })
  *   advanced       : boolean — when false (faculty Simple mode) only the
- *                    assignment-type picker shows; the editable rubric is hidden.
+ *                    assignment-type picker shows; the grading prompt is hidden.
  *   onMeta({ bot_name, introduction }) : optional — fired after a rubric-doc
  *                    import so the wizard can prefill class name / intro.
  */
@@ -85,38 +91,8 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
   };
 
   const spec = scoringSpec || {};
-  const dimensions = spec.dimensions || [];
-  const checks = spec.content_checks || [];
 
   const patch = (next) => onChange({ assignment_type: assignmentType, scoring_spec: { ...spec, ...next } });
-
-  // --- dimensions (scoring boxes) ---
-  const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const setDim = (idx, field, val) => {
-    const d = dimensions.map((x, i) => {
-      if (i !== idx) return x;
-      const next = { ...x, [field]: val };
-      // keep id in sync with the name unless it was already a stable slug the
-      // user typed against; regenerate from name so it stays human-readable.
-      if (field === 'name') next.id = slug(val) || x.id || `dim_${idx + 1}`;
-      return next;
-    });
-    patch({ dimensions: d });
-  };
-  const addDim = () =>
-    patch({ dimensions: [...dimensions, { id: `dim_${dimensions.length + 1}`, name: '', definition: '' }] });
-  const removeDim = (idx) =>
-    patch({ dimensions: dimensions.filter((_, i) => i !== idx) });
-
-  // --- content checks ---
-  const setCheck = (idx, field, val) => {
-    const c = checks.map((x, i) => (i === idx ? { ...x, [field]: val } : x));
-    patch({ content_checks: c });
-  };
-  const addCheck = () =>
-    patch({ content_checks: [...checks, { id: `check_${checks.length + 1}`, label: '', description: '' }] });
-  const removeCheck = (idx) =>
-    patch({ content_checks: checks.filter((_, i) => i !== idx) });
 
   if (loading) {
     return <p className="text-sm text-gray-500 text-center py-8">Loading assignment types…</p>;
@@ -148,12 +124,12 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
             <p className="text-sm font-semibold text-gray-700 flex items-center justify-center gap-2">
               <FaFileUpload className="text-[#FA6C43]" /> Drop your rubric or metrics document here
             </p>
-            <p className="text-xs text-gray-400 mt-1">docx, pdf, txt or md — AI turns it into scoring boxes, content checks and a grading prompt you can edit below.</p>
+            <p className="text-xs text-gray-400 mt-1">docx, pdf, txt or md — AI turns it into scoring boxes, content checks and a grading prompt. Review the boxes on the Edit boxes page.</p>
           </>
         )}
         {importNote && !importing && (
           <p className="text-xs text-green-600 mt-2">
-            Imported “{importNote.name}” — {importNote.boxes} scoring boxes, {importNote.checks} content checks. Review below.
+            Imported “{importNote.name}” — {importNote.boxes} scoring boxes, {importNote.checks} content checks. Save, then review them under Edit boxes.
           </p>
         )}
         {importError && !importing && <p className="text-xs text-red-500 mt-2">{importError}</p>}
@@ -175,48 +151,13 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
         })()}
       </div>
 
-      {/* Rubric detail is Advanced-only — Simple mode stops at the preset above. */}
+      {/* Rubric detail is Advanced-only — Simple mode stops at the preset above.
+          The boxes and content checks used to be edited here as grey form rows; they
+          now live on /video-boxes/:configId, which shows them as the report the
+          student actually receives. Editing them in two places would have meant two
+          sets of add/delete handlers writing the same spec. */}
       <AdvancedReveal show={advanced}>
       <div className="space-y-6">
-
-      {/* Scoring boxes (dimensions) */}
-      <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider">Scoring Boxes</h3>
-          <button type="button" onClick={addDim} className="text-xs font-bold text-[#FA6C43] flex items-center gap-1 hover:underline">
-            <FaPlus className="text-[10px]" /> Add box
-          </button>
-        </div>
-        <p className="text-xs text-gray-500 mb-4">
-          Each box is scored out of 10 with a short written rationale. Name it and describe what it measures —
-          the AI evaluator decides which signals (body language, voice, transcript) to use from your description.
-        </p>
-        <div className="space-y-3">
-          {dimensions.map((d, idx) => (
-            <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3">
-              <div className="flex gap-2 items-start">
-                <div className="flex-1 space-y-2">
-                  <input
-                    value={d.name || ''} onChange={(e) => setDim(idx, 'name', e.target.value)}
-                    placeholder="Box name (e.g. Confidence)"
-                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:border-[#FA6C43]"
-                  />
-                  <textarea
-                    rows="2"
-                    value={d.definition || ''} onChange={(e) => setDim(idx, 'definition', e.target.value)}
-                    placeholder="What does this box measure? e.g. 'How composed and assured the speaker appears — steady gaze, grounded posture, controlled gestures, a steady voice.'"
-                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-[#FA6C43]"
-                  />
-                </div>
-                <button type="button" onClick={() => removeDim(idx)} className="text-gray-400 hover:text-red-500 p-2">
-                  <FaTrash className="text-sm" />
-                </button>
-              </div>
-            </div>
-          ))}
-          {dimensions.length === 0 && <p className="text-xs text-gray-400">No scoring boxes — add at least one (e.g. Confidence, Competence, Passion).</p>}
-        </div>
-      </div>
 
       {/* Grading prompt */}
       <div>
@@ -229,38 +170,6 @@ export default function VideoScoringEditor({ assignmentType, scoringSpec, onChan
           className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-[#FA6C43] outline-none"
           placeholder="E.g. 'You are a strict pitch-competition judge. Reward explicit clarity; penalize vague or implied content. Poor delivery should drag the overall score down even if the content is solid.'"
         />
-      </div>
-
-      {/* Content checks */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-[13px] font-semibold text-gray-700">Content Checks <span className="font-normal text-gray-400">(checked against the transcript)</span></label>
-          <button type="button" onClick={addCheck} className="text-xs font-bold text-[#FA6C43] flex items-center gap-1 hover:underline">
-            <FaPlus className="text-[10px]" /> Add check
-          </button>
-        </div>
-        <div className="space-y-2">
-          {checks.map((c, idx) => (
-            <div key={idx} className="flex gap-2 items-start bg-white border border-gray-100 rounded-xl p-3">
-              <div className="flex-1 space-y-2">
-                <input
-                  value={c.label || ''} onChange={(e) => setCheck(idx, 'label', e.target.value)}
-                  placeholder="Label (e.g. Opening hook)"
-                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
-                />
-                <input
-                  value={c.description || ''} onChange={(e) => setCheck(idx, 'description', e.target.value)}
-                  placeholder="What satisfies this check?"
-                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-[#FA6C43]"
-                />
-              </div>
-              <button type="button" onClick={() => removeCheck(idx)} className="text-gray-400 hover:text-red-500 p-2">
-                <FaTrash className="text-sm" />
-              </button>
-            </div>
-          ))}
-          {checks.length === 0 && <p className="text-xs text-gray-400">No content checks — scoring relies on the boxes and grading prompt only.</p>}
-        </div>
       </div>
 
       </div>

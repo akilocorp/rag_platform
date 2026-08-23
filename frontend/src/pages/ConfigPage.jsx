@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-16
-// @changed   Case Materials upload boxes now accept drag-and-drop (General Info, Candidate Summary,
+// @updated   2026-08-24
+// @changed   Publishing a new config returns to the config list instead of opening the config itself,
+//            matching the edit page. Video rubric boxes are edited on /video-boxes/:configId afterwards.
+// @changed   Prior: Case Materials upload boxes now accept drag-and-drop (General Info, Candidate Summary,
 //            candidate-outcome and role-packet adders) with an orange drop-target highlight.
 //            Prior: New Claude bots default the facilitator toggle ON (opt-out): initial state enabled, the model
 //            picker syncs enabled=isClaude until the professor touches the toggle.
@@ -827,17 +829,10 @@ const ConfigModal = ({ isOpen, onClose }) => {
       });
       const newConfigId = response.data.data._id;
       
-      if (configToSend.bot_type === 'group_chat') {
-        navigate(`/group-chat/${newConfigId}`);
-      } else if (configToSend.bot_type === 'video_analysis') {
-        navigate(`/video-dashboard/${newConfigId}`);
-      } else if (configToSend.bot_type === 'experiential') {
-        navigate(`/experiential/c/${newConfigId}`);
-      } else if (configToSend.bot_type === 'manager_exercise') {
-        navigate(`/manager-exercise/${newConfigId}`);
-      } else {
-        navigate(`/chat/${newConfigId}`);
-      }
+      // Back to the list rather than into the new config: the professor has just
+      // finished a setup task and the list is where the next one starts. It also
+      // matches what Save Changes on the edit page now does.
+      navigate('/config_list');
       
       if (onClose) onClose();
 
