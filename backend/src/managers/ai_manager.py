@@ -3,7 +3,9 @@
 # @changed   _ADVANCE_SYSTEM and _PROGRESS_SYSTEM both carry a named exception for F7/S7 / takeaway_stated
 #            ("state the takeaway"): that move/objective is satisfied by the facilitator's own line, not
 #            a student's, since steps.py and progress.py now define it as ACTR stating the takeaway itself.
-# @changed   Prior: The close directive is handed the step too, so it cannot point past a step the gate has
+# @changed   Prior: `facilitator_reply` takes `recent_student_msgs` and renders the pushback guard: a student
+#            demanding the answer now gets refused out loud in the same turn instead of talked past.
+#            Prior: The close directive is handed the step too, so it cannot point past a step the gate has
 #            not cleared.
 #            Prior: The step gate: `facilitator_reply` takes the room's current step, renders it into the turn
 #            brief, and rules on any forward move via `judge_step_advance` before it is allowed. A refused
@@ -68,6 +70,7 @@ import re
 
 from src.managers.facilitator_prompt import (
     build_facilitator_system,
+    render_pushback_guard,
     render_repeat_guard,
     render_turn_brief,
 )
@@ -645,7 +648,8 @@ def _gated(system, user, result, current_step, transcript):
 
 def facilitator_reply(config, roster, group_size, transcript_summary, chosen_name=None,
                       turn_context=None, solo_spread=None, recent_asks=None,
-                      outcome_text=None, progress=None, step=None, full_transcript=None):
+                      outcome_text=None, progress=None, step=None, full_transcript=None,
+                      recent_student_msgs=None):
     """A reactive facilitator turn during the debrief.
 
     Returns `{"message": str|None, "go_around": bool, "ended": bool, "reasoning": str}`
@@ -663,8 +667,10 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     `solo_spread` is the anonymous round-0 tally; see `render_solo_spread`.
 
     `recent_asks` is ACTR's own last few turns, used to detect that it is about to ask
-    the same question a third time. `outcome_text` is the full outcome document the room
-    read — pinned into every turn rather than left to survive in the rolling transcript
+    the same question a third time. `recent_student_msgs` is the mirror image — the room
+    minus ACTR — and feeds the pushback guard, which catches the turn where a student has
+    demanded the answer so it gets refused rather than talked past. `outcome_text` is the
+    full outcome document the room read — pinned into every turn rather than left to survive in the rolling transcript
     window, because ACTR cites it when ruling on what the group should have seen and a
     long debrief will eventually push it out.
 
@@ -734,6 +740,11 @@ def facilitator_reply(config, roster, group_size, transcript_summary, chosen_nam
     )
     if repeat_guard:
         blocks.append(repeat_guard)
+    # Last block before the TASK, and after the repeat guard on purpose: a refusal is not
+    # a repeat, so if both fire the "answer them" directive is the one read most recently.
+    pushback_guard = render_pushback_guard(recent_student_msgs)
+    if pushback_guard:
+        blocks.append(pushback_guard)
     blocks.append("\n".join(task))
 
     user = "\n\n".join(blocks)
