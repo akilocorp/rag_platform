@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-16
-// @changed   Card no longer shows a hover lift/border/shadow or pointer cursor — the card body looked
+// @updated   2026-08-24
+// @changed   The Private/Shared tab, the category and the grid/list layout are remembered in
+//            localStorage. Opening a config unmounts this page, so a professor working through their
+//            Shared classes was dropped back onto Private after every single edit.
+// @changed   Prior: Card no longer shows a hover lift/border/shadow or pointer cursor — the card body looked
 //            clickable when only the buttons (icons, Customize, primary action) are. The copy-select
 //            onClick/onHover handlers stay (Ctrl+C target); just the affordance is gone.
 //            Prior: Categories sidebar gained Labs (experiential) and Exercises (manager_exercise), carved out of
@@ -39,6 +42,34 @@ const primaryActionLabel = (botType) => {
 // student dashboard and the join page route to the same places.
 const directStudentLink = (config) =>
   `${window.location.origin}${studentPathFor(config.bot_type, config.config_id)}`;
+
+// --- Remembered dashboard filters ---------------------------------------------
+// Which tab / category / layout the professor was last on. Kept in localStorage
+// (the same store `useConfigMode` uses for Simple-vs-Advanced) so it survives the
+// unmount that happens every time they open a config and come back.
+const VISIBILITY_KEY = 'configListVisibility';
+const CATEGORY_KEY = 'configListCategory';
+const VIEW_KEY = 'configListView';
+
+// Reads are validated against the allowed values, not trusted: a stale key from an
+// older build (or a hand-edited one) would otherwise filter the list down to nothing
+// with no way to see why.
+const readStored = (key, allowed, fallback) => {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v) ? v : fallback;
+  } catch {
+    return fallback;   // private-mode browsers throw on access
+  }
+};
+
+const writeStored = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* not worth surfacing — the page works, it just will not remember */
+  }
+};
 
 // --- Clipboard transfer -------------------------------------------------------
 // Ctrl+C puts one readable line on the clipboard. The payload is a server-minted
@@ -525,10 +556,17 @@ const ConfigListPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Dashboard view state
-  const [visibility, setVisibility] = useState('private'); // 'private' | 'shared'
-  const [category, setCategory] = useState('all');          // 'all' | 'text' | 'video'
-  const [view, setView] = useState('grid');                 // 'grid' | 'list'
+  // Dashboard view state. Restored from the last visit rather than reset: editing a
+  // config leaves this page and comes back to a fresh mount, so a professor working
+  // through their Shared classes was dropped back on Private after every single edit.
+  // Wrapped in try/catch because localStorage throws outright in some privacy modes.
+  const [visibility, setVisibility] = useState(() => readStored(VISIBILITY_KEY, ['private', 'shared'], 'private'));
+  const [category, setCategory] = useState(() => readStored(CATEGORY_KEY, ['all', 'text', 'video'], 'all'));
+  const [view, setView] = useState(() => readStored(VIEW_KEY, ['grid', 'list'], 'grid'));
+
+  useEffect(() => { writeStored(VISIBILITY_KEY, visibility); }, [visibility]);
+  useEffect(() => { writeStored(CATEGORY_KEY, category); }, [category]);
+  useEffect(() => { writeStored(VIEW_KEY, view); }, [view]);
 
   // State to manage modal visibilities
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
