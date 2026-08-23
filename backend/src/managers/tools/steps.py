@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   WINNER_STEPS / FINAL_STEPS / reached(): the ordering the close directive has to respect,
+# @updated   2026-08-23
+# @changed   F7/S7 ("build the framework") became "state the takeaway": ACTR now states the group's
+#            takeaway itself instead of drawing a written procedure out of the students, so their exit
+#            condition is the one exception to "the students have said" — see the note above STEPS and
+#            the evidence field on ADVANCE_TOOL.
+# @changed   Prior: WINNER_STEPS / FINAL_STEPS / reached(): the ordering the close directive has to respect,
 #            so it can no longer tell ACTR to converge on the SOP while the gate still has the room
 #            before the count and the winner.
 #            Prior: New: the two tracks as data, plus a forced `advance_step` gate. ACTR had no idea which step
@@ -35,7 +39,9 @@ SKIPPING IS ALLOWED, BUT NEVER SILENTLY
 # id → (track, name, what must be TRUE of the transcript before this step may be left).
 # The exit conditions are written as observations about what the STUDENTS have said,
 # never about what the facilitator has asked, because a step is finished by the room
-# doing the work and not by ACTR raising the topic.
+# doing the work and not by ACTR raising the topic. F7/S7 are the one exception: that
+# step's whole point is ACTR stating the takeaway itself, so its exit condition is
+# satisfied by the facilitator's own line.
 STEPS = [
     ("F1", "failure", "Open & the filter",
      "Every student has answered whether they could have seen it coming."),
@@ -57,9 +63,9 @@ STEPS = [
     ("F6", "failure", "Who is the best candidate?",
      "The students have named which candidate the counts actually favour, reasoning from "
      "the numbers in front of them rather than restating their original pick."),
-    ("F7", "failure", "Build the framework",
-     "The students have produced a numbered, executable procedure and it has been tied "
-     "back to the learning outcome."),
+    ("F7", "failure", "State the takeaway",
+     "ACTR itself has stated the group's key takeaway from the exercise, tied "
+     "explicitly to the learning outcome — its own line, not a student's."),
     ("S2", "success", "Validate the info",
      "The students have identified which specific shared information drove their correct "
      "choice, establishing that they did not simply guess."),
@@ -75,9 +81,9 @@ STEPS = [
     ("S6", "success", "Synthesize & validate",
      "The full strength-to-concern picture has been assembled and checked against their "
      "original choice — including the lucky-guess pivot if the numbers point elsewhere."),
-    ("S7", "success", "Build the framework",
-     "The students have reverse-engineered a concrete procedure and it has been tied back "
-     "to the learning outcome."),
+    ("S7", "success", "State the takeaway",
+     "ACTR itself has stated the group's key takeaway from the exercise, tied "
+     "explicitly to the learning outcome — its own line, not a student's."),
 ]
 
 STEP_IDS = [sid for sid, _, _, _ in STEPS]
@@ -117,10 +123,10 @@ def is_forward(current, proposed):
     return order.index(proposed) > order.index(current)
 
 
-# The two milestones the SOP is not allowed to arrive before. The close directive reads
-# these: the whole exercise turns on the students counting for themselves and then saying
-# aloud who the counts favour, and a procedure written before either has happened is a
-# procedure for a comparison they never made.
+# The two milestones the takeaway is not allowed to arrive before. The close directive
+# reads these: the whole exercise turns on the students counting for themselves and then
+# saying aloud who the counts favour, and a takeaway stated before either has happened is
+# a lesson about a comparison they never made.
 WINNER_STEPS = {"F6", "S6"}
 FINAL_STEPS = {"F7", "S7"}
 
@@ -209,8 +215,10 @@ ADVANCE_TOOL = {
             "evidence": {
                 "type": "string",
                 "description": (
-                    "When approving: the student line that satisfies the exit condition. "
-                    "It must be a STUDENT line. If you cannot quote one, do not approve."
+                    "When approving: the line that satisfies the exit condition. It must "
+                    "be a STUDENT line, EXCEPT when entering F7/S7 ('state the takeaway') "
+                    "— that step's exit condition is the facilitator's own line, so quote "
+                    "ACTR's stated reason instead. If you cannot quote one, do not approve."
                 ),
             },
             "missing": {
