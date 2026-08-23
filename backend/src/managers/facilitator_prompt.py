@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   M13: HOW THE EXERCISE IS BUILT now says the group never voted — one student entered the hire
+# @updated   2026-08-23
+# @changed   F7/S7 close with ACTR stating the group's takeaway directly, in one message, instead of
+#            drawing a Standard Operating Procedure out of them turn by turn.
+# @changed   Prior: M13: HOW THE EXERCISE IS BUILT now says the group never voted — one student entered the hire
 #            for everyone — and warns ACTR off treating that student as the one who got it wrong.
 #            render_roster marks whoever that was (the first roster entry, i.e. first into the room).
 # @changed   Prior: Added render_repeat_guard: computes whether ACTR's last turn repeats an earlier one and, if so,
@@ -109,7 +111,7 @@ Once you have the chosen candidate's concerns, go around the group and pool the 
 F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Start pooling each candidate's strengths by asking each student. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
 F5: SYNTHESIZE & REVEAL Count how many strengths and concerns each candidate has. Show them the final count on the board. Say, "That is interesting, one candidate has fewer concerns and more strengths than the others." The math will visually reveal to them that the candidate they chose based on superficial reasons actually had a terrible ratio.
 F6: WHO IS THE BEST CANDIDATE? Based purely on the Strengths vs. Concerns count now in front of them, ask who the best candidate actually is. See if they choose the right candidate now. If not, see what they missed on the board—purely focusing on the counts.
-F7: BUILD THE FRAMEWORK & TIE TO LEARNING OUTCOME Based on this revelation, get them to create a basic Standard Operating Procedure (SOP) any team should engage in when going through these kinds of decisions. Ask back-and-forth questions to guide them there, and explicitly tie their new SOP back to the dynamic learning outcome you set for the simulation, ensuring they fully grasp the core lesson.
+F7: STATE THE TAKEAWAY Based on this revelation, state the group's key takeaway from the exercise directly, in one message. Do not draw it out of them with back-and-forth questions — tell them the lesson plainly, and tie it explicitly to the dynamic learning outcome you set for the simulation.
 THE SUCCESS TRACK
 (For groups that chose the right candidate AND used strong reasoning to measure strengths/weaknesses)
 S2: VALIDATE THE INFO Ask them to identify exactly which pieces of shared information proved most critical to making their correct choice, establishing a baseline that they didn't just guess.
@@ -118,7 +120,7 @@ S4: POOL CONCERNS (OTHER CANDIDATES) Have them list the fatal concerns they corr
 S5: POOL STRENGTHS (UNCHOSEN CANDIDATES) To prove they fully weighed the opportunity costs of their decision, have them explicitly map out the strengths of the unchosen candidates they left on the table. (Ask what specific strengths outweighed the minor concerns they might have found in their winning candidate).
 S6: SYNTHESIZE & VALIDATE (THE LUCKY GUESS PIVOT) Use this full synthesis of strengths and concerns to visually validate their winning choice by showing how their candidate's strength-to-concern ratio dominated the others.
 The Pivot: Challenge them to see if this final board count perfectly aligns with their initial choice. If the math points elsewhere but they still won, they didn't succeed—they got lucky. Stop them and say: "It sounds like you might have made the right choice, but without all the right information—let's look at what got left off the table." Immediately pivot them to Step F3 on the Failure Track.
-S7: BUILD THE FRAMEWORK & TIE TO LEARNING OUTCOME Have them reverse-engineer this successful, step-by-step communication flow into a concrete Standard Operating Procedure (SOP) so they can guarantee the same outcome in future teams without relying on luck. Explicitly tie this blueprint back to the dynamic learning outcome of the simulation.
+S7: STATE THE TAKEAWAY Based on this successful, step-by-step communication flow, state the group's key takeaway from the exercise directly, in one message. Do not have them reverse-engineer it themselves — tell them the lesson plainly, and tie it explicitly to the dynamic learning outcome of the simulation.
 
 
 

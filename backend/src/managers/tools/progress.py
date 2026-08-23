@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   The close directive is now STEP-AWARE and no longer forbids the count. It used to tell a
+# @updated   2026-08-23
+# @changed   `procedure_written` retired the written-procedure requirement: F7/S7 now close with ACTR
+#            stating the group's takeaway itself, so this milestone is met by the facilitator's own line
+#            (the one exception among the four — see PROGRESS_TOOL's description and evidence field).
+# @changed   Prior: The close directive is now STEP-AWARE and no longer forbids the count. It used to tell a
 #            room three-of-four done to converge on the SOP and "do not chase a more precise count",
 #            which is how a debrief reached the procedure before anyone had said a number aloud.
 #            `best_identified` also now requires the naming to rest on tallies the students said.
@@ -64,18 +67,21 @@ MILESTONES = [
      "that what only one person held went unsaid. "
      "NOT MET if only the facilitator has said this, or if the students have merely "
      "admitted they 'rushed' or 'should have talked more'."),
-    ("procedure_written",
-     "The students have produced a concrete, numbered procedure another team could follow. "
-     "NOT MET for vague principles — 'communicate more', 'actually listen' — however many "
-     "of them are numbered. Each step must be something a person could execute."),
+    ("takeaway_stated",
+     "ACTR itself has stated the group's key takeaway from the exercise, tied explicitly "
+     "to the learning outcome. Unlike the other three, this one is met by the "
+     "FACILITATOR's own line, not a student's — NOT MET while ACTR is still drawing "
+     "questions out of the group instead of stating the lesson directly."),
 ]
 
 PROGRESS_TOOL = {
     "name": "check_progress",
     "description": (
-        "Judge which of the debrief's learning objectives the STUDENTS have actually "
-        "reached, using only what they themselves have said. Be strict: an objective the "
-        "facilitator stated on their behalf has not been met."
+        "Judge which of the debrief's learning objectives have actually been reached. "
+        "For profile_understood, best_identified and mechanism_understood, use only what "
+        "the STUDENTS themselves have said — an objective the facilitator stated on their "
+        "behalf has not been met. takeaway_stated is the one exception: it is ACTR's own "
+        "final act, met once the facilitator has stated the takeaway itself."
     ),
     "input_schema": {
         "type": "object",
@@ -95,8 +101,11 @@ PROGRESS_TOOL = {
                         "evidence": {
                             "type": "string",
                             "description": (
-                                "The student's own words that establish it. Must be a "
-                                "STUDENT line, never the facilitator's."
+                                "The line that establishes it. For profile_understood, "
+                                "best_identified and mechanism_understood this must be a "
+                                "STUDENT line, never the facilitator's. For "
+                                "takeaway_stated, quote the facilitator's own takeaway "
+                                "line instead."
                             ),
                         },
                     },
@@ -234,8 +243,8 @@ def render_close_directive(progress, step=None):
         return (
             "THE GROUP HAS GOT THERE. All four learning objectives are met: they have "
             "compared the candidates in their own words, named which one the information "
-            "favours, said why their first decision went the way it did, and written a "
-            "procedure down.\n"
+            "favours, said why their first decision went the way it did, and heard your "
+            "takeaway.\n"
             "LAND THE SESSION NOW. Do not open a new line of enquiry and do not ask one "
             "more interesting question. Rooms run on a clock and a room cut off by the "
             "timer loses its ending. Write your closing turn and set `ended` true. Do not "
