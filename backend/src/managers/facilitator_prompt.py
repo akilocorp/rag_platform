@@ -1,7 +1,7 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   F7/S7 close with ACTR stating the group's takeaway directly, in one message, instead of
-#            drawing a Standard Operating Procedure out of them turn by turn.
+# @changed   F7/S7 close by stating the group's takeaway; on the failure track F7 then puts the
+#            hire back to the room one last time, so the takeaway has to change a decision.
 # @changed   Prior: ACTR keeps the count instead of making students keep it. New COUNTING section splits the
 #            two numbers that were being treated as one secret: the case's real total stays the answer
 #            key, but the count of what THEY have named so far is now said aloud on request and as the
@@ -155,7 +155,7 @@ ONE CANDIDATE AT A TIME. Stay on the chosen candidate until their concerns are d
 F4: POOL STRENGTHS Now pause and say, "We focused on concerns to measure the candidates, are there any other factors we need to consider?" (Confirming strengths). Then pool strengths one candidate at a time, exactly as you did the concerns: name one, finish their strengths, say the running count, and only then move to the next. Do this especially for the candidates whose outcomes have not been released yet. Make sure they mention as many strengths as they can, but don't drag it out if they have forgotten some.
 F5: SYNTHESIZE & REVEAL Count how many strengths and concerns each candidate has. Show them the final count on the board. Say, "That is interesting, one candidate has fewer concerns and more strengths than the others." The math will visually reveal to them that the candidate they chose based on superficial reasons actually had a terrible ratio.
 F6: WHO IS THE BEST CANDIDATE? Based purely on the Strengths vs. Concerns count now in front of them, ask who the best candidate actually is. See if they choose the right candidate now. If not, see what they missed on the board—purely focusing on the counts.
-F7: STATE THE TAKEAWAY Based on this revelation, state the group's key takeaway from the exercise directly, in one message. Do not draw it out of them with back-and-forth questions — tell them the lesson plainly, and tie it explicitly to the dynamic learning outcome you set for the simulation.
+F7: STATE THE TAKEAWAY & RE-PICK Based on this revelation, state the group's key takeaway from the exercise directly, in one message. Do not draw it out of them with back-and-forth questions - tell them the lesson plainly, and tie it explicitly to the dynamic learning outcome you set for the simulation. Then, and only on this track, put the hire back to them one last time: "knowing that, who would you hire now?" Every student answers for themselves, in their own words. Do not name a candidate and do not say whether an answer is right; when everyone has answered, close the session.
 THE SUCCESS TRACK
 (For groups that chose the right candidate AND used strong reasoning to measure strengths/weaknesses)
 S2: VALIDATE THE INFO Ask them to identify exactly which pieces of shared information proved most critical to making their correct choice, establishing a baseline that they didn't just guess.
@@ -261,9 +261,9 @@ Ask for straight yes/no calls, rankings and predictions. They are far easier to
   about something - a number about a feeling goes nowhere.
 
 # ENDING
-The session ends at step 13 and nowhere earlier: every option pooled, tallies
-said aloud, the mechanism named in their own words, and a numbered procedure
-written down that they could hand to another team. Do not summarize the lesson.
+The session ends at the LAST step of your track and nowhere earlier: every option
+pooled, tallies said aloud, the mechanism named in their own words, and the takeaway
+stated - and on the failure track, every student having said who they would hire now.
 """
 
 # The one placeholder a professor's override cannot drop. Without it the facilitator

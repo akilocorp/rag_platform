@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   Threads the facilitator's STEP through, so a tuning run exercises the step gate production
+# @updated   2026-08-23
+# @changed   Student agents now type like the students in Mongo do - one short lowercase line,
+#            fifteen words, typos allowed - with fifteen real lines quoted as the register and the
+#            consultant openers ('I want to surface...') banned outright. max_tokens 150 -> 80.
+#            Prior: ReplayRoom.recent_student_msgs mirrors the live room's recent_excluding_sender, so a tuning
+#            run exercises the pushback guard instead of a facilitator that never sees the demand.
+# @changed   Prior: Threads the facilitator's STEP through, so a tuning run exercises the step gate production
 #            now has instead of reporting on a facilitator that no longer exists; prints each transition
 #            and every refusal. Also reconfigures stdout to UTF-8, which this file never did.
 #            Prior: Endurance runs: students keep participating once their scripted beats are spent, a pass now
@@ -242,7 +247,7 @@ class UsageMeter:
 
 
 STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "claude-haiku-4-5-20251001")
-STUDENT_MAX_TOKENS = 150
+STUDENT_MAX_TOKENS = 80
 
 STUDENT_SYSTEM = """You are {name}, a graduate management student in a debrief after a \
 group hiring exercise. Stay in character.
@@ -259,13 +264,36 @@ you know about the candidates:
 Your group hired {chosen} and has just read what happened. You do NOT know what was in \
 anyone else's packet, and you have no information beyond the list above.
 
-HOW TO BEHAVE
-- Write like a student typing in a chat: short, lowercase, casual, sometimes a fragment.
-- One message. Never more than two sentences.
-- Answer what was actually asked. If ACTR asks you something, respond to THAT.
+HOW YOU TYPE
+You are typing on a laptop in class, half paying attention. These are REAL lines real
+students typed in this exercise. Match this register exactly - it is the whole point:
+  "his level of expertise and number of years was important"
+  "also he was demanding, good for a coo"
+  "and he tends to micromanage members"
+  "oh i had that in my case that he was passive when dealing with superiors"
+  "we didn't know that he micromanaged members"
+  "mine too"
+  "I guess his micromanaging was the big issue"
+  "Oops guys my case said he micromanaged a lot"
+  "I forgot to tell you"
+  "let's look into the other candidates"
+  "well then lets give it to John Law"
+  "what did you guys think about jackie chan"
+  "they are two separate concerns what are you trying to say"
+  "and also has a cfa"
+  "...okay.."
+
+RULES
+- ONE sentence, usually under 15 words. Two short ones at the absolute most.
+- Mostly lowercase. No dashes, no bullet points, no bold, no headings. Typos are fine.
+- NEVER open with "I want to", "I think we should", "I hear us", "let me push back",
+  "I want to surface", "I'd add that" or anything else that reads like a consultant.
+  Say the thing and stop.
+- Do not explain your reasoning. If you have a fact, state the fact. That is the message.
+- Answer what was actually asked. If ACTR asks you something, answer THAT.
 - Only state facts from your packet above, unless your character is one that invents things.
-- Never mention packets, roles, or that this is an exercise.
 - Never play the other students or write their lines.
+- Saying "my case said" or "mine had" is normal. Do not narrate the exercise itself.
 - If you have genuinely nothing to add right now, reply with exactly: PASS
 
 POINTS YOU STILL WANT TO MAKE
@@ -685,6 +713,10 @@ class ReplayRoom:
         """`ConversationContext.recent_by_sender('ACTR', 4)` — feeds the repeat guard."""
         return [m["text"] for m in self.messages if m["sender"] == "ACTR"][-limit:]
 
+    def recent_student_msgs(self, limit=8):
+        """`ConversationContext.recent_excluding_sender('ACTR', 8)` — feeds the pushback guard."""
+        return [m["text"] for m in self.messages if m["sender"] != "ACTR"][-limit:]
+
     # -- turn bookkeeping ------------------------------------------------- #
     def note_student(self, name):
         self.msgs_since_facilitator += 1
@@ -841,6 +873,7 @@ def replay(source, session, messages, config, args, personas=None):
             turn_context=room.turn_context(addressed, silence, quiet),
             solo_spread=spread, recent_asks=room.recent_asks(), outcome_text=outcome,
             progress=progress[0], step=step[0], full_transcript=room.full_transcript(),
+            recent_student_msgs=room.recent_student_msgs(),
         )
         if result.get("step"):
             if result["step"] != step[0]:

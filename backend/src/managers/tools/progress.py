@@ -1,9 +1,10 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   `procedure_written` retired the written-procedure requirement: F7/S7 now close with ACTR
-#            stating the group's takeaway itself, so this milestone is met by the facilitator's own line
-#            (the one exception among the four — see PROGRESS_TOOL's description and evidence field).
-# @changed   Prior: The close directive is now STEP-AWARE and no longer forbids the count. It used to tell a
+# @changed   New fifth objective `repick_made` and the close directive that holds for it: on the
+#            FAILURE track, stating the takeaway no longer ends the session - every student has to
+#            say who they would hire now first. Readiness is computed from the CORE four so a
+#            success room, which is never asked, can still close.
+#            Prior: # @changed   Prior: The close directive is now STEP-AWARE and no longer forbids the count. It used to tell a
 #            room three-of-four done to converge on the SOP and "do not chase a more precise count",
 #            which is how a debrief reached the procedure before anyone had said a number aloud.
 #            `best_identified` also now requires the naming to rest on tallies the students said.
@@ -37,7 +38,8 @@ WHAT THE DIRECTIVE MAY NOT DO
     shape of the conversation and nothing here touches its content. Every hard constraint
     still applies to whatever ACTR writes in response to it.
 """
-from src.managers.tools.steps import FINAL_STEPS, WINNER_STEPS, reached
+from src.managers.tools.steps import (FINAL_STEPS, WINNER_STEPS, reached,
+                                      track_of)
 
 # id, and what the checker looks for. The wording IS the strictness — "the students have
 # said", never "the group understands" — and each carries its own explicit near-miss,
@@ -72,7 +74,21 @@ MILESTONES = [
      "to the learning outcome. Unlike the other three, this one is met by the "
      "FACILITATOR's own line, not a student's — NOT MET while ACTR is still drawing "
      "questions out of the group instead of stating the lesson directly."),
+    # FAILURE TRACK ONLY, and the only objective that comes after the takeaway. A
+    # takeaway nobody applies is a lesson agreed to in the abstract, so the room that
+    # hired badly has to spend it on the decision it was written for before it closes.
+    ("repick_made",
+     "Every student has said which candidate they would hire NOW, in their own words, "
+     "after the takeaway was stated. NOT MET while only some of them have answered. NOT "
+     "MET by the facilitator asking - the answers are the objective. A success-track room "
+     "is never asked this and can never meet it."),
 ]
+
+# The four every room must reach. `repick_made` is deliberately outside this list: it is
+# asked only on the failure track, so counting it toward readiness would leave a room that
+# chose well permanently one objective short and unable to close at all.
+CORE_MILESTONES = [mid for mid, _ in MILESTONES if mid != "repick_made"]
+REPICK_MILESTONE = "repick_made"
 
 PROGRESS_TOOL = {
     "name": "check_progress",
@@ -174,15 +190,20 @@ def parse_progress(payload, previous=None, candidates=None):
 
     met = [mid for mid, _ in MILESTONES if mid in evidence]
     closest = data.get("closest_unmet") or ""
-    if closest in evidence:          # already achieved; it cannot be what remains
+    if closest in evidence or closest == REPICK_MILESTONE:
+        # Already achieved, or the re-pick — which is not what the room is working
+        # toward, it is what the facilitator does once the work is finished.
         closest = ""
     if not closest:
-        closest = next((mid for mid, _ in MILESTONES if mid not in evidence), "")
+        closest = next((mid for mid in CORE_MILESTONES if mid not in evidence), "")
     return {
         "met": met,
         "evidence": evidence,
         "closest_unmet": closest if closest in known else "",
-        "ready": len(met) >= len(MILESTONES),
+        # The CORE four. The re-pick is gated separately in `render_close_directive`,
+        # because whether it is owed depends on the track and this reading does not
+        # know which track the room is on.
+        "ready": all(mid in evidence for mid in CORE_MILESTONES),
     }
 
 
@@ -239,6 +260,22 @@ def render_close_directive(progress, step=None):
             "arithmetic do the work."
         )
 
+    # A failure room has one thing left after the takeaway, and it is the only thing that
+    # tests whether the takeaway meant anything: the decision it was written for, made
+    # again. Sits ahead of the landing directive because that directive says close NOW,
+    # and it would otherwise fire the moment ACTR states the lesson.
+    if (progress.get("ready") and step and track_of(step) == "failure"
+            and REPICK_MILESTONE not in met):
+        return (
+            "DO NOT CLOSE YET. You have stated the takeaway, and there is exactly one "
+            "thing left.\n"
+            "Put the hire back to them: knowing that, who would they hire now? Every "
+            "student answers for themselves, in their own words - one answer each, and you "
+            "wait for all of them. Do not name a candidate, do not say whether an answer is "
+            "right, do not reopen the count, and do not let them settle it as a group. Once "
+            "they have all answered, write your closing turn and set `ended` true."
+        )
+
     if progress.get("ready"):
         return (
             "THE GROUP HAS GOT THERE. All four learning objectives are met: they have "
@@ -252,7 +289,7 @@ def render_close_directive(progress, step=None):
             "takes it off them."
         )
 
-    if len(met) >= len(MILESTONES) - 1 and closest:
+    if len(met) >= len(CORE_MILESTONES) - 1 and closest:
         return (
             "THE GROUP IS ONE STEP FROM DONE. Everything is in place except this:\n"
             f"  {dict(MILESTONES).get(closest, '')}\n"
