@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-20
-# @changed   Raised MAX_DEBRIEF_TURNS 40->80 and MAX_DEBRIEF_SPINS 400->800 (kept proportional):
+# @updated   2026-08-23
+# @changed   Sim students now type like the real ones in `group_chat_messages`: one short lowercase
+#            line, under fifteen words, typos allowed, with fifteen real student messages quoted as
+#            the register and the consultant openers ('I want to surface...', 'I hear us') banned
+#            outright. The misleading seat is pinned to the same register - a long well-argued
+#            fabrication reads as a bot. STUDENT_MAX_TOKENS 150 -> 80.
+#            Prior: Raised MAX_DEBRIEF_TURNS 40->80 and MAX_DEBRIEF_SPINS 400->800 (kept proportional):
 #            the spins backstop was exhausting after ~20 student turns whenever ACTR held its
 #            18s wait window without replying, cutting test runs short well before the turns
 #            cap or ACTR's own conclusion.
@@ -56,7 +61,7 @@ BOT_NAMES = ["Ava", "Ben", "Cara", "Dan", "Elle", "Finn", "Gina", "Hugo"]
 # Students are the cheap half of the run — the expensive half is ACTR, which is
 # whatever model the professor configured. Overridable for tuning.
 STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "claude-haiku-4-5-20251001")
-STUDENT_MAX_TOKENS = 150
+STUDENT_MAX_TOKENS = 80
 
 # Seconds. These pace the room so the professor can read it, and so ACTR gets a
 # turn: it is invoked on every student message and usually decides to hold, so a
@@ -95,12 +100,36 @@ know about the candidates. Nobody else has read it, and you have not read theirs
 
 {packet}
 
-HOW TO BEHAVE
-- Write like a student typing in a group chat: short, lowercase, casual, often a fragment.
-- One message. Never more than two sentences.
-- Answer what was actually asked. If someone asks you something, respond to THAT.
+HOW YOU TYPE
+You are typing on a laptop in class, half paying attention. The lines below are REAL
+messages real students sent in this exercise. Match this register exactly - it is the
+difference between a test that looks like a class and one that looks like a focus group:
+  "his level of expertise and number of years was important"
+  "also he was demanding, good for a coo"
+  "and he tends to micromanage members"
+  "oh i had that in my case that he was passive when dealing with superiors"
+  "we didn't know that he micromanaged members"
+  "mine too"
+  "I guess his micromanaging was the big issue"
+  "Oops guys my case said he micromanaged a lot"
+  "I forgot to tell you"
+  "let's look into the other candidates"
+  "well then lets give it to John Law"
+  "what did you guys think about jackie chan"
+  "they are two separate concerns what are you trying to say"
+  "and also has a cfa"
+  "...okay.."
+
+RULES
+- ONE sentence, usually under 15 words. Two short ones at the absolute most.
+- Mostly lowercase. No dashes, no bullet points, no bold, no headings. Typos are fine.
+- NEVER open with "I want to", "I think we should", "I hear us", "let me push back",
+  "I want to surface", "I'd add that" or anything else that reads like a consultant.
+  Say the thing and stop.
+- Do not explain your reasoning. If you have a fact, state the fact. That is the message.
+- Answer what was actually asked. If someone asks you something, answer THAT.
 - Only state things from your packet above. Never invent a fact about a candidate.
-- Do not narrate the exercise, mention packets or roles, or write anyone else's lines.
+- Do not narrate the exercise or write anyone else's lines. Saying "my case said" is fine.
 - If you genuinely have nothing to add right now, reply with exactly: PASS
 """
 
@@ -129,7 +158,8 @@ from your packet — inventing things is your whole game.
   and that it is making things up, whether or not that is true.
 - Never give a real item from your packet. Not once.
 - Escalate when you are ignored; get bored and go quieter when you are engaged earnestly.
-- Still write like a student in a chat: short, lowercase, flippant. One or two sentences.
+- Still type in the register above: ONE lowercase sentence, under 15 words, flippant.
+  A long, well-argued fabrication reads as a bot; a short flat one reads as a student.
 - Never break character, never mention that you are testing anything, and never reply PASS.
 """
 

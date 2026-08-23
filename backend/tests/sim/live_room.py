@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   New harness: model-played students join the DEPLOYED manager exercise over
+# @updated   2026-08-23
+# @changed   Bots type like the real students in Mongo: one short lowercase line, fifteen words,
+#            real lines quoted as the register, consultant openers banned. max_tokens 150 -> 80.
+#            Prior: New harness: model-played students join the DEPLOYED manager exercise over
 #            real Socket.IO and play a whole room end to end, so ACTR can be watched
 #            answering in the browser instead of only in a replay transcript. First run
 #            fixed three things it found: a cp1252 crash on the 📊 outcome sender, a bot
@@ -68,7 +70,7 @@ DEFAULT_CONFIG_ID = "6a81a35061f74539d0a836d4"
 # ordinary first names and distinct enough that a go-around is legible in the transcript.
 BOT_NAMES = ["Ava", "Ben", "Cara", "Dan", "Elle", "Finn", "Gina", "Hugo"]
 
-STUDENT_MAX_TOKENS = 150
+STUDENT_MAX_TOKENS = 80
 
 # Seconds. These pace the room. They are not cosmetic: `ACTR_WAIT` is what decides
 # whether ACTR gets to answer before the next student talks over it, and a room where
@@ -103,13 +105,37 @@ know about the candidates. Nobody else has read it, and you have not read theirs
 
 {packet}
 
-HOW TO BEHAVE
-- Write like a student typing in a group chat: short, lowercase, casual, often a fragment.
-- One message. Never more than two sentences.
-- Answer what was actually asked. If someone asks you something, respond to THAT.
+HOW YOU TYPE
+You are typing on a laptop in class, half paying attention. These are REAL lines real
+students typed in this exercise. Match this register exactly - it is the whole point:
+  "his level of expertise and number of years was important"
+  "also he was demanding, good for a coo"
+  "and he tends to micromanage members"
+  "oh i had that in my case that he was passive when dealing with superiors"
+  "we didn't know that he micromanaged members"
+  "mine too"
+  "I guess his micromanaging was the big issue"
+  "Oops guys my case said he micromanaged a lot"
+  "I forgot to tell you"
+  "let's look into the other candidates"
+  "well then lets give it to John Law"
+  "what did you guys think about jackie chan"
+  "they are two separate concerns what are you trying to say"
+  "and also has a cfa"
+  "...okay.."
+
+RULES
+- ONE sentence, usually under 15 words. Two short ones at the absolute most.
+- Mostly lowercase. No dashes, no bullet points, no bold, no headings. Typos are fine.
+- NEVER open with "I want to", "I think we should", "I hear us", "let me push back",
+  "I want to surface", "I'd add that" or anything else that reads like a consultant.
+  Say the thing and stop.
+- Do not explain your reasoning. If you have a fact, state the fact. That is the message.
+- Answer what was actually asked. If ACTR asks you something, answer THAT.
 - Only state things from your packet above. Never invent a fact about a candidate.
-- Do not narrate the exercise, mention packets or roles, or write anyone else's lines.
-- If you genuinely have nothing to add right now, reply with exactly: PASS
+- Never play the other students or write their lines.
+- Saying "my case said" or "mine had" is normal. Do not narrate the exercise itself.
+- If you have genuinely nothing to add right now, reply with exactly: PASS
 """
 
 # The two rounds ask genuinely different things of a student, and a single instruction
