@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-08-23
-# @changed   `takeaway_stated` goes back to being the STUDENTS' line, and the near-done directive no
+# @changed   `repick_made` is met by ONE answer given for the group, not by every student answering.
+# @changed   Prior: `takeaway_stated` goes back to being the STUDENTS' line, and the near-done directive no
 #            longer sends a finished room back to re-count what it has already tallied.
 # @changed   Prior: New fifth objective `repick_made` and the close directive that holds for it: on the
 #            FAILURE track, stating the takeaway no longer ends the session - every student has to
@@ -80,10 +81,11 @@ MILESTONES = [
     # takeaway nobody applies is a lesson agreed to in the abstract, so the room that
     # hired badly has to spend it on the decision it was written for before it closes.
     ("repick_made",
-     "Every student has said which candidate they would hire NOW, in their own words, "
-     "after the takeaway was stated. NOT MET while only some of them have answered. NOT "
-     "MET by the facilitator asking - the answers are the objective. A success-track room "
-     "is never asked this and can never meet it."),
+     "A student has answered, for the group, which candidate they would hire NOW - asked "
+     "once after the takeaway, and settled by whoever replies first. ONE answer meets "
+     "this; there is no need for the others to agree or to answer at all. NOT MET by the "
+     "facilitator asking - the answer is the objective. A success-track room is never "
+     "asked this and can never meet it."),
 ]
 
 # The four every room must reach. `repick_made` is deliberately outside this list: it is
@@ -272,11 +274,12 @@ def render_close_directive(progress, step=None):
         return (
             "DO NOT CLOSE YET. They have said what they take away from it, and there is exactly "
             "one thing left.\n"
-            "Put the hire back to them: knowing that, who would they hire now? Every "
-            "student answers for themselves, in their own words - one answer each, and you "
-            "wait for all of them. Do not name a candidate, do not say whether an answer is "
-            "right, do not reopen the count, and do not let them settle it as a group. Once "
-            "they have all answered, write your closing turn and set `ended` true."
+            "Put the hire back to them as ONE question to the room: as a group, one of you "
+            "tell me who you would hire now. You are asking the group, not going round it - "
+            "the first person to answer has answered for all of them, so do not poll the "
+            "others and do not chase the quiet ones. Do not name a candidate, do not say "
+            "whether the answer is right, and do not reopen the count. On that answer, "
+            "write your closing turn and set `ended` true."
         )
 
     if progress.get("ready"):
