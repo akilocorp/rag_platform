@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-24
-// @changed   The Private/Shared tab, the category and the grid/list layout are remembered in
+// @changed   Removed the model-name chip from the card's info-chip row — only the class-code
+//            chip remains.
+// @changed   Prior: The Private/Shared tab, the category and the grid/list layout are remembered in
 //            localStorage. Opening a config unmounts this page, so a professor working through their
 //            Shared classes was dropped back onto Private after every single edit.
 // @changed   Prior: Card no longer shows a hover lift/border/shadow or pointer cursor — the card body looked
@@ -489,9 +491,6 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
 
           {/* Info chips */}
           <div className="mt-3 flex flex-wrap gap-1.5">
-            <span className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#F0F6FB] text-gray-600 border border-gray-100 animate-chip-in">
-              {getModelDisplayName(config.model_name)}
-            </span>
             {config.class_code && (
               <span className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#F9D0C4]/30 text-[#FA6C43] border border-[#FA6C43]/20 uppercase tracking-wide animate-chip-in">
                 {config.class_code}
