@@ -1,3 +1,9 @@
+# @language  Python
+# @updated   2026-08-24
+# @changed   score_submission drops any dimension/content-check flagged "hidden" before grading —
+#            the single choke point both the rubric editor's rescore and the auto-score pipeline
+#            call through, so a hidden box stops counting toward the overall score and never
+#            reaches the student's report, without needing to touch either caller.
 """Scoring layer — turns the ACTR analyze output (a body-language/delivery
 `report` + a `transcript`) into prof-defined dimension scores + actionable
 feedback, via a 3-stage sequential agent chain.
@@ -284,8 +290,8 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
     transcript_text = (transcript.get("text") or "").strip()
     duration = float(collected.get("duration_sec") or transcript.get("duration_sec") or transcript.get("duration") or 0.0)
 
-    dimensions = scoring_spec.get("dimensions") or []
-    content_checks_spec = scoring_spec.get("content_checks") or []
+    dimensions = [d for d in (scoring_spec.get("dimensions") or []) if not d.get("hidden")]
+    content_checks_spec = [c for c in (scoring_spec.get("content_checks") or []) if not c.get("hidden")]
     has_gambit = any(c.get("id") == "gambit" for c in content_checks_spec)
     grading_criteria = (scoring_spec.get("feedback_prompt_template") or "").strip()
     label_map = {c["id"]: c.get("label", c["id"]) for c in content_checks_spec}

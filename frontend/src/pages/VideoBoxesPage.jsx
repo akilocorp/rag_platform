@@ -1,13 +1,16 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-08-24
-// @changed   Cards are read-only until you press Edit. The fields used to be transparent inputs sitting
+// @changed   Hide/Show per box: a hidden box collapses to a single grey row and drops out of
+//            scoring (persisted as `hidden` and enforced server-side); active boxes now carry a
+//            green left-accent so it reads at a glance which ones still count.
+// @changed   Prior: Cards are read-only until you press Edit. The fields used to be transparent inputs sitting
 //            in the card, which read as plain text — you could edit them without ever knowing you could.
 //            Edit is now a visible button, and it swaps the card for a labelled form with Delete + Done.
 // @changed   Prior: New page: edit a video config's scoring boxes and content checks inside a replica of
 //            the student's results report, so a professor sees the thing they are editing.
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaTrash, FaPlus, FaArrowLeft, FaSpinner, FaCheck, FaPen } from 'react-icons/fa';
+import { FaTrash, FaPlus, FaArrowLeft, FaSpinner, FaCheck, FaPen, FaEye, FaEyeSlash } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 /**
@@ -63,6 +66,27 @@ function EditButton({ onClick, label }) {
       className="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-[#FA6C43] bg-gray-50 hover:bg-[#FFF3EF] border border-gray-200 hover:border-[#FA6C43] rounded-lg px-2.5 py-1.5 transition-all shrink-0"
     >
       <FaPen className="text-[10px]" /> {label}
+    </button>
+  );
+}
+
+// Hide/show affordance. Hiding doesn't delete a box — it stops counting toward
+// grading (enforced server-side) and collapses the card so a professor isn't
+// scrolling past boxes they've already decided not to use.
+function HideButton({ hidden, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hidden ? 'Show this box again — it will count toward scoring' : 'Hide — stops counting toward scoring'}
+      className={`flex items-center gap-1.5 text-xs font-bold rounded-lg px-2.5 py-1.5 border transition-all shrink-0 ${
+        hidden
+          ? 'text-[#FA6C43] bg-[#FFF3EF] border-[#FA6C43]/30 hover:bg-[#FFE8E0]'
+          : 'text-gray-500 bg-gray-50 hover:bg-gray-100 border-gray-200 hover:border-gray-300'
+      }`}
+    >
+      {hidden ? <FaEye className="text-[10px]" /> : <FaEyeSlash className="text-[10px]" />}
+      {hidden ? 'Show' : 'Hide'}
     </button>
   );
 }
@@ -149,6 +173,10 @@ export default function VideoBoxesPage() {
     setEditingDim(null);
     touch();
   };
+  const toggleDimHidden = (idx) => {
+    setDimensions((prev) => prev.map((d, i) => (i === idx ? { ...d, hidden: !d.hidden } : d)));
+    touch();
+  };
 
   const setCheck = (idx, field, value) => {
     setChecks((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: value } : c)));
@@ -162,6 +190,10 @@ export default function VideoBoxesPage() {
   const removeCheck = (idx) => {
     setChecks((prev) => prev.filter((_, i) => i !== idx));
     setEditingCheck(null);
+    touch();
+  };
+  const toggleCheckHidden = (idx) => {
+    setChecks((prev) => prev.map((c, i) => (i === idx ? { ...c, hidden: !c.hidden } : c)));
     touch();
   };
 
@@ -248,9 +280,12 @@ export default function VideoBoxesPage() {
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
             <p className="text-sm text-gray-500 mt-0.5 truncate">
-              {dimensions.filter((d) => d.name).length
-                ? `Delivery and content, weighed together (${dimensions.map((d) => d.name).filter(Boolean).join(', ')})`
-                : 'Delivery and content, weighed together'}
+              {(() => {
+                const active = dimensions.filter((d) => d.name && !d.hidden).map((d) => d.name);
+                return active.length
+                  ? `Delivery and content, weighed together (${active.join(', ')})`
+                  : 'Delivery and content, weighed together';
+              })()}
             </p>
           </div>
           <div className="text-right shrink-0 ml-4">
@@ -271,8 +306,12 @@ export default function VideoBoxesPage() {
           {dimensions.map((d, idx) => (
             <div
               key={idx}
-              className={`bg-white rounded-2xl shadow-sm p-5 transition-all ${
-                editingDim === idx ? 'border-2 border-[#FA6C43]' : 'border border-gray-100'
+              className={`bg-white rounded-2xl shadow-sm transition-all ${
+                editingDim === idx
+                  ? 'border-2 border-[#FA6C43] p-5'
+                  : d.hidden
+                    ? 'border border-gray-200 bg-gray-50 opacity-60 p-4'
+                    : 'border border-gray-100 border-l-4 border-l-emerald-400 p-5'
               }`}
             >
               {editingDim === idx ? (
@@ -306,6 +345,17 @@ export default function VideoBoxesPage() {
                     onDone={() => setEditingDim(null)}
                   />
                 </div>
+              ) : d.hidden ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-gray-400 truncate">{d.name || 'Untitled box'}</h3>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-300 mt-0.5">Hidden — not scored</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <EditButton label="Edit" onClick={() => { setEditingDim(idx); setEditingCheck(null); }} />
+                    <HideButton hidden onClick={() => toggleDimHidden(idx)} />
+                  </div>
+                </div>
               ) : (
                 <>
                   <div className="flex items-start justify-between mb-3 gap-3">
@@ -316,7 +366,10 @@ export default function VideoBoxesPage() {
                         : <p className="text-xs text-gray-300 italic mt-0.5">No definition yet — press Edit to describe what this measures.</p>}
                     </div>
                     <div className="flex items-start gap-3 shrink-0">
-                      <EditButton label="Edit" onClick={() => { setEditingDim(idx); setEditingCheck(null); }} />
+                      <div className="flex items-center gap-2">
+                        <EditButton label="Edit" onClick={() => { setEditingDim(idx); setEditingCheck(null); }} />
+                        <HideButton onClick={() => toggleDimHidden(idx)} />
+                      </div>
                       <div className="text-right">
                         <span className="text-3xl font-extrabold" style={{ color: PREVIEW_GREY }}>
                           {sampleFor(idx).toFixed(1)}
@@ -356,8 +409,12 @@ export default function VideoBoxesPage() {
           {checks.map((c, idx) => (
             <div
               key={idx}
-              className={`bg-white rounded-2xl shadow-sm p-4 transition-all ${
-                editingCheck === idx ? 'border-2 border-[#FA6C43]' : 'border border-gray-100'
+              className={`bg-white rounded-2xl shadow-sm transition-all ${
+                editingCheck === idx
+                  ? 'border-2 border-[#FA6C43] p-4'
+                  : c.hidden
+                    ? 'border border-gray-200 bg-gray-50 opacity-60 p-4'
+                    : 'border border-gray-100 border-l-4 border-l-emerald-400 p-4'
               }`}
             >
               {editingCheck === idx ? (
@@ -388,6 +445,17 @@ export default function VideoBoxesPage() {
                     onDone={() => setEditingCheck(null)}
                   />
                 </div>
+              ) : c.hidden ? (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm font-semibold text-gray-400 truncate block">{c.label || 'Untitled check'}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-300">Hidden — not scored</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <EditButton label="Edit" onClick={() => { setEditingCheck(idx); setEditingDim(null); }} />
+                    <HideButton hidden onClick={() => toggleCheckHidden(idx)} />
+                  </div>
+                </div>
               ) : (
                 <>
                   <div className="flex items-start justify-between mb-2 gap-2">
@@ -405,7 +473,10 @@ export default function VideoBoxesPage() {
                     <p className="text-xs text-gray-400 leading-relaxed min-w-0 flex-1">
                       {c.description || <span className="text-gray-300 italic">No definition yet.</span>}
                     </p>
-                    <EditButton label="Edit" onClick={() => { setEditingCheck(idx); setEditingDim(null); }} />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <EditButton label="Edit" onClick={() => { setEditingCheck(idx); setEditingDim(null); }} />
+                      <HideButton onClick={() => toggleCheckHidden(idx)} />
+                    </div>
                   </div>
                 </>
               )}
