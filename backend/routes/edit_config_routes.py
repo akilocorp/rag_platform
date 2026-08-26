@@ -135,6 +135,7 @@ def update_existing_config(config_id):
             "temperature": float(data.get('temperature', 0.7)),
             "response_timeout": int(data.get('response_timeout', 3)),
             "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
+            "public_purpose": 'research' if data.get('public_purpose') == 'research' else 'learning',
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],
             "qualtrics_enabled": str(data.get('qualtrics_enabled', 'false')).lower() in ['true', '1'],
             "audio_enabled": str(data.get('audio_enabled', 'false')).lower() in ['true', '1'],

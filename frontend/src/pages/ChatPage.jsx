@@ -881,6 +881,10 @@ const ChatPage = () => {
     setGuestInfo(info);
   };
 
+  // A public space its owner marked as research. Visitors get no intake gate and
+  // an unbranded chat: no bot name, no description, no model label.
+  const isResearchGuest = !isAuthenticated && !!config?.is_public && config?.public_purpose === 'research';
+
   // Sync Ref with URL param
   useEffect(() => {
     currentChatIdRef.current = chatId;
@@ -1785,7 +1789,8 @@ const ChatPage = () => {
   // below: the half-written bubble it replaces is the thing we don't want seen.
   if (streamInterrupted) return <StreamInterruptedPage />;
 
-  if (!isAuthenticated && config?.is_public && !guestInfo) return (
+  // A research space collects nothing, so there's no intake gate at all.
+  if (!isAuthenticated && config?.is_public && !isResearchGuest && !guestInfo) return (
     <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
@@ -1965,17 +1970,19 @@ const ChatPage = () => {
                 )}
                 {(() => {
                   const HeaderIcon = getBotAvatarIconComponent(config?.bot_avatar);
-                  if (!HeaderIcon) return null;
+                  if (!HeaderIcon || isResearchGuest) return null;
                   return (
                 <div className="p-2 rounded-lg bg-gray-100" style={{ color: '#1F1F1F' }}>
                     <HeaderIcon className="text-xl" />
                 </div>
                   );
                 })()}
+                {!isResearchGuest && (
                 <div>
                     <h1 className="font-semibold text-[#222] text-base">{config?.bot_name || "AI Assistant"}</h1>
                     {config?.model_name && <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">{getModelDisplayName(config.model_name)}</p>}
                 </div>
+                )}
             </div>
             {config?.is_personal && (
               <button
@@ -2127,15 +2134,17 @@ const ChatPage = () => {
                             <div className="flex flex-col items-center justify-center h-[60vh] text-center opacity-80">
                                 {(() => {
                                   const EmptyIcon = getBotAvatarIconComponent(config?.bot_avatar);
-                                  if (!EmptyIcon) return null;
+                                  if (!EmptyIcon || isResearchGuest) return null;
                                   return (
                                 <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mb-6" style={{ color: '#1F1F1F' }}>
                                     <EmptyIcon className="text-5xl" />
                                 </div>
                                   );
                                 })()}
+                                {!isResearchGuest && <>
                                 <h2 className="text-2xl font-bold text-[#222] mb-2">{config?.bot_name || "AI Assistant"}</h2>
                                 <p className="text-gray-600 max-w-md">{config?.introduction || "I'm ready to help."}</p>
+                                </>}
                             </div>
                         )}
                         {messages.map((msg, i) => (
@@ -2295,7 +2304,7 @@ const ChatPage = () => {
                                     showOptions={showOptions}
                                     setShowOptions={setShowOptions}
                                     optionsRef={optionsRef}
-                                    showModelPicker={!!(config?.is_playground || config?.is_personal)}
+                                    showModelPicker={!isResearchGuest && !!(config?.is_playground || config?.is_personal)}
                                     model={sessionModel || config?.model_name || ''}
                                     onModelChange={setSessionModel}
                                     attachments={attachments}

@@ -1071,7 +1071,7 @@ def chat(config_id, chat_id):
         {"_id": ObjectId(config_id.strip())},
         {
             "model_name": 1, "temperature": 1, "prompt_template": 1,
-            "is_public": 1, "user_id": 1,
+            "is_public": 1, "public_purpose": 1, "user_id": 1,
             "web_access": 1, "bot_name": 1, "instructions": 1,
             "class_code": 1, "usage_pool": 1, "is_playground": 1, "is_personal": 1,
             "facilitator": 1,
@@ -1120,6 +1120,10 @@ def chat(config_id, chat_id):
         except Exception:
             pass
     identity = usage_limits.resolve_identity(config_doc, metering_user, client_ip, device_id)
+    # A public space its owner marked as research isn't metered for now: an empty
+    # entry list makes both check() and consume() no-ops.
+    if config_doc.get("is_public") and config_doc.get("public_purpose") == "research":
+        identity = usage_limits.Identity("research", [])
 
     try:
         pre = usage_limits.check(identity)

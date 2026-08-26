@@ -924,6 +924,22 @@ const EditConfigPage = () => {
                   <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
                 </label>
               </div>
+              {config.is_public && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <label className="block text-[13px] font-bold text-gray-800 mb-2">What is this link for?</label>
+                  <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
+                    {[
+                      { id: 'learning', title: 'Learning', hint: 'Asks for name & email' },
+                      { id: 'research', title: 'Research', hint: 'No sign-up, no branding, no cap' },
+                    ].map(o => (
+                      <label key={o.id} className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${(config.public_purpose || 'learning') === o.id ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
+                        <input type="radio" name="public_purpose" checked={(config.public_purpose || 'learning') === o.id} onChange={() => setConfig(prev => ({ ...prev, public_purpose: o.id }))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]" />
+                        <div className="text-sm"><span className="block font-bold text-[#222]">{o.title}</span><span className="text-xs text-gray-500 font-medium">{o.hint}</span></div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* CONDITIONAL LOGIC: Video Analysis vs Group Chat vs Standard */}
