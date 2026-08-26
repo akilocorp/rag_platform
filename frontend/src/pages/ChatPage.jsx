@@ -452,7 +452,7 @@ const MarkdownSegment = React.memo(({ text }) => {
 });
 
 // --- MODERN CHAT MESSAGE COMPONENT ---
-const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit }) => {
+const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFacilitatorSubmit, plainThinking }) => {
   const { sender, text, isTyping } = message;
   const toolCalls = message.tool_calls || [];
   const attachedFiles = message.attachedFiles || [];
@@ -642,7 +642,7 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
           )}
 
           {showThinking ? (
-            <ThinkingIndicator />
+            <ThinkingIndicator dotsOnly={plainThinking} />
           ) : (!isUser && message.parts && message.parts.length) ? (
             // Inline mode: ordered text segments + render_widget widgets interleaved
             // at their stream position. Hover handlers live on the wrapper so the
@@ -2154,6 +2154,7 @@ const ChatPage = () => {
                             fileIndex={fileIndex}
                             isLast={i === messages.length - 1}
                             onFacilitatorSubmit={handleSendWithAnimation}
+                            plainThinking={isResearchMode}
                           />
                         ))}
                         <div ref={messagesEndRef} />
