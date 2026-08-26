@@ -691,6 +691,9 @@ def configure_model():
         uploaded_files = request.files.getlist('files')
         llm_type = config_data.get('model_name')
         is_public = config_data.get('is_public')
+        # What a public space is for. "research" strips the intake gate, the
+        # branding and the message cap for visitors; anything else = "learning".
+        public_purpose = 'research' if config_data.get('public_purpose') == 'research' else 'learning'
 
         bot_name = config_data.get('bot_name', 'Assistant') 
         bot_type = config_data.get('bot_type', 'chat') 
@@ -772,6 +775,7 @@ def configure_model():
             "temperature": temperature,
             "response_timeout": int(response_timeout),
             "is_public": is_public,
+            "public_purpose": public_purpose,
             "config_type": "normal",
             "documents": uploaded_filenames,
             "group_size": group_size,
