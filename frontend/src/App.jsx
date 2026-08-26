@@ -1,8 +1,7 @@
-/* @language JSX  @updated 2026-08-24  @changed Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
-import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+/* @language JSX  @updated 2026-08-25  @changed Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
-import MobileBlockPage from './pages/MobileBlockPage';
 
 // Import your page components
 import HomePage from './pages/HomePage';
@@ -50,47 +49,11 @@ import { isLoggedIn, dashboardPath } from './utils/auth';
 function RootRedirect() {
   return <Navigate to={isLoggedIn() ? dashboardPath() : '/home'} replace />;
 }
-function useIsMobile() {
-  const detect = () => {
-    if (typeof window === 'undefined') return false;
-    const narrow = window.matchMedia('(max-width: 767px)').matches;
-    const ua = navigator.userAgent || '';
-    const mobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-    return narrow || mobileUA;
-  };
-  const [isMobile, setIsMobile] = useState(detect);
-  useEffect(() => {
-    const onResize = () => setIsMobile(detect());
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-  return isMobile;
-}
-
-// The app is desktop-only, but the user guide is the one exception — a student who opens
-// an invite link on their phone needs to be able to read why they're being told to switch
-// devices. Lives inside the Router (not in App) so the block re-applies on client-side
-// navigation off the guide, which a pathname read at mount would miss.
-// Routes a phone may open. Both are read-first pages someone reaches before they
-// have an account — the guide, and the syllabus advisor a professor is likely to
-// be handed as a link during a conversation.
-const MOBILE_ALLOWED = ['/userguide', '/course-plan'];
-
-function MobileGate({ isMobile, children }) {
-  const { pathname } = useLocation();
-  const allowed = MOBILE_ALLOWED.some((p) => pathname.startsWith(p));
-  if (isMobile && !allowed) return <MobileBlockPage />;
-  return children;
-}
-
 function App() {
-  const isMobile = useIsMobile();
-
   return (
     <Router>
       {/* Updated global background and text color to match the new light theme */}
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900">
-        <MobileGate isMobile={isMobile}>
         <PageTransition>
         <Routes>
 
@@ -175,7 +138,6 @@ function App() {
 
         </Routes>
         </PageTransition>
-        </MobileGate>
       </div>
     </Router>
   );
