@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-08-24
-# @changed   GET/PUT /video/config/<id>/scoring-spec: the rubric on its own, for the visual box editor.
+# @changed   _clean_rubric_rows now preserves a `hidden` bool on save instead of stripping it, so a
+#            box hidden in the editor stays hidden after the next Save (actual exclusion from
+#            grading happens in src/video/scoring.py:score_submission).
+# @changed   Prior: GET/PUT /video/config/<id>/scoring-spec: the rubric on its own, for the visual box editor.
 #            The generic PUT /config/<id> rebuilds the whole doc from the edit form, so a boxes-only
 #            page saving through it would blank bot_name, instructions and documents. Also extracted
 #            `_effective_spec` (preset + prof overrides) so rescore and the editor cannot disagree.
@@ -126,6 +129,10 @@ def _clean_rubric_rows(rows, title_key, body_key, prefix):
     join back to a box by id — regenerating it from a renamed box would orphan every
     score already on file. A new row gets a slug of its title, de-duplicated, and a
     row with a blank title is dropped rather than stored as an unnamed box.
+
+    `hidden` is carried through as-is: score_submission (src/video/scoring.py) is what
+    actually excludes a hidden row from grading, so this function's only job is to not
+    let the flag get silently dropped on save.
     """
     out, seen = [], set()
     for i, row in enumerate(rows):
@@ -138,7 +145,8 @@ def _clean_rubric_rows(rows, title_key, body_key, prefix):
         while rid in seen:
             rid = f"{rid}_2"
         seen.add(rid)
-        out.append({"id": rid, title_key: title, body_key: (row.get(body_key) or '').strip()})
+        out.append({"id": rid, title_key: title, body_key: (row.get(body_key) or '').strip(),
+                    "hidden": bool(row.get("hidden"))})
     return out
 
 

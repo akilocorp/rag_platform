@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-08-24
+ * @changed   Added a "Presentation Style" row divider above the scoring-box rows, matching Content Checks.
+ */
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
@@ -68,6 +73,13 @@ function CompareTable({ submissions, detailMap }) {
           </tr>
 
           {/* Prof-defined scoring boxes */}
+          {dimList.length > 0 && (
+            <tr className="border-t-2 border-gray-200">
+              <td colSpan={submissions.length + 1} className="text-[11px] font-bold uppercase tracking-wider text-gray-400 pt-4 pb-2">
+                Presentation Style
+              </td>
+            </tr>
+          )}
           {dimList.map((dim) => (
             <tr key={dim.id} className="border-t border-gray-50">
               <td className="text-xs font-semibold text-gray-600 py-2.5 pr-4">{dim.name || dim.id}</td>

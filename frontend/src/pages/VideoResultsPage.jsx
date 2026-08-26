@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-08-24
+ * @changed   Added a "Presentation Style" heading above the scoring boxes, matching Content Checks.
+ */
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking, FaFilm, FaBell } from 'react-icons/fa';
@@ -288,8 +293,11 @@ export default function VideoResultsPage() {
 
       {/* ── Scoring boxes (dimensions) ── */}
       {dimensions.length > 0 && (
-        <div className="space-y-4 mb-8">
-          {dimensions.map(d => <DimensionCard key={d.id} dim={d} />)}
+        <div className="mb-8">
+          <h2 className="text-base font-bold text-[#222] mb-3">Presentation Style</h2>
+          <div className="space-y-4">
+            {dimensions.map(d => <DimensionCard key={d.id} dim={d} />)}
+          </div>
         </div>
       )}
 

@@ -1,10 +1,13 @@
 // @language JavaScript (React)
-// @updated 2026-08-03
-// @changed Add a "Guide" link to the top-right nav, left of Sign in.
+// @updated 2026-08-24
+// @changed Added a product-showcase section (ContainerScroll, Framer Motion) between the
+//          testimonial panels and the closer, revealing a real dashboard screenshot instead
+//          of leaving the "show the product" gap from the locked spec unfilled.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { ContainerScroll } from '../components/ui/container-scroll-animation';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -1663,6 +1666,36 @@ const LandingV2 = () => {
             ))}
           </div>
         </div>
+      </section>
+
+      {/* === PRODUCT SHOWCASE ===
+          Fills the "polished product screenshot" gap flagged in the LandingV2 spec — a
+          scroll-tilt reveal of the actual assistant dashboard, not a stock photo. Framer
+          Motion drives this (its own useScroll target), independent of the GSAP timeline
+          the rest of the page runs on — the two don't touch the same elements. */}
+      <section style={{ backgroundColor: '#FAFAF7' }}>
+        <ContainerScroll
+          titleComponent={
+            <h2
+              className="text-5xl lg:text-7xl tracking-tight text-center mb-4"
+              style={{
+                color: '#1F1F1F',
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                letterSpacing: '-0.02em',
+              }}
+            >
+              See it in action
+            </h2>
+          }
+        >
+          <img
+            src="/guide-media/config-list.png"
+            alt="The ACTRLabs assistant dashboard, showing a grid of configured bots"
+            className="mx-auto rounded-2xl object-cover h-full w-full object-top"
+            draggable={false}
+          />
+        </ContainerScroll>
       </section>
 
       {/* === CLOSER === */}
