@@ -1,6 +1,12 @@
 # @language  Python
-# @updated   2026-08-23
-# @changed   Sim students now type like the real ones in `group_chat_messages`: one short lowercase
+# @updated   2026-08-31
+# @changed   Template-aware run + imperfect recall. A seat reading a CASE DOCUMENT is told it no
+#            longer has the document in front of it, so it half-remembers, surfaces things late and
+#            hedges — which is what a real student does with a ten-page file they read once. And a
+#            template with no reveal/debrief now ends cleanly at `done` instead of timing out
+#            waiting 60s for a phase that is never coming; round 1 gets DISCUSS_TURNS_NO_DEBRIEF
+#            turns there, because when there is no round 2 the discussion IS the exercise.
+#            Prior: Sim students now type like the real ones in `group_chat_messages`: one short lowercase
 #            line, under fifteen words, typos allowed, with fifteen real student messages quoted as
 #            the register and the consultant openers ('I want to surface...', 'I hear us') banned
 #            outright. The misleading seat is pinned to the same register - a long well-argued
@@ -73,6 +79,12 @@ THINK_AFTER_ACTR = 3.0
 # Round 1 is not the point of a test run — the professor is here to see the
 # debrief — so the group deliberates briefly and then the decider closes it.
 DISCUSS_TURNS = 6
+
+# ...unless there IS no round 2. On a template with no debrief the group's own
+# deliberation is the entire exercise, and six turns between three people is not a
+# deliberation — it is barely one lap of the table. This is what the run is
+# measuring then, so it gets the budget the debrief would otherwise have had.
+DISCUSS_TURNS_NO_DEBRIEF = 36
 
 # Hard stops. A test run is unattended and costs money per turn, so every loop
 # here is bounded by something other than the room agreeing to end.
@@ -163,6 +175,37 @@ from your packet — inventing things is your whole game.
 - Never break character, never mention that you are testing anything, and never reply PASS.
 """
 
+# Appended for a seat whose packet is a CASE DOCUMENT rather than a card deck.
+#
+# The material is not comparable: a card deck is six bullets a student can hold in
+# their head, while a case document is ten pages of interview transcript they read
+# once and — in this exercise, by design — cannot look at during the meeting. A bot
+# handed the full text argues from it like a search index, quoting cleanly and
+# never missing anything, and a room of three such bots pools everything in four
+# messages. That is not the exercise; the exercise is that people forget.
+#
+# The text is deliberately NOT truncated to force this. Deleting evidence at random
+# would decide the outcome by dice — the seat holding the one clue that cracks the
+# case would sometimes simply not have it, and a run that failed would say nothing
+# about whether the case pack works.
+RECALL_BEHAVIOUR = """
+WHAT YOU CAN ACTUALLY REMEMBER
+You read that file once, before the meeting. You do NOT have it in front of you now and
+you cannot look anything up. So:
+- You remember the big things — who you suspected and roughly why. Fine details (exact
+  times, exact wording, who said which sentence) are hazy, and you say so: "i think it
+  was around 6:30?", "can't remember exactly", "something like that".
+- You do NOT dump everything you know at once. You mention one thing, then move on.
+- Things come back to you LATE. When someone else says something, that is often what
+  jogs a detail loose - "oh wait, mine said something about that too".
+- If you cannot remember whether a detail was in your file or you are imagining it,
+  say that rather than stating it flatly.
+- Never quote the document. Never list. You are recalling, not reading.
+- The length rule above still holds, and it holds hardest here: ONE short line, under
+  fifteen words. Recalling a ten-page file is not licence to write a paragraph - a
+  student half-remembering something types less than one reading it, not more.
+"""
+
 DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are talking it \
 through now. Say what you think, react to what the others have said, and push for whoever \
 your packet supports. Write your next message, or reply PASS."""
@@ -213,6 +256,7 @@ def _render_packet(snapshot: Dict) -> str:
     """
     if snapshot.get("student_view") == "case" and (snapshot.get("your_case") or "").strip():
         return snapshot["your_case"].strip()
+    # No document for this seat: fall through to the card deck below.
     lines = []
     for card in snapshot.get("your_credentials") or []:
         good = "; ".join(card.get("strengths") or []) or "(nothing noted)"
@@ -246,6 +290,11 @@ class SimStudent:
             premise=premise[:3000] or "(no shared brief was sent)",
             packet=_render_packet(snapshot),
         )
+        # A document-holding seat recalls; a card-holding seat reads. Applied before
+        # the misleading block so a misleading seat still overrides it — that seat's
+        # whole game is inventing, and hedging about its own memory would soften it.
+        if snapshot.get("student_view") == "case" and (snapshot.get("your_case") or "").strip():
+            system += RECALL_BEHAVIOUR
         return system + MISLEADING_BEHAVIOUR if self.misleading else system
 
     def task_for(self, phase: str) -> str:
@@ -399,8 +448,12 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     # ---- round 1: the group's own decision, unfacilitated ---------------
     if not wait_for({"discuss"}, 60):
         return
+    # Read the template's flow ONCE, here, rather than re-deriving it at each gate:
+    # every "is there a phase after this" question below is the same question.
+    flow = state.flow() if hasattr(state, "flow") else {"reveal": True, "debrief": True}
+    discuss_turns = DISCUSS_TURNS if flow.get("debrief") else DISCUSS_TURNS_NO_DEBRIEF
     spoken = 0
-    while spoken < DISCUSS_TURNS and state.phase() == "discuss":
+    while spoken < discuss_turns and state.phase() == "discuss":
         msgs = messages()
         speaker = _pick_speaker(students, msgs)
         text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss"), names)
@@ -419,12 +472,20 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             state.record_group_choice(decider.uid, hire)
 
     # ---- the kiosk gate -------------------------------------------------
-    if wait_for({"kiosk"}, 45):
+    # Skipped outright on a template with no reveal: there is no gate to pass, and
+    # waiting 45s for one is 45 seconds of a professor watching nothing happen.
+    if flow.get("reveal") and wait_for({"kiosk"}, 45):
         for s in students:
             state.record_continue(s.uid)
             sleep(0.4)
 
     # ---- round 2: the facilitated debrief -------------------------------
+    # A template without one has already finished — the group's answer WAS the end.
+    if not flow.get("debrief"):
+        wait_for({"done"}, 20)
+        logger.info("sim room %s finished at the group's answer (no debrief); phase=%s",
+                    state.room_id, state.phase())
+        return
     if not wait_for({"debrief"}, 60):
         return
 

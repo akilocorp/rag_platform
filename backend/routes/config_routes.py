@@ -18,6 +18,7 @@ from models.user import User
 from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
+from src.managers import exercise_templates
 
 
 def _default_facilitator_raw(raw, model_name):
@@ -248,6 +249,12 @@ def validate_manager_exercise(source, target):
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
 
+    # Which exercise this is: the flow (does it reveal an outcome? does it debrief?)
+    # and the words the student screens use. Normalized rather than validated — an
+    # unknown template falls back to `hiring`, which is what every config authored
+    # before templates existed already runs.
+    template = exercise_templates.normalize(raw.get('template'))
+
     # M10: how a student reads their own confidential material in round 0.
     #   'cards' — the extracted per-role strengths/concerns as a card deck (default,
     #             and what every config built before this field did).
@@ -336,6 +343,7 @@ def validate_manager_exercise(source, target):
             return jsonify({"error": err}), 400
 
     target['manager_exercise'] = {
+        "template": template,
         "num_students": num_students,
         "num_rooms": num_rooms,
         "discuss_minutes": discuss_minutes,

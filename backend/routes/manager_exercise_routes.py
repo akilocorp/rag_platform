@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   The run payload carries `facilitator_step`, so a session that skips its own pedagogy is
+# @updated   2026-08-31
+# @changed   GET /<config_id>/results — the professor's class report: every group's answer, every
+#            student's own private pick and which case file they held, plus class-wide percentages.
+#            It exists because the `investigation` template deliberately never tells a room whether
+#            it was right; this page is where that conversation happens instead.
+#            Prior: The run payload carries `facilitator_step`, so a session that skips its own pedagogy is
 #            visible as a step number rather than only as a transcript that feels wrong.
 #            Prior: POST /test-run takes `misleading`, the number of seats that invent case facts.
 #            Prior: New file: the professor's Test button — POST starts a model-played room on your own config,
@@ -153,6 +157,122 @@ def list_test_runs(config_id):
     return jsonify({"runs": runs}), 200
 
 
+def _pct(part, whole):
+    """`part` as a whole-number percentage of `whole`, or 0 when there is nothing to divide."""
+    return round(100.0 * part / whole) if whole else 0
+
+
+def _tallied(counts, total):
+    """`{name: n}` → a list sorted commonest-first, each entry carrying its percentage.
+
+    A list rather than a dict because the page renders it in rank order, and letting
+    the client re-sort a dict is how two views of the same class end up disagreeing.
+    """
+    return [{"name": name, "count": n, "pct": _pct(n, total)}
+            for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+@manager_exercise_bp.route('/manager-exercise/<config_id>/results', methods=['GET'])
+@jwt_required()
+def get_results(config_id):
+    """The whole class's answers, for the professor.
+
+    WHY THIS EXISTS
+        The `investigation` template never reveals the answer in the room — the
+        exercise ends the moment a group commits. That is deliberate, and it puts
+        the debrief here: one page holding every group's answer, every individual's
+        private pick before the group could move them, and which version of the
+        case file each person was reading.
+
+    WHY IT IS SAFE TO SERVE AND THE ROOM PAYLOAD IS NOT
+        Named private picks are exactly what `solo_spread` refuses to send into a
+        live room, because naming them there is a different (and worse) exercise.
+        The class is over by the time anyone reads this, and the reader owns the
+        config — they wrote the answer key.
+
+    CLASS ROOMS ONLY. Test rooms (`_t`) are the professor rehearsing against model
+    students; counting those into the class percentages would quietly corrupt them.
+    """
+    config_doc, error = _load_owned_config(config_id)
+    if error:
+        return error
+
+    me = config_doc.get("manager_exercise") or {}
+    candidate_names = [c.get("name", "") for c in (me.get("candidates") or []) if c.get("name")]
+    # The pack's own answer key, shown as the column the results are read against.
+    # `best_option` is whatever the professor reviewed and locked at authoring time.
+    answer = ((me.get("case_pack") or {}).get("answer_key") or {}).get("best_option") or ""
+
+    rooms, group_counts, solo_counts = [], {}, {}
+    students_total = 0
+    for doc in ManagerExerciseSession.find_by_config(config_id):
+        room_id = doc.get("room_id") or ""
+        if room_id.startswith(f"{config_id}{TEST_ROOM_MARKER}"):
+            continue
+
+        solo_votes = ((doc.get("solo_ballot") or {}).get("votes")) or {}
+        students = []
+        for entry in (doc.get("roster") or []):
+            uid = entry.get("uid")
+            pick = solo_votes.get(uid)
+            students.append({
+                "name": entry.get("name") or "",
+                # Which slice of the case they were reading — the column that makes
+                # a wrong individual answer legible rather than just wrong.
+                "role": entry.get("role") or "",
+                "solo_pick": pick,
+                # A student who never submitted has no pick, and that is a real
+                # (and interesting) state — not the same as picking nobody.
+                "changed": bool(pick) and bool(doc.get("chosen_candidate"))
+                           and pick != doc.get("chosen_candidate"),
+            })
+            if pick:
+                solo_counts[pick] = solo_counts.get(pick, 0) + 1
+                students_total += 1
+
+        chosen = doc.get("chosen_candidate")
+        if chosen:
+            group_counts[chosen] = group_counts.get(chosen, 0) + 1
+
+        rooms.append({
+            "room_id": room_id,
+            # `{config_id}_g{n}` — the lobby's own numbering, so "Group 3" here is
+            # the Group 3 the students sat in.
+            "label": f"Group {room_id.rsplit('_g', 1)[-1]}" if "_g" in room_id else room_id,
+            "phase": doc.get("phase") or "waiting",
+            "group_choice": chosen,
+            # True/False against the pack's answer key, or None when there is nothing
+            # to compare — no answer entered, or a case with no key recorded. Not a
+            # plain boolean expression: `False or None` is None, which would render a
+            # wrong group as unmarked rather than as wrong.
+            "correct": (chosen.strip().casefold() == answer.strip().casefold()
+                        if (chosen and answer) else None),
+            "students": students,
+            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+        })
+
+    rooms.sort(key=lambda r: r["label"])
+    decided = [r for r in rooms if r["group_choice"]]
+    return jsonify({
+        "config_id": config_id,
+        "bot_name": config_doc.get("bot_name") or "",
+        "template": me.get("template") or "hiring",
+        "candidates": candidate_names,
+        "answer": answer,
+        "rooms": rooms,
+        "totals": {
+            "rooms": len(rooms),
+            "rooms_decided": len(decided),
+            "students_voted": students_total,
+            # How many groups landed on the pack's best option. The one number a
+            # professor opens this page for.
+            "rooms_correct": sum(1 for r in decided if r["correct"]),
+        },
+        "group_tally": _tallied(group_counts, len(decided)),
+        "solo_tally": _tallied(solo_counts, students_total),
+    }), 200
+
+
 @manager_exercise_bp.route('/manager-exercise/run/<room_id>', methods=['GET'])
 @jwt_required()
 def get_run(room_id):
@@ -180,6 +300,9 @@ def get_run(room_id):
     )
     return jsonify({
         "room_id": room_id,
+        # Which exercise this is, so the page labels the phase strip for the run it
+        # is actually watching rather than always for a hiring committee.
+        "template": (config_doc.get("manager_exercise") or {}).get("template") or "hiring",
         "phase": state.phase() if state else (doc.get("phase") or "waiting"),
         "roster": doc.get("roster") or [],
         "chosen_candidate": doc.get("chosen_candidate"),

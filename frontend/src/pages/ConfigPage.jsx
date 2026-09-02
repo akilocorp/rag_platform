@@ -220,6 +220,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       general_info: { file_id: '', text: '' },        // AI-only, optional; what the ROLE requires
       candidate_summary: { file_id: '', text: '' },   // AI-only; the tally derives from this
       candidates: [],                                 // { name, forecast_text, forecast_file_id }
+      template: 'hiring',                             // exercise template: 'hiring' | 'investigation'
       student_view: 'cards',                          // how round 0 reads: 'cards' | 'case'
       role_packets: [],                               // { role, text, file_id } — one per role, 'case' mode
       case_pack: null                                 // derived + reviewed in step 4
@@ -1231,6 +1232,31 @@ const ConfigModal = ({ isOpen, onClose }) => {
                   {/* M10: how a student reads their own confidential material, and the
                       per-role packets that make the `case` option possible. */}
                   <div className="pt-2 border-t border-gray-100">
+                    {/* Which exercise this is. Mirrors the server registry in
+                        backend/src/managers/exercise_templates.py — an unknown value there
+                        falls back to `hiring`, so the two can drift without breaking a class. */}
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> How the exercise runs</h3>
+                    <div className="grid sm:grid-cols-2 gap-2 mb-6">
+                      {[
+                        { key: 'hiring', title: 'Hiring committee', hint: 'The group picks a candidate, reads how the hire turned out six months later, then ACTR debriefs them.' },
+                        { key: 'investigation', title: 'Investigation', hint: "The group names one person and stops — no outcome shown, no debrief. You read every group's answer on the results page." },
+                      ].map((opt) => {
+                        const active = (config.manager_exercise.template || 'hiring') === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setMgr('template', opt.key)}
+                            className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                              active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
+                            }`}
+                          >
+                            <span className="block text-sm font-bold text-[#222] mb-1">{opt.title}</span>
+                            <span className="block text-[11px] leading-snug text-gray-500">{opt.hint}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> What each student reads</h3>
                     <div className="grid sm:grid-cols-2 gap-2 mb-3">
                       {[
