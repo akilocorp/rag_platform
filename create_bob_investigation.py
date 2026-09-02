@@ -1,7 +1,10 @@
 # @language  Python
-# @updated   2026-08-31
-# @changed   One-off: build the "What About Bob" investigation exercise on the hkustmg account from
-#            the three case-file PDFs in backend/uploads.
+# @updated   2026-09-02
+# @changed   The config doc is written with real Python types. It bypasses the save route that
+#            coerces the wizard's form strings, so "documents": "[]" reached Mongo as a STRING and
+#            the edit page died on documents.map.
+# @changed   Prior: One-off: build the "What About Bob" investigation exercise on the hkustmg account
+#            from the three case-file PDFs in backend/uploads.
 """Creates the 'What About Bob' manager-exercise config in Mongo.
 
 WHAT THIS CASE IS
@@ -373,18 +376,21 @@ def main():
         "introduction": "",
         "model_name": "claude-sonnet-4-6",
         "prompt_template": "",
-        "temperature": "0.7",
-        "response_timeout": "3",
-        "is_public": "True",
+        # Real Python types, not the form-shaped strings the wizard posts: this doc goes
+        # straight into Mongo without passing through the save route that coerces them,
+        # and the edit page calls .map on documents/bots.
+        "temperature": 0.7,
+        "response_timeout": 3,
+        "is_public": True,
         "config_type": "normal",
-        "documents": "[]",
+        "documents": [],
         # Forced to num_students by the same invariant the save route enforces.
         "group_size": me["num_students"],
-        "group_duration": "20",
-        "bots": "[]",
-        "web_access": "False",
-        "qualtrics_enabled": "False",
-        "audio_enabled": "False",
+        "group_duration": 20,
+        "bots": [],
+        "web_access": False,
+        "qualtrics_enabled": False,
+        "audio_enabled": False,
         "hume_config_id": "",
         "facilitator": {"enabled": False, "instruction": "", "allowedWidgets": None, "presets": []},
         "instructions": "Investigation: hidden-profile case file, no reveal and no debrief.",
