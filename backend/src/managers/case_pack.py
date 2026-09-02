@@ -46,6 +46,8 @@ import logging
 import os
 import re
 
+from src.utils.models import sampling_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Extraction reads several pages of prose and must not miss items, so it runs on
@@ -356,7 +358,7 @@ def _adjudicate(client, merges):
         msg = client.messages.create(
             model=EXTRACTION_MODEL,
             max_tokens=ADJUDICATION_MAX_TOKENS,
-            temperature=CALL_TEMPERATURE,
+            **sampling_kwargs(EXTRACTION_MODEL, CALL_TEMPERATURE),
             system=_MERGE_SYSTEM,
             tools=[_MERGE_TOOL],
             tool_choice={"type": "tool", "name": "emit_merge_verdicts"},
@@ -529,7 +531,7 @@ def build_case_pack(general_info_text, candidate_summary_text, candidates):
         msg = client.messages.create(
             model=EXTRACTION_MODEL,
             max_tokens=EXTRACTION_MAX_TOKENS,
-            temperature=CALL_TEMPERATURE,
+            **sampling_kwargs(EXTRACTION_MODEL, CALL_TEMPERATURE),
             system=_EXTRACTION_SYSTEM,
             tools=[_EXTRACTION_TOOL],
             tool_choice={"type": "tool", "name": "emit_case_pack"},

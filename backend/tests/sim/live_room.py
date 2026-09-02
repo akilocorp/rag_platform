@@ -60,6 +60,7 @@ if _BACKEND not in sys.path:
 import socketio                                                       # noqa: E402
 
 from src.managers import ai_manager                                   # noqa: E402
+from src.utils.models import sampling_kwargs                          # noqa: E402
 from tests.sim.replay import STUDENT_MODEL, Tee, UsageMeter           # noqa: E402
 
 DEFAULT_URL = "https://testfront.bitterlylab.com"
@@ -404,7 +405,8 @@ class Bot:
         user = f"The conversation so far:\n{self.room.transcript()}\n\n{task}"
         try:
             msg = client.messages.create(
-                model=STUDENT_MODEL, max_tokens=max_tokens, temperature=temperature,
+                model=STUDENT_MODEL, max_tokens=max_tokens,
+                **sampling_kwargs(STUDENT_MODEL, temperature),
                 system=[{"type": "text", "text": system,
                          "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user}],

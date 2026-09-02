@@ -1,7 +1,10 @@
 # @language  Python
-# @updated   2026-08-07
-# @changed   New module. `accepts_temperature` gates the sampling parameter that the newest Anthropic
-#            models reject outright, so adding one to the config picker cannot 400 every chat.
+# @updated   2026-09-02
+# @changed   `sampling_kwargs` joins `accepts_temperature`. anthropic 1.x removed `temperature` from the
+#            SDK method signatures outright, so passing it is now a TypeError on EVERY model rather than
+#            a 400 on the newest ones — two different rules with one answer, which belongs in one place.
+#            Prior: New module. `accepts_temperature` gates the sampling parameter that the newest
+#            Anthropic models reject outright, so adding one to the config picker cannot 400 every chat.
 """Per-model capability checks shared by the chat paths.
 
 Both routes that build a Claude client pass `temperature` unconditionally —
@@ -36,3 +39,27 @@ def accepts_temperature(model_name):
     """
     m = (model_name or "").strip().lower()
     return not m.startswith(_NO_SAMPLING_PARAMS)
+
+
+def sampling_kwargs(model_name, temperature):
+    """`temperature` as request kwargs for a raw-SDK call — `{}` when it must not be sent.
+
+    Two separate rules meet here and both say "not as a keyword argument".
+
+    The model may refuse it: the families in `_NO_SAMPLING_PARAMS` return a 400 for any
+    request carrying `temperature`, which is what `accepts_temperature` decides.
+
+    And the SDK no longer takes it: anthropic 1.x dropped `temperature` from
+    `messages.create()` / `.stream()` / `.parse()`, so passing it raises TypeError on
+    every model, the accepting ones included. That is not a 400 the caller can see — it
+    is an exception thrown before any request is sent, and every call site here catches
+    broadly, so it surfaced as a voice bot apologising and a test room where nobody
+    spoke. Where the setting is still wanted it rides in `extra_body`, which the SDK
+    merges into the request JSON untouched.
+    """
+    if temperature is None or not accepts_temperature(model_name):
+        return {}
+    try:
+        return {"extra_body": {"temperature": float(temperature)}}
+    except (TypeError, ValueError):
+        return {}
