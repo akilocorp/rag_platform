@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Publishing a new config returns to the config list instead of opening the config itself,
+// @updated   2026-09-02
+// @changed   Un-commented the Audio Call bot-type card. The whole voice path (validation, audio_enabled,
+//            the Claude-model pin) was already wired — only the card was hidden, so the mode could not
+//            be created at all.
+// @changed   Prior: Publishing a new config returns to the config list instead of opening the config itself,
 //            matching the edit page. Video rubric boxes are edited on /video-boxes/:configId afterwards.
 // @changed   Prior: Case Materials upload boxes now accept drag-and-drop (General Info, Candidate Summary,
 //            candidate-outcome and role-packet adders) with an orange drop-target highlight.
@@ -909,12 +912,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <p className="text-[10px] text-gray-500 font-medium mt-1">1-on-1 Video</p>
                     </label> */}
 
-                    {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'audio_call' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="audio_call" checked={config.bot_type === 'audio_call'} onChange={handleChange} className="hidden" />
                       <FaPhoneAlt className={`text-2xl mb-2 ${config.bot_type === 'audio_call' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Audio Call</p>
                       <p className="text-[10px] text-gray-500 font-medium mt-1">Voice + Transcript</p>
-                    </label> */}
+                    </label>
 
                     {/* <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'group_chat' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="group_chat" checked={config.bot_type === 'group_chat'} onChange={handleChange} className="hidden" />

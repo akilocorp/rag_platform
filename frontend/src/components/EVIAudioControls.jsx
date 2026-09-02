@@ -1,4 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-09-02
+ * @changed   Calls are now recorded and filed. The student's microphone is captured for the length of
+ *            the call and uploaded straight to S3 on hang-up; a call-metadata row is written at connect
+ *            (so a closed tab still leaves a record) and completed at hang-up; and each turn now reports
+ *            its index and offset from the start of the call. Overlay carries a live recording dot.
+ *            Prior: dismiss voice overlay locally so X / End-call close instantly.
+ */
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceProvider, useVoice } from '@humeai/voice-react';
 import { FaMicrophone, FaMicrophoneSlash, FaPhoneSlash, FaSpinner, FaTimes } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -13,6 +22,85 @@ import apiClient from '../api/apiClient';
  */
 
 const BAR_COUNT = 28;
+
+/**
+ * Captures the student's microphone for the length of a call.
+ *
+ * A second `getUserMedia` alongside the one the Hume SDK holds — browsers allow
+ * concurrent captures of the same device, and tapping the SDK's own stream would
+ * mean reaching into its internals. Only the student is recorded: the assistant's
+ * audio arrives as separate WebSocket clips that would need decoding, mixing and
+ * re-syncing around every interruption, and its words are already in the
+ * transcript. So this is a clean single-speaker track, not the mixed call.
+ */
+const useCallRecorder = () => {
+  const recorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  const start = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+        .find((t) => MediaRecorder.isTypeSupported(t)) || '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunksRef.current.push(e.data); };
+      // Timeslice so a crashed tab still leaves whole chunks behind rather than
+      // one buffer that was never flushed.
+      recorder.start(5000);
+      recorderRef.current = recorder;
+      return true;
+    } catch (e) {
+      console.warn('Call recording unavailable', e);
+      return false;
+    }
+  }, []);
+
+  // Resolves once the recorder has flushed its final chunk — `stop()` is async
+  // in effect, and reading chunksRef before `onstop` loses the tail of the call.
+  const stop = useCallback(() => new Promise((resolve) => {
+    const recorder = recorderRef.current;
+    const releaseMic = () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+    if (!recorder || recorder.state === 'inactive') {
+      releaseMic();
+      resolve(null);
+      return;
+    }
+    recorder.onstop = () => {
+      releaseMic();
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      chunksRef.current = [];
+      recorderRef.current = null;
+      resolve(blob.size > 0 ? blob : null);
+    };
+    recorder.stop();
+  }), []);
+
+  return { start, stop };
+};
+
+/** Presign, then PUT the recording straight to S3. Returns the stored key. */
+const uploadRecording = async (blob, { configId, sessionId }) => {
+  const { data } = await apiClient.post('/audio/session/recording/url', {
+    session_id: sessionId,
+    config_id: configId,
+    content_type: blob.type || 'audio/webm',
+  });
+  // Plain fetch, not apiClient: our auth interceptor would add headers that are
+  // not part of the presigned signature, and S3 rejects the PUT with a 403.
+  const res = await fetch(data.upload_url, {
+    method: 'PUT',
+    body: blob,
+    headers: { 'Content-Type': data.content_type },
+  });
+  if (!res.ok) throw new Error(`S3 upload failed (${res.status})`);
+  return data.storage_key;
+};
 
 const VoiceWave = ({ fft, active, accent }) => {
   const arr = Array.isArray(fft) ? fft : null;
@@ -44,6 +132,7 @@ const VoiceOverlay = ({
   micFft,
   isPlayingAudio,
   isMuted,
+  recording,
   onMute,
   onUnmute,
   onClose,
@@ -83,6 +172,14 @@ const VoiceOverlay = ({
         <span>{label}</span>
       </div>
 
+      {/* Nobody is recorded without seeing that they are. */}
+      {recording && (
+        <div className="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 text-white/70 text-[11px] tracking-[0.2em] uppercase">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <span>Recording</span>
+        </div>
+      )}
+
       <VoiceWave fft={activeFft} active={!isConnecting} accent={accent} />
 
       <div className="mt-10 sm:mt-14 flex items-center gap-4 sm:gap-5">
@@ -119,11 +216,16 @@ const VoiceOverlay = ({
   );
 };
 
-const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, disabled }) => {
+const InnerControls = ({
+  accessToken, humeConfigId, sessionId,
+  configId, callSessionId, variables,
+  onTurn, onError, disabled,
+}) => {
   const voice = useVoice();
   const {
     status,
     messages,
+    chatMetadata,
     connect,
     disconnect,
     mute,
@@ -135,6 +237,11 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
   } = voice;
   const seenTurnsRef = useRef(0);
   const [dismissed, setDismissed] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorder = useCallRecorder();
+  // Wall-clock start of the call. Every turn's offset_ms is measured from here,
+  // which is what turns a pile of rows into a transcript with a timeline.
+  const startedAtRef = useRef(null);
 
   useEffect(() => {
     if (status?.value === 'disconnected' || status?.value === 'error') {
@@ -142,14 +249,62 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
     }
   }, [status]);
 
+  // Hume's own chat id arrives after the socket opens; file it against the call
+  // so a record here can be matched to a record in Hume's dashboard.
+  useEffect(() => {
+    const humeChatId = chatMetadata?.chatId;
+    if (!humeChatId || !callSessionId || !configId) return;
+    apiClient.post('/audio/session/call', {
+      session_id: callSessionId,
+      config_id: configId,
+      hume_chat_id: humeChatId,
+    }).catch((e) => console.warn('Failed to file Hume chat id', e));
+  }, [chatMetadata, callSessionId, configId]);
+
+  /**
+   * Hang up: stop the recorder, upload what it captured, and close out the call
+   * row. The overlay is dismissed first and the upload runs behind it — a
+   * student should never be held on a "please wait" screen by our bookkeeping.
+   */
   const handleClose = () => {
     setDismissed(true);
+    setRecording(false);
     try {
       const r = disconnect?.();
       if (r && typeof r.then === 'function') r.catch(err => console.error('disconnect error', err));
     } catch (err) {
       console.error('disconnect threw', err);
     }
+
+    (async () => {
+      const startedAt = startedAtRef.current;
+      startedAtRef.current = null;
+      let blob = null;
+      try {
+        blob = await recorder.stop();
+      } catch (e) {
+        console.warn('Could not finalize the recording', e);
+      }
+      if (!callSessionId || !configId) return;
+
+      const payload = {
+        session_id: callSessionId,
+        config_id: configId,
+        ended_at: new Date().toISOString(),
+      };
+      if (startedAt) payload.duration_ms = Date.now() - startedAt.getTime();
+
+      try {
+        if (blob) payload.storage_key = await uploadRecording(blob, { configId, sessionId: callSessionId });
+        if (blob) payload.content_type = blob.type || 'audio/webm';
+      } catch (e) {
+        // The transcript is already saved turn by turn, so a failed upload costs
+        // the audio and nothing else. Close the call row out regardless.
+        console.error('Recording upload failed', e);
+      }
+      apiClient.post('/audio/session/call', payload)
+        .catch((e) => console.warn('Failed to close out the call record', e));
+    })();
   };
 
   useEffect(() => {
@@ -165,7 +320,18 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
       const transcript = (m?.message?.content || '').trim();
       if (!transcript) continue;
       const prosody = m?.models?.prosody?.scores || null;
-      onTurn?.({ role, transcript, prosody });
+      // The SDK stamps every message with `receivedAt`, so the turn's place in
+      // the call is real rather than reconstructed from when our POST landed.
+      const receivedAt = m?.receivedAt instanceof Date ? m.receivedAt : new Date();
+      const startedAt = startedAtRef.current;
+      onTurn?.({
+        role,
+        transcript,
+        prosody,
+        turnIndex: i,
+        receivedAt: receivedAt.toISOString(),
+        offsetMs: startedAt ? Math.max(0, receivedAt.getTime() - startedAt.getTime()) : null,
+      });
     }
     seenTurnsRef.current = turnMessages.length;
   }, [messages, onTurn]);
@@ -176,6 +342,13 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
     }
   }, [status, onError]);
 
+  /**
+   * Open the call: connect, start recording, and write the call row immediately.
+   *
+   * The row is written now rather than at hang-up so that a student who closes
+   * the tab halfway through still leaves a record carrying the variables they
+   * were assigned — a partial call is data, an orphaned set of turns is not.
+   */
   const handleConnect = async () => {
     try {
       await connect({
@@ -186,6 +359,22 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
     } catch (e) {
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
+      return;
+    }
+
+    const startedAt = new Date();
+    startedAtRef.current = startedAt;
+    seenTurnsRef.current = 0;
+
+    setRecording(await recorder.start());
+
+    if (callSessionId && configId) {
+      apiClient.post('/audio/session/call', {
+        session_id: callSessionId,
+        config_id: configId,
+        started_at: startedAt.toISOString(),
+        variables: variables || {},
+      }).catch((e) => console.warn('Failed to open the call record', e));
     }
   };
 
@@ -212,6 +401,7 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
           micFft={micFft}
           isPlayingAudio={isPlayingAudio}
           isMuted={isMuted}
+          recording={recording}
           onMute={mute}
           onUnmute={unmute}
           onClose={handleClose}
@@ -221,7 +411,11 @@ const InnerControls = ({ accessToken, humeConfigId, sessionId, onTurn, onError, 
   );
 };
 
-const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }) => {
+const EVIAudioControls = ({
+  humeConfigId, sessionId,
+  configId, callSessionId, variables,
+  onTurn, onError, disabled,
+}) => {
   const [accessToken, setAccessToken] = useState(null);
   const [serverConfigId, setServerConfigId] = useState(null);
   const [tokenError, setTokenError] = useState(null);
@@ -273,6 +467,9 @@ const EVIAudioControls = ({ humeConfigId, sessionId, onTurn, onError, disabled }
         accessToken={accessToken}
         humeConfigId={effectiveConfigId}
         sessionId={sessionId}
+        configId={configId}
+        callSessionId={callSessionId}
+        variables={variables}
         onTurn={onTurn}
         onError={onError}
         disabled={disabled}
