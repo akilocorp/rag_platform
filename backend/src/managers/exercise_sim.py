@@ -62,6 +62,7 @@ import re
 from typing import Callable, Dict, List, Optional
 
 from src.managers import ai_manager
+from src.utils.models import sampling_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +332,8 @@ class SimStudent:
             return ""
         try:
             msg = client.messages.create(
-                model=STUDENT_MODEL, max_tokens=max_tokens, temperature=temperature,
+                model=STUDENT_MODEL, max_tokens=max_tokens,
+                **sampling_kwargs(STUDENT_MODEL, temperature),
                 system=[{"type": "text", "text": self._system(state, others),
                          "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user",

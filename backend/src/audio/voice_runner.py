@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-09-02
-# @changed   New module. The lean voice turn: one Claude stream, no tools, no RAG, no markdown,
+# @changed   The professor's temperature now rides in `extra_body`. anthropic 1.x dropped the keyword
+#            from `messages.stream()`, so passing it raised TypeError before the request was ever
+#            sent — and the CLM bridge caught that and spoke an apology, so every voice turn on the
+#            server failed identically while the same call worked from anywhere else.
+#            Prior: New module. The lean voice turn: one Claude stream, no tools, no RAG, no markdown,
 #            thinking off — so Hume EVI can start speaking on the first token instead of waiting
 #            out a knowledge-base round trip. Carries per-session variables into the persona.
 """
@@ -21,7 +25,7 @@ import logging
 import os
 from typing import Any, Dict, Iterator, List
 
-from src.utils.models import accepts_temperature
+from src.utils.models import sampling_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -174,13 +178,7 @@ def stream_voice_response(
         "max_tokens": VOICE_MAX_TOKENS,
     }
     kwargs.update(_latency_kwargs(model))
-
-    temp = config.get('temperature')
-    if temp is not None and accepts_temperature(model):
-        try:
-            kwargs["temperature"] = float(temp)
-        except (TypeError, ValueError):
-            pass
+    kwargs.update(sampling_kwargs(model, config.get('temperature')))
 
     with client.messages.stream(**kwargs) as stream:
         for text in stream.text_stream:

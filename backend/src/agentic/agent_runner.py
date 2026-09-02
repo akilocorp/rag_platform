@@ -34,7 +34,7 @@ from src.agentic.constants import (
 )
 from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
-from src.utils.models import accepts_temperature
+from src.utils.models import sampling_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -382,15 +382,8 @@ def stream_agentic_response(
             "messages": messages,
             "max_tokens": DEFAULT_MAX_TOKENS,
         }
-        # The newest Anthropic models reject `temperature` with a 400 rather than
-        # ignoring it, so the professor's slider is dropped for those instead of
-        # failing the turn.
-        temp = config.get('temperature')
-        if temp is not None and accepts_temperature(model):
-            try:
-                kwargs["temperature"] = float(temp)
-            except (TypeError, ValueError):
-                pass
+        # The professor's slider, if this model and this SDK will take it at all.
+        kwargs.update(sampling_kwargs(model, config.get('temperature')))
         if tools_param:
             kwargs["tools"] = tools_param
 

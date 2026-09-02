@@ -70,6 +70,7 @@ import logging
 import os
 import re
 
+from src.utils.models import sampling_kwargs
 from src.managers.facilitator_prompt import (
     build_facilitator_system,
     render_pushback_guard,
@@ -273,7 +274,7 @@ def _call(system, user, fallback=None):
         msg = client.messages.create(
             model=FACILITATOR_MODEL,
             max_tokens=FACILITATOR_MAX_TOKENS,
-            temperature=0,
+            **sampling_kwargs(FACILITATOR_MODEL, 0),
             system=[{
                 "type": "text",
                 "text": system,
@@ -306,7 +307,7 @@ def _call_turn(system, user):
         msg = client.messages.create(
             model=FACILITATOR_MODEL,
             max_tokens=FACILITATOR_TOOL_MAX_TOKENS,
-            temperature=0,
+            **sampling_kwargs(FACILITATOR_MODEL, 0),
             system=[{
                 "type": "text",
                 "text": system,
@@ -366,7 +367,8 @@ def assess_progress(transcript, chosen_name=None, previous=None, candidates=None
             f"TRANSCRIPT SO FAR\n{transcript.strip()}")
     try:
         msg = client.messages.create(
-            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS, temperature=0,
+            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS,
+            **sampling_kwargs(CHECKER_MODEL, 0),
             system=[{"type": "text", "text": _PROGRESS_SYSTEM,
                      "cache_control": {"type": "ephemeral"}}],
             tools=[PROGRESS_TOOL],
@@ -415,7 +417,8 @@ def _check_turn(draft, transcript):
             f"THE DRAFT TO JUDGE\n{draft.strip()}")
     try:
         msg = client.messages.create(
-            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS, temperature=0,
+            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS,
+            **sampling_kwargs(CHECKER_MODEL, 0),
             system=[{"type": "text", "text": _CHECK_SYSTEM,
                      "cache_control": {"type": "ephemeral"}}],
             tools=[CHECK_TOOL],
@@ -595,7 +598,8 @@ def judge_step_advance(current_step, proposed_step, justification, transcript, s
     ])
     try:
         msg = client.messages.create(
-            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS, temperature=0,
+            model=CHECKER_MODEL, max_tokens=CHECKER_MAX_TOKENS,
+            **sampling_kwargs(CHECKER_MODEL, 0),
             system=[{"type": "text", "text": _ADVANCE_SYSTEM + render_sequence(),
                      "cache_control": {"type": "ephemeral"}}],
             tools=[ADVANCE_TOOL],

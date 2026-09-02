@@ -72,6 +72,7 @@ from dotenv import load_dotenv                                         # noqa: E
 load_dotenv(os.path.join(_BACKEND, ".env"))
 
 from src.managers import ai_manager                                    # noqa: E402
+from src.utils.models import sampling_kwargs                          # noqa: E402
 from src.managers.tools.steps import FIRST_STEP                       # noqa: E402
 
 
@@ -370,7 +371,8 @@ class StudentAgent:
         user += f"Write your next message as {self.name}, or reply PASS."
         try:
             msg = client.messages.create(
-                model=STUDENT_MODEL, max_tokens=STUDENT_MAX_TOKENS, temperature=1.0,
+                model=STUDENT_MODEL, max_tokens=STUDENT_MAX_TOKENS,
+                **sampling_kwargs(STUDENT_MODEL, 1.0),
                 system=[{"type": "text", "text": self._system,
                          "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user}],
@@ -485,7 +487,8 @@ def judge_ending(out, room, chosen, config):
             f"QUESTIONS\n{questions}")
     try:
         msg = client.messages.create(
-            model=ai_manager.FACILITATOR_MODEL, max_tokens=2000, temperature=0,
+            model=ai_manager.FACILITATOR_MODEL, max_tokens=2000,
+            **sampling_kwargs(ai_manager.FACILITATOR_MODEL, 0),
             system=[{"type": "text", "text": ENDING_JUDGE_SYSTEM}],
             messages=[{"role": "user", "content": user}],
         )

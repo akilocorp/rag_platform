@@ -24,7 +24,10 @@ pypdf
 python-pptx
 trafilatura
 tavily-python
-anthropic
+# Pinned to the 1.x line: 1.0 removed temperature/top_p/top_k from the SDK method
+# signatures, so an unpinned rebuild silently turned every sampling call into a
+# TypeError. See src/utils/models.py:sampling_kwargs.
+anthropic>=1.3,<2
 hume
 pymupdf
 Flask-SocketIO
