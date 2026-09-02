@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   add_message takes an optional `reasoning`, stored on the document only — ACTR's private
+# @updated   2026-08-20
+# @changed   Added recent_excluding_sender — the room minus one voice, so the facilitator can be handed
+#            the students' own recent messages (the mirror of recent_by_sender) for the pushback guard.
+# @changed   Prior: add_message takes an optional `reasoning`, stored on the document only — ACTR's private
 #            narration of why it took the turn. Never rendered into the transcript and never broadcast,
 #            so it cannot leak to a student or back into the facilitator's own next prompt.
 #            Prior: Quote-reply support: every message gets a stable `mid`; add_message accepts a `reply_to`
@@ -167,6 +169,17 @@ class ConversationContext:
         it survives a restart mid-debrief for free.
         """
         texts = [m.get("text") or "" for m in self.messages if m.get("sender") == sender]
+        return texts[-limit:]
+
+    def recent_excluding_sender(self, sender: str, limit: int = 8) -> List[str]:
+        """The last `limit` message texts from everyone EXCEPT one sender, oldest first.
+
+        The mirror of `recent_by_sender`: that one hands ACTR its own turns, this one
+        hands it the students'. Feeds the pushback guard, which needs the message that
+        triggered the turn (always the last entry, since only student messages ask ACTR
+        for one) plus enough of the window to tell a first demand from a repeated one.
+        """
+        texts = [m.get("text") or "" for m in self.messages if m.get("sender") != sender]
         return texts[-limit:]
 
     def get_context_summary(self, num_messages: int = 15) -> str:

@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-18
- * @changed   A turn that dies mid-stream now hands the view to StreamInterruptedPage — the server's `error`
+ * @updated   2026-09-02
+ * @changed   Voice calls carry the launch URL's query params (participant code, assigned topic, assigned
+ *            stance) into the persona as session variables, encoded into a fourth segment of the CLM
+ *            session id.
+ *            Prior: A turn that dies mid-stream now hands the view to StreamInterruptedPage — the server's `error`
  *            frame (previously dropped on the floor) and a client-side connection failure both latch
  *            `streamInterrupted`, replacing the half-written bubble with a "Please refresh the page" screen.
  *            Replaces the red "Connection lost" banner.
@@ -732,6 +735,25 @@ const ChatPage = () => {
   const _urlStudentLabel = _qp.get('studentEmail') || _qp.get('studentName') || null;
   const _savedGuest = (() => { try { return JSON.parse(localStorage.getItem('guestInfo') || 'null'); } catch { return null; } })();
   const studentLabelRef = useRef(_urlStudentLabel || _savedGuest?.name || null);
+  // Everything the launch URL carried (participant code, assigned topic, assigned
+  // stance — whatever a study sends from Qualtrics) becomes session variables for
+  // the voice persona. Encoded as urlsafe-base64 JSON so it survives as the fourth
+  // segment of the colon-delimited CLM session id.
+  // `vars` is kept alongside the encoded form because the call record stores them
+  // readable (that is what the export's per-variable columns are built from),
+  // while the CLM session id needs them packed.
+  const voiceSession = useMemo(() => {
+    const vars = {};
+    for (const [k, v] of _qp.entries()) { if (v) vars[k] = v; }
+    if (Object.keys(vars).length === 0) return { vars, encoded: '' };
+    try {
+      const bytes = new TextEncoder().encode(JSON.stringify(vars));
+      const encoded = btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return { vars, encoded };
+    } catch { return { vars, encoded: '' }; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- STATE ---
   const [messages, setMessages] = useState([]);
@@ -1688,15 +1710,28 @@ const ChatPage = () => {
   // --- EVI (Hume) audio turn handler ---
   // Each finalized user/assistant turn from EVI: render a bubble, persist to
   // audio_sessions, and notify the Qualtrics parent.
-  const handleEVITurn = useCallback(async ({ role, transcript, prosody }) => {
+  /**
+   * The id every record of this call is filed under.
+   *
+   * Minted once and reused: the call-metadata row is written when the socket
+   * opens, before any turn exists, so if turns minted their own id later the
+   * two would never join in the export.
+   */
+  const getCallSessionId = useCallback(() => {
+    if (!currentChatIdRef.current) {
+      const minted = `chat_${Date.now()}`;
+      currentChatIdRef.current = minted;
+      navigate(`/chat/${configId}/${minted}`, { replace: true });
+    }
+    return currentChatIdRef.current;
+  }, [configId, navigate]);
+
+  const handleEVITurn = useCallback(async ({
+    role, transcript, prosody, turnIndex, offsetMs, receivedAt,
+  }) => {
     if (!transcript) return;
 
-    let workingChatId = currentChatIdRef.current;
-    if (!workingChatId) {
-      workingChatId = `chat_${Date.now()}`;
-      currentChatIdRef.current = workingChatId;
-      navigate(`/chat/${configId}/${workingChatId}`, { replace: true });
-    }
+    const workingChatId = getCallSessionId();
 
     setMessages(prev => [
       ...prev,
@@ -1725,15 +1760,27 @@ const ChatPage = () => {
         role,
         transcript,
         prosody_scores: prosody || null,
+        turn_index: turnIndex ?? null,
+        offset_ms: offsetMs ?? null,
+        received_at: receivedAt || null,
       });
     } catch (e) {
       console.warn('Failed to persist audio turn', e);
     }
-  }, [configId, navigate]);
+  }, [configId, getCallSessionId]);
 
   const handleEVIError = useCallback((msg) => {
     console.warn('EVI error:', msg);
   }, []);
+
+  // Call mode mints its chat id as soon as the page opens rather than on the
+  // first turn, because the call record is written the moment the socket
+  // connects and both have to be filed under the same key.
+  const [callSessionId, setCallSessionId] = useState(null);
+  useEffect(() => {
+    if (config?.bot_type !== 'audio_call') return;
+    setCallSessionId(getCallSessionId());
+  }, [config, getCallSessionId]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -2083,7 +2130,10 @@ const ChatPage = () => {
                       {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears on the right.'}
                     </p>
                     <EVIAudioControls
-                      sessionId={`${configId}:${currentChatIdRef.current || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}`}
+                      sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${voiceSession.encoded ? `:${voiceSession.encoded}` : ''}`}
+                      configId={configId}
+                      callSessionId={callSessionId}
+                      variables={voiceSession.vars}
                       onTurn={handleEVITurn}
                       onError={handleEVIError}
                     />

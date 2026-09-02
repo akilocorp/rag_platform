@@ -387,3 +387,109 @@ Both Simple/Advanced toggle variants confirmed: full `Simple | Advanced` pill on
   to the right track in `content.js`. A file without a nav entry is invisible; a nav entry
   without a file renders empty.
 - The guide must stay callable logged-out — it must never hit `apiClient` or `/auth/me`.
+
+---
+
+## 2026-08-31 Session: exercise templates + the "What About Bob" investigation
+
+### The idea
+The manager exercise was one exercise with one flow and one vocabulary (a hiring
+committee that reveals an outcome "six months later" and then debriefs). It is now
+**one machine with templates**. A template owns two things and nothing else:
+
+| | |
+|---|---|
+| `flow` | which optional phases exist — `{reveal, debrief}` |
+| `lexicon` | the student-facing strings ("enter the hire" vs "name our suspect") |
+
+`backend/src/managers/exercise_templates.py` is the registry. `hiring` is the
+default and is byte-for-byte the old behaviour, so **every config that predates
+this is unchanged** — `normalize()` maps a missing or unknown `template` to it.
+
+Deliberately NOT a second `bot_type`: that would fork a 1400-line state machine and
+a 1900-line player to change a dozen strings and skip two phases. The pedagogy is
+identical (people hold different pieces and fail to pool them).
+
+**Where the flags bite** (all in `exercise_state.py`):
+- `resolve_collective` → `_enter_kiosk()` when `reveal`, else straight to `_enter_done()`.
+- `_finish_kiosk` → `_enter_debrief()` when `debrief`, else `_enter_done()`.
+- `_enter_done` only fires the `on_wrapup` hook when `debrief` — otherwise ACTR would
+  appear for the first and only time on the last screen of an exercise it was kept out of.
+- `resolve_collective` leaves `forecast_shown_for` **None** without a reveal. This is
+  the one that matters: the snapshot derives `revealed` from that field, and
+  `Transcript()` pins the outcome document above the messages on the done screen — so
+  setting it would have handed every student the answer key.
+- `flow()` is forced to `debrief: False` whenever `reveal` is False. The debrief opens
+  on the outcome the room has just read; there is nothing to debrief without one.
+
+The snapshot carries `template`, `lexicon` and `flow`. The client merges the lexicon
+over a hardcoded hiring fallback (`LEXICON_FALLBACK` in `ManagerExercisePage.jsx`), so
+a key the server hasn't sent keeps its old word rather than rendering blank.
+Picker: a two-card toggle in `ConfigPage.jsx` and `EditConfigPage.jsx`, beside the
+existing cards-vs-case toggle.
+
+### The professor's class results page — `/manager-exercise/:configId/results`
+`GET /api/manager-exercise/<config_id>/results` (owner-scoped). Every group's answer,
+every student's **named** private pick and which role/case file they held, plus
+class-wide percentages and how many groups matched the pack's answer key. Test rooms
+(`_t`) are excluded — counting the professor's rehearsals into the class numbers
+would quietly corrupt them.
+
+Named private picks are exactly what `solo_spread()` refuses to send into a live room.
+That is not a contradiction: naming them *in the room* is a different exercise; naming
+them *to the professor after the class* is the debrief. Linked from the manager-exercise
+block in `EditConfigPage`, next to the test-run panel.
+
+### The case: "What About Bob" (config `6a954936486ab4fd5f8fee90`, hkustmg)
+Built by `create_bob_investigation.py` from the three PDFs in `backend/uploads/`
+(`What About Bob final.pdf`, `...#...`, `...@...`). Classic hidden-profile murder file.
+
+- `template: investigation`, `student_view: case`, 3 seats, one **case file** each
+  (~14 k chars of interview transcript, not credential cards).
+- Roles are `Case File 1/2/3`; `case_pack.roles` binds a seat to a file on join order.
+- Answer: **Mickey Malone**, `best_option_locked: True` so `case_pack.recompute` cannot
+  overwrite it (its "most strengths, fewest concerns" rule is meaningless for suspects).
+- The trap: every file carries the five depositions that make **Billy Prentice** look
+  guilty. The three facts that clear him and convict Malone are split one per file —
+  the wallet dumped by a *quiet* car at Eastwood at 7 a.m. (File 1), Malone rushing out
+  of the café (File 2), and the 6:40 car being the killer *leaving* (File 3).
+- Students never see the answer. `create_bob_investigation.py`'s docstring is the
+  full solution; `candidate_summary` on the config is the same thing for the model.
+
+### Simulator: students who half-remember
+`exercise_sim.py` — a seat whose packet is a **case document** (not cards) now gets
+`RECALL_BEHAVIOUR`: it read the file once, cannot look at it now, hedges on details and
+surfaces things late. The text is deliberately **not** truncated to force this — deleting
+evidence at random would decide the outcome by dice, and a failed run would say nothing
+about whether the case pack works.
+`DISCUSS_TURNS_NO_DEBRIEF = 36` (vs 6): when there is no round 2, round 1 *is* the
+exercise. The run also ends cleanly at `done` instead of timing out for 60s waiting on
+a debrief phase that is never coming.
+
+### Running a test room without a browser
+`run_bob_test.py <config_id>` builds a **minimal** Flask app (config + Mongo + socket
+events only) and calls the same `start_test_run` launcher the HTTP route calls. It does
+not import `backend/app.py`: that registers every blueprint, which drags in the document
+loaders → nltk → sklearn, and a broken numpy/sklearn ABI in the local interpreter then
+stops a run that touches none of it. Also resolves the Atlas SRV URI to a direct shard
+list, since UDP 53 is blocked here.
+
+### The test run (2026-08-31, room `..._tcb3e55`)
+Three model students, one case file each, ~36 turns of round-1 discussion:
+
+- **Every one of them privately picked Billy Prentice.** The trap works.
+- The group answered **Mickey Malone**. Correct.
+- The reasoning went the intended way and only through pooling: Ben (File 2) cleared
+  Billy on timing, Cara (File 3) contradicted the crowbar story she did not have,
+  Cara surfaced Malone's early phone call, Ben produced the waitress, and the group
+  took apart Malone's alibi from there.
+- The register held — "wait, my case didn't mention fingerprints on any crowbar",
+  "you guys are mixing stuff up". They half-remember and correct each other, which is
+  what `RECALL_BEHAVIOUR` is for.
+
+### Notes for the next session
+- `run_bob_test.py` and `create_bob_investigation.py` are one-off scripts at the repo
+  root, alongside `create_mgmt5110_class.py` etc. Not wired into anything.
+- The `investigation` template has no facilitator at all, so `facilitator_prompt.py`
+  and `ai_manager` are never reached on that path.
+- Nothing here is committed yet.

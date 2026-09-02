@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   Persist `facilitator_step`: which step of ACTR's own sequence the debrief is on, set to
+# @updated   2026-08-31
+# @changed   Templates: the config's `template` picks the FLOW and the WORDS (see exercise_templates).
+#            `reveal` off sends a resolved pick straight to `done` instead of the kiosk; `debrief`
+#            off ends the room after the reveal. Both default on, so every existing config is
+#            unchanged. The snapshot carries the template id + lexicon so the client stops writing
+#            "hire" over an exercise that is not a hire.
+# @changed   Prior: Persist `facilitator_step`: which step of ACTR's own sequence the debrief is on, set to
 #            FIRST_STEP on entry and written through on every approved move. It is the one thing the
 #            model could not recover by re-reading the transcript, and it was re-deriving it each turn.
 #            Prior: M13: one student decides for the group. Round 1 no longer votes — the first student seated
@@ -59,6 +64,7 @@ import time
 from threading import RLock
 from typing import Callable, Dict, List, Optional, Tuple
 
+from src.managers import exercise_templates
 from src.managers.tools.steps import FIRST_STEP
 from src.models.manager_exercise_session import ManagerExerciseSession
 
@@ -440,6 +446,18 @@ class ExerciseState:
         """
         return "case" if (self.config.get("student_view") == "case") else "cards"
 
+    def template(self) -> str:
+        """This exercise's template id — which flow and which words it runs with.
+
+        Anything unrecognised (including a config saved before templates existed)
+        normalizes to `hiring`, which is what those configs already did.
+        """
+        return exercise_templates.normalize(self.config.get("template"))
+
+    def flow(self) -> Dict:
+        """Which optional phases this template has: `{"reveal": bool, "debrief": bool}`."""
+        return exercise_templates.flow(self.config.get("template"))
+
     def case_for(self, uid: str) -> str:
         """This student's OWN role packet as a case document ("" if none) (M10).
 
@@ -585,6 +603,13 @@ class ExerciseState:
                 "chosen_verdict": self._verdict_for(self.chosen_candidate) if revealed else None,
                 # Derived from the phase (0 private / 1 group decision / 2 debrief).
                 "round": self.round,
+                # Which exercise this is, and the words it uses. Sent rather than
+                # inferred client-side because the flow flags decide which screens
+                # the client must never wait for — a room with no reveal would
+                # otherwise sit on "Loading the outcome…" that is never coming.
+                "template": self.template(),
+                "lexicon": exercise_templates.lexicon(self.config.get("template")),
+                "flow": self.flow(),
             }
 
     # ==================================================================
@@ -1044,7 +1069,12 @@ class ExerciseState:
         self._enter_done()
 
     def _enter_done(self):
-        """The session is over. No scorecard: this exercise is not graded."""
+        """The session is over. No scorecard: this exercise is not graded.
+
+        Reached from the debrief, from the kiosk when a template has no debrief, and
+        straight from `choose` when it has no reveal either. Idempotent on the phase,
+        so every one of those paths is safe to take twice.
+        """
         with self._lock:
             if self._phase == PHASE_DONE:
                 return
@@ -1054,7 +1084,11 @@ class ExerciseState:
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "done"})
-        self._run_hook("on_wrapup")
+        # `on_wrapup` is ACTR's closing message, so it belongs only to a template that
+        # HAS a facilitator. Firing it on one that doesn't would have ACTR appear for
+        # the first and only time on the last screen of an exercise it was kept out of.
+        if self.flow().get("debrief"):
+            self._run_hook("on_wrapup")
 
     def _broadcast_phase(self):
         """Emit the room-wide `phase_change` after a persisted transition."""
@@ -1143,7 +1177,11 @@ class ExerciseState:
             self.chosen_candidate = winner
             self.collective_ballot["open"] = False
             self.collective_ballot["final_call"] = False
-            self.forecast_shown_for = winner
+            # "Whose outcome has been revealed" — and on a template with no reveal,
+            # nobody's has. Leaving it set here would be the whole answer key: the
+            # snapshot derives `revealed` from this field, so the done screen would
+            # have handed every student the document naming who really did it.
+            self.forecast_shown_for = winner if self.flow().get("reveal") else None
             self._persist({
                 "chosen_candidate": self.chosen_candidate,
                 "collective_ballot": self.collective_ballot,
@@ -1159,7 +1197,16 @@ class ExerciseState:
 
         # M6: the outcome reveal (`on_pick_resolved`) is deferred until the whole room
         # has pressed Continue, so everyone reads it at the same moment.
-        self._enter_kiosk()
+        #
+        # A template with no reveal has nothing to gate on and stops here: the group
+        # committing to an answer IS the end of the exercise, and whether they were
+        # right is read afterwards off the class results page rather than told to
+        # each room privately. Guarded on `_enter_kiosk`'s own phase check, so the
+        # branch is the only difference between the two endings.
+        if self.flow().get("reveal"):
+            self._enter_kiosk()
+        else:
+            self._enter_done()
         return winner, tally
 
     # ==================================================================
@@ -1240,7 +1287,12 @@ class ExerciseState:
                 return
             self._kiosk_finishing = True
         self._run_hook("on_pick_resolved")
-        self._enter_debrief()
+        # No branch on the pick — right or wrong, the room goes wherever its template
+        # ends. Only the TEMPLATE decides whether that is round 2 or the finish line.
+        if self.flow().get("debrief"):
+            self._enter_debrief()
+        else:
+            self._enter_done()
 
     @staticmethod
     def _tally(votes: Dict[str, str]) -> Dict[str, int]:

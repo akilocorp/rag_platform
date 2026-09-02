@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-19
-# @changed   The facilitator turn carries its step in and out: `facilitator_reply` is handed the room's
+# @updated   2026-08-20
+# @changed   The facilitator turn is handed the students' own recent messages
+#            (FACILITATOR_PUSHBACK_LOOKBACK), so a demand for the answer is refused out loud instead
+#            of being answered with the next scripted question.
+# @changed   Prior: The facilitator turn carries its step in and out: `facilitator_reply` is handed the room's
 #            current step plus the WHOLE debrief for the gate to rule against, and whatever step the gate
 #            settles on is written back. A refused move is logged with what the room still owes.
 #            Prior: `start_test_run` passes a `misleading` seat count through to the simulator.
@@ -53,6 +56,7 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # Manager Exercise collaborators. ExerciseState owns the phase machine and the
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
+from src.managers import exercise_templates
 from src.managers import ai_manager
 from src.managers import exercise_sim
 from src.models.manager_exercise_session import ManagerExerciseSession
@@ -71,6 +75,11 @@ FACILITATOR_HISTORY_MESSAGES = 20
 # covers the observed loop (one question across four turns) without reaching so far
 # back that a question legitimately revisited much later reads as a repeat.
 FACILITATOR_REPEAT_LOOKBACK = 4
+
+# How many student messages the pushback guard reads. Only the last one triggers it; the
+# rest are there to tell a first demand for the answer from a repeated one, which is what
+# earns the "like I said" wording. Eight covers a couple of ACTR turns' worth of room.
+FACILITATOR_PUSHBACK_LOOKBACK = 8
 
 # How often the learning objectives are re-assessed, in student messages. It is a third
 # model call, and the answer moves slowly — a room does not go from "nothing established"
@@ -247,10 +256,15 @@ def register_socket_events(socketio, app):
 
             M13: names the decider, because the rest of the room now gets no dialog —
             without this the screen would simply stop responding to them."""
+            # The wording comes from the exercise template, like every other
+            # student-facing string — this line is posted INTO the room, so an
+            # investigation announcing a "hire" would be the one place the old
+            # vocabulary survived the rewrite.
             who = st.decider_name()
-            _post(st, SYSTEM_SENDER,
-                  f"Time's up. {who} is entering the hire for the group."
-                  if who else "Time's up. The hire is being entered for the group.")
+            lex = exercise_templates.lexicon(st.config.get("template"))
+            line = (lex["decider_waiting"].format(decider=who) if who
+                    else lex["decider_waiting"].format(decider="Someone"))
+            _post(st, SYSTEM_SENDER, f"Time's up. {line}")
 
         def on_pick_resolved(st):
             """Pick entered → post the outcome document.
@@ -407,6 +421,12 @@ def register_socket_events(socketio, app):
                     # detected as a repeat instead of asked a third time.
                     recent_asks=ctx.recent_by_sender(
                         FACILITATOR_SENDER, FACILITATOR_REPEAT_LOOKBACK
+                    ),
+                    # The students' own recent messages, so a demand for the answer is
+                    # answered out loud instead of being talked past — and so a second
+                    # demand can be told apart from the first.
+                    recent_student_msgs=ctx.recent_excluding_sender(
+                        FACILITATOR_SENDER, FACILITATOR_PUSHBACK_LOOKBACK
                     ),
                     outcome_text=st.forecast_text_for(st.chosen_candidate),
                     progress=progress,

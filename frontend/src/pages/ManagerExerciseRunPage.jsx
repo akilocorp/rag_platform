@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-19  @changed Shows the facilitator's current step during the debrief. Prior: New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
+/* @language JSX  @updated 2026-08-31  @changed The phase strip follows the run's template: an investigation has no reveal and no debrief, so it shows five steps instead of seven. Prior: Shows the facilitator's current step during the debrief. Prior: New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaFlask, FaSpinner, FaCheckCircle } from 'react-icons/fa';
@@ -25,6 +25,16 @@ const PHASES = [
   { id: 'choose', label: 'The hire' },
   { id: 'kiosk', label: 'Six months later' },
   { id: 'debrief', label: 'Round 2 — debrief with ACTR' },
+  { id: 'done', label: 'Finished' },
+];
+
+// An investigation has no reveal and no debrief, so showing those two steps greyed
+// out forever reads as a run that stalled rather than one that finished.
+const INVESTIGATION_PHASES = [
+  { id: 'waiting', label: 'Seating' },
+  { id: 'solo', label: 'Round 0 — private picks' },
+  { id: 'discuss', label: 'Round 1 — the group decides' },
+  { id: 'choose', label: "The group's answer" },
   { id: 'done', label: 'Finished' },
 ];
 
@@ -75,7 +85,8 @@ export default function ManagerExerciseRunPage() {
 
   const phase = run?.phase || 'waiting';
   const running = phase !== 'done';
-  const phaseIndex = Math.max(0, PHASES.findIndex((p) => p.id === phase));
+  const phases = run?.template === 'investigation' ? INVESTIGATION_PHASES : PHASES;
+  const phaseIndex = Math.max(0, phases.findIndex((p) => p.id === phase));
   const messages = run?.messages || [];
   const roster = run?.roster || [];
   const spread = run?.solo_spread || {};
@@ -126,7 +137,7 @@ export default function ManagerExerciseRunPage() {
                 ? <FaSpinner className="animate-spin text-[#FA6C43] text-sm" />
                 : <FaCheckCircle className="text-emerald-500 text-sm" />}
               <span className="text-sm font-bold">
-                {PHASES[phaseIndex]?.label || phase}
+                {phases[phaseIndex]?.label || phase}
               </span>
               {/* Which step of the facilitator's sequence the debrief is on. Only
                   meaningful during the debrief, and it is where a session that skips
@@ -139,7 +150,7 @@ export default function ManagerExerciseRunPage() {
               {running && <span className="text-[11px] font-semibold text-gray-400">live</span>}
             </div>
             <div className="flex gap-1">
-              {PHASES.map((p, i) => (
+              {phases.map((p, i) => (
                 <div
                   key={p.id}
                   title={p.label}

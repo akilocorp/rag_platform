@@ -141,19 +141,35 @@ CHECKER_MODEL = os.getenv("MANAGER_EXERCISE_CHECKER_MODEL", "claude-haiku-4-5-20
 CHECKER_MAX_TOKENS = 500
 
 
+# Why the last _get_client() call returned None, for callers that have somewhere to
+# show it. Returning a bare None made every downstream feature fail as silence — a
+# test room with nothing to say, a facilitator that never speaks — with the reason
+# nowhere but a log nobody reads while watching a run.
+LAST_CLIENT_ERROR = None
+
+
 def _get_client():
     """Return an Anthropic client, or None if key/package unavailable. Never raises."""
+    global LAST_CLIENT_ERROR
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
+        LAST_CLIENT_ERROR = "ANTHROPIC_API_KEY is not set in this process"
+        logger.error("Anthropic client unavailable: %s", LAST_CLIENT_ERROR)
         return None
     try:
         import anthropic
-    except ImportError:
+    except ImportError as e:
+        LAST_CLIENT_ERROR = "anthropic package not importable: %s" % e
+        logger.error("Anthropic client unavailable: %s", LAST_CLIENT_ERROR)
         return None
     try:
-        return anthropic.Anthropic(api_key=api_key)
-    except Exception:  # noqa: BLE001
+        client = anthropic.Anthropic(api_key=api_key)
+    except Exception as e:  # noqa: BLE001
+        LAST_CLIENT_ERROR = "%s: %s" % (type(e).__name__, e)
+        logger.error("Anthropic client unavailable: %s", LAST_CLIENT_ERROR, exc_info=True)
         return None
+    LAST_CLIENT_ERROR = None
+    return client
 
 
 def _text_from_message(msg):

@@ -21,6 +21,7 @@ import EditConfigPage from './pages/EditConfigPage';
 import GroupChatPage from './pages/GroupChatPage';
 import ManagerExercisePage from './pages/ManagerExercisePage';
 import ManagerExerciseRunPage from './pages/ManagerExerciseRunPage';
+import ManagerExerciseResultsPage from './pages/ManagerExerciseResultsPage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
@@ -130,6 +131,9 @@ function App() {
                 pack's answer key in the open, which is the one thing a student
                 must not read. */}
             <Route path="/manager-exercise/:configId/run/:roomId" element={<ManagerExerciseRunPage />} />
+            {/* The class's answers. Professor-only for the same reason: it names
+                every student's private pick and the case's answer key. */}
+            <Route path="/manager-exercise/:configId/results" element={<ManagerExerciseResultsPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

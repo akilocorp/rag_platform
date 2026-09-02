@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-20  @changed The "Session complete" Back button sent students to their dashboard instead of the breakout-room lobby; it now calls the same leaveBreakout() escape hatch the other two "Back to lobby" buttons in this file use. Prior: Round 1 and the hire were wired to socket events the backend no longer listens for (`ready_to_vote`, `early_decision`, `submit_collective_vote`), so both buttons were dead on the served site: rebuilt around the M13 decider (`you_decide`/`decider_name` off the snapshot, `end_discussion` + `submit_group_choice`), and the vote tally/badges/quorum copy are gone with the ballot they described. Prior: WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-08-31  @changed Templates: every hire-specific string now comes from the snapshot's `lexicon` (see backend/src/managers/exercise_templates.py) with the hiring wording as the built-in fallback, so an exercise that is not a hire stops telling students it is one. Prior: The "Session complete" Back button sent students to their dashboard instead of the breakout-room lobby; it now calls the same leaveBreakout() escape hatch the other two "Back to lobby" buttons in this file use. Prior: Round 1 and the hire were wired to socket events the backend no longer listens for (`ready_to_vote`, `early_decision`, `submit_collective_vote`), so both buttons were dead on the served site: rebuilt around the M13 decider (`you_decide`/`decider_name` off the snapshot, `end_discussion` + `submit_group_choice`), and the vote tally/badges/quorum copy are gone with the ballot they described. Prior: WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -70,6 +70,39 @@ const MessageBody = React.memo(({ text, isMe }) => {
 // sometimes with the suffix ("Logistics Manager"). Strip a trailing "Manager" so
 // the UI can append its own " Manager" without doubling it ("... Manager Manager").
 const roleLabel = (role) => ((role || '').replace(/\s*managers?\s*$/i, '').trim() || 'Hiring');
+
+// The student-facing wording, which belongs to the exercise TEMPLATE rather than to
+// this file — a hiring committee "enters a hire", an investigation "names a suspect",
+// and the screens are otherwise identical. The server sends the whole set on the
+// snapshot (see backend/src/managers/exercise_templates.py); this is the fallback so
+// a client that renders before the snapshot lands, or talks to a server that predates
+// templates, still shows the hiring wording it always did rather than blanks.
+const LEXICON_FALLBACK = {
+  role_headline: 'You are the {role} Manager',
+  role_note: 'What you know as the {role} Manager',
+  premise_line: "{name} is making a hire, and your group has to choose the right person. You each hold a different piece of what's known about the candidates.",
+  options_label: 'The candidates: ',
+  solo_prompt: 'Who would you hire?',
+  decision_title: "Your group's decision",
+  decision_help_decider: "You're making the call for your group. Enter the candidate you all settled on — this is the group's only decision, and it's final.",
+  decision_help_watcher: "{decider} is entering the hire your group settled on. This is the group's only decision.",
+  submit_label: 'Enter our hire',
+  final_call_decider: 'Final call — enter the hire now.',
+  decider_waiting: '{decider} is entering the hire for the group.',
+  done_group_label: 'Your group hired',
+  material_line: 'Here are their credentials, for your judgement.',
+};
+
+// Fill `{placeholders}` in a lexicon string. Missing keys are left as written rather
+// than blanked, so a typo in a template shows up as visible text instead of a hole.
+const fillText = (tpl, vars = {}) =>
+  String(tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : m));
+
+// The same fill, but the substituted value keeps the brand colour it has in every
+// headline that names a role. Returns an array of nodes for JSX.
+const fillNodes = (tpl, key, value) =>
+  String(tpl || '').split(`{${key}}`).flatMap((part, i) =>
+    (i === 0 ? [part] : [<span key={`v${i}`} className="text-[#FA6C43]">{value}</span>, part]));
 
 // Turn the raw general_info extraction into a structured brief. Full-sentence chunks
 // are body paragraphs; short label/title lines (ALL-CAPS, ending in ':', or ≤8 words
@@ -190,7 +223,7 @@ const KioskGate = ({ onContinue }) => (
 // uploaded packet as a continuous case document rather than as filtered bullets.
 // Reuses `parseBrief` and the premise screen's document styling so the two things a
 // student reads in round 0 look like one case, not two products.
-const RoleCaseDocument = ({ role, text, onContinue }) => {
+const RoleCaseDocument = ({ role, text, onContinue, lex = LEXICON_FALLBACK }) => {
   const blocks = parseBrief(text);
   const firstBodyIdx = blocks.findIndex((b) => !b.heading);
   return (
@@ -199,7 +232,7 @@ const RoleCaseDocument = ({ role, text, onContinue }) => {
         <div className="text-center mb-8">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your case</p>
           <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
-            What you know as the <span className="text-[#FA6C43]">{roleLabel(role)}</span> Manager
+            {fillNodes(lex.role_note, 'role', roleLabel(role))}
           </h2>
           <p className="text-sm text-gray-500">
             This is yours alone. Your teammates are reading something different.
@@ -283,7 +316,7 @@ const CredList = ({ label, items, tone }) => {
 // candidate's full role-sliced credentials. The hover TARGET is a fixed-size slot that
 // never moves — only the card face inside it translates up — so a peeking card can't
 // slide out from under the cursor and flicker (per the repo's no-hover-lift rule).
-const CandidateDeck = ({ role, credentials, onContinue }) => {
+const CandidateDeck = ({ role, credentials, onContinue, lex = LEXICON_FALLBACK }) => {
   const [selected, setSelected] = useState(null);
   const [seen, setSeen] = useState(() => new Set());
   const open = (i) => { setSelected(i); setSeen((prev) => { const n = new Set(prev); n.add(i); return n; }); };
@@ -295,7 +328,7 @@ const CandidateDeck = ({ role, credentials, onContinue }) => {
         <div className="max-w-4xl w-full text-center">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your notes</p>
           <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
-            What you know as the <span className="text-[#FA6C43]">{roleLabel(role)}</span> Manager
+            {fillNodes(lex.role_note, 'role', roleLabel(role))}
           </h2>
           <p className="text-sm text-gray-500 mb-10">
             Tap a card to read it. These are yours alone — memorize them, they're hidden once the discussion starts.
@@ -478,6 +511,11 @@ const ManagerExercisePage = () => {
   // document). `yourCase` is '' when the professor authored no packet for this
   // role, which is what makes the cards fallback possible.
   const [studentView, setStudentView] = useState('cards');
+  // The exercise template's wording and its optional phases. `flow.reveal` matters
+  // beyond copy: with no reveal there is no outcome document coming, so the kiosk
+  // screens must never be entered waiting for one.
+  const [lexicon, setLexicon] = useState(LEXICON_FALLBACK);
+  const [flow, setFlow] = useState({ reveal: true, debrief: true });
   const [yourCase, setYourCase] = useState('');
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
@@ -601,6 +639,10 @@ const ManagerExercisePage = () => {
     if (Array.isArray(s.your_credentials)) setCredentials(s.your_credentials);
     // M10: cards vs case, and this viewer's OWN packet (never another role's).
     if (typeof s.student_view === 'string') setStudentView(s.student_view);
+    // Merged over the fallback, not replacing it, so a key the server has not sent
+    // keeps its hiring default instead of rendering "undefined" at a student.
+    if (s.lexicon && typeof s.lexicon === 'object') setLexicon({ ...LEXICON_FALLBACK, ...s.lexicon });
+    if (s.flow && typeof s.flow === 'object') setFlow({ reveal: true, debrief: true, ...s.flow });
     if (typeof s.your_case === 'string') setYourCase(s.your_case);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
@@ -1085,7 +1127,7 @@ const ManagerExercisePage = () => {
             disabled={!pick || !canAct}
             className="mt-5 w-full rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
           >
-            {submitted ? 'Entered' : 'Enter our hire'}
+            {submitted ? 'Entered' : lexicon.submit_label}
           </button>
           <p className="mt-3 text-xs font-semibold text-gray-500">
             {submitted
@@ -1096,7 +1138,7 @@ const ManagerExercisePage = () => {
       ) : (
         <p className="mt-5 inline-flex items-center gap-1.5 text-xs font-bold text-gray-500">
           <FaRegClock className="text-[11px]" />
-          {deciderName ? `${deciderName} is entering the hire for the group.` : 'Waiting on the group.'}
+          {deciderName ? fillText(lexicon.decider_waiting, { decider: deciderName }) : 'Waiting on the group.'}
         </p>
       )}
     </>
@@ -1397,7 +1439,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   // Phase: kiosk (M6 — instructor-paced gate → time-skip → per-student outcome)
   // -------------------------------------------------------------------------
-  if (phase === 'kiosk' || inKioskWalkthrough) {
+  if (flow.reveal && (phase === 'kiosk' || inKioskWalkthrough)) {
     if (kioskStage === 'timeskip') {
       return <TimeSkipAnimation onDone={() => setKioskStage('reveal')} />;
     }
@@ -1490,7 +1532,7 @@ const ManagerExercisePage = () => {
             <section className="rounded-3xl bg-white border border-gray-200 shadow-md p-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-[#222]">Your group's decision</h2>
+                  <h2 className="text-lg font-bold text-[#222]">{lexicon.decision_title}</h2>
                 </div>
                 {secsLeft != null && (
                   CountdownChip({ label: finalCall ? 'Final call' : 'Decide', urgent: finalCall || secsLeft <= 30 })
@@ -1498,12 +1540,12 @@ const ManagerExercisePage = () => {
               </div>
               <p className="text-sm text-gray-500 mb-5">
                 {youDecide
-                  ? "You're making the call for your group. Enter the candidate you all settled on — this is the group's only decision, and it's final."
-                  : <>{deciderName || 'One of you'} is entering the hire your group settled on. This is the group's only decision.</>}
+                  ? lexicon.decision_help_decider
+                  : fillText(lexicon.decision_help_watcher, { decider: deciderName || 'One of you' })}
               </p>
               {finalCall && (
                 <div className="mb-5 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-600 animate-pulse">
-                  {youDecide ? 'Final call — enter the hire now.' : 'Final call — the clock is nearly out.'}
+                  {youDecide ? lexicon.final_call_decider : 'Final call — the clock is nearly out.'}
                 </div>
               )}
               {CandidateGrid({})}
@@ -1553,7 +1595,7 @@ const ManagerExercisePage = () => {
                     <p className="text-lg font-bold text-[#222]">{yourSoloVote}</p>
                   </div>
                   <div className="rounded-2xl border border-gray-200 p-4">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Your group hired</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">{lexicon.done_group_label}</p>
                     <p className="text-lg font-bold text-[#222]">{chosenCandidate || '—'}</p>
                   </div>
                 </div>
@@ -1595,7 +1637,7 @@ const ManagerExercisePage = () => {
         <div className="max-w-2xl mx-auto w-full text-center">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
           <h1 className="text-4xl sm:text-5xl mb-8 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600, ...rise(1) }}>
-            You are the <span className="text-[#FA6C43]">{roleLabel(yourRole)}</span> Manager
+            {fillNodes(lexicon.role_headline, 'role', roleLabel(yourRole))}
           </h1>
 
           {/* The brief reads as a case document: a white card with tracked orange
@@ -1617,20 +1659,19 @@ const ManagerExercisePage = () => {
             </div>
           ) : (
             <p className="text-lg text-[#1F1F1F]/85 leading-relaxed mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(2) }}>
-              {config?.bot_name || 'The committee'} is making a hire, and your group has to choose
-              the right person. You each hold a different piece of what's known about the candidates.
+              {fillText(lexicon.premise_line, { name: config?.bot_name || 'The committee' })}
             </p>
           )}
 
           {names.length > 0 && (
             <p className="text-lg mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(3) }}>
-              <span className="text-[#1F1F1F]/70">The candidates: </span>
+              <span className="text-[#1F1F1F]/70">{lexicon.options_label}</span>
               <span className="font-semibold text-[#2563EB]">{names.join(', ')}</span>
             </p>
           )}
 
           <p className="text-base italic text-[#1F1F1F]/70 mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", ...rise(4) }}>
-            Here are their credentials, for your judgement.
+            {lexicon.material_line}
           </p>
           <button
             onClick={() => setSoloStage('cards')}
@@ -1660,9 +1701,9 @@ const ManagerExercisePage = () => {
   // a config whose packets aren't in yet degrades instead of showing a blank page.
   if (phase === 'solo' && soloStage === 'cards') {
     if (studentView === 'case' && yourCase.trim()) {
-      return <RoleCaseDocument role={yourRole} text={yourCase} onContinue={finishPremiseIntro} />;
+      return <RoleCaseDocument role={yourRole} text={yourCase} onContinue={finishPremiseIntro} lex={lexicon} />;
     }
-    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} />;
+    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} lex={lexicon} />;
   }
 
   // The pause that makes round 0 a round: they are told, before they see the ballot,
@@ -1689,7 +1730,7 @@ const ManagerExercisePage = () => {
         <div className="max-w-lg w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="text-center mb-8">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">Your decision</p>
-            <h1 className="text-3xl mb-3" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>Who would you hire?</h1>
+            <h1 className="text-3xl mb-3" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{lexicon.solo_prompt}</h1>
             <p className="text-sm text-gray-500">This one is yours alone. It stays private.</p>
           </div>
 
