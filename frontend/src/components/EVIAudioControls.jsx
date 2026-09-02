@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-02
- * @changed   Calls are now recorded and filed. The student's microphone is captured for the length of
+ * @changed   A failed voice turn now prints its server-side cause to the browser console. Hume calls
+ *            our CLM endpoint from its own servers, so a broken turn shows up in the page only as the
+ *            bot's apology and never as a request in the network tab — when that apology arrives, the
+ *            overlay fetches the reason from /audio/clm/last-error and console.errors it.
+ *            Prior: calls are now recorded and filed. The student's microphone is captured for the length of
  *            the call and uploaded straight to S3 on hang-up; a call-metadata row is written at connect
  *            (so a closed tab still leaves a record) and completed at hang-up; and each turn now reports
  *            its index and offset from the start of the call. Overlay carries a live recording dot.
@@ -22,6 +26,10 @@ import apiClient from '../api/apiClient';
  */
 
 const BAR_COUNT = 28;
+
+// The one line the CLM bridge speaks when a turn threw. Matched on its opening
+// clause so rewording the tail of the sentence doesn't silently stop the lookup.
+const SPOKEN_FAILURE_PREFIX = 'Sorry, I lost my train of thought';
 
 /**
  * Captures the student's microphone for the length of a call.
@@ -319,6 +327,14 @@ const InnerControls = ({
       const role = m.type === 'user_message' ? 'user' : 'assistant';
       const transcript = (m?.message?.content || '').trim();
       if (!transcript) continue;
+      // The bridge speaks this line when the turn raised. The exception itself never
+      // reaches the browser, so go and ask for it — otherwise the only evidence a
+      // student's call is broken is a polite sentence that looks deliberate.
+      if (role === 'assistant' && transcript.startsWith(SPOKEN_FAILURE_PREFIX) && configId) {
+        apiClient.get(`/audio/clm/last-error/${configId}`)
+          .then(({ data }) => console.error('[voice] the server failed this turn:', data))
+          .catch((e) => console.error('[voice] turn failed; could not read the reason', e));
+      }
       const prosody = m?.models?.prosody?.scores || null;
       // The SDK stamps every message with `receivedAt`, so the turn's place in
       // the call is real rather than reconstructed from when our POST landed.
@@ -334,7 +350,7 @@ const InnerControls = ({
       });
     }
     seenTurnsRef.current = turnMessages.length;
-  }, [messages, onTurn]);
+  }, [messages, onTurn, configId]);
 
   useEffect(() => {
     if (status?.value === 'error') {

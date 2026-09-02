@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-31
-# @changed   Template-aware run + imperfect recall. A seat reading a CASE DOCUMENT is told it no
+# @updated   2026-09-02
+# @changed   A run that cannot reach the model now says so instead of playing an empty room. Every
+#            seat's failure was swallowed so one dead student could not abort the run — but when it
+#            is EVERY student the professor watches a silent transcript and a random answer, with no
+#            hint that nothing was ever asked. The reason is now kept on the seat and, if round 1
+#            ends with nothing said, posted into the room where the professor is already looking.
+#            Prior: Template-aware run + imperfect recall. A seat reading a CASE DOCUMENT is told it no
 #            longer has the document in front of it, so it half-remembers, surfaces things late and
 #            hedges — which is what a real student does with a ten-page file they read once. And a
 #            template with no reveal/debrief now ends cleanly at `done` instead of timing out
@@ -280,6 +285,10 @@ class SimStudent:
         self.uid = uid
         self.misleading = misleading
         self.spoke_at = 0          # transcript length when this bot last talked
+        # Why this seat last failed to produce a line, or None. Kept because a
+        # swallowed failure and a student with nothing to say look identical in
+        # the transcript, and only one of them is a finding.
+        self.last_error = None
 
     def _system(self, state, others: str) -> str:
         snapshot = state.snapshot_for(self.uid)
@@ -318,6 +327,7 @@ class SimStudent:
         """
         client = ai_manager._get_client()
         if client is None:
+            self.last_error = ai_manager.LAST_CLIENT_ERROR or "no Anthropic client"
             return ""
         try:
             msg = client.messages.create(
@@ -328,8 +338,10 @@ class SimStudent:
                            "content": f"The conversation so far:\n{transcript}\n\n{task}"}],
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning("sim student %s failed: %s", self.name, e)
+            self.last_error = "%s: %s" % (type(e).__name__, e)
+            logger.warning("sim student %s failed: %s", self.name, e, exc_info=True)
             return ""
+        self.last_error = None
         text = ai_manager._text_from_message(msg).strip()
         # Models prefix their own name even when told not to; the client already
         # renders the sender, so it reads as a bug in the transcript.
@@ -462,6 +474,15 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             post(speaker.uid, text)
             spoken += 1
         sleep(DISCUSS_GAP)
+
+    # A round 1 that produced nothing is never the room being quiet — the bots are
+    # told to speak. It means every call failed, so say why here rather than leaving
+    # the professor to read an empty transcript and a random answer as a result.
+    if spoken == 0:
+        reason = next((s.last_error for s in students if s.last_error), None)
+        post(students[0].uid,
+             "[test run] no seat could speak, so this room is empty: %s"
+             % (reason or "every model call returned nothing"))
 
     decider = next((s for s in students if s.uid == state.decider_uid()), students[0])
     if state.phase() == "discuss":

@@ -1,6 +1,13 @@
 # @language  Python
 # @updated   2026-09-02
-# @changed   Voice turns now run the lean `voice_runner` instead of the agentic RAG loop — no tools,
+# @changed   A failed turn now says WHY. Speaking one neutral line kept the student out of the traceback
+#            but also left the reason only in the container log, which is unreachable while a live call
+#            is failing — and unreachable from the browser too, since Hume calls this endpoint from its
+#            own servers and nothing about it ever appears in the page's network tab. The reason is now
+#            held in memory per bot and served by `GET /audio/clm/last-error/<config_id>`, which the
+#            voice overlay reads back and prints to the console; `?debug=1` returns the same payload
+#            inline. Both carry the exception, the installed anthropic version and whether the key is set.
+#            Prior: voice turns run the lean `voice_runner` instead of the agentic RAG loop — no tools,
 #            so Hume starts speaking on the model's first real token. Session id gained a fourth
 #            segment carrying per-session variables (participant/topic/stance) from the launch URL,
 #            time-to-first-token is logged per turn, and a failed turn speaks one neutral line
@@ -38,7 +45,9 @@ not a flag on this route.
 import base64
 import json
 import logging
+import os
 import time
+import traceback
 import uuid
 from typing import Dict, Any, Iterator, List, Optional, Tuple
 
@@ -59,6 +68,33 @@ SPOKEN_FAILURE_LINE = "Sorry, I lost my train of thought there. Could you say th
 # tampered-with launch URL cannot push an arbitrary payload into the system prompt.
 MAX_SESSION_VARS = 20
 MAX_SESSION_VAR_CHARS = 500
+
+# Why the last voice turn failed, per bot. Hume calls this endpoint server-to-server,
+# so a failing turn leaves nothing in the browser to inspect and the student hears
+# only the apology — the page reads the real reason back from here. One entry deep
+# and lost on restart: a diagnostic, not a log.
+_LAST_FAILURES: Dict[str, Dict[str, Any]] = {}
+
+
+def _failure_diagnostics(exc):
+    """The three things that tell one voice failure apart from another.
+
+    A spoken bot cannot show a traceback and the container log is out of reach
+    while a call is failing, so a dead key, a missing or incompatible SDK and a
+    rejected request are separated here — returned only to a caller that asked.
+    """
+    try:
+        import anthropic
+        sdk_version = getattr(anthropic, "__version__", "unknown")
+    except Exception as import_exc:
+        sdk_version = "import failed: %s: %s" % (type(import_exc).__name__, import_exc)
+    return {
+        "error_type": type(exc).__name__,
+        "error": str(exc)[:1500],
+        "anthropic_key_set": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "anthropic_sdk": sdk_version,
+        "traceback": traceback.format_exc()[-3000:],
+    }
 
 
 def _decode_session_vars(raw: Optional[str]) -> Dict[str, str]:
@@ -162,6 +198,17 @@ def _openai_chunk(chunk_id: str, model: str, delta: Dict[str, Any], finish_reaso
     }
 
 
+@audio_clm_bp.route('/audio/clm/last-error/<config_id>', methods=['GET'])
+def clm_last_error(config_id):
+    """The reason this bot's last voice turn failed, or nothing if it hasn't.
+
+    Read by the voice overlay so a broken call can be diagnosed from the browser
+    console. Held in memory, so an empty answer means either no failure since the
+    last restart or a different worker handled the turn.
+    """
+    return jsonify(_LAST_FAILURES.get(config_id) or {"error": None})
+
+
 @audio_clm_bp.route('/audio/clm/chat/completions', methods=['POST', 'OPTIONS'])
 def clm_chat_completions():
     if request.method == 'OPTIONS':
@@ -202,6 +249,10 @@ def clm_chat_completions():
 
     model_name = (config_doc.get("model_name") or "").lower()
     chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
+    # Opt-in only. Hume's CLM requests carry no query parameters, so a student can
+    # never trip this; it exists so a failing voice bot can be diagnosed with one
+    # curl instead of shell access to the container.
+    want_debug = request.args.get("debug") == "1"
 
     @stream_with_context
     def generate() -> Iterator[str]:
@@ -214,6 +265,7 @@ def clm_chat_completions():
         first_token_at = None
         spoke_anything = False
         finish = "stop"
+        diagnostics = None
 
         try:
             for text in stream_voice_response(
@@ -229,6 +281,11 @@ def clm_chat_completions():
         except Exception as e:
             logger.error("CLM voice turn failed (config %s): %s", config_id, e, exc_info=True)
             finish = "stop"
+            failure = _failure_diagnostics(e)
+            failure["at"] = int(time.time())
+            _LAST_FAILURES[config_id] = failure
+            if want_debug:
+                diagnostics = failure
             # Only speak the recovery line if the turn produced nothing. Once words
             # are already in the air, cutting the sentence short reads as a normal
             # interruption; an apology tacked onto it does not.
@@ -242,7 +299,10 @@ def clm_chat_completions():
             int((time.monotonic() - started) * 1000), len(session_vars),
         )
 
-        yield _sse(_openai_chunk(chunk_id, model_name, {}, finish_reason=finish))
+        final_chunk = _openai_chunk(chunk_id, model_name, {}, finish_reason=finish)
+        if diagnostics:
+            final_chunk["debug"] = diagnostics
+        yield _sse(final_chunk)
         yield "data: [DONE]\n\n"
 
     return Response(
