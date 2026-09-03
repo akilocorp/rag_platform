@@ -1,7 +1,13 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-02
- * @changed   A failed voice turn now prints its server-side cause to the browser console. Hume calls
+ * @updated   2026-09-03
+ * @changed   New `embedded` prop: renders a compact inline EmbeddedVoicePanel instead of the full-screen
+ *            VoiceOverlay by default, with a fullscreen toggle button that swaps to VoiceOverlay without
+ *            ending the call (its X now exits fullscreen back to embedded, not hang-up — the phone-slash
+ *            End Call button is the only thing that disconnects). Recolored the overlay/panel from navy/
+ *            purple to brand #1F1F1F + orange throughout. Non-embedded usage (the composer's inline
+ *            trigger) is unchanged.
+ *            Prior: a failed voice turn now prints its server-side cause to the browser console. Hume calls
  *            our CLM endpoint from its own servers, so a broken turn shows up in the page only as the
  *            bot's apology and never as a request in the network tab — when that apology arrives, the
  *            overlay fetches the reason from /audio/clm/last-error and console.errors it.
@@ -13,16 +19,20 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceProvider, useVoice } from '@humeai/voice-react';
-import { FaMicrophone, FaMicrophoneSlash, FaPhoneSlash, FaSpinner, FaTimes } from 'react-icons/fa';
+import { FaExpand, FaMicrophone, FaMicrophoneSlash, FaPhoneSlash, FaSpinner, FaTimes } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 /**
  * EVIAudioControls — self-contained Hume EVI integration.
  *
- * Inline trigger sits next to the chat input. Clicking it connects and
- * opens a full-screen voice overlay (wave animation + mute / end-call).
- * Closing the overlay disconnects and returns the user to the text chat;
- * voice turns are already persisted as chat bubbles via the CLM bridge.
+ * Two contexts:
+ *  - Inline trigger next to the chat input (`embedded` unset/false): clicking it connects
+ *    and opens a full-screen voice overlay (wave animation + mute / end-call). Closing the
+ *    overlay disconnects and returns the user to the text chat.
+ *  - Dedicated audio_call page (`embedded`): clicking connects into a compact inline panel
+ *    instead, so a transcript can render underneath it; a fullscreen button switches to the
+ *    same full-screen overlay view without ending the call.
+ * Voice turns are persisted as chat bubbles via the CLM bridge either way.
  */
 
 const BAR_COUNT = 28;
@@ -110,11 +120,16 @@ const uploadRecording = async (blob, { configId, sessionId }) => {
   return data.storage_key;
 };
 
-const VoiceWave = ({ fft, active, accent }) => {
+const VoiceWave = ({ fft, active, accent, compact }) => {
   const arr = Array.isArray(fft) ? fft : null;
   const max = arr && arr.length ? Math.max(1, ...arr) : 1;
   return (
-    <div className="flex items-end gap-1 sm:gap-1.5 h-32 sm:h-40 w-full max-w-md px-4 sm:px-6" aria-hidden>
+    <div
+      className={`flex items-end gap-1 sm:gap-1.5 w-full ${
+        compact ? 'h-14 sm:h-16 max-w-xs px-2' : 'h-32 sm:h-40 max-w-md px-4 sm:px-6'
+      }`}
+      aria-hidden
+    >
       {Array.from({ length: BAR_COUNT }, (_, i) => {
         const v = arr && arr.length ? arr[i % arr.length] / max : 0;
         const driven = active && v > 0;
@@ -134,6 +149,18 @@ const VoiceWave = ({ fft, active, accent }) => {
   );
 };
 
+// Shared status label + wave accent so the embedded panel and the full-screen overlay
+// never drift into describing the same call state differently.
+const voiceStatusLabel = ({ isConnecting, speaking, isMuted }) =>
+  isConnecting ? 'Connecting…' : speaking ? 'Speaking' : isMuted ? 'Muted' : 'Listening';
+
+// Both brand-orange — "speaking" (bot's turn) is the brighter/warmer gradient, "listening"
+// (mic's turn) is a deeper, muted orange. No blue/purple anywhere in the call UI.
+const voiceAccent = (speaking) =>
+  speaking
+    ? 'bg-gradient-to-t from-[#FA6C43] to-[#FFB088]'
+    : 'bg-gradient-to-t from-[#8A3F26] to-[#C9633E]';
+
 const VoiceOverlay = ({
   status,
   fft,
@@ -143,29 +170,23 @@ const VoiceOverlay = ({
   recording,
   onMute,
   onUnmute,
-  onClose,
+  onDismiss,
+  onEndCall,
+  dismissLabel = 'Close voice',
+  footerText = 'Your conversation appears as messages in the chat. Close to switch back to typing.',
 }) => {
   const isConnecting = status === 'connecting';
   const speaking = !!isPlayingAudio;
-  const label = isConnecting
-    ? 'Connecting…'
-    : speaking
-      ? 'Speaking'
-      : isMuted
-        ? 'Muted'
-        : 'Listening';
-
+  const label = voiceStatusLabel({ isConnecting, speaking, isMuted });
   const activeFft = speaking ? fft : micFft;
-  const accent = speaking
-    ? 'bg-gradient-to-t from-[#FA6C43] to-[#FFB088]'
-    : 'bg-gradient-to-t from-[#7C5CFF] to-[#B79CFF]';
+  const accent = voiceAccent(speaking);
 
   return (
-    <div className="fixed inset-0 z-50 voice-overlay-in flex flex-col items-center justify-center bg-gradient-to-b from-[#0f1729] via-[#1a1230] to-[#0f1729]">
+    <div className="fixed inset-0 z-50 voice-overlay-in flex flex-col items-center justify-center bg-[#1F1F1F]">
       <button
         type="button"
-        onClick={onClose}
-        title="Close voice"
+        onClick={onDismiss}
+        title={dismissLabel}
         style={{
           top: 'max(1rem, env(safe-area-inset-top))',
           right: 'max(1rem, env(safe-area-inset-right))',
@@ -199,14 +220,14 @@ const VoiceOverlay = ({
           className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition active:scale-95 disabled:opacity-50 ${
             isMuted
               ? 'bg-white/10 text-white/70 hover:bg-white/20'
-              : 'bg-white text-[#1a1230] hover:bg-white/90'
+              : 'bg-white text-[#1F1F1F] hover:bg-white/90'
           }`}
         >
           {isMuted ? <FaMicrophoneSlash className="text-lg sm:text-xl" /> : <FaMicrophone className="text-lg sm:text-xl" />}
         </button>
         <button
           type="button"
-          onClick={onClose}
+          onClick={onEndCall}
           title="End call"
           className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#FA6C43] hover:bg-[#E55B34] text-white flex items-center justify-center transition active:scale-95"
         >
@@ -218,7 +239,82 @@ const VoiceOverlay = ({
         style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
         className="mt-6 sm:mt-8 text-white/40 text-[11px] sm:text-xs px-6 text-center max-w-sm"
       >
-        Your conversation appears as messages in the chat. Close to switch back to typing.
+        {footerText}
+      </div>
+    </div>
+  );
+};
+
+// The default call surface when EVIAudioControls is used in `embedded` mode (the
+// dedicated audio_call page layout): a compact inline panel instead of a full-screen
+// takeover, so a transcript can stay visible underneath it. `onEnterFullscreen` swaps
+// this out for VoiceOverlay — the call itself never disconnects on that switch, only
+// `onEndCall` (the phone button) does.
+const EmbeddedVoicePanel = ({
+  status,
+  fft,
+  micFft,
+  isPlayingAudio,
+  isMuted,
+  recording,
+  onMute,
+  onUnmute,
+  onEndCall,
+  onEnterFullscreen,
+}) => {
+  const isConnecting = status === 'connecting';
+  const speaking = !!isPlayingAudio;
+  const label = voiceStatusLabel({ isConnecting, speaking, isMuted });
+  const activeFft = speaking ? fft : micFft;
+  const accent = voiceAccent(speaking);
+
+  return (
+    <div className="relative w-full max-w-md mx-auto flex flex-col items-center px-4 py-6">
+      <button
+        type="button"
+        onClick={onEnterFullscreen}
+        title="Full screen"
+        className="absolute top-0 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition active:scale-95"
+      >
+        <FaExpand className="text-sm" />
+      </button>
+
+      <div className="text-white/60 text-[11px] tracking-[0.25em] uppercase mb-4 flex items-center gap-2">
+        {isConnecting && <FaSpinner className="animate-spin text-sm" />}
+        <span>{label}</span>
+      </div>
+
+      {recording && (
+        <div className="mb-3 flex items-center gap-2 text-white/70 text-[10px] tracking-[0.2em] uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+          <span>Recording</span>
+        </div>
+      )}
+
+      <VoiceWave fft={activeFft} active={!isConnecting} accent={accent} compact />
+
+      <div className="mt-5 flex items-center gap-4">
+        <button
+          type="button"
+          onClick={isMuted ? onUnmute : onMute}
+          disabled={isConnecting}
+          title={isMuted ? 'Unmute' : 'Mute'}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition active:scale-95 disabled:opacity-50 ${
+            isMuted
+              ? 'bg-white/10 text-white/70 hover:bg-white/20'
+              : 'bg-white text-[#1F1F1F] hover:bg-white/90'
+          }`}
+        >
+          {isMuted ? <FaMicrophoneSlash className="text-base" /> : <FaMicrophone className="text-base" />}
+        </button>
+        <button
+          type="button"
+          onClick={onEndCall}
+          title="End call"
+          className="w-12 h-12 rounded-full bg-[#FA6C43] hover:bg-[#E55B34] text-white flex items-center justify-center transition active:scale-95"
+        >
+          <FaPhoneSlash className="text-base" />
+        </button>
       </div>
     </div>
   );
@@ -227,7 +323,7 @@ const VoiceOverlay = ({
 const InnerControls = ({
   accessToken, humeConfigId, sessionId,
   configId, callSessionId, variables,
-  onTurn, onError, disabled,
+  onTurn, onError, disabled, embedded,
 }) => {
   const voice = useVoice();
   const {
@@ -245,6 +341,9 @@ const InnerControls = ({
   } = voice;
   const seenTurnsRef = useRef(0);
   const [dismissed, setDismissed] = useState(false);
+  // Embedded mode only: whether the compact panel has been swapped for the full-screen
+  // overlay. Purely a view toggle — never touches the call connection.
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [recording, setRecording] = useState(false);
   const recorder = useCallRecorder();
   // Wall-clock start of the call. Every turn's offset_ms is measured from here,
@@ -254,6 +353,7 @@ const InnerControls = ({
   useEffect(() => {
     if (status?.value === 'disconnected' || status?.value === 'error') {
       setDismissed(false);
+      setIsFullscreen(false);
     }
   }, [status]);
 
@@ -410,7 +510,22 @@ const InnerControls = ({
         </button>
       )}
 
-      {isActive && (
+      {isActive && embedded && !isFullscreen && (
+        <EmbeddedVoicePanel
+          status={status?.value}
+          fft={fft}
+          micFft={micFft}
+          isPlayingAudio={isPlayingAudio}
+          isMuted={isMuted}
+          recording={recording}
+          onMute={mute}
+          onUnmute={unmute}
+          onEndCall={handleClose}
+          onEnterFullscreen={() => setIsFullscreen(true)}
+        />
+      )}
+
+      {isActive && embedded && isFullscreen && (
         <VoiceOverlay
           status={status?.value}
           fft={fft}
@@ -420,7 +535,25 @@ const InnerControls = ({
           recording={recording}
           onMute={mute}
           onUnmute={unmute}
-          onClose={handleClose}
+          onDismiss={() => setIsFullscreen(false)}
+          onEndCall={handleClose}
+          dismissLabel="Exit full screen"
+          footerText="Tap × to return to the embedded view."
+        />
+      )}
+
+      {isActive && !embedded && (
+        <VoiceOverlay
+          status={status?.value}
+          fft={fft}
+          micFft={micFft}
+          isPlayingAudio={isPlayingAudio}
+          isMuted={isMuted}
+          recording={recording}
+          onMute={mute}
+          onUnmute={unmute}
+          onDismiss={handleClose}
+          onEndCall={handleClose}
         />
       )}
     </>
@@ -430,7 +563,7 @@ const InnerControls = ({
 const EVIAudioControls = ({
   humeConfigId, sessionId,
   configId, callSessionId, variables,
-  onTurn, onError, disabled,
+  onTurn, onError, disabled, embedded,
 }) => {
   const [accessToken, setAccessToken] = useState(null);
   const [serverConfigId, setServerConfigId] = useState(null);
@@ -489,6 +622,7 @@ const EVIAudioControls = ({
         onTurn={onTurn}
         onError={onError}
         disabled={disabled}
+        embedded={embedded}
       />
     </VoiceProvider>
   );

@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-02
- * @changed   Voice calls carry the launch URL's query params (participant code, assigned topic, assigned
+ * @updated   2026-09-03
+ * @changed   isCallMode layout rebuilt: mic/call control on top, full-width transcript below (always
+ *            visible, including during an active call via EVIAudioControls' new embedded mode), no side
+ *            panel. Newest transcript line types itself out (useTypewriter/TranscriptLine). Recolored the
+ *            navy/purple call background to brand #1F1F1F.
+ *            Prior: Voice calls carry the launch URL's query params (participant code, assigned topic, assigned
  *            stance) into the persona as session variables, encoded into a fourth segment of the CLM
  *            session id.
  *            Prior: A turn that dies mid-stream now hands the view to StreamInterruptedPage — the server's `error`
@@ -720,6 +724,40 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
     </div>
   );
 });
+
+// Reveals `text` a character at a time. Used only for the newest audio-call transcript
+// line — older lines pass `enabled: false` and render instantly, the same way a normal
+// chat bubble looks once its stream has already finished.
+const useTypewriter = (text, { speed = 18, enabled = true } = {}) => {
+  const [shown, setShown] = useState(enabled ? '' : text);
+
+  useEffect(() => {
+    if (!enabled) { setShown(text); return; }
+    setShown('');
+    if (!text) return undefined;
+    let i = 0;
+    const id = setInterval(() => {
+      i += 1;
+      setShown(text.slice(0, i));
+      if (i >= text.length) clearInterval(id);
+    }, speed);
+    return () => clearInterval(id);
+  }, [text, enabled, speed]);
+
+  return shown;
+};
+
+// One line of the audio-call transcript. `typewriter` is true only for the most recently
+// added turn — see the isCallMode render below.
+const TranscriptLine = ({ message, botName, typewriter }) => {
+  const shown = useTypewriter(message.text, { enabled: typewriter });
+  return (
+    <div className={`text-sm leading-relaxed ${message.sender === 'user' ? 'text-white/70' : 'text-white'}`}>
+      <span className="font-bold mr-1 text-[#FA6C43]">{message.sender === 'user' ? 'You' : botName || 'AI'}:</span>
+      {shown}
+    </div>
+  );
+};
 
 const ChatPage = () => {
   const { configId, chatId } = useParams();
@@ -2115,21 +2153,25 @@ const ChatPage = () => {
         )}
 
         {isCallMode ? (
-            <div className="flex-1 flex overflow-hidden bg-gradient-to-b from-[#0f1729] via-[#1a1230] to-[#0f1729]">
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-6 relative">
+            <div className="flex-1 flex flex-col overflow-hidden bg-[#1F1F1F]">
+                {/* Mic on top: hero + call control. Not full-height — the transcript below
+                    is always visible, during a call too (EVIAudioControls embedded=true
+                    keeps the call inline instead of taking over the screen). */}
+                <div className="shrink-0 flex flex-col items-center text-center px-6 py-8 border-b border-white/10">
                     {(() => {
                       const HeroIcon = getBotAvatarIconComponent(config?.bot_avatar);
                       return (
-                        <div className="w-24 h-24 rounded-full bg-white/10 flex items-center justify-center mb-6">
-                          {HeroIcon ? <HeroIcon className="text-5xl text-white/90" /> : <FaPaperPlane className="text-4xl text-white/90" />}
+                        <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
+                          {HeroIcon ? <HeroIcon className="text-3xl text-white/90" /> : <FaPaperPlane className="text-2xl text-white/90" />}
                         </div>
                       );
                     })()}
-                    <h2 className="text-2xl font-bold text-white mb-2">{config?.bot_name || 'AI Assistant'}</h2>
-                    <p className="text-white/60 text-sm max-w-md mb-10">
-                      {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears on the right.'}
+                    <h2 className="text-xl font-bold text-white mb-1.5">{config?.bot_name || 'AI Assistant'}</h2>
+                    <p className="text-white/60 text-sm max-w-md mb-6">
+                      {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears below.'}
                     </p>
                     <EVIAudioControls
+                      embedded
                       sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${voiceSession.encoded ? `:${voiceSession.encoded}` : ''}`}
                       configId={configId}
                       callSessionId={callSessionId}
@@ -2139,20 +2181,24 @@ const ChatPage = () => {
                     />
                 </div>
 
-                <aside className="hidden lg:flex w-96 border-l border-white/10 flex-col bg-black/20">
-                    <div className="px-5 py-4 border-b border-white/10 text-white/80 text-xs uppercase tracking-[0.2em] font-semibold">Transcript</div>
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 scrollbar-thin">
+                {/* Transcript below: full width, always visible, no input box — the newest
+                    line types itself out instead of just appearing. */}
+                <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
+                    <div className="max-w-2xl mx-auto space-y-3">
+                        <div className="text-white/40 text-[11px] uppercase tracking-[0.2em] font-semibold mb-1">Transcript</div>
                         {messages.length === 0 ? (
                             <p className="text-white/40 text-sm italic">No turns yet. Start the call to begin.</p>
                         ) : messages.map((m, i) => (
-                            <div key={i} className={`text-sm leading-relaxed ${m.sender === 'user' ? 'text-white/70' : 'text-white'}`}>
-                                <span className="font-bold mr-1 text-[#FA6C43]">{m.sender === 'user' ? 'You' : config?.bot_name || 'AI'}:</span>
-                                {m.text}
-                            </div>
+                            <TranscriptLine
+                              key={i}
+                              message={m}
+                              botName={config?.bot_name}
+                              typewriter={i === messages.length - 1}
+                            />
                         ))}
                         <div ref={messagesEndRef} />
                     </div>
-                </aside>
+                </div>
             </div>
         ) : showAvatar ? (
             <div className="flex-1 relative flex flex-col overflow-hidden">
