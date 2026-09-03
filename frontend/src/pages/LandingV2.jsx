@@ -1,6 +1,9 @@
 // @language JavaScript (React)
-// @updated 2026-08-24
-// @changed Added a product-showcase section (ContainerScroll, Framer Motion) between the
+// @updated 2026-09-03
+// @changed Testimonial video panel: dropped its box-shadow. "See it in action" heading:
+//          mb-4 -> mb-24 so it isn't nearly touching the tilted screenshot card below it
+//          (Card's own -mt-12 was pulling the card up further than the old margin allowed for).
+//          Prior: Added a product-showcase section (ContainerScroll, Framer Motion) between the
 //          testimonial panels and the closer, revealing a real dashboard screenshot instead
 //          of leaving the "show the product" gap from the locked spec unfilled.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -1618,7 +1621,6 @@ const LandingV2 = () => {
                             aspectRatio: '4 / 5',
                             backgroundColor: '#1F1F1F',
                             borderRadius: '24px',
-                            boxShadow: '0 18px 48px rgba(31,31,31,0.22)',
                           }}
                         >
                           <video
@@ -1677,7 +1679,7 @@ const LandingV2 = () => {
         <ContainerScroll
           titleComponent={
             <h2
-              className="text-5xl lg:text-7xl tracking-tight text-center mb-4"
+              className="text-5xl lg:text-7xl tracking-tight text-center mb-24"
               style={{
                 color: '#1F1F1F',
                 fontFamily: FONT_DISPLAY,
