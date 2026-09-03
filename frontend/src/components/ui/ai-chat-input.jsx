@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-03
-// @changed   New file: ported from the Aceternity/21st.dev ai-chat-input.tsx demo to this project's
+// @changed   Widened the collapsed/expanded max-width (320/480 -> 400/640) — the original demo sizing
+//            read as cramped next to the rest of the hero.
+//            Prior: new file: ported from the Aceternity/21st.dev ai-chat-input.tsx demo to this project's
 //            plain-JS/Vite convention. Shadcn CSS-variable tokens (bg-card, text-foreground, bg-primary,
 //            etc.) are hardcoded to this app's actual brand palette instead of a global theme layer.
 //            Per-model CDN logo icons dropped (no equivalent asset for this app's real model list) for a
@@ -650,7 +652,7 @@ export const PromptInput = React.forwardRef(
           onBlur={handleBlur}
           className={cn('relative flex flex-col w-full', className)}
           style={{
-            maxWidth: expanded ? 480 : 320,
+            maxWidth: expanded ? 640 : 400,
             transition: isSmoothResize ? 'max-width 0.15s ease-out' : 'max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
           }}
         >
