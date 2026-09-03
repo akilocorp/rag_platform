@@ -1,7 +1,12 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-03
- * @changed   New `embedded` prop: renders a compact inline EmbeddedVoicePanel instead of the full-screen
+ * @changed   VoiceOverlay + EmbeddedVoicePanel recolored again: #1F1F1F was a dark bg meant for white text —
+ *            swapped for #F8FAFC (ChatPage's own off-white) to match the rest of the app's light surfaces,
+ *            which meant flipping every white-on-dark element (dismiss/fullscreen buttons, status label,
+ *            recording indicator, footer text, unmuted-mic button) to dark-on-light equivalents so contrast
+ *            still holds.
+ *            Prior: new `embedded` prop: renders a compact inline EmbeddedVoicePanel instead of the full-screen
  *            VoiceOverlay by default, with a fullscreen toggle button that swaps to VoiceOverlay without
  *            ending the call (its X now exits fullscreen back to embedded, not hang-up — the phone-slash
  *            End Call button is the only thing that disconnects). Recolored the overlay/panel from navy/
@@ -182,7 +187,7 @@ const VoiceOverlay = ({
   const accent = voiceAccent(speaking);
 
   return (
-    <div className="fixed inset-0 z-50 voice-overlay-in flex flex-col items-center justify-center bg-[#1F1F1F]">
+    <div className="fixed inset-0 z-50 voice-overlay-in flex flex-col items-center justify-center bg-[#F8FAFC]">
       <button
         type="button"
         onClick={onDismiss}
@@ -191,19 +196,19 @@ const VoiceOverlay = ({
           top: 'max(1rem, env(safe-area-inset-top))',
           right: 'max(1rem, env(safe-area-inset-right))',
         }}
-        className="absolute w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition active:scale-95"
+        className="absolute w-11 h-11 rounded-full bg-[#1F1F1F]/6 hover:bg-[#1F1F1F]/12 text-[#1F1F1F]/70 hover:text-[#1F1F1F] flex items-center justify-center transition active:scale-95"
       >
         <FaTimes className="text-lg" />
       </button>
 
-      <div className="text-white/60 text-[11px] sm:text-xs tracking-[0.25em] uppercase mb-6 sm:mb-8 flex items-center gap-2">
+      <div className="text-[#1F1F1F]/55 text-[11px] sm:text-xs tracking-[0.25em] uppercase mb-6 sm:mb-8 flex items-center gap-2">
         {isConnecting && <FaSpinner className="animate-spin text-sm" />}
         <span>{label}</span>
       </div>
 
       {/* Nobody is recorded without seeing that they are. */}
       {recording && (
-        <div className="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 text-white/70 text-[11px] tracking-[0.2em] uppercase">
+        <div className="absolute top-5 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[#1F1F1F]/60 text-[11px] tracking-[0.2em] uppercase">
           <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
           <span>Recording</span>
         </div>
@@ -219,8 +224,8 @@ const VoiceOverlay = ({
           title={isMuted ? 'Unmute' : 'Mute'}
           className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition active:scale-95 disabled:opacity-50 ${
             isMuted
-              ? 'bg-white/10 text-white/70 hover:bg-white/20'
-              : 'bg-white text-[#1F1F1F] hover:bg-white/90'
+              ? 'bg-[#1F1F1F]/8 text-[#1F1F1F]/60 hover:bg-[#1F1F1F]/14'
+              : 'bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85'
           }`}
         >
           {isMuted ? <FaMicrophoneSlash className="text-lg sm:text-xl" /> : <FaMicrophone className="text-lg sm:text-xl" />}
@@ -237,7 +242,7 @@ const VoiceOverlay = ({
 
       <div
         style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
-        className="mt-6 sm:mt-8 text-white/40 text-[11px] sm:text-xs px-6 text-center max-w-sm"
+        className="mt-6 sm:mt-8 text-[#1F1F1F]/40 text-[11px] sm:text-xs px-6 text-center max-w-sm"
       >
         {footerText}
       </div>
@@ -274,18 +279,18 @@ const EmbeddedVoicePanel = ({
         type="button"
         onClick={onEnterFullscreen}
         title="Full screen"
-        className="absolute top-0 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white flex items-center justify-center transition active:scale-95"
+        className="absolute top-0 right-4 w-9 h-9 rounded-full bg-[#1F1F1F]/6 hover:bg-[#1F1F1F]/12 text-[#1F1F1F]/60 hover:text-[#1F1F1F] flex items-center justify-center transition active:scale-95"
       >
         <FaExpand className="text-sm" />
       </button>
 
-      <div className="text-white/60 text-[11px] tracking-[0.25em] uppercase mb-4 flex items-center gap-2">
+      <div className="text-[#1F1F1F]/55 text-[11px] tracking-[0.25em] uppercase mb-4 flex items-center gap-2">
         {isConnecting && <FaSpinner className="animate-spin text-sm" />}
         <span>{label}</span>
       </div>
 
       {recording && (
-        <div className="mb-3 flex items-center gap-2 text-white/70 text-[10px] tracking-[0.2em] uppercase">
+        <div className="mb-3 flex items-center gap-2 text-[#1F1F1F]/60 text-[10px] tracking-[0.2em] uppercase">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           <span>Recording</span>
         </div>
@@ -301,8 +306,8 @@ const EmbeddedVoicePanel = ({
           title={isMuted ? 'Unmute' : 'Mute'}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition active:scale-95 disabled:opacity-50 ${
             isMuted
-              ? 'bg-white/10 text-white/70 hover:bg-white/20'
-              : 'bg-white text-[#1F1F1F] hover:bg-white/90'
+              ? 'bg-[#1F1F1F]/8 text-[#1F1F1F]/60 hover:bg-[#1F1F1F]/14'
+              : 'bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85'
           }`}
         >
           {isMuted ? <FaMicrophoneSlash className="text-base" /> : <FaMicrophone className="text-base" />}

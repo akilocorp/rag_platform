@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-03
- * @changed   isCallMode layout rebuilt: mic/call control on top, full-width transcript below (always
+ * @changed   isCallMode recolored again: #1F1F1F was a dark bg meant for white text — swapped for #F8FAFC,
+ *            the same off-white the rest of this page already uses outside call mode, and flipped the hero/
+ *            transcript text from white-on-dark to #1F1F1F-on-light to match.
+ *            Prior: isCallMode layout rebuilt: mic/call control on top, full-width transcript below (always
  *            visible, including during an active call via EVIAudioControls' new embedded mode), no side
  *            panel. Newest transcript line types itself out (useTypewriter/TranscriptLine). Recolored the
  *            navy/purple call background to brand #1F1F1F.
@@ -752,7 +755,7 @@ const useTypewriter = (text, { speed = 18, enabled = true } = {}) => {
 const TranscriptLine = ({ message, botName, typewriter }) => {
   const shown = useTypewriter(message.text, { enabled: typewriter });
   return (
-    <div className={`text-sm leading-relaxed ${message.sender === 'user' ? 'text-white/70' : 'text-white'}`}>
+    <div className={`text-sm leading-relaxed ${message.sender === 'user' ? 'text-[#1F1F1F]/65' : 'text-[#1F1F1F]'}`}>
       <span className="font-bold mr-1 text-[#FA6C43]">{message.sender === 'user' ? 'You' : botName || 'AI'}:</span>
       {shown}
     </div>
@@ -2153,21 +2156,21 @@ const ChatPage = () => {
         )}
 
         {isCallMode ? (
-            <div className="flex-1 flex flex-col overflow-hidden bg-[#1F1F1F]">
+            <div className="flex-1 flex flex-col overflow-hidden bg-[#F8FAFC]">
                 {/* Mic on top: hero + call control. Not full-height — the transcript below
                     is always visible, during a call too (EVIAudioControls embedded=true
                     keeps the call inline instead of taking over the screen). */}
-                <div className="shrink-0 flex flex-col items-center text-center px-6 py-8 border-b border-white/10">
+                <div className="shrink-0 flex flex-col items-center text-center px-6 py-8 border-b border-[#1F1F1F]/8">
                     {(() => {
                       const HeroIcon = getBotAvatarIconComponent(config?.bot_avatar);
                       return (
-                        <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
-                          {HeroIcon ? <HeroIcon className="text-3xl text-white/90" /> : <FaPaperPlane className="text-2xl text-white/90" />}
+                        <div className="w-16 h-16 rounded-full bg-[#1F1F1F]/6 flex items-center justify-center mb-4">
+                          {HeroIcon ? <HeroIcon className="text-3xl text-[#1F1F1F]/80" /> : <FaPaperPlane className="text-2xl text-[#1F1F1F]/80" />}
                         </div>
                       );
                     })()}
-                    <h2 className="text-xl font-bold text-white mb-1.5">{config?.bot_name || 'AI Assistant'}</h2>
-                    <p className="text-white/60 text-sm max-w-md mb-6">
+                    <h2 className="text-xl font-bold text-[#1F1F1F] mb-1.5">{config?.bot_name || 'AI Assistant'}</h2>
+                    <p className="text-[#1F1F1F]/60 text-sm max-w-md mb-6">
                       {config?.introduction || 'Tap the mic to start a voice call. Your transcript appears below.'}
                     </p>
                     <EVIAudioControls
@@ -2185,9 +2188,9 @@ const ChatPage = () => {
                     line types itself out instead of just appearing. */}
                 <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
                     <div className="max-w-2xl mx-auto space-y-3">
-                        <div className="text-white/40 text-[11px] uppercase tracking-[0.2em] font-semibold mb-1">Transcript</div>
+                        <div className="text-[#1F1F1F]/40 text-[11px] uppercase tracking-[0.2em] font-semibold mb-1">Transcript</div>
                         {messages.length === 0 ? (
-                            <p className="text-white/40 text-sm italic">No turns yet. Start the call to begin.</p>
+                            <p className="text-[#1F1F1F]/40 text-sm italic">No turns yet. Start the call to begin.</p>
                         ) : messages.map((m, i) => (
                             <TranscriptLine
                               key={i}
