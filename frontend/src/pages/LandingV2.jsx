@@ -1,6 +1,11 @@
 // @language JavaScript (React)
 // @updated 2026-09-03
-// @changed Hero composer rebuilt around PromptInput (components/ui/ai-chat-input, ported from a 21st.dev
+// @changed Composer wrapper: added w-full max-w-2xl. It sits in a `flex items-center` column (the hero
+//          content stack), which doesn't stretch children to full width — the wrapper had no explicit
+//          width at all, so it (and PromptInput's own w-full inside it) collapsed to shrink-fit content
+//          instead of ever reaching PromptInput's 400/640px caps. This is why two rounds of widening
+//          PromptInput's own max-width did nothing: the real bottleneck was one level up, here.
+//          Prior: Hero composer rebuilt around PromptInput (components/ui/ai-chat-input, ported from a 21st.dev
 //          demo): real expand/collapse pill, working attachment picker + gallery, real browser voice-to-
 //          text, all using the real MODEL_OPTIONS list. Replaces the old always-open white card + dead
 //          attach/voice buttons. Credits bar restyled to sit on the dark hero directly (was inside the old
@@ -935,7 +940,7 @@ const LandingV2 = () => {
               chrome, so it sits directly on the dark hero rather than inside a shared
               white card like before. The credits bar has no slot in that component, so
               it renders above, restyled for the dark background. */}
-          <div className="flex flex-col items-start gap-3">
+          <div className="w-full max-w-2xl flex flex-col items-start gap-3">
             {/* Credits counter — driven by /api/usage/me. At 0, the submit
                 handler opens the register modal instead of starting a chat. */}
             <div className="flex items-center gap-2.5 px-1">
