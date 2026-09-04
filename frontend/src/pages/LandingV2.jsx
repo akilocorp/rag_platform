@@ -1,6 +1,11 @@
 // @language JavaScript (React)
-// @updated 2026-09-03
-// @changed Composer wrapper: added w-full max-w-2xl. It sits in a `flex items-center` column (the hero
+// @updated 2026-09-04
+// @changed Composer wrapper: items-start -> items-center + mx-auto. It was left-anchoring the credits bar
+//          and PromptInput, so the expand-on-focus width transition (400px -> 640px) only grew rightward
+//          from a fixed left edge instead of outward from a shared center; items-center recenters the
+//          child continuously as its width animates, which also fixes the whole block reading as left-of-
+//          center instead of centered in the hero.
+//          Prior: Composer wrapper: added w-full max-w-2xl. It sits in a `flex items-center` column (the hero
 //          content stack), which doesn't stretch children to full width — the wrapper had no explicit
 //          width at all, so it (and PromptInput's own w-full inside it) collapsed to shrink-fit content
 //          instead of ever reaching PromptInput's 400/640px caps. This is why two rounds of widening
@@ -940,7 +945,7 @@ const LandingV2 = () => {
               chrome, so it sits directly on the dark hero rather than inside a shared
               white card like before. The credits bar has no slot in that component, so
               it renders above, restyled for the dark background. */}
-          <div className="w-full max-w-2xl flex flex-col items-start gap-3">
+          <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-3">
             {/* Credits counter — driven by /api/usage/me. At 0, the submit
                 handler opens the register modal instead of starting a chat. */}
             <div className="flex items-center gap-2.5 px-1">
