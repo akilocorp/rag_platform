@@ -1,6 +1,9 @@
 // @language JavaScript (React)
-// @updated 2026-09-04
-// @changed Composer wrapper: items-start -> items-center + mx-auto. It was left-anchoring the credits bar
+// @updated 2026-09-06
+// @changed Features (bento) section rebuilt from solid pastel tiles into a hairline-bordered "case study"
+//          style panel (one outer container, split featured row + 4-cell grid row), with fresh
+//          learning/research-focused copy. SmallFeatureTile replaced by BentoCell + BENTO_CELLS.
+//          Prior: Composer wrapper: items-start -> items-center + mx-auto. It was left-anchoring the credits bar
 //          and PromptInput, so the expand-on-focus width transition (400px -> 640px) only grew rightward
 //          from a fixed left edge instead of outward from a shared center; items-center recenters the
 //          child continuously as its width animates, which also fixes the whole block reading as left-of-
@@ -90,77 +93,83 @@ const UVPS = [
   },
 ];
 
-// Small feature tile used in the redesigned bento. Light-blue card with
-// a bold title and a short body. Pure presentational — no mockup zone,
-// no accent eyebrow. Three of these fill the left/right "feature
-// highlight" slots around the Canvas hero and the contact CTA.
-// `layout` controls vertical order. "default" stacks title→body, vertically
-// centered. "body-top-title-bottom" places body at the top of the tile and
-// pins the title to the bottom-right corner — eyes land on the heading first,
-// then drift up to the supporting text.
-const SmallFeatureTile = ({ title, body, className = '', layout = 'default' }) => {
-  const isSplit = layout === 'body-top-title-bottom';
-  return (
-    <div
-      className={`relative overflow-hidden shadow-[0_12px_32px_rgba(31,31,31,0.08)] ${className}`}
-      style={{
-        backgroundColor: '#D9E5F2',
-        borderRadius: '32px',
-        minHeight: '180px',
-      }}
-    >
-      <div
-        className={`absolute inset-0 p-6 lg:p-7 flex flex-col ${
-          isSplit ? 'justify-between' : 'justify-center'
-        }`}
+// Feature cell for the redesigned "case study" style bento — a hairline-
+// bordered grid cell (illustration + headline + body + arrow link) instead
+// of a solid pastel tile. `borderRight` is dropped on the last cell in a row
+// so the outer container's own border closes off the edge.
+const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }) => (
+  <div
+    className={`group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 first:border-t-0 transition-colors duration-300 hover:bg-[#FAFAF7] ${
+      borderRight ? 'lg:border-r' : ''
+    }`}
+    style={{ borderColor: 'rgba(31,31,31,0.08)' }}
+  >
+    <img src={icon} alt={iconAlt} className="w-10 h-10" draggable={false} />
+    <div>
+      <h3
+        className="text-xl tracking-tight mb-2.5"
+        style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
       >
-        {isSplit ? (
-          <>
-            <p
-              className="text-[15px] lg:text-base leading-snug"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
-            >
-              {body}
-            </p>
-            <h3
-              className="text-2xl lg:text-[1.85rem] tracking-tight text-right"
-              style={{
-                color: '#1F1F1F',
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                lineHeight: 1.0,
-              }}
-            >
-              {title}
-            </h3>
-          </>
-        ) : (
-          <>
-            <h3
-              className="text-2xl lg:text-[1.85rem] tracking-tight mb-3"
-              style={{
-                color: '#1F1F1F',
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                lineHeight: 1.0,
-              }}
-            >
-              {title}
-            </h3>
-            <p
-              className="text-[15px] lg:text-base leading-snug"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
-            >
-              {body}
-            </p>
-          </>
-        )}
-      </div>
+        {title}
+      </h3>
+      <p
+        className="text-[15px] leading-snug mb-5"
+        style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+      >
+        {body}
+      </p>
+      <span
+        className="inline-flex items-center gap-1.5 text-sm font-semibold"
+        style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+      >
+        {linkLabel}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 14 14"
+          fill="none"
+          aria-hidden
+          className="transition-transform duration-300 group-hover:translate-x-1"
+        >
+          <path
+            d="M3 7h8M7 3l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
     </div>
-  );
-};
+  </div>
+);
+
+const BENTO_CELLS = [
+  {
+    id: 'models',
+    icon: '/illustrations/wifi-internet.svg',
+    iconAlt: 'Connection icon',
+    title: 'Any Model, One Login',
+    body: 'Run the same question through Claude, GPT-4o, or Gemini without juggling separate subscriptions or tabs.',
+    linkLabel: 'Compare the models',
+  },
+  {
+    id: 'citations',
+    icon: '/illustrations/magnifying-glass.svg',
+    iconAlt: 'Magnifying glass icon',
+    title: 'Every Answer, Footnoted',
+    body: 'No more chasing down where a claim came from — each response links straight back to the page or passage it was pulled from.',
+    linkLabel: 'See a real citation',
+  },
+  {
+    id: 'sandbox',
+    icon: '/illustrations/survey-clipboard-research.svg',
+    iconAlt: 'Research clipboard icon',
+    title: 'Built to Be Studied',
+    body: 'Every prompt, latency, and citation is logged in one place, so researchers can see how students actually learn with AI, not guess.',
+    linkLabel: 'Open the sandbox',
+  },
+];
 
 // SyllabusMockup lives in the right half of the Canvas hero tile and
 // positions its Canvas cards absolutely. Negative right offsets bleed
@@ -1126,13 +1135,13 @@ const LandingV2 = () => {
       </section>
 
       {/* === FEATURES (BENTO) ===
-          4-column asymmetric bento. Top row: wide peach "Fetches Canvas
-          Files" hero (cols 1-3) holding the SyllabusMockup + a small
-          gray feature tile on col 4. Bottom rows: two small gray
-          feature tiles stacked on col 1, with a 3-col × 2-row orange
-          "missing a feature?" mailto-CTA filling the rest. Grid
-          auto-flow places tiles in JSX order; see the comment at each
-          tile for its target cell. */}
+          Redesigned as a single bordered "case study" panel (inspired by a
+          shadcn case-study block): a featured row up top (Canvas-sync copy
+          left, SyllabusMockup framed on a peach panel right), then a
+          hairline-divided 4-cell row below (Any Model / Cites Sources /
+          Observable Sandbox / mailto CTA). featureGridRef stays on the
+          single outer container so the existing GSAP fade-up still
+          animates it as one block. */}
       <section
         id="features"
         className="relative z-10 px-6 lg:px-10 py-12 lg:py-16"
@@ -1140,23 +1149,23 @@ const LandingV2 = () => {
       >
         <div
           ref={featureGridRef}
-          className="grid grid-cols-1 lg:grid-cols-4 gap-5 max-w-7xl mx-auto"
+          className="max-w-7xl mx-auto overflow-hidden shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
+          style={{ backgroundColor: '#FFFFFF', borderRadius: '40px', border: '1px solid rgba(31,31,31,0.08)' }}
         >
-          {/* TOP-LEFT — Canvas hero (lg: cols 1-3, row 1) */}
-          <div
-            className="relative overflow-hidden lg:col-span-3 shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
-            style={{
-              backgroundColor: '#FDE3D8',
-              borderRadius: '40px',
-              minHeight: '340px',
-            }}
-          >
+          {/* Featured row */}
+          <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
             <div
-              className="absolute z-10 p-8 lg:p-10 overflow-hidden"
-              style={{ top: 0, left: 0, right: '50%', bottom: 0 }}
+              className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
+              style={{ borderColor: 'rgba(31,31,31,0.08)' }}
             >
+              <span
+                className="text-xs font-bold uppercase tracking-[0.22em]"
+                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+              >
+                Course sync
+              </span>
               <h2
-                className="text-2xl lg:text-[1.85rem] tracking-tight mb-5"
+                className="text-2xl lg:text-[1.85rem] tracking-tight"
                 style={{
                   fontFamily: FONT_DISPLAY,
                   fontWeight: 800,
@@ -1207,84 +1216,24 @@ const LandingV2 = () => {
                 </span>
               </h2>
               <p
-                className="text-[15px] lg:text-base leading-snug max-w-[300px]"
+                className="text-[15px] lg:text-base leading-snug max-w-[340px]"
                 style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
-                It&rsquo;s a massive pain to keep re-uploading your lecture notes, only for the AI to start making things up halfway through your study session.
+                Connect a course once and every syllabus, slide deck, and reading stays in sync — no re-uploading the same lecture notes every week just to keep the bot from making things up.
               </p>
-            </div>
-            <div
-              className="absolute"
-              style={{ top: 0, left: '50%', right: 0, bottom: 0 }}
-            >
-              <SyllabusMockup />
-            </div>
-          </div>
-
-          {/* TOP-RIGHT — Any Model (lg: col 4, row 1). Body up top,
-              title pinned to the bottom-right so the eye lands on the
-              heading first and walks up to the supporting text. */}
-          <SmallFeatureTile
-            title="Any Model"
-            body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat. No extra subscriptions."
-            layout="body-top-title-bottom"
-          />
-
-          {/* MID-LEFT — Cites Its Sources (lg: col 1, row 2) */}
-          <SmallFeatureTile
-            title="Cites Its Sources"
-            body="Every answer footnoted back to your uploaded files or live web results."
-          />
-
-          {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3).
-              Solid orange tile with the isolated white A logo (body +
-              dot) overlaid on the left half as an inline SVG. */}
-          <a
-            href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center shadow-[0_18px_48px_rgba(250,108,67,0.28)]"
-            style={{
-              backgroundColor: '#FA6C43',
-              borderRadius: '40px',
-              minHeight: '320px',
-            }}
-          >
-            <img
-              src="/logo-A-white.svg"
-              alt=""
-              aria-hidden="true"
-              className="absolute pointer-events-none select-none"
-              draggable={false}
-              style={{
-                left: '4%',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                width: '28%',
-                height: 'auto',
-              }}
-            />
-            {/* Spacer that pushes the text past the A artwork on the left. */}
-            <div className="flex-shrink-0" style={{ width: '45%' }} aria-hidden />
-            <div className="flex-1 pr-8 lg:pr-12">
-              <h2
-                className="text-white text-3xl lg:text-[2.5rem] tracking-tight leading-[1.05] mb-5"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                Are we missing<br />a feature?
-              </h2>
               <span
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all group-hover:scale-[1.04] shadow-md"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  color: '#1F1F1F',
-                  fontFamily: FONT_BODY,
-                }}
+                className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
+                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
               >
-                Get in touch &middot; Suggest features
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                See how the sync works
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  aria-hidden
+                  className="transition-transform duration-300 group-hover:translate-x-1"
+                >
                   <path
                     d="M3 7h8M7 3l4 4-4 4"
                     stroke="currentColor"
@@ -1295,13 +1244,58 @@ const LandingV2 = () => {
                 </svg>
               </span>
             </div>
-          </a>
+            <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
+              <SyllabusMockup />
+            </div>
+          </div>
 
-          {/* BOTTOM-LEFT — Observable Sandbox (lg: col 1, row 3) */}
-          <SmallFeatureTile
-            title="Observable Sandbox"
-            body="Researcher-grade view of every student &harr; bot exchange &mdash; latency, citations, model variant."
-          />
+          {/* Cell row — 3 data-driven feature cells + the mailto CTA */}
+          <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
+            {BENTO_CELLS.map((cell) => (
+              <BentoCell key={cell.id} {...cell} />
+            ))}
+
+            <a
+              href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
+              className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
+              style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
+            >
+              <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
+              <div>
+                <h3
+                  className="text-xl tracking-tight mb-2.5 text-white"
+                  style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+                >
+                  Missing something?
+                </h3>
+                <p
+                  className="text-[15px] leading-snug mb-5 text-white/85"
+                  style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
+                >
+                  Tell us what would make this more useful for your course or lab — we read every note.
+                </p>
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+                  Get in touch
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    aria-hidden
+                    className="transition-transform duration-300 group-hover:translate-x-1"
+                  >
+                    <path
+                      d="M3 7h8M7 3l4 4-4 4"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </div>
+            </a>
+          </div>
         </div>
       </section>
 
