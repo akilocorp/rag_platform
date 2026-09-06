@@ -1,6 +1,8 @@
 // @language JavaScript (React)
 // @updated 2026-09-06
-// @changed Features (bento) section rebuilt from solid pastel tiles into a hairline-bordered "case study"
+// @changed Students testimonial panel: swapped placeholder (Sarah Chen) for a real student,
+//          Ekramul Haque Khan (Chemical Engineering, HKUST), with his photo as avatar + video poster.
+//          Prior: Features (bento) section rebuilt from solid pastel tiles into a hairline-bordered "case study"
 //          style panel (one outer container, split featured row + 4-cell grid row), with fresh
 //          learning/research-focused copy. SmallFeatureTile replaced by BentoCell + BENTO_CELLS.
 //          Prior: Composer wrapper: items-start -> items-center + mx-auto. It was left-anchoring the credits bar
@@ -281,13 +283,14 @@ const TESTIMONIAL_PANELS = [
   {
     id: 'students',
     title: 'Students',
-    name: 'Sarah Chen',
-    role: 'MS Biology',
-    university: 'UC Berkeley',
+    name: 'Ekramul Haque Khan',
+    role: 'Chemical Engineering',
+    university: 'HKUST',
     quote:
-      'Most chatbots speak in generalities. Mine quotes the slide my professor uploaded last Tuesday, and that’s the difference between cramming and actually learning.',
+      'ACTRLabs helps me learn more effectively. I move through material at a much faster pace and actually keep up with my coursework, which means I still have a life outside of school.',
     videoSrc: '/testimonials/students.mp4',
-    posterSrc: '/testimonials/students.jpg',
+    posterSrc: '/testimonials/ekramul.jpg',
+    avatarSrc: '/testimonials/ekramul.jpg',
     bg: '#FDE3D8',
     accent: '#C8472A',
   },
