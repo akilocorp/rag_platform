@@ -1,6 +1,15 @@
 // @language JavaScript (React)
 // @updated 2026-09-06
-// @changed Dark overlay (the fixed black fill behind the hero, clip-path-revealed on scroll)
+// @changed Hero gradient bugfix + recolor: the AnimatedGradient config/noise/style objects were
+//          inline JSX literals, so every LandingV2 re-render (incl. every ~22-42ms keystroke of the
+//          hero typewriter effect) gave AnimatedGradient a new `config` reference, and its WebGL
+//          setup effect depends on that — tearing down and rebuilding the whole GL program and
+//          resetting elapsed time constantly. That was the "jittery, loops every 2s" bug, not a
+//          shader/perf issue. Hoisted to module-level HERO_GRADIENT_CONFIG/NOISE/STYLE constants so
+//          the reference is stable across renders. Also swapped color2 from orange (#FA6C43) to
+//          gray (#8C8C8C) and eased motion params (speed/distortion/swirl/iterations all down) per
+//          request for a calmer feel now that the actual stutter is fixed.
+//          Prior: Dark overlay (the fixed black fill behind the hero, clip-path-revealed on scroll)
 //          now fills with a live WebGL2 shader gradient (new components/ui/animated-gradient.jsx,
 //          ported from a 21st.dev demo) in brand black/orange, instead of a flat #1F1F1F. The
 //          clip-path + opacity scroll animation on darkOverlayRef is untouched — only its fill changed.
@@ -45,6 +54,34 @@ const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 const FONT_SERIF = "'Newsreader', Georgia, serif";
 const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
+
+// Hoisted to module scope (not inline in JSX) so these are the SAME object
+// reference across every LandingV2 render. AnimatedGradient's WebGL setup
+// effect depends on this config (via a useMemo) and tears down + rebuilds
+// the entire GL program whenever it changes — an inline object literal
+// would be a new reference every render, and LandingV2 re-renders on every
+// keystroke of the hero's typewriter effect (every 22-42ms while typing),
+// which is what was actually causing the "jittery, loops every 2s" bug:
+// the shader kept restarting from time zero, not a shader/performance issue.
+const HERO_GRADIENT_CONFIG = {
+  preset: 'custom',
+  color1: '#1F1F1F',
+  color2: '#8C8C8C',
+  color3: '#1F1F1F',
+  rotation: 114,
+  proportion: 100,
+  scale: 0.52,
+  speed: 14,
+  distortion: 4,
+  swirl: 10,
+  swirlIterations: 12,
+  softness: 100,
+  offset: 717,
+  shape: 'Edge',
+  shapeSize: 12,
+};
+const HERO_GRADIENT_NOISE = { opacity: 0.04 };
+const HERO_GRADIENT_STYLE = { zIndex: 0 };
 
 const HERO_PROMPTS = [
   'Explain the first law of thermodynamics',
@@ -861,9 +898,11 @@ const LandingV2 = () => {
           radius is small enough, the dark circle seamlessly *becomes* the
           dot of the A. The clip-path lives on this outer div, so the
           scroll-tied reveal (heroTl above) is unchanged — only the fill
-          itself changed, from flat #1F1F1F to a live black/orange shader
-          gradient. backgroundColor stays as a static fallback in case
-          WebGL2 isn't available (AnimatedGradient just renders nothing). */}
+          itself changed, from flat #1F1F1F to a live black/gray shader
+          gradient (HERO_GRADIENT_CONFIG — module-level, see comment there
+          for why that matters). backgroundColor stays as a static fallback
+          in case WebGL2 isn't available (AnimatedGradient just renders
+          nothing). */}
       <div
         ref={darkOverlayRef}
         className="fixed inset-0 pointer-events-none overflow-hidden"
@@ -876,25 +915,9 @@ const LandingV2 = () => {
         }}
       >
         <AnimatedGradient
-          config={{
-            preset: 'custom',
-            color1: '#1F1F1F',
-            color2: '#FA6C43',
-            color3: '#1F1F1F',
-            rotation: 114,
-            proportion: 100,
-            scale: 0.52,
-            speed: 20,
-            distortion: 7,
-            swirl: 18,
-            swirlIterations: 20,
-            softness: 100,
-            offset: 717,
-            shape: 'Edge',
-            shapeSize: 12,
-          }}
-          noise={{ opacity: 0.04 }}
-          style={{ zIndex: 0 }}
+          config={HERO_GRADIENT_CONFIG}
+          noise={HERO_GRADIENT_NOISE}
+          style={HERO_GRADIENT_STYLE}
         />
       </div>
 
