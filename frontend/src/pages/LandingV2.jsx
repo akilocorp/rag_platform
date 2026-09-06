@@ -1,6 +1,10 @@
 // @language JavaScript (React)
 // @updated 2026-09-06
-// @changed Students testimonial panel: swapped placeholder (Sarah Chen) for a real student,
+// @changed Dark overlay (the fixed black fill behind the hero, clip-path-revealed on scroll)
+//          now fills with a live WebGL2 shader gradient (new components/ui/animated-gradient.jsx,
+//          ported from a 21st.dev demo) in brand black/orange, instead of a flat #1F1F1F. The
+//          clip-path + opacity scroll animation on darkOverlayRef is untouched — only its fill changed.
+//          Prior: Students testimonial panel: swapped placeholder (Sarah Chen) for a real student,
 //          Ekramul Haque Khan (Chemical Engineering, HKUST), with his photo as avatar + video poster.
 //          Prior: Features (bento) section rebuilt from solid pastel tiles into a hairline-bordered "case study"
 //          style panel (one outer container, split featured row + 4-cell grid row), with fresh
@@ -33,6 +37,7 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
 import { PromptInput } from '../components/ui/ai-chat-input';
+import AnimatedGradient from '../components/ui/animated-gradient';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -854,10 +859,14 @@ const LandingV2 = () => {
           circle whose radius shrinks on scroll. As it shrinks, the white
           page bg + the dark A logo behind become visible — and when the
           radius is small enough, the dark circle seamlessly *becomes* the
-          dot of the A. */}
+          dot of the A. The clip-path lives on this outer div, so the
+          scroll-tied reveal (heroTl above) is unchanged — only the fill
+          itself changed, from flat #1F1F1F to a live black/orange shader
+          gradient. backgroundColor stays as a static fallback in case
+          WebGL2 isn't available (AnimatedGradient just renders nothing). */}
       <div
         ref={darkOverlayRef}
-        className="fixed inset-0 pointer-events-none"
+        className="fixed inset-0 pointer-events-none overflow-hidden"
         style={{
           backgroundColor: '#1F1F1F',
           clipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
@@ -865,7 +874,29 @@ const LandingV2 = () => {
           zIndex: 60,
           willChange: 'clip-path',
         }}
-      />
+      >
+        <AnimatedGradient
+          config={{
+            preset: 'custom',
+            color1: '#1F1F1F',
+            color2: '#FA6C43',
+            color3: '#1F1F1F',
+            rotation: 114,
+            proportion: 100,
+            scale: 0.52,
+            speed: 20,
+            distortion: 7,
+            swirl: 18,
+            swirlIterations: 20,
+            softness: 100,
+            offset: 717,
+            shape: 'Edge',
+            shapeSize: 12,
+          }}
+          noise={{ opacity: 0.04 }}
+          style={{ zIndex: 0 }}
+        />
+      </div>
 
 
       {/* === HERO === */}
