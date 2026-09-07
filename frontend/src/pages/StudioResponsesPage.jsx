@@ -1,7 +1,12 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: owner-only raw response table + CSV export for a Studio project. The CSV
-//            export is a JWT-authenticated endpoint, so it can't be a plain <a href> (no way to
+// @changed   Phase 2: added instrument-metric columns (e.g. "Question — reaction_timer:latency_ms"),
+//            discovered dynamically from the responses' computed `answer.metrics` rather than
+//            statically from the instrument spec — mirrors the same discovery approach in
+//            routes/studio_routes.py's export_responses_csv, so a future instrument's metrics show
+//            up here with no frontend changes.
+//            Prior: New file: owner-only raw response table + CSV export for a Studio project. The
+//            CSV export is a JWT-authenticated endpoint, so it can't be a plain <a href> (no way to
 //            attach an Authorization header to a browser navigation) — fetched as a blob via
 //            apiClient instead and downloaded via a throwaway object URL.
 import React, { useEffect, useState } from 'react';
@@ -15,6 +20,27 @@ const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 // _answerable_blocks: anything whose config carries a `required` key.
 const answerableBlocks = (project) =>
   (project?.pages || []).flatMap((p) => p.blocks || []).filter((b) => 'required' in (b.config || {}));
+
+// [{blockId, instrumentType, metricKey, label}] — one per unique metric key
+// actually seen across all responses for a given block+instrument.
+const discoverMetricColumns = (responses, questionByBlock) => {
+  const seen = new Set();
+  const cols = [];
+  responses.forEach((r) => {
+    (r.answers || []).forEach((a) => {
+      Object.entries(a.metrics || {}).forEach(([instrumentType, metrics]) => {
+        Object.keys(metrics).forEach((metricKey) => {
+          const key = `${a.block_id}::${instrumentType}::${metricKey}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          const question = questionByBlock[a.block_id] || a.block_id;
+          cols.push({ blockId: a.block_id, instrumentType, metricKey, label: `${question} — ${instrumentType}:${metricKey}` });
+        });
+      });
+    });
+  });
+  return cols;
+};
 
 const StudioResponsesPage = () => {
   const { projectId } = useParams();
@@ -65,6 +91,8 @@ const StudioResponsesPage = () => {
   }
 
   const columns = answerableBlocks(project);
+  const questionByBlock = Object.fromEntries(columns.map((b) => [b.id, b.config?.question || b.id]));
+  const metricColumns = discoverMetricColumns(responses, questionByBlock);
 
   return (
     <div className="min-h-screen bg-[#F0F6FB]" style={{ fontFamily: FONT_BODY }}>
@@ -111,12 +139,21 @@ const StudioResponsesPage = () => {
                       {blk.config?.question || blk.id}
                     </th>
                   ))}
+                  {metricColumns.map((mc) => (
+                    <th
+                      key={`${mc.blockId}::${mc.instrumentType}::${mc.metricKey}`}
+                      className="px-4 py-3 font-semibold min-w-[140px]"
+                      style={{ color: '#FA6C43' }}
+                    >
+                      {mc.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {responses.map((r) => {
                   const byId = {};
-                  (r.answers || []).forEach((a) => { byId[a.block_id] = a.value; });
+                  (r.answers || []).forEach((a) => { byId[a.block_id] = a; });
                   return (
                     <tr key={r._id} className="border-b border-gray-50 last:border-0">
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.respondent_id}</td>
@@ -125,7 +162,16 @@ const StudioResponsesPage = () => {
                       </td>
                       {columns.map((blk) => (
                         <td key={blk.id} className="px-4 py-3" style={{ color: '#1F1F1F' }}>
-                          {String(byId[blk.id] ?? '')}
+                          {String((byId[blk.id] || {}).value ?? '')}
+                        </td>
+                      ))}
+                      {metricColumns.map((mc) => (
+                        <td
+                          key={`${mc.blockId}::${mc.instrumentType}::${mc.metricKey}`}
+                          className="px-4 py-3"
+                          style={{ color: '#1F1F1F' }}
+                        >
+                          {String((byId[mc.blockId]?.metrics || {})[mc.instrumentType]?.[mc.metricKey] ?? '')}
                         </td>
                       ))}
                     </tr>

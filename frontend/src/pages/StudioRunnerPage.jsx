@@ -1,12 +1,20 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: the public, unauthenticated respondent-facing Studio form. Fetches the
-//            published project, resolves an anonymous localStorage respondent id (no JWT/Qualtrics
-//            fallback chain yet — that generalization is Phase 5's embed work, not needed here),
-//            renders every block in `mode="respond"`, validates required fields client-side (with
-//            the server's 400 response as a defense-in-depth fallback), and submits to
-//            POST /api/studio/public/projects/:id/responses.
-import React, { useEffect, useMemo, useState } from 'react';
+// @changed   Phase 2: records event timestamps (performance.now(), monotonic + high-resolution —
+//            not wall-clock, which a respondent's system clock could skew) for any block whose
+//            attached instrument needs them (server-enriched `needs_events` flag from the public
+//            project payload, since an anonymous respondent has no access to the faculty-scoped
+//            instrument registry). Only `shown` (page load, since all blocks render at once —
+//            there's no progressive per-block reveal yet) and `submit` are captured, because
+//            Reaction Timer is the only instrument that exists and that's all it reads; richer
+//            event types (focus/blur/change) get added when an instrument actually consumes them.
+//            Prior: New file: the public, unauthenticated respondent-facing Studio form. Fetches
+//            the published project, resolves an anonymous localStorage respondent id (no JWT/
+//            Qualtrics fallback chain yet — that generalization is Phase 5's embed work, not
+//            needed here), renders every block in `mode="respond"`, validates required fields
+//            client-side (with the server's 400 response as a defense-in-depth fallback), and
+//            submits to POST /api/studio/public/projects/:id/responses.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { FaSpinner, FaCheckCircle } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -14,6 +22,8 @@ import { getBlockComponent } from '../studio/blocks/registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const RESPONDENT_KEY = 'studio_respondent_id';
+
+const blockNeedsEvents = (block) => (block.instruments || []).some((i) => i.needs_events);
 
 // Same anonymous-identity idea GroupChatPage.jsx uses (persistent random id in
 // localStorage) — simplified, since Studio has no JWT/Qualtrics path yet.
@@ -47,6 +57,19 @@ const StudioRunnerPage = () => {
   }, [projectId]);
 
   const blocks = useMemo(() => project?.pages?.[0]?.blocks || [], [project]);
+  const shownAtRef = useRef({});
+
+  // "Shown" is stamped once, the first time each event-needing block is seen
+  // — currently that's page load, since every block on the page renders at
+  // once. Skips blocks already stamped so a re-render never resets the clock.
+  useEffect(() => {
+    const now = performance.now();
+    blocks.forEach((blk) => {
+      if (blockNeedsEvents(blk) && !(blk.id in shownAtRef.current)) {
+        shownAtRef.current[blk.id] = now;
+      }
+    });
+  }, [blocks]);
 
   const setAnswer = (blockId, value) => {
     setAnswers((prev) => ({ ...prev, [blockId]: value }));
@@ -69,10 +92,21 @@ const StudioRunnerPage = () => {
 
     setSubmitting(true);
     setSubmitError('');
+    const submitAt = performance.now();
     try {
       await apiClient.post(`/studio/public/projects/${projectId}/responses`, {
         respondent_id: getRespondentId(),
-        answers: Object.entries(answers).map(([block_id, value]) => ({ block_id, value })),
+        answers: Object.entries(answers).map(([block_id, value]) => {
+          const entry = { block_id, value };
+          const blk = blocks.find((b) => b.id === block_id);
+          if (blk && blockNeedsEvents(blk)) {
+            entry.events = [
+              { type: 'shown', at: shownAtRef.current[block_id] ?? submitAt },
+              { type: 'submit', at: submitAt },
+            ];
+          }
+          return entry;
+        }),
       });
       setSubmitted(true);
     } catch (err) {

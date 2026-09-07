@@ -1,8 +1,13 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   Phase 1: added Publish/unpublish + copy public-link UI, and a "Responses" link to the
-//            new results page. Publishing just PUTs status:'published' (already supported since
-//            Phase 0's save endpoint) — this is the first place the UI actually triggers it.
+// @changed   Phase 2: the ribbon gained an Instruments tab. Dragging an instrument icon onto a
+//            placed block attaches it (the exact gesture from the original product brainstorm);
+//            a badge shows on the block with a remove control. Instrument ribbon items are
+//            drag-only — unlike blocks, there's no unambiguous "click to append" target without a
+//            block-selection concept this phase doesn't have, so that's a known, deliberate gap.
+//            Prior: Phase 1: added Publish/unpublish + copy public-link UI, and a "Responses" link
+//            to the new results page. Publishing just PUTs status:'published' (already supported
+//            since Phase 0's save endpoint) — this is the first place the UI actually triggers it.
 //            Prior: New file: the Studio canvas builder — dotted-grid canvas, bottom-center orange/
 //            white ribbon of block types (drag OR click to add, via dnd-kit), reorder placed blocks
 //            by dragging them, debounced autosave to PUT /studio/projects/:id.
@@ -16,33 +21,35 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft,
+  FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { getBlockComponent } from '../studio/blocks/registry';
+import { getInstrumentComponent } from '../studio/instruments/registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const AUTOSAVE_DELAY_MS = 900;
 
-// Maps a block spec's `icon` key (from the backend catalog) to a react-icons
-// component. Falls back to a generic square so an unmapped future block type
-// still renders something in the ribbon instead of crashing.
+// Maps a block/instrument spec's `icon` key (from the backend catalog) to a
+// react-icons component. Falls back to a generic square so an unmapped
+// future type still renders something in the ribbon instead of crashing.
 const RIBBON_ICONS = {
   text: FaFont, radio: FaDotCircle, toggle: FaToggleOn,
   paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
+  stopwatch: FaStopwatch,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
-const newBlockId = () => `blk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-// A block type's icon+label in the ribbon. Draggable onto the canvas; also
-// clickable (appends to the end) so the builder doesn't require a pointer
-// drag gesture to be usable.
-const RibbonItem = ({ spec, onClick }) => {
+// A block or instrument type's icon+label in the ribbon. `dragSource`/`dragPayload`
+// distinguish which kind is being dragged in handleDragEnd. Blocks are also
+// clickable (appends to the end); instruments are drag-only (see file header).
+const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `ribbon-${spec.type}`,
-    data: { source: 'ribbon', blockType: spec.type },
+    id: `ribbon-${dragSource}-${spec.type}`,
+    data: { source: dragSource, ...dragPayload },
   });
   const Icon = iconFor(spec.icon);
   return (
@@ -58,7 +65,7 @@ const RibbonItem = ({ spec, onClick }) => {
         fontFamily: FONT_BODY,
       }}
       className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-white/15 transition-colors text-white cursor-grab active:cursor-grabbing"
-      title={`Add ${spec.label} (drag to position, or click to append)`}
+      title={onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`}
     >
       <Icon className="text-lg" />
       <span className="text-[11px] font-semibold">{spec.label}</span>
@@ -68,7 +75,10 @@ const RibbonItem = ({ spec, onClick }) => {
 
 // A block already placed on the canvas — draggable (reorder), deletable, and
 // hands its own config editing off to the component registered for its type.
-const PlacedBlock = ({ block, onChange, onDelete }) => {
+// Also a valid drop target for instrument ribbon items (dnd-kit's useSortable
+// registers a droppable under the hood, so it accepts any active draggable in
+// the same DndContext, not just other sortables).
+const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Component = getBlockComponent(block.type);
 
@@ -95,6 +105,16 @@ const PlacedBlock = ({ block, onChange, onDelete }) => {
           ) : (
             <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
           )}
+          {block.instruments?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-4 pb-3 -mt-1">
+              {block.instruments.map((inst) => {
+                const InstrumentBadge = getInstrumentComponent(inst.type);
+                return InstrumentBadge ? (
+                  <InstrumentBadge key={inst.id} onRemove={() => onRemoveInstrument(inst.type)} />
+                ) : null;
+              })}
+            </div>
+          )}
         </div>
         <button
           onClick={onDelete}
@@ -110,7 +130,7 @@ const PlacedBlock = ({ block, onChange, onDelete }) => {
 
 // The canvas is a droppable zone (for new blocks dragged from the ribbon)
 // wrapping a sortable list (for reordering blocks already placed).
-const Canvas = ({ blocks, onBlockChange, onBlockDelete }) => {
+const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument }) => {
   const { setNodeRef, isOver } = useDroppable({ id: 'canvas-dropzone' });
 
   return (
@@ -140,6 +160,7 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete }) => {
                 block={block}
                 onChange={(cfg) => onBlockChange(block.id, cfg)}
                 onDelete={() => onBlockDelete(block.id)}
+                onRemoveInstrument={(instType) => onRemoveInstrument(block.id, instType)}
               />
             ))}
           </SortableContext>
@@ -154,6 +175,8 @@ const StudioBuilderPage = () => {
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
   const [blockSpecs, setBlockSpecs] = useState([]);
+  const [instrumentSpecs, setInstrumentSpecs] = useState([]);
+  const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [publishing, setPublishing] = useState(false);
@@ -168,10 +191,12 @@ const StudioBuilderPage = () => {
     Promise.all([
       apiClient.get(`/studio/projects/${projectId}`),
       apiClient.get('/studio/block-specs'),
-    ]).then(([projectRes, specsRes]) => {
+      apiClient.get('/studio/instrument-specs'),
+    ]).then(([projectRes, blockSpecsRes, instrumentSpecsRes]) => {
       if (cancelled) return;
       setProject(projectRes.data);
-      setBlockSpecs(specsRes.data.blocks || []);
+      setBlockSpecs(blockSpecsRes.data.blocks || []);
+      setInstrumentSpecs(instrumentSpecsRes.data.instruments || []);
     }).catch(() => {
       if (!cancelled) setProject(null);
     }).finally(() => {
@@ -248,7 +273,7 @@ const StudioBuilderPage = () => {
   const appendBlock = useCallback((spec) => {
     updatePageBlocks((blks) => [
       ...blks,
-      { id: newBlockId(), type: spec.type, config: { ...spec.default_config }, instruments: [] },
+      { id: newId('blk'), type: spec.type, config: { ...spec.default_config }, instruments: [] },
     ]);
   }, [updatePageBlocks]);
 
@@ -260,10 +285,28 @@ const StudioBuilderPage = () => {
     updatePageBlocks((blks) => blks.filter((b) => b.id !== blockId));
   };
 
+  const attachInstrument = useCallback((spec, targetBlockId) => {
+    updatePageBlocks((blks) => blks.map((b) => {
+      if (b.id !== targetBlockId) return b;
+      if (spec.applies_to && !spec.applies_to.includes(b.type)) return b; // not compatible, silently ignore
+      if ((b.instruments || []).some((i) => i.type === spec.type)) return b; // already attached
+      return {
+        ...b,
+        instruments: [...(b.instruments || []), { id: newId('inst'), type: spec.type, config: { ...spec.default_config } }],
+      };
+    }));
+  }, [updatePageBlocks]);
+
+  const handleRemoveInstrument = (blockId, instrumentType) => {
+    updatePageBlocks((blks) => blks.map((b) => (
+      b.id === blockId ? { ...b, instruments: (b.instruments || []).filter((i) => i.type !== instrumentType) } : b
+    )));
+  };
+
   const handleDragEnd = ({ active, over }) => {
     if (!over) return;
 
-    if (active.data.current?.source === 'ribbon') {
+    if (active.data.current?.source === 'ribbon-block') {
       // Dropped a ribbon item anywhere on the canvas (the empty dropzone, or
       // on top of an existing block) — always appends to the end. Precise
       // mid-list insertion during a cross-container drag is real added
@@ -273,6 +316,17 @@ const StudioBuilderPage = () => {
       if (!spec) return;
       const isOverCanvas = over.id === 'canvas-dropzone' || blocks.some((b) => b.id === over.id);
       if (isOverCanvas) appendBlock(spec);
+      return;
+    }
+
+    if (active.data.current?.source === 'ribbon-instrument') {
+      // Dropped an instrument icon onto a specific placed block — attaches
+      // it there. Dropping on the empty dropzone (no block under the
+      // pointer) is a no-op; there's nothing to attach an instrument to.
+      const spec = instrumentSpecs.find((s) => s.type === active.data.current.instrumentType);
+      if (!spec) return;
+      const targetBlock = blocks.find((b) => b.id === over.id);
+      if (targetBlock) attachInstrument(spec, targetBlock.id);
       return;
     }
 
@@ -364,14 +418,51 @@ const StudioBuilderPage = () => {
           </div>
         </div>
 
-        <Canvas blocks={blocks} onBlockChange={handleBlockChange} onBlockDelete={handleBlockDelete} />
+        <Canvas
+          blocks={blocks}
+          onBlockChange={handleBlockChange}
+          onBlockDelete={handleBlockDelete}
+          onRemoveInstrument={handleRemoveInstrument}
+        />
 
-        {/* Bottom-center ribbon — brand orange, white icons/labels. */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20">
-          <div className="flex items-center gap-1 px-3 py-2 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
-            {blockSpecs.map((spec) => (
-              <RibbonItem key={spec.type} spec={spec} onClick={() => appendBlock(spec)} />
+        {/* Bottom-center ribbon — brand orange, white icons/labels. Blocks | Instruments tabs. */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
+          <div className="flex items-center gap-0.5 p-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
+            {['blocks', 'instruments'].map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setRibbonTab(tab)}
+                className="px-3 py-1 rounded-full capitalize transition-colors"
+                style={
+                  ribbonTab === tab
+                    ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+                    : { color: 'rgba(31,31,31,0.5)' }
+                }
+              >
+                {tab}
+              </button>
             ))}
+          </div>
+          <div className="flex items-center gap-1 px-3 py-2 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
+            {ribbonTab === 'blocks'
+              ? blockSpecs.map((spec) => (
+                  <RibbonItem
+                    key={spec.type}
+                    spec={spec}
+                    dragSource="ribbon-block"
+                    dragPayload={{ blockType: spec.type }}
+                    onClick={() => appendBlock(spec)}
+                  />
+                ))
+              : instrumentSpecs.map((spec) => (
+                  <RibbonItem
+                    key={spec.type}
+                    spec={spec}
+                    dragSource="ribbon-instrument"
+                    dragPayload={{ instrumentType: spec.type }}
+                  />
+                ))}
           </div>
         </div>
       </div>
