@@ -1,6 +1,14 @@
 # @language  Python
-# @updated   2026-08-31
-# @changed   Templates: the config's `template` picks the FLOW and the WORDS (see exercise_templates).
+# @updated   2026-09-07
+# @changed   New `reading` phase for professor-paired templates (`flow.prof_paired`): `begin_reading`
+#            puts a room on a real clock the instant it's paired (no lobby, no manual Start), and
+#            `_run_reading_window` auto-advances it into `solo` when the clock runs out — `begin_solo`
+#            now accepts entry from `waiting` (hiring's Start button) OR `reading`. `flow.hide_case_after_reading`
+#            blanks `your_case`/`your_credentials` in the snapshot for good once reading closes
+#            (`_case_visible`), and `flow.hide_role_number` strips a role's trailing digit from the
+#            OUTWARD `your_role` field only (`_display_role_for`) — `role_for` stays exact for
+#            internal packet matching. Both flags default off, so hiring is unchanged.
+#            Prior: Templates: the config's `template` picks the FLOW and the WORDS (see exercise_templates).
 #            `reveal` off sends a resolved pick straight to `done` instead of the kiosk; `debrief`
 #            off ends the room after the reveal. Both default on, so every existing config is
 #            unchanged. The snapshot carries the template id + lexicon so the client stops writing
@@ -108,6 +116,12 @@ _CREDIT_LINE = re.compile(
     re.IGNORECASE,
 )
 
+# A role like "Case File 2" ends in a bare number. Stripped only for the OUTWARD
+# display field (`your_role`, via `_display_role_for`) — `role_for` itself stays
+# exact, since `case_for`/`credentials_for` match it against the authored
+# `case_pack.roles` / `role_packets[].role` strings verbatim.
+_TRAILING_ROLE_NUMBER = re.compile(r"\s*\d+\s*$")
+
 
 def _split_scenario_credits(text: str):
     """Partition the (already structurally-trimmed) scenario into (narrative, credits).
@@ -125,6 +139,11 @@ def _split_scenario_credits(text: str):
 
 # --- Phase constants --------------------------------------------------------
 PHASE_WAITING = "waiting"
+# Professor-paired templates only (`flow.prof_paired`): a timed reading window
+# between pairing and the private decision. Chat locked, no ballot open yet —
+# the room enters this the instant the professor pairs it and leaves it on its
+# own, into `solo`, when the clock runs out. See `begin_reading`.
+PHASE_READING = "reading"
 # M9 round 0: the private decision. Each student reads the brief + their credential
 # cards and commits to a candidate alone, before anyone has spoken to anyone.
 PHASE_SOLO = "solo"
@@ -142,7 +161,9 @@ PHASE_DONE = "done"
 # Ordered flow; used to fast-forward on rehydration. M9: strictly linear — the
 # private decision precedes the group's, and every room ends in the debrief whether
 # its pick was right or wrong. There is no second ballot and no branch.
-PHASE_ORDER = [PHASE_WAITING, PHASE_SOLO, PHASE_DISCUSS, PHASE_CHOOSE,
+# `PHASE_READING` only appears in a professor-paired room's own history — a
+# self-service (hiring) room goes straight from `waiting` to `solo`.
+PHASE_ORDER = [PHASE_WAITING, PHASE_READING, PHASE_SOLO, PHASE_DISCUSS, PHASE_CHOOSE,
                PHASE_KIOSK, PHASE_DEBRIEF, PHASE_DONE]
 
 # Chat is unlocked for the two conversations only. `solo` is locked because the
@@ -155,6 +176,7 @@ _UNLOCKED_PHASES = {PHASE_DISCUSS, PHASE_DEBRIEF}
 # client can label the round without deriving it.
 _PHASE_ROUND = {
     PHASE_WAITING: 0,
+    PHASE_READING: 0,
     PHASE_SOLO: 0,
     PHASE_DISCUSS: 1,
     PHASE_CHOOSE: 1,
@@ -251,6 +273,7 @@ class ExerciseState:
         self.choose_seconds: float = cfg["choose_seconds"]
         self.final_call_seconds: float = cfg["final_call_seconds"]
         self.debrief_seconds: float = cfg["debrief_seconds"]
+        self.reading_seconds: float = cfg["reading_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -303,6 +326,10 @@ class ExerciseState:
             "debrief_seconds": float(
                 c.get("debrief_minutes") or c.get("discuss_minutes") or 20
             ) * 60.0,
+            # Professor-paired templates only. Configurable per config (ConfigPage /
+            # EditConfigPage's "Case-reading window"); 30 by default — long enough
+            # for a real case document, not just a one-page brief.
+            "reading_seconds": float(c.get("reading_minutes") or 30) * 60.0,
         }
 
     # ==================================================================
@@ -548,6 +575,7 @@ class ExerciseState:
         """
         with self._lock:
             revealed = self.forecast_shown_for and self.forecast_shown_for == self.chosen_candidate
+            case_visible = self._case_visible()
             return {
                 "room_id": self.room_id,
                 "phase": self._phase,
@@ -560,16 +588,23 @@ class ExerciseState:
                 # premise header ("You are the [role] Manager") and — in M2 — which
                 # slice of each candidate's credentials the client is allowed to see.
                 # Only the viewer's OWN role is sent; other seats' roles stay private.
-                "your_role": self.role_for(uid),
+                # `hide_role_number` templates get theirs with the trailing digit
+                # stripped — see `_display_role_for`.
+                "your_role": self._display_role_for(uid),
+                # Whether the two fields below are live or blanked for good. Sent so
+                # the client can tell "nothing authored" from "the reading window
+                # closed" rather than guessing from an empty string.
+                "case_visible": case_visible,
                 # M2: this viewer's role-sliced credential cards (own packet only —
                 # never other roles' slices, never the distinct-count answer key).
-                "your_credentials": self.credentials_for(uid),
+                # Blanked once `case_visible` is False — see `_case_visible`.
+                "your_credentials": self.credentials_for(uid) if case_visible else [],
                 # M10: how this room presents that material, plus the viewer's OWN
                 # role packet when one is authored. Sent alongside the cards rather
                 # than instead of them, so the client can fall back to the deck when
                 # a role has no packet without another round trip.
                 "student_view": self.student_view(),
-                "your_case": self.case_for(uid),
+                "your_case": self.case_for(uid) if case_visible else "",
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
                 "can_start": self.can_start(),
@@ -709,6 +744,8 @@ class ExerciseState:
                 # crash landed between the last ack and the transition, finish now.
                 if self._all_continued():
                     self._finish_kiosk()
+            elif self._phase == PHASE_READING:
+                self._resume_timed(PHASE_READING, self.begin_solo)
             elif self._phase == PHASE_SOLO:
                 # M9: solo has no deadline of its own — it ends when everyone has
                 # submitted. A crash between the last submission and the transition
@@ -756,21 +793,86 @@ class ExerciseState:
         return self._phase == PHASE_WAITING and len(self.roster) >= 1
 
     # ==================================================================
+    # THE TIMED READING WINDOW (professor-paired templates only)
+    # ==================================================================
+    def begin_reading(self):
+        """Enter `reading`: the room's case material is up, on a real clock.
+
+        Called once, right after `note_participant` has seated every member of a
+        just-paired group (see `investigation_pool` + the sockets layer) — there is
+        no lobby and no manual Start button on this path, so the room has to put
+        itself on the clock the instant it exists. Chat stays locked; nobody is
+        talking yet.
+        """
+        with self._lock:
+            if self._phase != PHASE_WAITING:
+                return
+            self._phase = PHASE_READING
+            self.phase_deadline_ts = time.time() + self.reading_seconds
+            self._persist({
+                "phase": PHASE_READING,
+                "phase_deadline_ts": self.phase_deadline_ts,
+            })
+
+        self._broadcast_phase()
+        self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "reading"})
+        if self._socketio:
+            self._socketio.start_background_task(self._run_reading_window)
+
+    def _run_reading_window(self):
+        """Background timer for the reading window → open the private decision.
+
+        The ONLY way this template's room leaves `reading` — there is no early-out
+        button, on purpose: the point is that everyone gets the same window and
+        cannot linger on it once the group discussion has started.
+        """
+        with self._app.app_context():
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase == PHASE_READING:
+                self.begin_solo()
+
+    def _case_visible(self) -> bool:
+        """Whether this room's confidential case material may still be shown.
+
+        Templates with `hide_case_after_reading` (professor-paired ones) blank the
+        material for good once the timed reading window has closed — a suspect is
+        argued from memory during discussion, the same reason `exercise_sim.py`
+        gives its simulated seats `RECALL_BEHAVIOUR` rather than the raw document.
+        Every other template shows its cards for the whole session, as it always
+        has — a hiring room argues FROM its packets, it doesn't recall them.
+        """
+        if not self.flow().get("hide_case_after_reading"):
+            return True
+        return self._phase in (PHASE_WAITING, PHASE_READING)
+
+    def _display_role_for(self, uid: str) -> Optional[str]:
+        """This student's role as shown to them — number stripped when the
+        template asks for it (`hide_role_number`), so a seat never learns which
+        numbered variant it holds and can't compare notes with a groupmate over
+        one."""
+        role = self.role_for(uid)
+        if role and self.flow().get("hide_role_number"):
+            stripped = _TRAILING_ROLE_NUMBER.sub("", role).strip()
+            role = stripped or role
+        return role
+
+    # ==================================================================
     # ROUND 0 — THE PRIVATE DECISION (M9)
     # ==================================================================
     def begin_solo(self):
         """Enter `solo`: each student decides alone, before the group exists.
 
-        This is where a room now lands when someone presses Start (it used to go
-        straight to `discuss`). Chat stays locked and NO hook fires — there is no AI
-        edge here to fire on, which is the structural half of keeping the facilitator
-        out of the group's first decision.
+        Reached from `waiting` (someone pressed Start — hiring's self-service
+        rooms) or from `reading` (the professor-paired clock ran out). Chat stays
+        locked and NO hook fires — there is no AI edge here to fire on, which is
+        the structural half of keeping the facilitator out of the group's first
+        decision.
 
         Untimed: the round ends when every student has submitted. `_solo_grace_watch`
         is the backstop for the student who never does.
         """
         with self._lock:
-            if self._phase != PHASE_WAITING:
+            if self._phase not in (PHASE_WAITING, PHASE_READING):
                 return
             self._phase = PHASE_SOLO
             self.phase_deadline_ts = None

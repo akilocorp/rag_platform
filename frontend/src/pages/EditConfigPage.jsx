@@ -1,6 +1,13 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
+// @updated   2026-09-07
+// @changed   Manager Exercise (`investigation` template): "Case-reading window (minutes)" field
+//            added to Group & Timing (default 30, whitelisted in the manager_exercise resolve
+//            block so it round-trips on save) and a "Pair the class" panel: polls
+//            GET /manager-exercise/<id>/pool-status for a live headcount of joined-but-unpaired
+//            students, and POSTs /pair to freeze them into groups of 3 and start every group's
+//            reading clock. Also surfaces students who quit mid-exercise (quit_exercise, read
+//            back off the same poll). Hiring configs never render either addition.
+// @changed   Prior: Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
 //            (/video-boxes/:configId); the old Advanced row-editor is gone. Saving now returns to the
 //            config list for every bot type instead of dropping the professor inside the config.
 // @changed   Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
@@ -80,6 +87,15 @@ const EditConfigPage = () => {
   // 0 is the plain run; 1 is the room that tests whether ACTR pulls it back.
   const [testMisleading, setTestMisleading] = useState(0);
   const [testErr, setTestErr] = useState('');
+
+  // Professor pairing (manager_exercise, `investigation` template only — see
+  // exercise_templates.py's `prof_paired`). Polled rather than pushed over a
+  // socket: this page has no live connection to the class, and a professor
+  // watching a headcount before pressing one button doesn't need sub-second
+  // latency for it.
+  const [poolStatus, setPoolStatus] = useState(null);
+  const [pairBusy, setPairBusy] = useState(false);
+  const [pairErr, setPairErr] = useState('');
 
   // Class rollout usage tiers
   const [usageTiers, setUsageTiers] = useState([]);
@@ -167,6 +183,10 @@ const EditConfigPage = () => {
             debrief_minutes: typeof me.debrief_minutes === 'number'
                 ? me.debrief_minutes
                 : (typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20),
+            // Professor-paired templates only (investigation): the timed case-reading
+            // window between pairing and the private decision. 30 by default — long
+            // enough for a real case document, not just a one-page brief.
+            reading_minutes: typeof me.reading_minutes === 'number' ? me.reading_minutes : 30,
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
             // Blank = run the stock facilitator prompt. Only set once a professor
@@ -419,6 +439,38 @@ const EditConfigPage = () => {
     } catch (e) {
       setTestErr(e?.response?.data?.error || 'Could not start the test run.');
       setTestBusy(false);
+    }
+  };
+
+  // The pairing panel's live headcount (investigation template only). Polled
+  // every few seconds while this page is open — cheap, and a professor watching
+  // this screen for a minute before class starts is the whole use case.
+  useEffect(() => {
+    if (config.bot_type !== 'manager_exercise' || !config.config_id) return;
+    if ((config.manager_exercise?.template || 'hiring') !== 'investigation') return;
+    let cancelled = false;
+    const poll = () => {
+      apiClient.get(`/manager-exercise/${config.config_id}/pool-status`)
+        .then(res => { if (!cancelled) setPoolStatus(res.data); })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 4000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [config.bot_type, config.config_id, config.manager_exercise?.template]);
+
+  const startPairing = async () => {
+    if (!config.config_id) return;
+    setPairBusy(true);
+    setPairErr('');
+    try {
+      await apiClient.post(`/manager-exercise/${config.config_id}/pair`);
+      const res = await apiClient.get(`/manager-exercise/${config.config_id}/pool-status`);
+      setPoolStatus(res.data);
+    } catch (e) {
+      setPairErr(e?.response?.data?.error || 'Could not pair the class.');
+    } finally {
+      setPairBusy(false);
     }
   };
 
@@ -1238,6 +1290,63 @@ const EditConfigPage = () => {
                       </button>
                     </div>
 
+                    {/* Professor pairing (investigation template only). This template has no
+                        student-facing lobby — the class waits silently and this button is
+                        the only thing that starts them, so it stands in for both "who's here"
+                        and "start" at once. */}
+                    {(me.template || 'hiring') === 'investigation' && (
+                      <div className="bg-white border-2 border-dashed border-[#FA6C43]/40 p-5 rounded-2xl mb-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold text-gray-800 inline-flex items-center gap-1.5">
+                              <FaUsers className="text-[#FA6C43]" /> Pair the class
+                            </h4>
+                            <p className="text-[11px] text-gray-500 mt-1 max-w-md">
+                              Students who open this exercise wait quietly until you pair them.
+                              Pairing splits everyone waiting into groups of 3 — one case file
+                              each — and starts every group's reading clock at once. Anyone who
+                              joins afterward is slotted into an existing group automatically.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={startPairing}
+                            disabled={pairBusy || !config.config_id || poolStatus?.paired || !poolStatus?.count}
+                            className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-xs px-4 py-2.5 shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                          >
+                            {pairBusy
+                              ? <><FaSpinner className="animate-spin" /> Pairing…</>
+                              : poolStatus?.paired ? 'Paired' : 'Start pairing'}
+                          </button>
+                        </div>
+
+                        <p className="mt-4 text-sm font-semibold text-gray-700">
+                          {poolStatus == null
+                            ? 'Checking who has joined…'
+                            : poolStatus.paired
+                              ? `Paired into ${poolStatus.group_count} group${poolStatus.group_count === 1 ? '' : 's'}.`
+                              : `${poolStatus.count} student${poolStatus.count === 1 ? '' : 's'} waiting to be paired.`}
+                        </p>
+                        {pairErr && <p className="mt-2 text-[11px] font-semibold text-red-500">{pairErr}</p>}
+
+                        {poolStatus?.quits?.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-gray-100">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                              Left the exercise
+                            </p>
+                            <div className="space-y-1">
+                              {poolStatus.quits.slice(0, 5).map((q, i) => (
+                                <p key={i} className="text-[11px] text-gray-600">
+                                  <span className="font-semibold">{q.name}</span> quit
+                                  {q.room_id ? ` (${q.room_id.split('_').pop()})` : ''}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Group size + the one timed phase. num_students drives group_size. */}
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">
                       <div className="mb-5">
@@ -1261,10 +1370,18 @@ const EditConfigPage = () => {
                         <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
                         <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
-                      <div>
+                      <div className={(me.template || 'hiring') === 'investigation' ? 'mb-5' : ''}>
                         <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; debrief (minutes)<InfoTip text="How long the facilitated debrief may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
                         <input type="number" min="0" step="any" value={me.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
+                      {/* Professor-paired templates only (investigation): the timed window
+                          before pairing opens the private decision. */}
+                      {(me.template || 'hiring') === 'investigation' && (
+                        <div>
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Case-reading window (minutes)<InfoTip text="How long students have to read their case file once you pair the class, before the private decision opens. There is no early-out and no extension mid-run — everyone gets the same window, and the case disappears for good once it closes." /></label>
+                          <input type="number" min="0" step="any" value={me.reading_minutes} onChange={(e) => setMgr('reading_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                        </div>
+                      )}
                     </div>
 
                     {/* What ACTR steers toward. Only the preset KEY is sent; the full

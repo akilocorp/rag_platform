@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-08-31
-# @changed   GET /<config_id>/results — the professor's class report: every group's answer, every
+# @updated   2026-09-07
+# @changed   GET /<config_id>/pool-status + POST /<config_id>/pair — the professor-paired
+#            (`investigation` template) pairing panel: live headcount of students waiting to be
+#            placed, and the "Start Pairing" action, which forwards into `investigation_pool` via
+#            `group_chat_sockets.trigger_pairing`. Both require the `investigation` template
+#            (`_load_owned_investigation_config`) — a hiring config has no pool.
+#            Prior: GET /<config_id>/results — the professor's class report: every group's answer, every
 #            student's own private pick and which case file they held, plus class-wide percentages.
 #            It exists because the `investigation` template deliberately never tells a room whether
 #            it was right; this page is where that conversation happens instead.
@@ -38,8 +43,10 @@ from flask import Blueprint, jsonify, current_app, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models.config import Config
-from routes.group_chat_sockets import start_test_run
+from routes.group_chat_sockets import start_test_run, trigger_pairing
 from src.managers import exercise_state as ex_state
+from src.managers import exercise_templates
+from src.managers import investigation_pool
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -70,6 +77,22 @@ def _load_owned_config(config_id):
     if doc.get("bot_type") != "manager_exercise":
         return None, (jsonify({"error": "Not a manager exercise"}), 400)
     return doc, None
+
+
+def _load_owned_investigation_config(config_id):
+    """`_load_owned_config`, plus requiring the `investigation` template.
+
+    The pairing pool only exists for that template (see `flow.prof_paired` in
+    `exercise_templates.py`) — a hiring config has no pool to poll or pair, its
+    students pick their own breakout room instead.
+    """
+    config_doc, error = _load_owned_config(config_id)
+    if error:
+        return None, error
+    me = config_doc.get("manager_exercise") or {}
+    if exercise_templates.normalize(me.get("template")) != "investigation":
+        return None, (jsonify({"error": "This exercise does not use professor pairing"}), 400)
+    return config_doc, None
 
 
 def _test_session_docs(config_id):
@@ -170,6 +193,41 @@ def _tallied(counts, total):
     """
     return [{"name": name, "count": n, "pct": _pct(n, total)}
             for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+@manager_exercise_bp.route('/manager-exercise/<config_id>/pool-status', methods=['GET'])
+@jwt_required()
+def get_pool_status(config_id):
+    """The professor's live headcount for the pairing panel: who has joined and
+    not yet been placed, whether pairing has already run, and any quits."""
+    config_doc, error = _load_owned_investigation_config(config_id)
+    if error:
+        return error
+    return jsonify(investigation_pool.status(config_id)), 200
+
+
+@manager_exercise_bp.route('/manager-exercise/<config_id>/pair', methods=['POST'])
+@jwt_required()
+def post_pair(config_id):
+    """The professor's "Start Pairing" button: freeze the join pool into groups
+    of 3 (a remainder folded into that many groups instead of left short — see
+    `investigation_pool.partition_sizes`) and start each room's reading window.
+
+    Idempotent: calling this again after pairing has already run for this config
+    returns the same groups rather than reshuffling students who may be mid-exercise.
+    """
+    config_doc, error = _load_owned_investigation_config(config_id)
+    if error:
+        return error
+    try:
+        result = trigger_pairing(config_doc)
+    except RuntimeError as e:
+        logger.error(f"pairing unavailable: {e}")
+        return jsonify({"error": "Pairing is not available on this server"}), 503
+    except Exception as e:  # noqa: BLE001
+        logger.exception("failed to pair investigation exercise")
+        return jsonify({"error": f"Could not pair the class: {e}"}), 500
+    return jsonify(result), 200
 
 
 @manager_exercise_bp.route('/manager-exercise/<config_id>/results', methods=['GET'])

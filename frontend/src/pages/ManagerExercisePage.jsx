@@ -1,4 +1,12 @@
-/* @language JSX  @updated 2026-08-31  @changed Templates: every hire-specific string now comes from the snapshot's `lexicon` (see backend/src/managers/exercise_templates.py) with the hiring wording as the built-in fallback, so an exercise that is not a hire stops telling students it is one. Prior: The "Session complete" Back button sent students to their dashboard instead of the breakout-room lobby; it now calls the same leaveBreakout() escape hatch the other two "Back to lobby" buttons in this file use. Prior: Round 1 and the hire were wired to socket events the backend no longer listens for (`ready_to_vote`, `early_decision`, `submit_collective_vote`), so both buttons were dead on the served site: rebuilt around the M13 decider (`you_decide`/`decider_name` off the snapshot, `end_discussion` + `submit_group_choice`), and the vote tally/badges/quorum copy are gone with the ballot they described. Prior: WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
+/* @language JSX  @updated 2026-09-07  @changed Professor-paired templates (`flow.prof_paired`, `investigation`): the
+   breakout lobby is replaced by `join_investigation_pool` — a new `pool` phase ("wait for your instructor") with no
+   room list or headcount shown. New `reading` phase reuses the existing premise/cards screens (with a live countdown
+   chip) and, once its clock runs out, the server flips the room straight to `solo` — the `prevPhaseForReadingRef`
+   effect forces `soloStage` to 'decide' on that exact transition so a still-showing case document never renders
+   against blanked (`case_visible: false`) content, and 'reading_wait' fills the gap once a student has clicked
+   through their case but the clock hasn't run yet. Once `flow.hide_case_after_reading` and the room has left `reading`,
+   a browser-history sentinel + `popstate` guard turns Back into a "quit the exercise?" confirm that emits
+   `quit_exercise` on yes. Prior: Templates: every hire-specific string now comes from the snapshot's `lexicon` (see backend/src/managers/exercise_templates.py) with the hiring wording as the built-in fallback, so an exercise that is not a hire stops telling students it is one. Prior: The "Session complete" Back button sent students to their dashboard instead of the breakout-room lobby; it now calls the same leaveBreakout() escape hatch the other two "Back to lobby" buttons in this file use. Prior: Round 1 and the hire were wired to socket events the backend no longer listens for (`ready_to_vote`, `early_decision`, `submit_collective_vote`), so both buttons were dead on the served site: rebuilt around the M13 decider (`you_decide`/`decider_name` off the snapshot, `end_discussion` + `submit_group_choice`), and the vote tally/badges/quorum copy are gone with the ballot they described. Prior: WhatsApp-style quote-reply in the transcript: hover reply affordance, composer chip, a quote block above each bubble, and click-to-scroll to the parent (mid/reply_to threaded through the socket handlers). Prior: OutcomeCard renders in a centered reading column (max-w-3xl mx-auto) instead of clinging to the card's left edge. Prior: Always play the "6 months later" time-skip clock after a pick: a kiosk-walkthrough latch keeps the local time-skip→reveal rendering even when a solo room advances the phase to debrief the instant Continue is pressed; latch releases (→ debrief) once everyone's continued or the server moves on. Prior: Pin the round-1 outcome ("six months later") to the top of the round-2 debrief chat so it stays visible after Continue (solo runs replaced the transient kiosk reveal instantly), deduped against the server 📊 outcome card. Prior: M9 three-round rework: new `solo` phase (round 0) that owns the premise/cards prelude and adds a "decide alone" notice, a private ballot with no tally, and a "now as a group" handoff; `discuss` (round 1) now renders the chat straight away and is students-only; new `debrief` branch (round 2, the only round ACTR appears in); the done screen swaps the removed scorecard for the private-pick-vs-group comparison; the dead "Choose again" re-choice ballot and all grading state are gone. Prior: Reset now clears the room's premise-seen flags deterministically (resetBreakout + room_reset), so the prelude replays after a reset even though the owner never passes through `waiting`. Prior: premise drops a masthead heading the body's opening restates (no duplicate company name) and tightens the drop-cap kerning. Prior: enterRoom sends uid on get_history so the roster reseeds correctly across reconnects (fixes the kiosk "0 of N ready" strand). Prior: kiosk reveal wait screen gets a "Back to lobby" escape so a student isn't stranded when the Continue gate can't advance. Prior: OutcomeCard re-flows the outcome prose into blank-line-separated paragraphs so it renders as spaced <p> blocks instead of one dense block (marked runs with breaks:true). Prior: premise renders the author byline/attribution as a tiny grey copyright-style footer (from premise.credits), not brief body. Prior: kiosk reveal loads the outcome live via kiosk_update + empty-doc fallback; failed-hire callout uses the brand palette; premise brief as a structured case-document card (subheads + serif body + drop cap) with the doubled "Manager Manager" suffix fixed; CandidateDeck seen-badge rides up on hover; M4 premise-seen flag cleared in `waiting`. */
 //
 // ManagerExercisePage — the student experience for a "manager_exercise" bot_type.
 //
@@ -515,7 +523,7 @@ const ManagerExercisePage = () => {
   // beyond copy: with no reveal there is no outcome document coming, so the kiosk
   // screens must never be entered waiting for one.
   const [lexicon, setLexicon] = useState(LEXICON_FALLBACK);
-  const [flow, setFlow] = useState({ reveal: true, debrief: true });
+  const [flow, setFlow] = useState({ reveal: true, debrief: true, prof_paired: false, hide_case_after_reading: false });
   const [yourCase, setYourCase] = useState('');
   const [scenario, setScenario] = useState('');         // M5: shared general_info prose for the premise
   const [credits, setCredits] = useState('');           // author byline / attribution — tiny footer only
@@ -541,18 +549,75 @@ const ManagerExercisePage = () => {
   // Order matters: a student who has already submitted goes straight to the handoff,
   // otherwise a refresh that already got past the cards skips back to the ballot.
   useEffect(() => {
-    if (phase === 'solo') {
+    if (phase === 'solo' || phase === 'reading') {
       if (!soloInitedRef.current) {
         soloInitedRef.current = true;
         if (yourSoloVote) { setSoloStage('handoff'); return; }
         let seen = false;
         try { seen = localStorage.getItem(`me_premise_seen_${roomIdRef.current}`) === '1'; } catch { /* localStorage may be unavailable */ }
-        setSoloStage(seen ? 'decide' : 'premise');
+        // `reading` never lands on the private ballot — there is nothing to vote
+        // on until the server's clock actually opens `solo` (see the transition
+        // effect below), so an already-seen room waits on 'reading_wait' instead.
+        setSoloStage(phase === 'reading' ? (seen ? 'reading_wait' : 'premise') : (seen ? 'decide' : 'premise'));
       }
     } else {
       soloInitedRef.current = false;
     }
   }, [phase, yourSoloVote]);
+
+  // Professor-paired templates only: the reading window's clock — not a student
+  // action — is what ends `reading`. Whatever the local reading walkthrough was
+  // showing, the moment the server flips the room into `solo` the private ballot
+  // is the only thing to show; the case itself is already blanked server-side
+  // (`case_visible: false`), so lingering on 'premise'/'cards' would just render
+  // an empty document instead of cleanly handing off to the decision.
+  const prevPhaseForReadingRef = useRef(phase);
+  useEffect(() => {
+    if (prevPhaseForReadingRef.current === 'reading' && phase === 'solo') {
+      setSoloStage('decide');
+    }
+    prevPhaseForReadingRef.current = phase;
+  }, [phase]);
+
+  // Professor-paired templates only (`flow.hide_case_after_reading`): once the case
+  // is gone for good, the browser's own Back button must not read as "go back to
+  // the case" — a student who presses it is quitting the exercise, not paging
+  // through it. One sentinel history entry is pushed the moment the guarded zone
+  // is entered; a Back press is caught as `popstate`, re-arms the sentinel (so a
+  // second press can't slip through while the confirm is open), and asks. See
+  // `handlePopState` below, which reads `guardArmedRef` set here.
+  const guardArmedRef = useRef(false);
+  useEffect(() => {
+    const guarded = flow.hide_case_after_reading
+      && ['solo', 'discuss', 'choose', 'kiosk', 'debrief'].includes(phase);
+    if (guarded && !guardArmedRef.current) {
+      guardArmedRef.current = true;
+      window.history.pushState({ meGuard: true }, '', window.location.href);
+    } else if (!guarded) {
+      guardArmedRef.current = false;
+    }
+  }, [flow.hide_case_after_reading, phase]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (!guardArmedRef.current) return; // guard not active — a normal back-nav
+      // Re-plant the sentinel immediately so a second press before the confirm
+      // resolves can't slip past the guard.
+      window.history.pushState({ meGuard: true }, '', window.location.href);
+      const wantsToQuit = window.confirm(
+        "Going back will quit the exercise for good — you won't be able to return to your case file. Quit now?"
+      );
+      if (wantsToQuit) {
+        socketRef.current?.emit('quit_exercise', {
+          room_id: roomIdRef.current, uid: userIdRef.current,
+        });
+        guardArmedRef.current = false;
+        window.history.back(); // consume the sentinel and actually leave
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // M4 fix: breakout room ids are deterministic (`{config_id}_g{index}`), so the
   // per-room "premise seen" flag written below would otherwise stick forever and
@@ -583,7 +648,10 @@ const ManagerExercisePage = () => {
   // tells them they are about to decide on their own.
   const finishPremiseIntro = () => {
     try { localStorage.setItem(`me_premise_seen_${roomIdRef.current}`, '1'); } catch { /* localStorage may be unavailable */ }
-    setSoloStage('notice');
+    // During the timed `reading` phase there is no ballot to move on to yet —
+    // hold on a "keep this in mind" screen with the clock until the server
+    // itself advances the room (see prevPhaseForReadingRef above).
+    setSoloStage(phaseRef.current === 'reading' ? 'reading_wait' : 'notice');
   };
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
@@ -642,7 +710,9 @@ const ManagerExercisePage = () => {
     // Merged over the fallback, not replacing it, so a key the server has not sent
     // keeps its hiring default instead of rendering "undefined" at a student.
     if (s.lexicon && typeof s.lexicon === 'object') setLexicon({ ...LEXICON_FALLBACK, ...s.lexicon });
-    if (s.flow && typeof s.flow === 'object') setFlow({ reveal: true, debrief: true, ...s.flow });
+    if (s.flow && typeof s.flow === 'object') {
+      setFlow({ reveal: true, debrief: true, prof_paired: false, hide_case_after_reading: false, ...s.flow });
+    }
     if (typeof s.your_case === 'string') setYourCase(s.your_case);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
@@ -705,6 +775,11 @@ const ManagerExercisePage = () => {
         if (!displayNameRef.current) displayNameRef.current = uid;
         setConfig(configResponse.data.config);
 
+        // Professor-paired templates (see exercise_templates.py's `prof_paired`)
+        // skip the student breakout lobby entirely — they join a pool instead.
+        const isInvestigation = configResponse.data.config?.bot_type === 'manager_exercise'
+          && (configResponse.data.config?.manager_exercise?.template === 'investigation');
+
         socketRef.current = io('/', { path: '/socket.io' });
         const socket = socketRef.current;
 
@@ -717,10 +792,23 @@ const ManagerExercisePage = () => {
           room_id: rid, uid: userIdRef.current, display_name: displayNameRef.current,
         });
 
-        // Already in a room → rejoin it. Otherwise watch the breakout lobby.
+        // Already in a room → rejoin it. Otherwise watch the breakout lobby
+        // (hiring) or join the pairing pool (investigation).
         socket.on('connect', () => {
           if (roomIdRef.current) { enterRoom(roomIdRef.current); return; }
-          socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
+          if (isInvestigation) {
+            socket.emit('join_investigation_pool', {
+              config_id: configId, uid: userIdRef.current, display_name: displayNameRef.current,
+            });
+          } else {
+            socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
+          }
+        });
+
+        // Told to sit tight — the professor hasn't paired the class yet. Nothing
+        // else to render: no room list, no headcount, on purpose.
+        socket.on('pool_waiting', () => {
+          if (phaseRef.current === 'loading') setPhase('pool');
         });
 
         // Live room list, pushed whenever anyone joins, leaves, or starts.
@@ -775,12 +863,19 @@ const ManagerExercisePage = () => {
         });
 
         // We're in a room. Not started yet: the room screen shows who else is here.
+        // Investigation rooms skip this placeholder — they're already reading by
+        // the time this fires (pairing calls begin_reading() before emitting this
+        // at all), so the incoming `exercise_state` snapshot is left to set the
+        // real phase directly rather than flashing the hiring lobby's "waiting"
+        // screen in between.
         socket.on('match_found', (data) => {
           setRoomError('');
           setRoomId(data.room_id);
           roomIdRef.current = data.room_id;
           enterRoom(data.room_id);
-          if (phaseRef.current === 'loading' || phaseRef.current === 'lobby') setPhase('waiting');
+          if (!isInvestigation && (phaseRef.current === 'loading' || phaseRef.current === 'lobby')) {
+            setPhase('waiting');
+          }
         });
 
         socket.on('exercise_state', (s) => applyExerciseState(s));
@@ -1248,6 +1343,20 @@ const ManagerExercisePage = () => {
   if (phase === 'loading') return <LoadingScreen message="Setting up your exercise…" />;
 
   // -------------------------------------------------------------------------
+  // Phase: pool (professor-paired templates — joined, not yet placed in a room)
+  // -------------------------------------------------------------------------
+  if (phase === 'pool') {
+    return (
+      <NoticeScreen
+        icon={<RiUser3Line />}
+        eyebrow="Hang tight"
+        title="Waiting for your instructor to start."
+        body="You're in. Keep this tab open — the exercise begins automatically as soon as your instructor starts it, with no action needed from you."
+      />
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Phase: lobby (pick a breakout room)
   // -------------------------------------------------------------------------
   if (phase === 'lobby') {
@@ -1624,7 +1733,7 @@ const ManagerExercisePage = () => {
   // ALONE before anyone in the group has said a word.
   // (Serif premise polish = M5; poker-card deck animation = M6.)
   // -------------------------------------------------------------------------
-  if (phase === 'solo' && soloStage === 'premise') {
+  if ((phase === 'solo' || phase === 'reading') && soloStage === 'premise') {
     const names = candidates.map((c) => c.name).filter(Boolean);
     // Structured brief from the raw general_info extraction (see parseBrief); falls
     // back to a generic line when the case has no general_info authored.
@@ -1635,6 +1744,13 @@ const ManagerExercisePage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
         <div className="max-w-2xl mx-auto w-full text-center">
+          {/* Professor-paired templates only: this is the one screen where reading
+              is actually on a clock — nothing here for the self-paced hiring flow. */}
+          {phase === 'reading' && secsLeft != null && (
+            <div className="flex justify-center mb-6 animate-in fade-in duration-500">
+              {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
+            </div>
+          )}
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
           <h1 className="text-4xl sm:text-5xl mb-8 leading-tight animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600, ...rise(1) }}>
             {fillNodes(lexicon.role_headline, 'role', roleLabel(yourRole))}
@@ -1699,11 +1815,46 @@ const ManagerExercisePage = () => {
   // M10: the professor chooses how this material is read. `case` falls back to the
   // deck when the student's role has no packet uploaded, so switching the toggle on
   // a config whose packets aren't in yet degrades instead of showing a blank page.
-  if (phase === 'solo' && soloStage === 'cards') {
+  if ((phase === 'solo' || phase === 'reading') && soloStage === 'cards') {
+    // Professor-paired templates only: a fixed countdown while the actual case
+    // document is up — the longest-lived screen of the reading window, so this
+    // is where the clock matters most to keep visible.
+    const readingClock = phase === 'reading' && secsLeft != null && (
+      <div className="fixed top-4 inset-x-0 flex justify-center z-10 animate-in fade-in duration-500">
+        {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
+      </div>
+    );
     if (studentView === 'case' && yourCase.trim()) {
-      return <RoleCaseDocument role={yourRole} text={yourCase} onContinue={finishPremiseIntro} lex={lexicon} />;
+      return (
+        <>
+          {readingClock}
+          <RoleCaseDocument role={yourRole} text={yourCase} onContinue={finishPremiseIntro} lex={lexicon} />
+        </>
+      );
     }
-    return <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} lex={lexicon} />;
+    return (
+      <>
+        {readingClock}
+        <CandidateDeck role={yourRole} credentials={credentials} onContinue={finishPremiseIntro} lex={lexicon} />
+      </>
+    );
+  }
+
+  // Professor-paired templates only: read their case, pressed Continue, and now
+  // waiting on the clock — there is nothing to do here but wait for the server to
+  // open `solo`, so no action is offered.
+  if (phase === 'reading' && soloStage === 'reading_wait') {
+    return (
+      <NoticeScreen
+        icon={<FaRegClock />}
+        eyebrow="Reading time"
+        title="Hang tight."
+        body="You won't be able to see your case again once time is up — the group phase opens automatically."
+        footer={secsLeft != null && (
+          <div className="mt-6 flex justify-center">{CountdownChip({ label: 'Time left', urgent: secsLeft <= 30 })}</div>
+        )}
+      />
+    );
   }
 
   // The pause that makes round 0 a round: they are told, before they see the ballot,
