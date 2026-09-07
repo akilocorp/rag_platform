@@ -1,10 +1,15 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   Phase 2: the ribbon gained an Instruments tab. Dragging an instrument icon onto a
-//            placed block attaches it (the exact gesture from the original product brainstorm);
-//            a badge shows on the block with a remove control. Instrument ribbon items are
-//            drag-only — unlike blocks, there's no unambiguous "click to append" target without a
-//            block-selection concept this phase doesn't have, so that's a known, deliberate gap.
+// @changed   Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
+//            option dropdown, Read-Time Gate's seconds input), rendered inline next to the badge
+//            and wired to a new onInstrumentConfigChange handler that flows through the same
+//            autosave PUT as everything else. getInstrumentComponent -> getInstrumentBadge/
+//            getInstrumentConfigEditor, matching the registry's {Badge, ConfigEditor, ...} shape.
+//            Prior: Phase 2: the ribbon gained an Instruments tab. Dragging an instrument icon onto
+//            a placed block attaches it (the exact gesture from the original product brainstorm); a
+//            badge shows on the block with a remove control. Instrument ribbon items are drag-only
+//            — unlike blocks, there's no unambiguous "click to append" target without a block-
+//            selection concept this phase doesn't have, so that's a known, deliberate gap.
 //            Prior: Phase 1: added Publish/unpublish + copy public-link UI, and a "Responses" link
 //            to the new results page. Publishing just PUTs status:'published' (already supported
 //            since Phase 0's save endpoint) — this is the first place the UI actually triggers it.
@@ -22,11 +27,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
+  FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { getBlockComponent } from '../studio/blocks/registry';
-import { getInstrumentComponent } from '../studio/instruments/registry';
+import { getInstrumentBadge, getInstrumentConfigEditor } from '../studio/instruments/registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const AUTOSAVE_DELAY_MS = 900;
@@ -37,7 +43,8 @@ const AUTOSAVE_DELAY_MS = 900;
 const RIBBON_ICONS = {
   text: FaFont, radio: FaDotCircle, toggle: FaToggleOn,
   paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
-  stopwatch: FaStopwatch,
+  stopwatch: FaStopwatch, slider: FaSlidersH, hourglass: FaHourglassHalf,
+  shuffle: FaRandom, shield: FaShieldAlt,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
@@ -78,7 +85,7 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
 // Also a valid drop target for instrument ribbon items (dnd-kit's useSortable
 // registers a droppable under the hood, so it accepts any active draggable in
 // the same DndContext, not just other sortables).
-const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument }) => {
+const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Component = getBlockComponent(block.type);
 
@@ -106,12 +113,22 @@ const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument }) => {
             <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
           )}
           {block.instruments?.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-4 pb-3 -mt-1">
+            <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
               {block.instruments.map((inst) => {
-                const InstrumentBadge = getInstrumentComponent(inst.type);
-                return InstrumentBadge ? (
-                  <InstrumentBadge key={inst.id} onRemove={() => onRemoveInstrument(inst.type)} />
-                ) : null;
+                const Badge = getInstrumentBadge(inst.type);
+                const ConfigEditor = getInstrumentConfigEditor(inst.type);
+                return (
+                  <div key={inst.id} className="flex flex-wrap items-center gap-2">
+                    {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
+                    {ConfigEditor && (
+                      <ConfigEditor
+                        config={inst.config}
+                        blockConfig={block.config}
+                        onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
+                      />
+                    )}
+                  </div>
+                );
               })}
             </div>
           )}
@@ -130,7 +147,7 @@ const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument }) => {
 
 // The canvas is a droppable zone (for new blocks dragged from the ribbon)
 // wrapping a sortable list (for reordering blocks already placed).
-const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument }) => {
+const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
   const { setNodeRef, isOver } = useDroppable({ id: 'canvas-dropzone' });
 
   return (
@@ -161,6 +178,7 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument }) =>
                 onChange={(cfg) => onBlockChange(block.id, cfg)}
                 onDelete={() => onBlockDelete(block.id)}
                 onRemoveInstrument={(instType) => onRemoveInstrument(block.id, instType)}
+                onInstrumentConfigChange={(instType, cfg) => onInstrumentConfigChange(block.id, instType, cfg)}
               />
             ))}
           </SortableContext>
@@ -303,6 +321,14 @@ const StudioBuilderPage = () => {
     )));
   };
 
+  const handleInstrumentConfigChange = (blockId, instrumentType, newConfig) => {
+    updatePageBlocks((blks) => blks.map((b) => (
+      b.id === blockId
+        ? { ...b, instruments: (b.instruments || []).map((i) => (i.type === instrumentType ? { ...i, config: newConfig } : i)) }
+        : b
+    )));
+  };
+
   const handleDragEnd = ({ active, over }) => {
     if (!over) return;
 
@@ -423,6 +449,7 @@ const StudioBuilderPage = () => {
           onBlockChange={handleBlockChange}
           onBlockDelete={handleBlockDelete}
           onRemoveInstrument={handleRemoveInstrument}
+          onInstrumentConfigChange={handleInstrumentConfigChange}
         />
 
         {/* Bottom-center ribbon — brand orange, white icons/labels. Blocks | Instruments tabs. */}

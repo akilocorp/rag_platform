@@ -1,7 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: the Reaction Timer instrument's badge — rendered on a placed block that
-//            carries it. No config UI (its backend config is always {}); just attach/remove.
+// @changed   Phase 3: registration call updated to the new {Badge, ...} bundle shape. Still no
+//            RespondExtra/ConfigEditor — it's purely passive, just attach/remove.
+//            Prior: New file: the Reaction Timer instrument's badge — rendered on a placed block
+//            that carries it. No config UI (its backend config is always {}); just attach/remove.
 import React from 'react';
 import { FaStopwatch, FaTimes } from 'react-icons/fa';
 import { registerInstrument } from './registry';
@@ -26,6 +28,6 @@ const ReactionTimerInstrument = ({ onRemove }) => (
   </span>
 );
 
-registerInstrument('reaction_timer', ReactionTimerInstrument);
+registerInstrument('reaction_timer', { Badge: ReactionTimerInstrument });
 
 export default ReactionTimerInstrument;

@@ -74,19 +74,25 @@ def instrument_needs_events(instrument_type: str) -> bool:
     return bool(inst and inst["spec"].get("needs_events"))
 
 
-def compute_instrument_metric(instrument_type: str, events: Any, value: Any, config: Dict[str, Any]) -> Dict[str, Any]:
+def compute_instrument_metric(instrument_type: str, answer: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """Derive a results-view metric for one response's answer.
 
-    Returns {} if the instrument has no compute() (e.g. a future
-    behavior-only instrument), if it's unknown, or if computation fails for
-    any reason — this must never break the responses/export endpoints just
-    because one instrument's data looks unexpected.
+    `answer` is the full per-block answer dict ({value, events?,
+    instrument_values?}) — passed whole so each instrument's compute() can
+    pull whatever it needs (Reaction Timer reads `events`, Confidence Slider
+    reads `instrument_values`) without this function knowing instrument-
+    specific shapes.
+
+    Returns {} if the instrument has no compute() (e.g. a behavior-only
+    instrument), if it's unknown, or if computation fails for any reason —
+    this must never break the responses/export endpoints just because one
+    instrument's data looks unexpected.
     """
     inst = instrument_base.INSTRUMENTS.get(instrument_type)
     if not inst or not inst.get("compute"):
         return {}
     try:
-        return inst["compute"](events or [], value, config or {}) or {}
+        return inst["compute"](answer or {}, config or {}) or {}
     except Exception:
         logger.warning("compute() failed for instrument '%s'", instrument_type, exc_info=True)
         return {}

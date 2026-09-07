@@ -231,9 +231,7 @@ def _augment_responses_with_metrics(project, responses):
                 continue
             metrics = {}
             for inst in blk['instruments']:
-                m = compute_instrument_metric(
-                    inst['type'], a.get('events'), a.get('value'), inst.get('config')
-                )
+                m = compute_instrument_metric(inst['type'], a, inst.get('config'))
                 if m:
                     metrics[inst['type']] = m
             if metrics:
@@ -452,6 +450,7 @@ def submit_response(project_id):
 
     answers_by_id = {}
     events_by_id = {}
+    instrument_values_by_id = {}
     for a in answers_in:
         if not isinstance(a, dict) or not a.get('block_id'):
             continue
@@ -462,6 +461,11 @@ def submit_response(project_id):
             # forged latency doesn't grant access to anything, it just pollutes
             # that respondent's own data, so there's nothing to gate here.
             events_by_id[bid] = a['events']
+        if isinstance(a.get('instrument_values'), dict):
+            # e.g. {"confidence_slider": 75} — a secondary value alongside the
+            # block's own answer. Same trust posture as events: not gated,
+            # only ever pollutes the submitter's own data if forged.
+            instrument_values_by_id[bid] = a['instrument_values']
 
     missing = [
         blk['id'] for blk in _answerable_blocks(project)
@@ -473,11 +477,14 @@ def submit_response(project_id):
 
     respondent_id = str(body.get('respondent_id') or '').strip() or f"anon_{uuid.uuid4().hex}"
     now = datetime.now(timezone.utc)
+    all_block_ids = set(answers_by_id) | set(instrument_values_by_id)
     answers_out = []
-    for bid, val in answers_by_id.items():
-        entry = {"block_id": bid, "value": val}
+    for bid in all_block_ids:
+        entry = {"block_id": bid, "value": answers_by_id.get(bid)}
         if bid in events_by_id:
             entry["events"] = events_by_id[bid]
+        if bid in instrument_values_by_id:
+            entry["instrument_values"] = instrument_values_by_id[bid]
         answers_out.append(entry)
 
     db['studio_responses'].insert_one({
