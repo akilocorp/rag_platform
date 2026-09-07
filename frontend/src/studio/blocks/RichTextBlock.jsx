@@ -4,7 +4,7 @@
 //            src/studio/blocks/rich_text.py exactly (just `content`, no `required` — it
 //            captures no response, which is how the backend knows to skip it as "answerable").
 import React from 'react';
-import { registerBlock } from './registry';
+import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

@@ -4,7 +4,7 @@
 //            `mode="respond"` is now an actually-interactive input wired to `value`/`onAnswer`,
 //            used by StudioRunnerPage; `mode="edit"` (default) is unchanged, used by the builder.
 import React from 'react';
-import { registerBlock } from './registry';
+import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

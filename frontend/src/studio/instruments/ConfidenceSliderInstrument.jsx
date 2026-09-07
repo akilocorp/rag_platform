@@ -5,7 +5,7 @@
 //            rendered by StudioRunnerPage (not the builder) since it captures a real value.
 import React from 'react';
 import { FaSlidersH, FaTimes } from 'react-icons/fa';
-import { registerInstrument } from './registry';
+import { registerInstrument } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

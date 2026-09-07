@@ -4,7 +4,7 @@
 //            src/studio/blocks/long_text.py exactly (identical to short_text; only the
 //            rendering differs, a textarea instead of a single-line input).
 import React from 'react';
-import { registerBlock } from './registry';
+import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

@@ -6,7 +6,7 @@
 //            that carries it. No config UI (its backend config is always {}); just attach/remove.
 import React from 'react';
 import { FaStopwatch, FaTimes } from 'react-icons/fa';
-import { registerInstrument } from './registry';
+import { registerInstrument } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

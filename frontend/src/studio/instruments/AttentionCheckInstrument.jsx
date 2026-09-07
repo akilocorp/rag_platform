@@ -6,7 +6,7 @@
 //            see backend src/studio/instruments/attention_check.py for why it must not gate submission.
 import React from 'react';
 import { FaShieldAlt, FaTimes } from 'react-icons/fa';
-import { registerInstrument } from './registry';
+import { registerInstrument } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

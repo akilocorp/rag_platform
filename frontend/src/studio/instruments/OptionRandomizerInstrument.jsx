@@ -5,7 +5,7 @@
 //            shuffle, rather than adding anything alongside it).
 import React from 'react';
 import { FaRandom, FaTimes } from 'react-icons/fa';
-import { registerInstrument } from './registry';
+import { registerInstrument } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

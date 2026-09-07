@@ -3,7 +3,7 @@
 // @changed   New file: the Yes/No block — config shape matches backend
 //            src/studio/blocks/yes_no.py exactly. Answer value is the literal string "Yes" or "No".
 import React from 'react';
-import { registerBlock } from './registry';
+import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

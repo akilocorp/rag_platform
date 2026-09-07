@@ -3,7 +3,7 @@
 // @changed   New file: the Rating Scale block — config shape matches backend
 //            src/studio/blocks/rating_scale.py exactly (question/scale_max/required).
 import React from 'react';
-import { registerBlock } from './registry';
+import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

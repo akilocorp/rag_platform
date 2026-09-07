@@ -5,7 +5,7 @@
 //            since it's a page-wide effect, not something this per-block UI can express on its own.
 import React from 'react';
 import { FaHourglassHalf, FaTimes } from 'react-icons/fa';
-import { registerInstrument } from './registry';
+import { registerInstrument } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 

@@ -1,24 +1,11 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: Studio block registry. Auto-discovers every sibling *Block.jsx module via
-//            an eager import.meta.glob (same technique frontend/src/guide/content.js uses for its
-//            pages) — each block file calls registerBlock() as a load-time side effect, so adding
-//            a block type is "drop a file here," mirroring the backend's @block auto-discovery.
+// @changed   Fixed a production-crash bug: this file used to hold the REGISTRY object directly,
+//            which created a circular import with every *Block.jsx file (they import
+//            registerBlock from here; this file eager-imports them). See registryStore.js's
+//            header for the full mechanism — the fix is just moving the actual store there, a
+//            module with no imports so it can never be caught mid-initialization by the cycle.
+//            This file now only triggers discovery and re-exports the public read API.
 import.meta.glob('./*Block.jsx', { eager: true });
 
-const REGISTRY = {};
-
-export function registerBlock(type, Component) {
-  if (REGISTRY[type]) {
-    throw new Error(`Block type collision: '${type}' is already registered`);
-  }
-  REGISTRY[type] = Component;
-}
-
-export function getBlockComponent(type) {
-  return REGISTRY[type] || null;
-}
-
-export function getRegisteredTypes() {
-  return Object.keys(REGISTRY);
-}
+export { getBlockComponent, getRegisteredTypes } from './registryStore';
