@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-25  @changed Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
+/* @language JSX  @updated 2026-09-07  @changed Added /studio and /studio/:projectId (Studio, the new faculty research-project builder), professor-only. Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -13,6 +13,8 @@ import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
 import ChatPage from './pages/ChatPage';
 import ConfigList from './pages/ConfigList';
+import StudioListPage from './pages/StudioListPage';
+import StudioBuilderPage from './pages/StudioBuilderPage';
 import EmailVerificationPage from './pages/EmailVerification';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -119,6 +121,8 @@ function App() {
           {/* Protected Routes - Professor only */}
           <Route element={<ProfessorRoute />}>
             <Route path="/config_list" element={<ConfigList />} />
+            <Route path="/studio" element={<StudioListPage />} />
+            <Route path="/studio/:projectId" element={<StudioBuilderPage />} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />

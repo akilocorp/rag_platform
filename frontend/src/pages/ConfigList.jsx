@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Removed the model-name chip from the card's info-chip row — only the class-code
+// @updated   2026-09-07
+// @changed   Added a "Studio" nav button (links to /studio) — the new faculty research-project
+//            builder lives outside the config/bot model entirely, so it needed its own entry
+//            point rather than fitting into the existing bot-type categories.
+// @changed   Prior: Removed the model-name chip from the card's info-chip row — only the class-code
 //            chip remains.
 // @changed   Prior: The Private/Shared tab, the category and the grid/list layout are remembered in
 //            localStorage. Opening a config unmounts this page, so a professor working through their
@@ -13,7 +16,7 @@
 //            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste, FaShapes } from 'react-icons/fa';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -855,6 +858,16 @@ const ConfigListPage = () => {
           {/* Faculty Simple/Advanced mode switch — gates how much bot-config
               detail the create/edit forms expose. */}
           <ConfigModeToggle className="hidden sm:block" />
+
+          {/* Studio — the drag-and-drop research-project builder. A separate top-level
+              entity from bot configs, so it gets its own nav entry rather than a category. */}
+          <button
+            onClick={() => navigate('/studio')}
+            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-white border border-gray-200 hover:border-[#FA6C43] text-gray-700 hover:text-[#FA6C43] rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
+          >
+            <FaShapes className="mr-2 text-sm" />
+            <span className="font-bold text-[14px]">Studio</span>
+          </button>
 
           {/* Report Bug Button added to Navbar */}
           <button
