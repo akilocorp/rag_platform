@@ -1,6 +1,12 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Removed the model-name chip from the card's info-chip row — only the class-code
+// @updated   2026-09-07
+// @changed   Manager Exercise cards get 3 distinct footer buttons instead of the generic 2:
+//            "Customize" (unchanged, authoring), a new "Results" button (class results — the
+//            icon-row Responses button was silently pointing at the wrong page for this bot
+//            type; now fixed the same way and kept as a redundant quick-access), and the
+//            primary button relabeled "Open Dashboard", now routing to the new
+//            ManagerExerciseDashboardPage instead of the student-facing exercise itself.
+// @changed   Prior: Removed the model-name chip from the card's info-chip row — only the class-code
 //            chip remains.
 // @changed   Prior: The Private/Shared tab, the category and the grid/list layout are remembered in
 //            localStorage. Opening a config unmounts this page, so a professor working through their
@@ -13,7 +19,7 @@
 //            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste, FaChartBar } from 'react-icons/fa';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -34,7 +40,7 @@ const primaryActionLabel = (botType) => {
     case 'video_analysis': return 'Open Dashboard';
     case 'experiential':   return 'Open Sessions';
     case 'group_chat':     return 'Open Chat';
-    case 'manager_exercise': return 'Open Exercise';
+    case 'manager_exercise': return 'Open Dashboard';
     default:               return 'Chat Now';
   }
 };
@@ -439,7 +445,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onResponses(config); }}
-        title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : 'Responses'}
+        title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : config.bot_type === 'manager_exercise' ? "Students' results" : 'Responses'}
         className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
       >
         <FaListAlt className="text-sm" />
@@ -527,13 +533,27 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
                 {actionButtons}
               </div>
             )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(config); }}
-              className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
-            >
-              <FaCog className="text-sm" />
-              Customize
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(config); }}
+                className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
+              >
+                <FaCog className="text-sm" />
+                Customize
+              </button>
+              {/* Manager Exercise gets a 3rd button: Dashboard (start/monitor the live
+                  class) and Customize (author it) are two different jobs, and the class
+                  results are neither — a dedicated button beats overloading one of them. */}
+              {config.bot_type === 'manager_exercise' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onResponses(config); }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
+                >
+                  <FaChartBar className="text-sm" />
+                  Results
+                </button>
+              )}
+            </div>
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(config); }}
               className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors active:scale-[0.98]"
@@ -622,9 +642,10 @@ const ConfigListPage = () => {
     } else if (config.bot_type === 'group_chat') {
       navigate(`/group-chat/${config.config_id}`);
     } else if (config.bot_type === 'manager_exercise') {
-      // Manager Exercise is a student-facing game like group chat (no faculty
-      // dashboard) — route to its own page, not the 1:1 chat fallback.
-      navigate(`/manager-exercise/${config.config_id}`);
+      // The professor's live-class control panel (pairing for investigation, the
+      // breakout-room monitor for hiring) — not the student-facing exercise
+      // itself, which is reached from the dashboard's "Preview" button instead.
+      navigate(`/manager-exercise/${config.config_id}/dashboard`);
     } else {
       navigate(`/chat/${config.config_id}`);
     }
@@ -634,6 +655,7 @@ const ConfigListPage = () => {
     navigate(
       config.bot_type === 'video_analysis' ? `/video-dashboard/${config.config_id}`
         : config.bot_type === 'experiential' ? `/experiential-dashboard/${config.config_id}`
+        : config.bot_type === 'manager_exercise' ? `/manager-exercise/${config.config_id}/results`
         : `/responses/${config.config_id}`,
     );
   };

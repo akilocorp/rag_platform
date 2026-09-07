@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-10
-# @changed   Saving a config no longer blanks its prompt_template — rebuild it from `instructions` via the
+# @updated   2026-09-07
+# @changed   ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
+#            copy — same list was byte-identical in config_routes.py and user_files.py.
+#            Prior: Saving a config no longer blanks its prompt_template — rebuild it from `instructions` via the
 #            shared config_routes.build_prompt_template, restoring the persona + grounding line the legacy
 #            chat path lost on every edit. Prior: manager_exercise syncs group_size to num_students.
 from flask import Blueprint, request, jsonify, current_app, send_from_directory
@@ -18,15 +20,12 @@ from routes.config_routes import (
     validate_manager_exercise,
 )
 from src.facilitator.config import normalize_config as normalize_facilitator
+from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
 
 UPLOAD_FOLDER = "uploads/"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @edit_config_bp.route('/config/<string:config_id>', methods=['PUT'])
 @jwt_required()

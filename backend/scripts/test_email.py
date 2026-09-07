@@ -1,23 +1,19 @@
+# @language  Python
+# @updated   2026-09-07
+# @changed   getfqdn patch extracted to _smtp_compat.py (was copy-pasted verbatim in this file
+#            and test_verification_email.py). No behavior change.
 """
-邮件发送诊断脚本 - 测试 SMTP 配置是否正常
-运行: cd backend && python scripts/test_email.py <收件邮箱>
+SMTP config diagnostic script — sends one plain test email to confirm mail server config works.
+Run: cd backend && python scripts/test_email.py <recipient email>
 """
 import sys
 import os
-import socket
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Fix: Windows hostname with non-ASCII causes SMTP EHLO UnicodeEncodeError
-_orig_getfqdn = socket.getfqdn
-def _safe_getfqdn():
-    try:
-        name = _orig_getfqdn()
-        name.encode("ascii")
-        return name
-    except (UnicodeEncodeError, AttributeError):
-        return "localhost"
-socket.getfqdn = _safe_getfqdn
+from _smtp_compat import patch_getfqdn
+patch_getfqdn()
 
 from dotenv import load_dotenv
 load_dotenv()

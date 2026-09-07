@@ -1,6 +1,11 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
+// @updated   2026-09-07
+// @changed   The "Pair the class" panel moved out to the new ManagerExerciseDashboardPage — this
+//            page is authoring only now, so it just links out ("Open dashboard →" beside
+//            "View class results →"). Manager Exercise (`investigation` template) keeps its
+//            "Case-reading window (minutes)" field in Group & Timing (default 30, whitelisted in
+//            the manager_exercise resolve block so it round-trips on save).
+// @changed   Prior: Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
 //            (/video-boxes/:configId); the old Advanced row-editor is gone. Saving now returns to the
 //            config list for every bot type instead of dropping the professor inside the config.
 // @changed   Prior: Manager Exercise gets a Test panel: one button fills a room with simulated students,
@@ -167,6 +172,10 @@ const EditConfigPage = () => {
             debrief_minutes: typeof me.debrief_minutes === 'number'
                 ? me.debrief_minutes
                 : (typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20),
+            // Professor-paired templates only (investigation): the timed case-reading
+            // window between pairing and the private decision. 30 by default — long
+            // enough for a real case document, not just a one-page brief.
+            reading_minutes: typeof me.reading_minutes === 'number' ? me.reading_minutes : 30,
             class_preset: me.class_preset || '',
             learning_outcome: me.learning_outcome || '',
             // Blank = run the stock facilitator prompt. Only set once a professor
@@ -1228,14 +1237,25 @@ const EditConfigPage = () => {
                       )}
                       {/* The other half of testing a case: what the REAL class did with
                           it. Lives beside the test runs because a professor arrives
-                          here for the same reason — to find out whether the case works. */}
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/manager-exercise/${config.config_id}/results`)}
-                        className="mt-4 w-full text-center text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
-                      >
-                        View class results →
-                      </button>
+                          here for the same reason — to find out whether the case works.
+                          Running the class itself (pairing, live monitoring) is the
+                          Dashboard's job now, not this authoring page's. */}
+                      <div className="mt-4 flex items-center justify-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/manager-exercise/${config.config_id}/dashboard`)}
+                          className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
+                        >
+                          Open dashboard →
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/manager-exercise/${config.config_id}/results`)}
+                          className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
+                        >
+                          View class results →
+                        </button>
+                      </div>
                     </div>
 
                     {/* Group size + the one timed phase. num_students drives group_size. */}
@@ -1261,10 +1281,18 @@ const EditConfigPage = () => {
                         <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
                         <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
-                      <div>
+                      <div className={(me.template || 'hiring') === 'investigation' ? 'mb-5' : ''}>
                         <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; debrief (minutes)<InfoTip text="How long the facilitated debrief may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
                         <input type="number" min="0" step="any" value={me.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
+                      {/* Professor-paired templates only (investigation): the timed window
+                          before pairing opens the private decision. */}
+                      {(me.template || 'hiring') === 'investigation' && (
+                        <div>
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Case-reading window (minutes)<InfoTip text="How long students have to read their case file once you pair the class, before the private decision opens. There is no early-out and no extension mid-run — everyone gets the same window, and the case disappears for good once it closes." /></label>
+                          <input type="number" min="0" step="any" value={me.reading_minutes} onChange={(e) => setMgr('reading_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                        </div>
+                      )}
                     </div>
 
                     {/* What ACTR steers toward. Only the preset KEY is sent; the full

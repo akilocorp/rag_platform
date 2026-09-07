@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-25  @changed Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
+/* @language JSX  @updated 2026-09-07  @changed Added the professor-only /manager-exercise/:configId/dashboard route (live-class control panel: pairing for the investigation template, the breakout-room monitor for hiring). Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -22,6 +22,7 @@ import GroupChatPage from './pages/GroupChatPage';
 import ManagerExercisePage from './pages/ManagerExercisePage';
 import ManagerExerciseRunPage from './pages/ManagerExerciseRunPage';
 import ManagerExerciseResultsPage from './pages/ManagerExerciseResultsPage';
+import ManagerExerciseDashboardPage from './pages/ManagerExerciseDashboardPage';
 import ResponsesPage from './pages/ResponsesPage';
 import AdminPage from './pages/AdminPage';
 import StudentChatPage from './pages/StudentChatPage';
@@ -134,6 +135,10 @@ function App() {
             {/* The class's answers. Professor-only for the same reason: it names
                 every student's private pick and the case's answer key. */}
             <Route path="/manager-exercise/:configId/results" element={<ManagerExerciseResultsPage />} />
+            {/* The professor's live-class control panel: pairing (investigation) or the
+                breakout-room monitor (hiring), reached from the config list's "Open
+                Dashboard" button. Professor-only — it's where a class is actually run. */}
+            <Route path="/manager-exercise/:configId/dashboard" element={<ManagerExerciseDashboardPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 

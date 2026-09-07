@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-04
-# @changed   M9 three-round rework: added `solo_ballot` (the private round-0 picks) to the skeleton and
+# @updated   2026-09-07
+# @changed   Doc comment only: added the new `reading` phase (professor-paired templates) to the
+#            schema's phase list — no storage or field change, `phase` was always a bare string.
+# @changed   Prior: M9 three-round rework: added `solo_ballot` (the private round-0 picks) to the skeleton and
 #            the schema; dropped the grading and strike keys along with the machine that wrote them.
 # @changed   Prior: reshaped for the facilitated rework — dropped seats, added roster, chosen_candidate,
 #            and the facilitator turn-taking fields.
@@ -23,7 +25,7 @@ Document schema — keys written by the helpers below::
       "_id":                  ObjectId,
       "room_id":              str,          # PRIMARY natural key; unique index
       "config_id":            str,          # parsed from room_id
-      "phase":                str,          # waiting|solo|discuss|choose|kiosk|debrief|done
+      "phase":                str,          # waiting|reading|solo|discuss|choose|kiosk|debrief|done
       "phase_deadline_ts":    float|None,   # epoch seconds; timed phases only
       "roster":               [{uid, name, role}],
       "solo_ballot":          {"open": bool, "votes": {uid: str}},   # round 0, private

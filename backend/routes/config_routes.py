@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-16
-# @changed   New Claude bots default the facilitator ON (opt-out kept): _default_facilitator_raw seeds an
+# @updated   2026-09-07
+# @changed   ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
+#            copy — same list was byte-identical in edit_config_routes.py and user_files.py.
+#            Prior: New Claude bots default the facilitator ON (opt-out kept): _default_facilitator_raw seeds an
 #            enabled block on create when the payload omits one and the model is Claude.
 #            Prior: Extracted the legacy prompt wrapper into `build_prompt_template` so the edit route can reuse it
 #            and stop blanking prompt_template on save. Prior: config copy/paste via clipboard tokens.
@@ -19,6 +21,7 @@ from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
 from src.managers import exercise_templates
+from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
 
 
 def _default_facilitator_raw(raw, model_name):
@@ -42,13 +45,8 @@ from bson import ObjectId
 # --- Setup and Configuration ---
 logger = logging.getLogger(__name__)
 UPLOAD_FOLDER = "uploads/"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
 
 config_bp = Blueprint('config_routes', __name__)
-
-def allowed_file(filename):
-    """Checks if the uploaded file has an allowed extension."""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def build_prompt_template(bot_name, instructions):

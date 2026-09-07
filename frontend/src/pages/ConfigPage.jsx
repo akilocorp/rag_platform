@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-02
-// @changed   Un-commented the Audio Call bot-type card. The whole voice path (validation, audio_enabled,
+// @updated   2026-09-07
+// @changed   Manager Exercise (investigation template): new "Case-reading window (minutes)" field in
+//            Group & Timing, default 30 — the professor-paired timed reading window's length
+//            (backend: exercise_state.py's `reading_minutes`). Hidden for the hiring template, which
+//            has no reading window.
+// @changed   Prior: Un-commented the Audio Call bot-type card. The whole voice path (validation, audio_enabled,
 //            the Claude-model pin) was already wired — only the card was hidden, so the mode could not
 //            be created at all.
 // @changed   Prior: Publishing a new config returns to the config list instead of opening the config itself,
@@ -218,6 +222,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       num_rooms: 5,                                   // how many groups the class splits into
       discuss_minutes: 20,                            // round 1: the group's own deliberation
       debrief_minutes: 20,                            // round 2: the facilitated debrief
+      reading_minutes: 30,                            // professor-paired templates: the timed case-reading window
       class_preset: '',
       learning_outcome: '',
       general_info: { file_id: '', text: '' },        // AI-only, optional; what the ROLE requires
@@ -1047,10 +1052,19 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
-                    <div>
+                    <div className={config.manager_exercise.template === 'investigation' ? 'mb-5' : ''}>
                       <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; debrief (minutes)<InfoTip text="How long the facilitated debrief may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
+                    {/* Professor-paired templates only (investigation): the timed window
+                        before pairing opens the private decision — there is no lobby, so
+                        this is the only place the reading clock's length is set. */}
+                    {config.manager_exercise.template === 'investigation' && (
+                      <div>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Case-reading window (minutes)<InfoTip text="How long students have to read their case file once you pair the class, before the private decision opens. There is no early-out and no extension mid-run — everyone gets the same window, and the case disappears for good once it closes." /></label>
+                        <input type="number" min="0" step="any" value={config.manager_exercise.reading_minutes} onChange={(e) => setMgr('reading_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                      </div>
+                    )}
                   </div>
 
                   {/* What ACTR steers toward. Only the preset KEY is sent; the full

@@ -1,6 +1,43 @@
 // @language JavaScript (React)
-// @updated 2026-08-24
-// @changed Added a product-showcase section (ContainerScroll, Framer Motion) between the
+// @updated 2026-09-06
+// @changed Hero gradient bugfix + recolor: the AnimatedGradient config/noise/style objects were
+//          inline JSX literals, so every LandingV2 re-render (incl. every ~22-42ms keystroke of the
+//          hero typewriter effect) gave AnimatedGradient a new `config` reference, and its WebGL
+//          setup effect depends on that — tearing down and rebuilding the whole GL program and
+//          resetting elapsed time constantly. That was the "jittery, loops every 2s" bug, not a
+//          shader/perf issue. Hoisted to module-level HERO_GRADIENT_CONFIG/NOISE/STYLE constants so
+//          the reference is stable across renders. Also swapped color2 from orange (#FA6C43) to
+//          gray (#8C8C8C) and eased motion params (speed/distortion/swirl/iterations all down) per
+//          request for a calmer feel now that the actual stutter is fixed.
+//          Prior: Dark overlay (the fixed black fill behind the hero, clip-path-revealed on scroll)
+//          now fills with a live WebGL2 shader gradient (new components/ui/animated-gradient.jsx,
+//          ported from a 21st.dev demo) in brand black/orange, instead of a flat #1F1F1F. The
+//          clip-path + opacity scroll animation on darkOverlayRef is untouched — only its fill changed.
+//          Prior: Students testimonial panel: swapped placeholder (Sarah Chen) for a real student,
+//          Ekramul Haque Khan (Chemical Engineering, HKUST), with his photo as avatar + video poster.
+//          Prior: Features (bento) section rebuilt from solid pastel tiles into a hairline-bordered "case study"
+//          style panel (one outer container, split featured row + 4-cell grid row), with fresh
+//          learning/research-focused copy. SmallFeatureTile replaced by BentoCell + BENTO_CELLS.
+//          Prior: Composer wrapper: items-start -> items-center + mx-auto. It was left-anchoring the credits bar
+//          and PromptInput, so the expand-on-focus width transition (400px -> 640px) only grew rightward
+//          from a fixed left edge instead of outward from a shared center; items-center recenters the
+//          child continuously as its width animates, which also fixes the whole block reading as left-of-
+//          center instead of centered in the hero.
+//          Prior: Composer wrapper: added w-full max-w-2xl. It sits in a `flex items-center` column (the hero
+//          content stack), which doesn't stretch children to full width — the wrapper had no explicit
+//          width at all, so it (and PromptInput's own w-full inside it) collapsed to shrink-fit content
+//          instead of ever reaching PromptInput's 400/640px caps. This is why two rounds of widening
+//          PromptInput's own max-width did nothing: the real bottleneck was one level up, here.
+//          Prior: Hero composer rebuilt around PromptInput (components/ui/ai-chat-input, ported from a 21st.dev
+//          demo): real expand/collapse pill, working attachment picker + gallery, real browser voice-to-
+//          text, all using the real MODEL_OPTIONS list. Replaces the old always-open white card + dead
+//          attach/voice buttons. Credits bar restyled to sit on the dark hero directly (was inside the old
+//          shared white card); register-modal prompt preview now reads a `lastPrompt` snapshot taken at
+//          submit time, since PromptInput clears its own value once onSubmit returns.
+//          Prior: Testimonial video panel: dropped its box-shadow. "See it in action" heading:
+//          mb-4 -> mb-24 so it isn't nearly touching the tilted screenshot card below it
+//          (Card's own -mt-12 was pulling the card up further than the old margin allowed for).
+//          Prior: Added a product-showcase section (ContainerScroll, Framer Motion) between the
 //          testimonial panels and the closer, revealing a real dashboard screenshot instead
 //          of leaving the "show the product" gap from the locked spec unfilled.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -8,6 +45,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
+import { PromptInput } from '../components/ui/ai-chat-input';
+import AnimatedGradient from '../components/ui/animated-gradient';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -15,6 +54,34 @@ const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 const FONT_SERIF = "'Newsreader', Georgia, serif";
 const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
+
+// Hoisted to module scope (not inline in JSX) so these are the SAME object
+// reference across every LandingV2 render. AnimatedGradient's WebGL setup
+// effect depends on this config (via a useMemo) and tears down + rebuilds
+// the entire GL program whenever it changes — an inline object literal
+// would be a new reference every render, and LandingV2 re-renders on every
+// keystroke of the hero's typewriter effect (every 22-42ms while typing),
+// which is what was actually causing the "jittery, loops every 2s" bug:
+// the shader kept restarting from time zero, not a shader/performance issue.
+const HERO_GRADIENT_CONFIG = {
+  preset: 'custom',
+  color1: '#1F1F1F',
+  color2: '#8C8C8C',
+  color3: '#1F1F1F',
+  rotation: 114,
+  proportion: 100,
+  scale: 0.52,
+  speed: 14,
+  distortion: 4,
+  swirl: 10,
+  swirlIterations: 12,
+  softness: 100,
+  offset: 717,
+  shape: 'Edge',
+  shapeSize: 12,
+};
+const HERO_GRADIENT_NOISE = { opacity: 0.04 };
+const HERO_GRADIENT_STYLE = { zIndex: 0 };
 
 const HERO_PROMPTS = [
   'Explain the first law of thermodynamics',
@@ -70,77 +137,83 @@ const UVPS = [
   },
 ];
 
-// Small feature tile used in the redesigned bento. Light-blue card with
-// a bold title and a short body. Pure presentational — no mockup zone,
-// no accent eyebrow. Three of these fill the left/right "feature
-// highlight" slots around the Canvas hero and the contact CTA.
-// `layout` controls vertical order. "default" stacks title→body, vertically
-// centered. "body-top-title-bottom" places body at the top of the tile and
-// pins the title to the bottom-right corner — eyes land on the heading first,
-// then drift up to the supporting text.
-const SmallFeatureTile = ({ title, body, className = '', layout = 'default' }) => {
-  const isSplit = layout === 'body-top-title-bottom';
-  return (
-    <div
-      className={`relative overflow-hidden shadow-[0_12px_32px_rgba(31,31,31,0.08)] ${className}`}
-      style={{
-        backgroundColor: '#D9E5F2',
-        borderRadius: '32px',
-        minHeight: '180px',
-      }}
-    >
-      <div
-        className={`absolute inset-0 p-6 lg:p-7 flex flex-col ${
-          isSplit ? 'justify-between' : 'justify-center'
-        }`}
+// Feature cell for the redesigned "case study" style bento — a hairline-
+// bordered grid cell (illustration + headline + body + arrow link) instead
+// of a solid pastel tile. `borderRight` is dropped on the last cell in a row
+// so the outer container's own border closes off the edge.
+const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }) => (
+  <div
+    className={`group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 first:border-t-0 transition-colors duration-300 hover:bg-[#FAFAF7] ${
+      borderRight ? 'lg:border-r' : ''
+    }`}
+    style={{ borderColor: 'rgba(31,31,31,0.08)' }}
+  >
+    <img src={icon} alt={iconAlt} className="w-10 h-10" draggable={false} />
+    <div>
+      <h3
+        className="text-xl tracking-tight mb-2.5"
+        style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
       >
-        {isSplit ? (
-          <>
-            <p
-              className="text-[15px] lg:text-base leading-snug"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
-            >
-              {body}
-            </p>
-            <h3
-              className="text-2xl lg:text-[1.85rem] tracking-tight text-right"
-              style={{
-                color: '#1F1F1F',
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                lineHeight: 1.0,
-              }}
-            >
-              {title}
-            </h3>
-          </>
-        ) : (
-          <>
-            <h3
-              className="text-2xl lg:text-[1.85rem] tracking-tight mb-3"
-              style={{
-                color: '#1F1F1F',
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                lineHeight: 1.0,
-              }}
-            >
-              {title}
-            </h3>
-            <p
-              className="text-[15px] lg:text-base leading-snug"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
-            >
-              {body}
-            </p>
-          </>
-        )}
-      </div>
+        {title}
+      </h3>
+      <p
+        className="text-[15px] leading-snug mb-5"
+        style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+      >
+        {body}
+      </p>
+      <span
+        className="inline-flex items-center gap-1.5 text-sm font-semibold"
+        style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+      >
+        {linkLabel}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 14 14"
+          fill="none"
+          aria-hidden
+          className="transition-transform duration-300 group-hover:translate-x-1"
+        >
+          <path
+            d="M3 7h8M7 3l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
     </div>
-  );
-};
+  </div>
+);
+
+const BENTO_CELLS = [
+  {
+    id: 'models',
+    icon: '/illustrations/wifi-internet.svg',
+    iconAlt: 'Connection icon',
+    title: 'Any Model, One Login',
+    body: 'Run the same question through Claude, GPT-4o, or Gemini without juggling separate subscriptions or tabs.',
+    linkLabel: 'Compare the models',
+  },
+  {
+    id: 'citations',
+    icon: '/illustrations/magnifying-glass.svg',
+    iconAlt: 'Magnifying glass icon',
+    title: 'Every Answer, Footnoted',
+    body: 'No more chasing down where a claim came from — each response links straight back to the page or passage it was pulled from.',
+    linkLabel: 'See a real citation',
+  },
+  {
+    id: 'sandbox',
+    icon: '/illustrations/survey-clipboard-research.svg',
+    iconAlt: 'Research clipboard icon',
+    title: 'Built to Be Studied',
+    body: 'Every prompt, latency, and citation is logged in one place, so researchers can see how students actually learn with AI, not guess.',
+    linkLabel: 'Open the sandbox',
+  },
+];
 
 // SyllabusMockup lives in the right half of the Canvas hero tile and
 // positions its Canvas cards absolutely. Negative right offsets bleed
@@ -252,13 +325,14 @@ const TESTIMONIAL_PANELS = [
   {
     id: 'students',
     title: 'Students',
-    name: 'Sarah Chen',
-    role: 'MS Biology',
-    university: 'UC Berkeley',
+    name: 'Ekramul Haque Khan',
+    role: 'Chemical Engineering',
+    university: 'HKUST',
     quote:
-      'Most chatbots speak in generalities. Mine quotes the slide my professor uploaded last Tuesday, and that’s the difference between cramming and actually learning.',
+      'ACTRLabs helps me learn more effectively. I move through material at a much faster pace and actually keep up with my coursework, which means I still have a life outside of school.',
     videoSrc: '/testimonials/students.mp4',
-    posterSrc: '/testimonials/students.jpg',
+    posterSrc: '/testimonials/ekramul.jpg',
+    avatarSrc: '/testimonials/ekramul.jpg',
     bg: '#FDE3D8',
     accent: '#C8472A',
   },
@@ -396,28 +470,16 @@ const LandingV2 = () => {
     });
   }, [activePanel, accordionInView]);
 
-  // Hero composer attach-menu state. Outside-click closes the menu.
-  const [attachOpen, setAttachOpen] = useState(false);
-  const attachRef = useRef(null);
-  useEffect(() => {
-    if (!attachOpen) return;
-    const handler = (e) => {
-      if (attachRef.current && !attachRef.current.contains(e.target)) {
-        setAttachOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [attachOpen]);
-
-  // Hero composer: input value + chosen model. Submit starts a real free
-  // chat against the shared playground bot, carrying the typed prompt + model
-  // into ChatPage. Usage caps (warn nudge + create-account block) are enforced
-  // there. The register modal remains only as a fallback if the bot can't load.
-  const [promptValue, setPromptValue] = useState('');
-  const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0].id);
+  // Hero composer: PromptInput (components/ui/ai-chat-input) owns its own text/model/
+  // attachment state internally and hands it back at submit time, so this page only needs
+  // to react to that submission. Submit starts a real free chat against the shared
+  // playground bot, carrying the typed prompt + model into ChatPage. Usage caps (warn nudge
+  // + create-account block) are enforced there. The register modal remains only as a
+  // fallback if the bot can't load, and shows back what was typed — captured into
+  // `lastPrompt` here since PromptInput clears its own value once onSubmit returns.
   const [composerSending, setComposerSending] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [lastPrompt, setLastPrompt] = useState('');
 
   // Real credit count for the credits bar. Fetched once on mount from
   // /api/usage/me, then clamped to LANDING_FREE_CREDITS. Population other
@@ -441,21 +503,25 @@ const LandingV2 = () => {
     return () => { cancelled = true; };
   }, []);
 
-  const handleComposerSubmit = async (e) => {
-    if (e) e.preventDefault();
-    const text = promptValue.trim();
-    if (!text || composerSending) return;
+  const handleComposerSubmit = async (text, meta) => {
+    const trimmed = text.trim();
+    if (!trimmed || composerSending) return;
+    setLastPrompt(trimmed);
     if (creditsRemaining <= 0) {
       setShowRegisterModal(true);
       return;
     }
+    // PromptInput only knows the model's display label — map it back to the id the backend
+    // expects (model_override). Falls back to the first real model if something odd came
+    // through (e.g. an empty models list).
+    const modelId = MODEL_OPTIONS.find((m) => m.label === meta?.model)?.id || MODEL_OPTIONS[0].id;
     setComposerSending(true);
     try {
       const res = await fetch('/api/config/playground', { credentials: 'include' });
       if (!res.ok) throw new Error('playground unavailable');
       const { config_id } = await res.json();
       const chatId = `chat_${Date.now()}`;
-      navigate(`/chat/${config_id}/${chatId}`, { state: { firstMessage: text, model: selectedModel } });
+      navigate(`/chat/${config_id}/${chatId}`, { state: { firstMessage: trimmed, model: modelId } });
     } catch (err) {
       setComposerSending(false);
       setShowRegisterModal(true);
@@ -830,10 +896,16 @@ const LandingV2 = () => {
           circle whose radius shrinks on scroll. As it shrinks, the white
           page bg + the dark A logo behind become visible — and when the
           radius is small enough, the dark circle seamlessly *becomes* the
-          dot of the A. */}
+          dot of the A. The clip-path lives on this outer div, so the
+          scroll-tied reveal (heroTl above) is unchanged — only the fill
+          itself changed, from flat #1F1F1F to a live black/gray shader
+          gradient (HERO_GRADIENT_CONFIG — module-level, see comment there
+          for why that matters). backgroundColor stays as a static fallback
+          in case WebGL2 isn't available (AnimatedGradient just renders
+          nothing). */}
       <div
         ref={darkOverlayRef}
-        className="fixed inset-0 pointer-events-none"
+        className="fixed inset-0 pointer-events-none overflow-hidden"
         style={{
           backgroundColor: '#1F1F1F',
           clipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
@@ -841,7 +913,13 @@ const LandingV2 = () => {
           zIndex: 60,
           willChange: 'clip-path',
         }}
-      />
+      >
+        <AnimatedGradient
+          config={HERO_GRADIENT_CONFIG}
+          noise={HERO_GRADIENT_NOISE}
+          style={HERO_GRADIENT_STYLE}
+        />
+      </div>
 
 
       {/* === HERO === */}
@@ -928,24 +1006,18 @@ const LandingV2 = () => {
             Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust, trained on what you actually teach.
           </p>
 
-          {/* Composer — single white card. Top-left credits progress
-              bar, big "Ask anything" input, and a bottom row with
-              attach (+ dropdown), voice, and a circular orange send
-              button. Visual-only for now; routing lands later. */}
-          <div
-            className="w-full max-w-2xl text-left rounded-[28px] p-4 sm:p-5"
-            style={{
-              backgroundColor: '#FFFFFF',
-              boxShadow:
-                '0 28px 70px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.03)',
-            }}
-          >
+          {/* Composer — PromptInput (components/ui/ai-chat-input) drives the actual
+              input/model-picker/attachments/voice; it carries its own white pill/card
+              chrome, so it sits directly on the dark hero rather than inside a shared
+              white card like before. The credits bar has no slot in that component, so
+              it renders above, restyled for the dark background. */}
+          <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-3">
             {/* Credits counter — driven by /api/usage/me. At 0, the submit
                 handler opens the register modal instead of starting a chat. */}
-            <div className="flex items-center gap-2.5 px-1 mb-4">
+            <div className="flex items-center gap-2.5 px-1">
               <div
                 className="relative h-1.5 rounded-full overflow-hidden"
-                style={{ width: '80px', backgroundColor: '#EFEFEF' }}
+                style={{ width: '80px', backgroundColor: 'rgba(255,255,255,0.18)' }}
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
@@ -957,7 +1029,7 @@ const LandingV2 = () => {
               </div>
               <span
                 className="text-[11px] font-semibold"
-                style={{ color: '#6B6B6B', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
+                style={{ color: 'rgba(255,255,255,0.6)', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
               >
                 {creditsRemaining === 0
                   ? 'Out of credits, sign up'
@@ -965,161 +1037,14 @@ const LandingV2 = () => {
               </span>
             </div>
 
-            {/* Input — placeholder cycles through HERO_PROMPTS via a
-                typewriter effect (see useEffect in component body).
-                Submit (Enter or the send button) opens the register-gate
-                modal — anonymous visitors can't actually send. */}
-            <form onSubmit={handleComposerSubmit}>
-            <input
-              type="text"
+            {/* Placeholder cycles through HERO_PROMPTS via a typewriter effect (see
+                useEffect in component body). Submit (Enter or the send button) opens the
+                register-gate modal — anonymous visitors can't actually send. */}
+            <PromptInput
               placeholder={typedPrompt}
-              value={promptValue}
-              onChange={(e) => setPromptValue(e.target.value)}
-              className="w-full bg-transparent outline-none border-none px-1 py-2 text-lg sm:text-xl placeholder:text-gray-400"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, boxShadow: 'none' }}
+              models={MODEL_OPTIONS.map((m) => m.label)}
+              onSubmit={handleComposerSubmit}
             />
-
-            {/* Divider between input and actions */}
-            <div className="h-px mx-1 mt-3" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }} />
-
-            {/* Bottom row: actions left, send right */}
-            <div className="flex items-center justify-between mt-3 px-1">
-              <div className="flex items-center gap-1.5">
-                {/* Attach button + dropdown */}
-                <div className="relative" ref={attachRef}>
-                  <button
-                    type="button"
-                    onClick={() => setAttachOpen((o) => !o)}
-                    aria-label="Attach"
-                    aria-expanded={attachOpen}
-                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100"
-                    style={{ color: '#1F1F1F' }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                      <path
-                        d="M8 3v10M3 8h10"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                  {attachOpen && (
-                    <div
-                      className="absolute left-0 w-52 rounded-2xl py-2 z-20 landing-menu-in"
-                      style={{
-                        bottom: 'calc(100% + 10px)',
-                        backgroundColor: '#FFFFFF',
-                        boxShadow:
-                          '0 18px 48px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.04)',
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2.5 flex items-center gap-3 text-sm text-left transition-colors hover:bg-gray-50"
-                        style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                        onClick={() => setAttachOpen(false)}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden style={{ color: '#1F1F1F', flexShrink: 0 }}>
-                          <path
-                            d="M4 1.5h5.5L13 5v8.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-11a1 1 0 011-1z"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M9.5 1.5V5H13"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <span className="font-medium">Attach file</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2.5 flex items-center gap-3 text-sm text-left transition-colors hover:bg-gray-50"
-                        style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-                        onClick={() => setAttachOpen(false)}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden style={{ color: '#1F1F1F', flexShrink: 0 }}>
-                          <path
-                            d="M1.5 4.5a1 1 0 011-1h3.5L7.5 5h6a1 1 0 011 1v6.5a1 1 0 01-1 1h-11a1 1 0 01-1-1v-8z"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <span className="font-medium">Attach folder</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {/* Voice */}
-                <button
-                  type="button"
-                  aria-label="Voice"
-                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100"
-                  style={{ color: '#1F1F1F' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-                    <path
-                      d="M8 2a2 2 0 00-2 2v4a2 2 0 004 0V4a2 2 0 00-2-2z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M3.5 8a4.5 4.5 0 009 0M8 12.5V15"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-
-                {/* Model picker — choose the model before sending */}
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  aria-label="Model"
-                  className="ml-1 text-xs font-semibold rounded-full px-2.5 py-1.5 outline-none cursor-pointer transition-colors hover:bg-gray-100"
-                  style={{ color: '#1F1F1F', fontFamily: FONT_BODY, backgroundColor: '#F5F3EE', border: '1px solid rgba(31,31,31,0.08)' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {MODEL_OPTIONS.map((m) => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Send button — circular, orange, slim white up-arrow */}
-              <button
-                type="submit"
-                aria-label="Send"
-                className="w-11 h-11 rounded-full flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
-                style={{
-                  backgroundColor: '#FA6C43',
-                  boxShadow: '0 6px 16px rgba(250,108,67,0.45)',
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
-                  <path
-                    d="M10 16V4M10 4l-5 5M10 4l5 5"
-                    stroke="#FFFFFF"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
-            </form>
           </div>
         </div>
 
@@ -1267,13 +1192,13 @@ const LandingV2 = () => {
       </section>
 
       {/* === FEATURES (BENTO) ===
-          4-column asymmetric bento. Top row: wide peach "Fetches Canvas
-          Files" hero (cols 1-3) holding the SyllabusMockup + a small
-          gray feature tile on col 4. Bottom rows: two small gray
-          feature tiles stacked on col 1, with a 3-col × 2-row orange
-          "missing a feature?" mailto-CTA filling the rest. Grid
-          auto-flow places tiles in JSX order; see the comment at each
-          tile for its target cell. */}
+          Redesigned as a single bordered "case study" panel (inspired by a
+          shadcn case-study block): a featured row up top (Canvas-sync copy
+          left, SyllabusMockup framed on a peach panel right), then a
+          hairline-divided 4-cell row below (Any Model / Cites Sources /
+          Observable Sandbox / mailto CTA). featureGridRef stays on the
+          single outer container so the existing GSAP fade-up still
+          animates it as one block. */}
       <section
         id="features"
         className="relative z-10 px-6 lg:px-10 py-12 lg:py-16"
@@ -1281,23 +1206,23 @@ const LandingV2 = () => {
       >
         <div
           ref={featureGridRef}
-          className="grid grid-cols-1 lg:grid-cols-4 gap-5 max-w-7xl mx-auto"
+          className="max-w-7xl mx-auto overflow-hidden shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
+          style={{ backgroundColor: '#FFFFFF', borderRadius: '40px', border: '1px solid rgba(31,31,31,0.08)' }}
         >
-          {/* TOP-LEFT — Canvas hero (lg: cols 1-3, row 1) */}
-          <div
-            className="relative overflow-hidden lg:col-span-3 shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
-            style={{
-              backgroundColor: '#FDE3D8',
-              borderRadius: '40px',
-              minHeight: '340px',
-            }}
-          >
+          {/* Featured row */}
+          <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
             <div
-              className="absolute z-10 p-8 lg:p-10 overflow-hidden"
-              style={{ top: 0, left: 0, right: '50%', bottom: 0 }}
+              className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
+              style={{ borderColor: 'rgba(31,31,31,0.08)' }}
             >
+              <span
+                className="text-xs font-bold uppercase tracking-[0.22em]"
+                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+              >
+                Course sync
+              </span>
               <h2
-                className="text-2xl lg:text-[1.85rem] tracking-tight mb-5"
+                className="text-2xl lg:text-[1.85rem] tracking-tight"
                 style={{
                   fontFamily: FONT_DISPLAY,
                   fontWeight: 800,
@@ -1348,84 +1273,24 @@ const LandingV2 = () => {
                 </span>
               </h2>
               <p
-                className="text-[15px] lg:text-base leading-snug max-w-[300px]"
+                className="text-[15px] lg:text-base leading-snug max-w-[340px]"
                 style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
-                It&rsquo;s a massive pain to keep re-uploading your lecture notes, only for the AI to start making things up halfway through your study session.
+                Connect a course once and every syllabus, slide deck, and reading stays in sync — no re-uploading the same lecture notes every week just to keep the bot from making things up.
               </p>
-            </div>
-            <div
-              className="absolute"
-              style={{ top: 0, left: '50%', right: 0, bottom: 0 }}
-            >
-              <SyllabusMockup />
-            </div>
-          </div>
-
-          {/* TOP-RIGHT — Any Model (lg: col 4, row 1). Body up top,
-              title pinned to the bottom-right so the eye lands on the
-              heading first and walks up to the supporting text. */}
-          <SmallFeatureTile
-            title="Any Model"
-            body="Switch between Claude, GPT-4o, Gemini, and Haiku in the same chat. No extra subscriptions."
-            layout="body-top-title-bottom"
-          />
-
-          {/* MID-LEFT — Cites Its Sources (lg: col 1, row 2) */}
-          <SmallFeatureTile
-            title="Cites Its Sources"
-            body="Every answer footnoted back to your uploaded files or live web results."
-          />
-
-          {/* BOTTOM-RIGHT CTA — orange mailto (lg: cols 2-4, rows 2-3).
-              Solid orange tile with the isolated white A logo (body +
-              dot) overlaid on the left half as an inline SVG. */}
-          <a
-            href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-            className="group relative overflow-hidden lg:col-span-3 lg:row-span-2 flex items-center shadow-[0_18px_48px_rgba(250,108,67,0.28)]"
-            style={{
-              backgroundColor: '#FA6C43',
-              borderRadius: '40px',
-              minHeight: '320px',
-            }}
-          >
-            <img
-              src="/logo-A-white.svg"
-              alt=""
-              aria-hidden="true"
-              className="absolute pointer-events-none select-none"
-              draggable={false}
-              style={{
-                left: '4%',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                width: '28%',
-                height: 'auto',
-              }}
-            />
-            {/* Spacer that pushes the text past the A artwork on the left. */}
-            <div className="flex-shrink-0" style={{ width: '45%' }} aria-hidden />
-            <div className="flex-1 pr-8 lg:pr-12">
-              <h2
-                className="text-white text-3xl lg:text-[2.5rem] tracking-tight leading-[1.05] mb-5"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                Are we missing<br />a feature?
-              </h2>
               <span
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all group-hover:scale-[1.04] shadow-md"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  color: '#1F1F1F',
-                  fontFamily: FONT_BODY,
-                }}
+                className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
+                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
               >
-                Get in touch &middot; Suggest features
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                See how the sync works
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  aria-hidden
+                  className="transition-transform duration-300 group-hover:translate-x-1"
+                >
                   <path
                     d="M3 7h8M7 3l4 4-4 4"
                     stroke="currentColor"
@@ -1436,13 +1301,58 @@ const LandingV2 = () => {
                 </svg>
               </span>
             </div>
-          </a>
+            <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
+              <SyllabusMockup />
+            </div>
+          </div>
 
-          {/* BOTTOM-LEFT — Observable Sandbox (lg: col 1, row 3) */}
-          <SmallFeatureTile
-            title="Observable Sandbox"
-            body="Researcher-grade view of every student &harr; bot exchange &mdash; latency, citations, model variant."
-          />
+          {/* Cell row — 3 data-driven feature cells + the mailto CTA */}
+          <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
+            {BENTO_CELLS.map((cell) => (
+              <BentoCell key={cell.id} {...cell} />
+            ))}
+
+            <a
+              href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
+              className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
+              style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
+            >
+              <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
+              <div>
+                <h3
+                  className="text-xl tracking-tight mb-2.5 text-white"
+                  style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+                >
+                  Missing something?
+                </h3>
+                <p
+                  className="text-[15px] leading-snug mb-5 text-white/85"
+                  style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
+                >
+                  Tell us what would make this more useful for your course or lab — we read every note.
+                </p>
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+                  Get in touch
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    aria-hidden
+                    className="transition-transform duration-300 group-hover:translate-x-1"
+                  >
+                    <path
+                      d="M3 7h8M7 3l4 4-4 4"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </div>
+            </a>
+          </div>
         </div>
       </section>
 
@@ -1618,7 +1528,6 @@ const LandingV2 = () => {
                             aspectRatio: '4 / 5',
                             backgroundColor: '#1F1F1F',
                             borderRadius: '24px',
-                            boxShadow: '0 18px 48px rgba(31,31,31,0.22)',
                           }}
                         >
                           <video
@@ -1677,7 +1586,7 @@ const LandingV2 = () => {
         <ContainerScroll
           titleComponent={
             <h2
-              className="text-5xl lg:text-7xl tracking-tight text-center mb-4"
+              className="text-5xl lg:text-7xl tracking-tight text-center mb-24"
               style={{
                 color: '#1F1F1F',
                 fontFamily: FONT_DISPLAY,
@@ -1850,7 +1759,7 @@ const LandingV2 = () => {
             >
               Sign up free to send your first prompt and start building your AI tutor on Actrlabs.
             </p>
-            {promptValue.trim() && (
+            {lastPrompt.trim() && (
               <div
                 className="mb-6 rounded-2xl p-3"
                 style={{
@@ -1881,7 +1790,7 @@ const LandingV2 = () => {
                     overflow: 'hidden',
                   }}
                 >
-                  {promptValue}
+                  {lastPrompt}
                 </div>
               </div>
             )}
@@ -1954,18 +1863,9 @@ const LandingV2 = () => {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.35; }
         }
-        @keyframes landing-menu-in {
-          from { opacity: 0; transform: translateY(4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .landing-menu-in {
-          animation: landing-menu-in 140ms ease-out;
-          transform-origin: bottom left;
-        }
         @media (prefers-reduced-motion: reduce) {
           .landing-icon-float img { animation: none; }
           .landing-cta-pulse { animation: none; }
-          .landing-menu-in { animation: none; }
         }
       `}</style>
     </div>
