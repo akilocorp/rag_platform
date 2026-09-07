@@ -1,12 +1,10 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   Manager Exercise (`investigation` template): "Case-reading window (minutes)" field
-//            added to Group & Timing (default 30, whitelisted in the manager_exercise resolve
-//            block so it round-trips on save) and a "Pair the class" panel: polls
-//            GET /manager-exercise/<id>/pool-status for a live headcount of joined-but-unpaired
-//            students, and POSTs /pair to freeze them into groups of 3 and start every group's
-//            reading clock. Also surfaces students who quit mid-exercise (quit_exercise, read
-//            back off the same poll). Hiring configs never render either addition.
+// @changed   The "Pair the class" panel moved out to the new ManagerExerciseDashboardPage — this
+//            page is authoring only now, so it just links out ("Open dashboard →" beside
+//            "View class results →"). Manager Exercise (`investigation` template) keeps its
+//            "Case-reading window (minutes)" field in Group & Timing (default 30, whitelisted in
+//            the manager_exercise resolve block so it round-trips on save).
 // @changed   Prior: Video configs get an "Edit boxes" entry in SIMPLE mode, opening the visual rubric editor
 //            (/video-boxes/:configId); the old Advanced row-editor is gone. Saving now returns to the
 //            config list for every bot type instead of dropping the professor inside the config.
@@ -87,15 +85,6 @@ const EditConfigPage = () => {
   // 0 is the plain run; 1 is the room that tests whether ACTR pulls it back.
   const [testMisleading, setTestMisleading] = useState(0);
   const [testErr, setTestErr] = useState('');
-
-  // Professor pairing (manager_exercise, `investigation` template only — see
-  // exercise_templates.py's `prof_paired`). Polled rather than pushed over a
-  // socket: this page has no live connection to the class, and a professor
-  // watching a headcount before pressing one button doesn't need sub-second
-  // latency for it.
-  const [poolStatus, setPoolStatus] = useState(null);
-  const [pairBusy, setPairBusy] = useState(false);
-  const [pairErr, setPairErr] = useState('');
 
   // Class rollout usage tiers
   const [usageTiers, setUsageTiers] = useState([]);
@@ -439,38 +428,6 @@ const EditConfigPage = () => {
     } catch (e) {
       setTestErr(e?.response?.data?.error || 'Could not start the test run.');
       setTestBusy(false);
-    }
-  };
-
-  // The pairing panel's live headcount (investigation template only). Polled
-  // every few seconds while this page is open — cheap, and a professor watching
-  // this screen for a minute before class starts is the whole use case.
-  useEffect(() => {
-    if (config.bot_type !== 'manager_exercise' || !config.config_id) return;
-    if ((config.manager_exercise?.template || 'hiring') !== 'investigation') return;
-    let cancelled = false;
-    const poll = () => {
-      apiClient.get(`/manager-exercise/${config.config_id}/pool-status`)
-        .then(res => { if (!cancelled) setPoolStatus(res.data); })
-        .catch(() => {});
-    };
-    poll();
-    const id = setInterval(poll, 4000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [config.bot_type, config.config_id, config.manager_exercise?.template]);
-
-  const startPairing = async () => {
-    if (!config.config_id) return;
-    setPairBusy(true);
-    setPairErr('');
-    try {
-      await apiClient.post(`/manager-exercise/${config.config_id}/pair`);
-      const res = await apiClient.get(`/manager-exercise/${config.config_id}/pool-status`);
-      setPoolStatus(res.data);
-    } catch (e) {
-      setPairErr(e?.response?.data?.error || 'Could not pair the class.');
-    } finally {
-      setPairBusy(false);
     }
   };
 
@@ -1280,72 +1237,26 @@ const EditConfigPage = () => {
                       )}
                       {/* The other half of testing a case: what the REAL class did with
                           it. Lives beside the test runs because a professor arrives
-                          here for the same reason — to find out whether the case works. */}
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/manager-exercise/${config.config_id}/results`)}
-                        className="mt-4 w-full text-center text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
-                      >
-                        View class results →
-                      </button>
-                    </div>
-
-                    {/* Professor pairing (investigation template only). This template has no
-                        student-facing lobby — the class waits silently and this button is
-                        the only thing that starts them, so it stands in for both "who's here"
-                        and "start" at once. */}
-                    {(me.template || 'hiring') === 'investigation' && (
-                      <div className="bg-white border-2 border-dashed border-[#FA6C43]/40 p-5 rounded-2xl mb-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold text-gray-800 inline-flex items-center gap-1.5">
-                              <FaUsers className="text-[#FA6C43]" /> Pair the class
-                            </h4>
-                            <p className="text-[11px] text-gray-500 mt-1 max-w-md">
-                              Students who open this exercise wait quietly until you pair them.
-                              Pairing splits everyone waiting into groups of 3 — one case file
-                              each — and starts every group's reading clock at once. Anyone who
-                              joins afterward is slotted into an existing group automatically.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={startPairing}
-                            disabled={pairBusy || !config.config_id || poolStatus?.paired || !poolStatus?.count}
-                            className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-xs px-4 py-2.5 shadow-sm disabled:opacity-50 transition-all active:scale-95"
-                          >
-                            {pairBusy
-                              ? <><FaSpinner className="animate-spin" /> Pairing…</>
-                              : poolStatus?.paired ? 'Paired' : 'Start pairing'}
-                          </button>
-                        </div>
-
-                        <p className="mt-4 text-sm font-semibold text-gray-700">
-                          {poolStatus == null
-                            ? 'Checking who has joined…'
-                            : poolStatus.paired
-                              ? `Paired into ${poolStatus.group_count} group${poolStatus.group_count === 1 ? '' : 's'}.`
-                              : `${poolStatus.count} student${poolStatus.count === 1 ? '' : 's'} waiting to be paired.`}
-                        </p>
-                        {pairErr && <p className="mt-2 text-[11px] font-semibold text-red-500">{pairErr}</p>}
-
-                        {poolStatus?.quits?.length > 0 && (
-                          <div className="mt-4 pt-3 border-t border-gray-100">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                              Left the exercise
-                            </p>
-                            <div className="space-y-1">
-                              {poolStatus.quits.slice(0, 5).map((q, i) => (
-                                <p key={i} className="text-[11px] text-gray-600">
-                                  <span className="font-semibold">{q.name}</span> quit
-                                  {q.room_id ? ` (${q.room_id.split('_').pop()})` : ''}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                          here for the same reason — to find out whether the case works.
+                          Running the class itself (pairing, live monitoring) is the
+                          Dashboard's job now, not this authoring page's. */}
+                      <div className="mt-4 flex items-center justify-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/manager-exercise/${config.config_id}/dashboard`)}
+                          className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
+                        >
+                          Open dashboard →
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/manager-exercise/${config.config_id}/results`)}
+                          className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
+                        >
+                          View class results →
+                        </button>
                       </div>
-                    )}
+                    </div>
 
                     {/* Group size + the one timed phase. num_students drives group_size. */}
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 mb-4">
