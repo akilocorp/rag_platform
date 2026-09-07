@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-08-31
-# @changed   New file: exercise templates. A template is the FLOW plus the WORDS of one kind of
+# @updated   2026-09-07
+# @changed   `investigation`'s flow gains three flags for professor-paired rooms: `prof_paired`
+#            (skip the student breakout lobby — the professor pairs the class instead),
+#            `hide_case_after_reading` (blank the confidential material once the timed reading
+#            window closes), and `hide_role_number` (show "Case File" instead of "Case File 2").
+#            Prior: New file: exercise templates. A template is the FLOW plus the WORDS of one kind of
 #            hidden-profile exercise. `hiring` reproduces exactly what every existing config does;
 #            `investigation` is a shared-clue case (a murder file split three ways) that ends on the
 #            group's answer with no reveal and no debrief, because the professor reads the class's
@@ -52,6 +56,16 @@ _HIRING: Dict = {
         # Round 2 with the facilitator. Requires `reveal` — the debrief opens on
         # the outcome the room has just read.
         "debrief": True,
+        # Students pick their own breakout room from a live lobby list. False here
+        # means the professor pairs the class instead — see `prof_paired` below.
+        "prof_paired": False,
+        # Whether the confidential material disappears once the timed reading
+        # window closes. Hiring's cards stay up through the whole discussion —
+        # that is how a group argues from its packets.
+        "hide_case_after_reading": False,
+        # Whether a numbered role ("Case File 2") is shown to the student with its
+        # number stripped ("Case File"). Hiring's roles carry no number to strip.
+        "hide_role_number": False,
     },
     "lexicon": {
         # `{role}` is the student's own confidential role, already trimmed of a
@@ -97,6 +111,17 @@ _INVESTIGATION: Dict = {
         # Structurally off, not prompted off: with no reveal there is no outcome
         # document for a facilitator to debrief against.
         "debrief": False,
+        # The professor pairs the class from a headcount instead of students
+        # picking a breakout room themselves — see `investigation_pool.py`.
+        "prof_paired": True,
+        # Once the timed reading window closes, `your_case`/`your_credentials`
+        # blank out for good (see `ExerciseState._case_visible`). A suspect is
+        # argued from memory, not from a document open in another tab.
+        "hide_case_after_reading": True,
+        # The seat's role IS the document ("Case File 1"/"2"/"3") — showing the
+        # number would tell a student their groupmates are reading something
+        # else, which is exactly what this template does not want said out loud.
+        "hide_role_number": True,
     },
     "lexicon": {
         # The role IS the document here ("Case File 1"), so it takes no job title.

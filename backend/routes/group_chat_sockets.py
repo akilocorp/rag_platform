@@ -1,6 +1,15 @@
 # @language  Python
-# @updated   2026-08-20
-# @changed   The facilitator turn is handed the students' own recent messages
+# @updated   2026-09-07
+# @changed   Professor-paired investigation rooms (`flow.prof_paired`): new `join_investigation_pool`
+#            socket event replaces the breakout lobby for that template — a student is either
+#            reconnected into their existing room, dropped into one as a late arrival, or told to
+#            wait (`pool_waiting`), and never sees the headcount or room list. `trigger_pairing`
+#            (called from the professor's `POST /pair` HTTP route, same launcher-export pattern as
+#            `start_test_run`) freezes `investigation_pool`'s join pool into rooms, seats every
+#            member, and calls the new `ExerciseState.begin_reading()` once per room. New
+#            `quit_exercise` event records a student backing out via the frontend's back-navigation
+#            guard, surfaced to the professor's pairing panel.
+#            Prior: The facilitator turn is handed the students' own recent messages
 #            (FACILITATOR_PUSHBACK_LOOKBACK), so a demand for the answer is refused out loud instead
 #            of being answered with the next scripted question.
 # @changed   Prior: The facilitator turn carries its step in and out: `facilitator_reply` is handed the room's
@@ -59,6 +68,7 @@ from src.managers import exercise_state as ex_state
 from src.managers import exercise_templates
 from src.managers import ai_manager
 from src.managers import exercise_sim
+from src.managers import investigation_pool
 from src.models.manager_exercise_session import ManagerExerciseSession
 
 logger = logging.getLogger(__name__)
@@ -111,6 +121,12 @@ _room_members: dict = {}
 # to post messages down the same path a real student's socket uses.
 _test_run_launcher = None
 
+# Same pattern, for the professor's "Start Pairing" button (manager_exercise_routes.py).
+# An HTTP endpoint, not a socket event, because the professor's ownership check is
+# already the plain JWT-required pattern every other config route uses — no need
+# to re-derive it from a client-sent token the way `reset_breakout_room` has to.
+_pairing_launcher = None
+
 
 def start_test_run(config_doc, bots=None, misleading=0):
     """Launch a model-played test room for a config and return its room_id.
@@ -127,6 +143,19 @@ def start_test_run(config_doc, bots=None, misleading=0):
     if _test_run_launcher is None:
         raise RuntimeError("socket events have not been registered yet")
     return _test_run_launcher(config_doc, bots, misleading)
+
+
+def trigger_pairing(config_doc):
+    """Freeze an investigation config's join pool into rooms and start each one.
+
+    Returns `{"groups": n, "students": n}`. See `_launch_pairing` for what this
+    actually does — bootstrapping the phase machine and notifying already-connected
+    students both require the socket-registration closures, which is why this is a
+    thin forward rather than logic living here.
+    """
+    if _pairing_launcher is None:
+        raise RuntimeError("socket events have not been registered yet")
+    return _pairing_launcher(config_doc)
 
 
 def register_socket_events(socketio, app):
@@ -651,10 +680,38 @@ def register_socket_events(socketio, app):
         logger.info(f"🧪 test run started for config {config_id} in {room_id}")
         return room_id
 
-    # Publish the launcher for the HTTP layer. Done here, at definition, rather
+    def _launch_pairing(config_doc):
+        """Freeze the join pool into groups and start each one reading, now.
+
+        Called from the professor's `POST /pair` request — an HTTP context, not a
+        socket one, so this reaches students purely through `uid_to_sid` (a direct
+        `to=sid` emit), never `flask_socketio.join_room`/`leave_room`, which need a
+        live request context this doesn't have.
+        """
+        config_id = str(config_doc.get("_id"))
+        groups = investigation_pool.pair(config_id, lambda i: _room_id_for(config_id, i))
+        for g in groups:
+            room_id = g["room_id"]
+            state = _bootstrap_exercise(room_id, config_doc, create_session=True)
+            for m in g["members"]:
+                state.note_participant(m["uid"], m["name"])
+            # One `begin_reading()` per room, after every initial member is seated —
+            # not per-member — so the room's clock starts once, at pairing, not
+            # re-armed by each `note_participant` call.
+            state.begin_reading()
+            for m in g["members"]:
+                target_sid = uid_to_sid.get(m["uid"])
+                if target_sid:
+                    socketio.emit('match_found', {'room_id': room_id}, to=target_sid)
+        logger.info(f"🔗 pairing triggered for config {config_id}: "
+                    f"{len(groups)} group(s), {sum(len(g['members']) for g in groups)} student(s)")
+        return {"groups": len(groups), "students": sum(len(g["members"]) for g in groups)}
+
+    # Publish the launchers for the HTTP layer. Done here, at definition, rather
     # than at the end of registration, so the two can never drift apart.
-    global _test_run_launcher
+    global _test_run_launcher, _pairing_launcher
     _test_run_launcher = _launch_test_run
+    _pairing_launcher = _launch_pairing
 
     # ==================================================================
     # CONNECTION / UPLOAD SUBSCRIPTIONS (unchanged)
@@ -922,6 +979,78 @@ def register_socket_events(socketio, app):
         config_doc = _load_config_doc(config_id)
         if config_doc:
             _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+
+    # ==================================================================
+    # INVESTIGATION POOL (professor-paired manager_exercise templates only)
+    # ==================================================================
+    # No lobby here on purpose — see exercise_templates.py's `prof_paired` flag.
+    # A student who joins is either dropped straight into a room (already paired,
+    # or a late arrival) or told to sit tight; nothing about who else is waiting,
+    # or how many rooms there will be, is ever sent to a student.
+    @socketio.on('join_investigation_pool')
+    def handle_join_investigation_pool(data):
+        d = data or {}
+        config_id, uid = d.get('config_id'), d.get('uid')
+        display_name = (d.get('display_name') or '').strip()
+        if not config_id or not uid:
+            return
+        sid_to_uid[request.sid] = uid
+        uid_to_sid[uid] = request.sid
+
+        config_doc = _load_config_doc(config_id)
+        if not config_doc or config_doc.get("bot_type") != "manager_exercise":
+            return
+        me_config = _manager_exercise_config(config_doc)
+        if exercise_templates.normalize(me_config.get("template")) != "investigation":
+            return
+
+        # Reconnect (or a first-time late arrival): a durable mapping, not socket
+        # presence, so a refresh lands them back in their own room rather than
+        # being treated as still-unpaired.
+        existing_room = investigation_pool.room_for_uid(config_id, uid)
+        if existing_room:
+            _bootstrap_exercise(existing_room, config_doc)
+            emit('match_found', {'room_id': existing_room}, to=request.sid)
+            return
+
+        status, room_id = investigation_pool.join(config_id, uid, display_name)
+        if status == "assigned" and room_id:
+            # A genuinely new late arrival: seat them now. `note_participant`'s
+            # existing role round-robin hands them whichever case file matches
+            # their new position in the room (duplicating an earlier seat's).
+            state = _bootstrap_exercise(room_id, config_doc)
+            state.note_participant(uid, display_name)
+            emit('match_found', {'room_id': room_id}, to=request.sid)
+            return
+
+        emit('pool_waiting', {'config_id': config_id}, to=request.sid)
+
+    @socketio.on('leave_investigation_pool')
+    def handle_leave_investigation_pool(data):
+        """Give up an unpaired place — e.g. the student navigated away before the
+        professor paired the class. A no-op once pairing has already run."""
+        d = data or {}
+        config_id, uid = d.get('config_id'), d.get('uid') or sid_to_uid.get(request.sid)
+        if not config_id or not uid:
+            return
+        investigation_pool.leave(config_id, uid)
+
+    @socketio.on('quit_exercise')
+    def handle_quit_exercise(data):
+        """A student confirmed the back-navigation "quit the exercise?" prompt.
+
+        Purely a notification for the professor's pairing panel — the room and its
+        roster are untouched, so the exercise carries on for whoever is left in it.
+        """
+        d = data or {}
+        room_id, uid = d.get('room_id'), d.get('uid') or sid_to_uid.get(request.sid)
+        if not room_id or not uid:
+            return
+        config_id = room_id.rsplit('_', 1)[0]
+        state = ex_state.get_exercise(room_id)
+        name = state.display_name(uid) if state else None
+        investigation_pool.quit(config_id, uid, room_id, name)
+        logger.info(f"🚪 {uid} quit investigation exercise {room_id}")
 
     # ==================================================================
     # ROOM ENTRY / HISTORY

@@ -1,4 +1,10 @@
-/* @language JSX  @updated 2026-08-31  @changed New page: the professor's class results for a manager
+/* @language JSX  @updated 2026-09-07  @changed "Group by group" rebuilt as one continuous roster (Group /
+   Name / Role / Individual decision / Group decision) instead of a boxed mini-table per room: `rowSpan`
+   merges the Group and Group-decision cells down each group's row block (a professor asked for exactly this
+   shape — the layout they'd get pasting the data into a spreadsheet by hand), styled as an app table rather
+   than a literal grid — alternating soft tint per GROUP (not per row), a rounded `GroupDecisionBadge`
+   carrying the right/wrong verdict as color, initials `Avatar` per student, and a blank spacer `<tr>`
+   marking the boundary between groups. Prior: New page: the professor's class results for a manager
    exercise — every group's answer, every student's own private pick and which case file they held,
    plus class-wide percentages. It exists because the `investigation` template deliberately never
    tells a room whether it was right; this is where that conversation happens instead. */
@@ -43,6 +49,40 @@ const Stat = ({ label, value, sub }) => (
     {sub && <p className="mt-1 text-xs text-gray-500">{sub}</p>}
   </div>
 );
+
+// A student's initial in a soft circle, so the "Group by group" table reads
+// like a roster rather than a plain column of text.
+const initials = (name) => (name || '?').trim().charAt(0).toUpperCase();
+const Avatar = ({ name }) => (
+  <span className="shrink-0 w-7 h-7 rounded-full bg-[#F9D0C4]/50 text-[#C2410C] text-[11px] font-bold flex items-center justify-center">
+    {initials(name)}
+  </span>
+);
+
+// The one thing a group ends on, styled as a single badge rather than a bare
+// name: color carries the verdict (right/wrong against the pack's answer key,
+// or neutral when there is none to check against — the `investigation`
+// template never reveals one in the room), and an in-progress room says so
+// underneath instead of implying a decision that hasn't happened yet.
+const GroupDecisionBadge = ({ choice, correct, phase }) => {
+  const tone = correct === true
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : correct === false
+      ? 'bg-[#F9D0C4]/40 text-[#C2410C] border-[#FA6C43]/30'
+      : 'bg-gray-100 text-gray-700 border-gray-200';
+  return (
+    <div className="inline-flex flex-col items-center gap-1.5">
+      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-bold ${tone}`}>
+        {choice || '—'}
+        {correct === true && <FaCheck className="text-xs" />}
+        {correct === false && <FaTimes className="text-xs" />}
+      </span>
+      {phase !== 'done' && (
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[#C2410C]">{phase}</span>
+      )}
+    </div>
+  );
+};
 
 export default function ManagerExerciseResultsPage() {
   const { configId } = useParams();
@@ -154,59 +194,101 @@ export default function ManagerExerciseResultsPage() {
             </section>
           </div>
 
+          {/* One continuous roster rather than a boxed table per group: every
+              student, top to bottom, grouped by which room they sat in.
+              `rowSpan` merges the Group and Group-decision cells down the height
+              of their block (so the decision reads once, not once per student);
+              a soft background tint on alternating groups plus a blank spacer
+              row between them does the rest of the grouping work, without
+              drawing it as a hard spreadsheet grid. */}
           <section className="rounded-3xl border border-gray-200 bg-white overflow-hidden">
             <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 px-6 pt-6 pb-4">Group by group</h2>
             {rooms.length === 0 && <p className="px-6 pb-6 text-sm text-gray-400">No group has started this exercise yet.</p>}
-            {rooms.map((room) => (
-              <div key={room.room_id} className="border-t border-gray-100 px-6 py-5">
-                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-bold">{room.label}</span>
-                    {room.phase !== 'done' && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#C2410C]">{room.phase}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-400">{verb}</span>
-                    <span className="font-bold">{room.group_choice || '—'}</span>
-                    {room.correct === true && <FaCheck className="text-emerald-500 text-xs" />}
-                    {room.correct === false && <FaTimes className="text-[#FA6C43] text-xs" />}
-                  </div>
-                </div>
-                {/* Horizontally scrollable so a long case-file name never forces the
-                    page itself to scroll sideways. */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[440px]">
-                    <thead>
-                      <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400 text-left">
-                        <th className="pb-2 pr-4 font-bold">Student</th>
-                        <th className="pb-2 pr-4 font-bold">{investigating ? 'Case file' : 'Role'}</th>
-                        <th className="pb-2 font-bold">Picked alone</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {room.students.length === 0 && (
-                        <tr><td colSpan={3} className="py-2 text-gray-400">Nobody sat in this group.</td></tr>
-                      )}
-                      {room.students.map((st, i) => (
-                        <tr key={i} className="border-t border-gray-50">
-                          <td className="py-2 pr-4 font-semibold">{st.name || '—'}</td>
-                          <td className="py-2 pr-4 text-gray-500">{st.role || '—'}</td>
-                          <td className="py-2">
-                            <span className={st.changed ? 'font-semibold text-[#C2410C]' : 'text-gray-600'}>
-                              {st.solo_pick || 'no pick'}
-                            </span>
-                            {/* The one thing worth flagging per row: this person walked
-                                in believing something else and the group moved them. */}
-                            {st.changed && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">changed</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            {rooms.length > 0 && (
+              <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
+                <table className="w-full text-sm min-w-[600px]">
+                  <thead>
+                    <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400 text-left">
+                      <th className="px-4 pb-3 font-bold">Group</th>
+                      <th className="px-4 pb-3 font-bold">Name</th>
+                      <th className="px-4 pb-3 font-bold">{investigating ? 'Case file' : 'Role'}</th>
+                      <th className="px-4 pb-3 font-bold">Individual decision</th>
+                      <th className="px-4 pb-3 font-bold text-center">Group decision</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rooms.map((room, ri) => {
+                      // A room with nobody in it still gets one row, so the group
+                      // itself (and its "nobody sat here" state) is never silently
+                      // dropped from the roster.
+                      const rowCount = Math.max(room.students.length, 1);
+                      // Alternating tint per GROUP (not per row) is the main visual
+                      // grouping cue — the gap between groups reads as a boundary,
+                      // and the shared tint reads as "these rows belong together".
+                      const tint = ri % 2 === 1 ? 'bg-gray-50/70' : 'bg-white';
+                      return (
+                        <React.Fragment key={room.room_id}>
+                          {room.students.length === 0 ? (
+                            <tr className={tint}>
+                              <td className="px-4 py-3 rounded-l-xl">
+                                <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
+                                  {room.label}
+                                </span>
+                              </td>
+                              <td colSpan={3} className="px-4 py-3 text-gray-400 italic">Nobody sat in this group.</td>
+                              <td className="px-4 py-3 text-center rounded-r-xl">
+                                {room.phase !== 'done' && (
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#C2410C]">{room.phase}</span>
+                                )}
+                              </td>
+                            </tr>
+                          ) : room.students.map((st, i) => (
+                            <tr key={i} className={tint}>
+                              {i === 0 && (
+                                <td rowSpan={rowCount} className="px-4 py-3 align-middle rounded-l-xl">
+                                  <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
+                                    {room.label}
+                                  </span>
+                                </td>
+                              )}
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2.5">
+                                  <Avatar name={st.name} />
+                                  <span className="font-semibold text-[#222]">{st.name || '—'}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-gray-500">{st.role || '—'}</td>
+                              <td className="px-4 py-3">
+                                <span className={st.changed ? 'font-semibold text-[#C2410C]' : 'text-gray-600'}>
+                                  {st.solo_pick || 'no pick'}
+                                </span>
+                                {/* The one thing worth flagging per row: this person
+                                    walked in believing something else and the group
+                                    moved them. */}
+                                {st.changed && (
+                                  <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-[#C2410C] bg-[#F9D0C4]/40 rounded-full px-2 py-0.5">
+                                    changed
+                                  </span>
+                                )}
+                              </td>
+                              {i === 0 && (
+                                <td rowSpan={rowCount} className="px-4 py-3 text-center align-middle rounded-r-xl">
+                                  <GroupDecisionBadge choice={room.group_choice} correct={room.correct} phase={room.phase} />
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                          {/* Spacer row between groups — none after the last one. */}
+                          {ri < rooms.length - 1 && (
+                            <tr aria-hidden="true"><td colSpan={5} className="h-5" /></tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            ))}
+            )}
           </section>
         </div>
       </main>
