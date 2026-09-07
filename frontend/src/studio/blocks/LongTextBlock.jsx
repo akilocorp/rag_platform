@@ -1,14 +1,14 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   Phase 1: replaced the unused `readOnly` disabled-preview with a real `mode` prop.
-//            `mode="respond"` is now an actually-interactive input wired to `value`/`onAnswer`,
-//            used by StudioRunnerPage; `mode="edit"` (default) is unchanged, used by the builder.
+// @changed   New file: the Long Text block — config shape matches backend
+//            src/studio/blocks/long_text.py exactly (identical to short_text; only the
+//            rendering differs, a textarea instead of a single-line input).
 import React from 'react';
 import { registerBlock } from './registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
-const ShortTextBlock = ({ config, mode = 'edit', onChange, blockId, value, onAnswer, error }) => {
+const LongTextBlock = ({ config, mode = 'edit', onChange, blockId, value, onAnswer, error }) => {
   const { question = '', placeholder = '', required = false } = config || {};
 
   if (mode === 'respond') {
@@ -21,13 +21,13 @@ const ShortTextBlock = ({ config, mode = 'edit', onChange, blockId, value, onAns
         >
           {question} {required && <span style={{ color: '#FA6C43' }}>*</span>}
         </label>
-        <input
+        <textarea
           id={blockId}
-          type="text"
+          rows={4}
           value={value || ''}
           onChange={(e) => onAnswer(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 rounded-lg border text-sm"
+          className="w-full px-3 py-2 rounded-lg border text-sm resize-y"
           style={{ borderColor: error ? '#E5484D' : 'rgba(31,31,31,0.2)', fontFamily: FONT_BODY, color: '#1F1F1F' }}
         />
         {error && <p className="text-xs mt-1" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
@@ -68,6 +68,6 @@ const ShortTextBlock = ({ config, mode = 'edit', onChange, blockId, value, onAns
   );
 };
 
-registerBlock('short_text', ShortTextBlock);
+registerBlock('long_text', LongTextBlock);
 
-export default ShortTextBlock;
+export default LongTextBlock;

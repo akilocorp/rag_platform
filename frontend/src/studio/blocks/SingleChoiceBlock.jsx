@@ -1,18 +1,19 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: the Single Choice block's canvas renderer — config shape (question/
-//            options/required) matches backend src/studio/blocks/single_choice.py exactly.
+// @changed   Phase 1: replaced the unused `readOnly` disabled-preview with a real `mode` prop.
+//            `mode="respond"` is now actually-interactive radios wired to `value`/`onAnswer`,
+//            used by StudioRunnerPage; `mode="edit"` (default) is unchanged, used by the builder.
 import React from 'react';
 import { registerBlock } from './registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
-const SingleChoiceBlock = ({ config, onChange, readOnly = false }) => {
+const SingleChoiceBlock = ({ config, mode = 'edit', onChange, blockId, value, onAnswer, error }) => {
   const { question = '', options = [], required = false } = config || {};
 
-  const updateOption = (idx, value) => {
+  const updateOption = (idx, val) => {
     const next = [...options];
-    next[idx] = value;
+    next[idx] = val;
     onChange({ ...config, options: next });
   };
 
@@ -24,7 +25,7 @@ const SingleChoiceBlock = ({ config, onChange, readOnly = false }) => {
     onChange({ ...config, options: options.filter((_, i) => i !== idx) });
   };
 
-  if (readOnly) {
+  if (mode === 'respond') {
     return (
       <div className="p-4">
         <p className="text-sm font-semibold mb-3" style={{ fontFamily: FONT_BODY, color: '#1F1F1F' }}>
@@ -34,14 +35,20 @@ const SingleChoiceBlock = ({ config, onChange, readOnly = false }) => {
           {options.map((opt, idx) => (
             <label
               key={idx}
-              className="flex items-center gap-2 text-sm"
+              className="flex items-center gap-2 text-sm cursor-pointer"
               style={{ fontFamily: FONT_BODY, color: '#1F1F1F' }}
             >
-              <input type="radio" disabled name={`preview-${question}`} />
+              <input
+                type="radio"
+                name={blockId}
+                checked={value === opt}
+                onChange={() => onAnswer(opt)}
+              />
               {opt}
             </label>
           ))}
         </div>
+        {error && <p className="text-xs mt-2" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
       </div>
     );
   }

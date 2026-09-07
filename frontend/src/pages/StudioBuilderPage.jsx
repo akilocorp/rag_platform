@@ -1,11 +1,11 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   New file: the Studio canvas builder — dotted-grid canvas, bottom-center orange/white
-//            ribbon of block types (drag OR click to add, via dnd-kit), reorder placed blocks by
-//            dragging them, debounced autosave to PUT /studio/projects/:id. Phase 0 scope: single
-//            page, blocks only — no Instruments tab yet (nothing to attach until that registry
-//            exists in a later phase), no multi-page UI (the data model already supports pages;
-//            this canvas just always reads/writes pages[0] until page-tabs are built).
+// @changed   Phase 1: added Publish/unpublish + copy public-link UI, and a "Responses" link to the
+//            new results page. Publishing just PUTs status:'published' (already supported since
+//            Phase 0's save endpoint) — this is the first place the UI actually triggers it.
+//            Prior: New file: the Studio canvas builder — dotted-grid canvas, bottom-center orange/
+//            white ribbon of block types (drag OR click to add, via dnd-kit), reorder placed blocks
+//            by dragging them, debounced autosave to PUT /studio/projects/:id.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -15,7 +15,10 @@ import {
   SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FaArrowLeft, FaFont, FaDotCircle, FaTrash, FaGripVertical, FaSpinner, FaSquare } from 'react-icons/fa';
+import {
+  FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft,
+  FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
+} from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { getBlockComponent } from '../studio/blocks/registry';
 
@@ -25,7 +28,10 @@ const AUTOSAVE_DELAY_MS = 900;
 // Maps a block spec's `icon` key (from the backend catalog) to a react-icons
 // component. Falls back to a generic square so an unmapped future block type
 // still renders something in the ribbon instead of crashing.
-const RIBBON_ICONS = { text: FaFont, radio: FaDotCircle };
+const RIBBON_ICONS = {
+  text: FaFont, radio: FaDotCircle, toggle: FaToggleOn,
+  paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
+};
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
 const newBlockId = () => `blk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -85,7 +91,7 @@ const PlacedBlock = ({ block, onChange, onDelete }) => {
         </button>
         <div className="flex-1 min-w-0">
           {Component ? (
-            <Component config={block.config} onChange={onChange} />
+            <Component config={block.config} onChange={onChange} blockId={block.id} />
           ) : (
             <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
           )}
@@ -150,6 +156,8 @@ const StudioBuilderPage = () => {
   const [blockSpecs, setBlockSpecs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
+  const [publishing, setPublishing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const didMountRef = useRef(false);
   const saveTimeoutRef = useRef(null);
 
@@ -195,6 +203,35 @@ const StudioBuilderPage = () => {
     return () => clearTimeout(saveTimeoutRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
+
+  const publicLink = `${window.location.origin}/s/${projectId}`;
+
+  // Publish/unpublish is a direct PUT, not routed through the debounced
+  // autosave — a status flip should take effect immediately, not wait
+  // AUTOSAVE_DELAY_MS behind whatever edit the professor made last.
+  const handleTogglePublish = async () => {
+    const nextStatus = project.status === 'published' ? 'draft' : 'published';
+    setPublishing(true);
+    try {
+      await apiClient.put(`/studio/projects/${projectId}`, { status: nextStatus });
+      setProject((prev) => ({ ...prev, status: nextStatus }));
+    } catch (err) {
+      setSaveState('error');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(publicLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      // Clipboard permission denied or unavailable — the link is still
+      // visible in the title attribute / could be selected manually.
+    }
+  };
 
   const page = project?.pages?.[0];
   const blocks = page?.blocks || [];
@@ -286,11 +323,45 @@ const StudioBuilderPage = () => {
               style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
             />
           </div>
-          <span className="text-xs text-gray-400 font-medium">
-            {saveState === 'saving' && 'Saving…'}
-            {saveState === 'saved' && 'Saved'}
-            {saveState === 'error' && <span className="text-red-500">Couldn&rsquo;t save</span>}
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-gray-400 font-medium">
+              {saveState === 'saving' && 'Saving…'}
+              {saveState === 'saved' && 'Saved'}
+              {saveState === 'error' && <span className="text-red-500">Couldn&rsquo;t save</span>}
+            </span>
+
+            <button
+              onClick={() => navigate(`/studio/${projectId}/responses`)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700"
+            >
+              <FaChartBar size={13} />
+              Responses
+            </button>
+
+            {project.status === 'published' && (
+              <button
+                onClick={handleCopyLink}
+                title={publicLink}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+              >
+                {copied ? <FaCheck size={12} style={{ color: '#1E7A3D' }} /> : <FaLink size={12} />}
+                {copied ? 'Copied' : 'Copy link'}
+              </button>
+            )}
+
+            <button
+              onClick={handleTogglePublish}
+              disabled={publishing}
+              className="px-4 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-60"
+              style={
+                project.status === 'published'
+                  ? { backgroundColor: '#F0F0F0', color: '#6B6B6B' }
+                  : { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+              }
+            >
+              {publishing ? <FaSpinner className="animate-spin" /> : project.status === 'published' ? 'Unpublish' : 'Publish'}
+            </button>
+          </div>
         </div>
 
         <Canvas blocks={blocks} onBlockChange={handleBlockChange} onBlockDelete={handleBlockDelete} />
