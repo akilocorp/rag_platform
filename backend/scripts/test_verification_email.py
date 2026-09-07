@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-09-07
+# @changed   getfqdn patch extracted to _smtp_compat.py (was copy-pasted verbatim in this file
+#            and test_email.py). No behavior change.
 """
 Send verification email. Can be run standalone or called from registration.
 Usage:
@@ -6,19 +10,12 @@ Usage:
 """
 import sys
 import os
-import socket
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-_orig_getfqdn = socket.getfqdn
-def _safe_getfqdn(name=""):
-    try:
-        result = _orig_getfqdn(name)
-        result.encode("ascii")
-        return result
-    except (UnicodeEncodeError, AttributeError):
-        return name if name else "localhost"
-socket.getfqdn = _safe_getfqdn
+from _smtp_compat import patch_getfqdn
+patch_getfqdn()
 
 from dotenv import load_dotenv
 load_dotenv()

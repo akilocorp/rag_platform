@@ -34,6 +34,7 @@ from src.utils.s3_client import (
     generate_download_url,
     upload_file as s3_upload,
 )
+from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
 from src.utils.vector_stores.store_vector_stores import (
     CLAUDE_BATCH_PAGE_THRESHOLD,
     _extract_pdf_text_via_claude,
@@ -102,12 +103,8 @@ logger = logging.getLogger(__name__)
 user_files_bp = Blueprint('user_files_routes', __name__)
 
 TMP_UPLOAD_DIR = "uploads/user_tmp"
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'docx', 'pptx'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-
-
-def _allowed(filename: str) -> bool:
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+_allowed = allowed_file
 
 
 def _normalize_path(path):

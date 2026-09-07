@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-03
-# @changed   Accounts opened by an admin carry a one-time password: login flags it, tokens carry the
+# @updated   2026-09-07
+# @changed   register() and student_register() were near-identical (dup-check, hash, create-unverified,
+#            email-token) — collapsed the shared middle into _register_new_user(); each route keeps its
+#            own role/classes/success-message. No behavior change.
+#            Prior: Accounts opened by an admin carry a one-time password: login flags it, tokens carry the
 #            claim the app-wide gate reads, and POST /auth/change-password is the only way out.
 import re
 import secrets
@@ -110,6 +113,37 @@ def send_password_reset_email(user_email, token):
 
 # --- API Routes ---
 
+def _register_new_user(email, password, username, role, classes, university):
+    """Shared flow for /register and /student-register: validate -> dup-check -> hash
+    -> create (unverified) -> email a verification token. Returns None on success, or
+    a (payload, status) tuple the caller should jsonify and return as-is on error."""
+    if not email or not password or not username:
+        return {"error": "Missing required fields"}, 400
+
+    if User.find_by_email(email):
+        return {"error": "That email is already registered."}, 409
+    if User.find_by_username(username):
+        return {"error": "That username is already taken."}, 409
+
+    password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_user = {
+        "email": email,
+        "username": username,
+        "password": password_hash,
+        "is_verified": False,
+        "role": role,
+        "classes": classes,
+        "university": university,
+    }
+    User.create(new_user)
+
+    # Token contains ONLY email, for security.
+    serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+    token = serializer.dumps(email, salt='email-confirm-salt')
+    send_verification_email(email, token)
+    return None
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """
@@ -121,39 +155,18 @@ def register():
         email = (data.get('email') or '').strip()
         password = data.get('password')
         username = (data.get('username') or '').strip()
-
-        if not email or not password or not username:
-            return jsonify({"error": "Missing required fields"}), 400
-
-        # 1. Check if user already exists
-        if User.find_by_email(email):
-            return jsonify({"error": "That email is already registered."}), 409
-        if User.find_by_username(username):
-            return jsonify({"error": "That username is already taken."}), 409
-
-        # 2. Hash Password
-        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-        
-        # 3. Create User Immediately (Unverified)
         requested_role = data.get('role', 'professor')
         role = requested_role if requested_role in ('professor', 'student') else 'professor'
-        new_user = {
-            "email": email,
-            "username": username,
-            "password": password_hash,
-            "is_verified": False,
-            "role": role,
-            "classes": [],
-            "university": (data.get('university') or '').strip() or None,
-        }
-        User.create(new_user)
 
-        # 4. Generate Token (Contains ONLY email for security)
-        serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-        token = serializer.dumps(email, salt='email-confirm-salt')
-
-        # 5. Send Email
-        send_verification_email(email, token)
+        error = _register_new_user(
+            email, password, username,
+            role=role,
+            classes=[],
+            university=(data.get('university') or '').strip() or None,
+        )
+        if error:
+            payload, status = error
+            return jsonify(payload), status
 
         return jsonify({"message": f"User '{username}' registered! Please check your email to verify."}), 201
 
@@ -170,31 +183,17 @@ def student_register():
         email = (data.get('email') or '').strip()
         password = data.get('password')
         username = (data.get('username') or '').strip()
-
-        if not email or not password or not username:
-            return jsonify({"error": "Missing required fields"}), 400
-
-        if User.find_by_email(email):
-            return jsonify({"error": "That email is already registered."}), 409
-        if User.find_by_username(username):
-            return jsonify({"error": "That username is already taken."}), 409
-
-        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
         class_code = (data.get('class_code') or '').strip().lower()
-        new_user = {
-            "email": email,
-            "username": username,
-            "password": password_hash,
-            "is_verified": False,
-            "role": "student",
-            "classes": [class_code] if class_code else [],
-            "university": (data.get('university') or '').strip() or None,
-        }
-        User.create(new_user)
 
-        serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-        token = serializer.dumps(email, salt='email-confirm-salt')
-        send_verification_email(email, token)
+        error = _register_new_user(
+            email, password, username,
+            role="student",
+            classes=[class_code] if class_code else [],
+            university=(data.get('university') or '').strip() or None,
+        )
+        if error:
+            payload, status = error
+            return jsonify(payload), status
 
         return jsonify({"message": f"Student account '{username}' registered! Please check your email to verify."}), 201
 
