@@ -1,6 +1,18 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-07
-// @changed   The "Pair the class" panel moved out to the new ManagerExerciseDashboardPage — this
+// @changed   The `investigation` template's authoring flow no longer wears hiring's clothes: page/section
+//            headers say "Investigation" not "Manager Exercise", "Candidate" becomes "Suspect"
+//            throughout, and — the real change — "The Analysis" (strengths/concerns extraction, merge
+//            review, tallied "Strongest candidate") is replaced by "The Answer": a plain
+//            `addSuspect`/`setKiller` flow that builds `case_pack` directly (roles from `role_packets`,
+//            `answer_key.best_option` set, never computed) with no AI call, because a suspect isn't
+//            scored on strengths and concerns. `student_view` is pinned to 'case' the moment
+//            investigation is picked — "filtered cards" IS the strengths/concerns extraction, which
+//            this template doesn't have. Submit validation forks the same way (no candidate_summary,
+//            no per-suspect outcome doc; requires >= 2 case files and a chosen killer instead).
+//            Backend: config_routes.py's `validate_manager_exercise` gained the matching server-side
+//            fork — the old rules were unconditional and would have rejected every one of these saves.
+// @changed   Prior: The "Pair the class" panel moved out to the new ManagerExerciseDashboardPage — this
 //            page is authoring only now, so it just links out ("Open dashboard →" beside
 //            "View class results →"). Manager Exercise (`investigation` template) keeps its
 //            "Case-reading window (minutes)" field in Group & Timing (default 30, whitelisted in
@@ -565,6 +577,62 @@ const EditConfigPage = () => {
     }));
   };
 
+  // --- Investigation-template authoring (no strengths/concerns tally) --------
+  // A suspect is a name, nothing else — there is no outcome document to upload
+  // and nothing to extract, so this bypasses uploadCaseDoc entirely. Reuses the
+  // same `candidates` field hiring writes (only `name` matters here).
+  const addSuspect = () => {
+    setConfig(prev => ({
+      ...prev,
+      manager_exercise: {
+        ...prev.manager_exercise,
+        candidates: [...(prev.manager_exercise?.candidates || []), { name: '', forecast_text: '', forecast_file_id: '' }],
+      },
+    }));
+  };
+
+  // Build the whole `case_pack` fresh from the current suspects + case files and
+  // the chosen killer, and set it in one write. Replaces hiring's AI extraction
+  // + merge-review + tally entirely: there is no sense in which a suspect has
+  // strengths, so the pack here carries only what `resolve_collective`/the
+  // results page actually read — the roster of names, the roles the case files
+  // bind seats to, and a directly-set (never computed) answer key.
+  const setKiller = (killerName) => {
+    const me = config.manager_exercise || {};
+    const names = (me.candidates || []).map(c => (c.name || '').trim()).filter(Boolean);
+    const roles = (me.role_packets || []).map(p => (p.role || '').trim()).filter(Boolean);
+    setMgr('case_pack', {
+      case_name: config.bot_name || 'Case',
+      roles,
+      options: names.map(name => ({
+        name, per_role: {}, stated_strengths: null, stated_concerns: null,
+        distinct_strengths: 0, distinct_concerns: 0, merges: [], collapse_pairs: [],
+        outcome_verdict: name === killerName ? 'success' : 'failure',
+        outcome_summary: '', reconvene_reason: '',
+      })),
+      answer_key: { best_option: killerName || '', best_option_locked: true },
+      warnings: [],
+    });
+  };
+
+  // Keep the pack's roles/options in step with edits made AFTER a killer was
+  // already chosen (renaming a suspect, adding a case file) — without this the
+  // saved pack would silently drift from what the form shows. Only resyncs once
+  // an answer exists; before that there is nothing to keep in sync.
+  useEffect(() => {
+    const me = config.manager_exercise || {};
+    if (config.bot_type !== 'manager_exercise' || (me.template || 'hiring') !== 'investigation') return;
+    const killer = me.case_pack?.answer_key?.best_option;
+    if (!killer) return;
+    setKiller(killer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    config.bot_type,
+    config.manager_exercise?.template,
+    JSON.stringify((config.manager_exercise?.candidates || []).map(c => c.name)),
+    JSON.stringify((config.manager_exercise?.role_packets || []).map(p => p.role)),
+  ]);
+
   // Re-derive the case pack from the currently loaded documents. Same code path as
   // save, so what is approved here is what the facilitator will steer by.
   const analyzeCase = async () => {
@@ -665,14 +733,26 @@ const EditConfigPage = () => {
     } else if (config.bot_type === 'experiential') {
         if (!(config.experiential_config && config.experiential_config.method)) newErrors.form = 'Generate the lab from your prompt before saving.';
     } else if (config.bot_type === 'manager_exercise') {
-        // ACTR needs the candidate summary (the tally derives from it), an outcome
-        // document per candidate, and a reviewed case pack carrying the answer key.
         const me = config.manager_exercise || {};
-        const usable = (me.candidates || []).filter(c => (c.name || '').trim() && (c.forecast_text || '').trim());
-        if (!(me.general_info?.text || '').trim()) newErrors.form = 'Upload the General Information document — ACTR needs it to ask what the role requires.';
-        else if (!(me.candidate_summary?.text || '').trim()) newErrors.form = 'Upload the Candidate Summary document.';
-        else if (usable.length < 2) newErrors.form = 'Upload a named outcome document for at least two candidates.';
-        else if (!me.case_pack) newErrors.form = 'Analyse the case and review the result before saving.';
+        if ((me.template || 'hiring') === 'investigation') {
+            // No candidate summary, no per-candidate outcome doc, no AI-derived
+            // tally — case files bind the roles and the answer is set directly
+            // (setKiller), so the only things saving is gated on are those.
+            const suspectNames = (me.candidates || []).map(c => (c.name || '').trim()).filter(Boolean);
+            const caseFiles = (me.role_packets || []).filter(p => (p.role || '').trim() && (p.text || '').trim());
+            if (!(me.general_info?.text || '').trim()) newErrors.form = 'Upload the case overview — students read it as the shared premise.';
+            else if (caseFiles.length < 2) newErrors.form = 'Add at least two case files, one per confidential role.';
+            else if (suspectNames.length < 2) newErrors.form = 'Name at least two suspects.';
+            else if (!(me.case_pack?.answer_key?.best_option || '').trim()) newErrors.form = 'Choose who the killer is before saving.';
+        } else {
+            // ACTR needs the candidate summary (the tally derives from it), an outcome
+            // document per candidate, and a reviewed case pack carrying the answer key.
+            const usable = (me.candidates || []).filter(c => (c.name || '').trim() && (c.forecast_text || '').trim());
+            if (!(me.general_info?.text || '').trim()) newErrors.form = 'Upload the General Information document — ACTR needs it to ask what the role requires.';
+            else if (!(me.candidate_summary?.text || '').trim()) newErrors.form = 'Upload the Candidate Summary document.';
+            else if (usable.length < 2) newErrors.form = 'Upload a named outcome document for at least two candidates.';
+            else if (!me.case_pack) newErrors.form = 'Analyse the case and review the result before saving.';
+        }
     } else {
         if (!config.instructions?.trim()) newErrors.instructions = 'Required';
     }
@@ -713,7 +793,9 @@ const EditConfigPage = () => {
           // Satisfy backend instructions validation; the real spec lives in the
           // manager_exercise sub-object. Pin the Claude facilitator model and
           // enforce group_size == num_students (backend re-enforces).
-          configToSubmit.instructions = 'Manager Exercise: facilitated hidden-profile debrief.';
+          configToSubmit.instructions = configToSubmit.manager_exercise?.template === 'investigation'
+              ? 'Investigation: hidden-profile murder file, no debrief.'
+              : 'Manager Exercise: facilitated hidden-profile debrief.';
           configToSubmit.prompt_template = '';
           configToSubmit.model_name = 'claude-sonnet-4-6';
           configToSubmit.group_size = configToSubmit.manager_exercise?.num_students || configToSubmit.group_size;
@@ -840,7 +922,7 @@ const EditConfigPage = () => {
 
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-[#222] tracking-tight">
-            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : config.bot_type === 'manager_exercise' ? 'Manager Exercise' : 'AI Assistant'}
+            Edit {config.bot_type === 'group_chat' ? 'Group Space' : config.bot_type === 'avatar' ? 'Avatar Assistant' : config.bot_type === 'audio_call' ? 'Audio Call' : config.bot_type === 'video_analysis' ? 'Video Assignment' : config.bot_type === 'manager_exercise' ? (config.manager_exercise?.template === 'investigation' ? 'Investigation' : 'Manager Exercise') : 'AI Assistant'}
           </h1>
         </div>
 
@@ -1142,10 +1224,21 @@ const EditConfigPage = () => {
               (() => {
                 const me = config.manager_exercise || {};
                 const candidates = me.candidates || [];
+                // Which template this is — see backend/src/managers/exercise_templates.py.
+                // `investigation` runs no debrief and evaluates on a single "who did it"
+                // answer, not a pooled strengths/concerns tally, so most of the authoring
+                // flow below forks on this rather than sharing one hiring-shaped form.
+                const investigating = (me.template || 'hiring') === 'investigation';
                 return (
                   <div className="border-t border-gray-100 pt-8 mt-8">
-                    <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-1"><FaUserTie className="mr-2 text-[#FA6C43]"/> Manager Exercise</h3>
-                    <p className="text-[11px] text-gray-400 mb-6">The decision itself happens offline on printed packets. Everything below is what ACTR needs for the debrief afterwards.</p>
+                    <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center mb-1">
+                      <FaUserTie className="mr-2 text-[#FA6C43]"/> {investigating ? 'Investigation' : 'Manager Exercise'}
+                    </h3>
+                    <p className="text-[11px] text-gray-400 mb-6">
+                      {investigating
+                        ? "The group names one person, and there's no debrief — everything below is what ACTR needs to run the room and what the results page reads the answer against."
+                        : 'The decision itself happens offline on printed packets. Everything below is what ACTR needs for the debrief afterwards.'}
+                    </p>
 
                     {/* Test run. Sits at the top of the section because it is the
                         answer to "is any of this any good", and reading one run
@@ -1222,7 +1315,9 @@ const EditConfigPage = () => {
                                 className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
                               >
                                 <span className="text-[11px] font-semibold text-gray-700 truncate">
-                                  {r.chosen_candidate ? `Hired ${r.chosen_candidate}` : 'No hire recorded'}
+                                  {r.chosen_candidate
+                                    ? (investigating ? `Named ${r.chosen_candidate}` : `Hired ${r.chosen_candidate}`)
+                                    : (investigating ? 'No answer recorded' : 'No hire recorded')}
                                   <span className="text-gray-400 font-normal"> · {r.messages} messages</span>
                                 </span>
                                 <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide ${
@@ -1378,13 +1473,19 @@ const EditConfigPage = () => {
                     {/* AI-only reference documents. Never shown to a student — the
                         candidate summary states every role's private view. */}
                     <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Case Materials</h4>
-                    <p className="text-[11px] text-gray-400 mb-3">ACTR-only. Replacing any document clears the analysis below, so the tally can never describe files that are no longer loaded.</p>
-                    {[
-                      { field: 'general_info', label: 'General Information', required: true,
-                        hint: 'What the role requires. ACTR uses it to ask what outcome each candidate would produce, and whether that is what the job needed.' },
-                      { field: 'candidate_summary', label: 'Candidate Summary', required: true,
-                        hint: "Every role's private view, side by side. The pooled tally derives from this." },
-                    ].map(slot => {
+                    <p className="text-[11px] text-gray-400 mb-3">
+                      {investigating
+                        ? 'ACTR-only. This is the shared premise every student reads regardless of role — not a summary to extract from, so replacing it never touches the answer below.'
+                        : 'ACTR-only. Replacing any document clears the analysis below, so the tally can never describe files that are no longer loaded.'}
+                    </p>
+                    {(investigating
+                      ? [{ field: 'general_info', label: 'Case Overview', required: true,
+                           hint: 'The shared narrative every student reads, whichever case file they hold — sets the scene without giving away who did it.' }]
+                      : [{ field: 'general_info', label: 'General Information', required: true,
+                           hint: 'What the role requires. ACTR uses it to ask what outcome each candidate would produce, and whether that is what the job needed.' },
+                         { field: 'candidate_summary', label: 'Candidate Summary', required: true,
+                           hint: "Every role's private view, side by side. The pooled tally derives from this." }]
+                    ).map(slot => {
                       const doc = me[slot.field] || {};
                       const filled = (doc.text || '').trim().length > 0;
                       return (
@@ -1406,24 +1507,49 @@ const EditConfigPage = () => {
                       );
                     })}
 
-                    {/* One outcome document per candidate, revealed on pick. */}
-                    <div className="flex items-center justify-between mb-2 mt-5">
-                      <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidate Outcomes</h4>
-                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">{candidates.length} uploaded</span>
-                    </div>
-                    <div className="space-y-2 mb-3">
-                      {candidates.map((cand, idx) => (
-                        <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
-                          <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
-                          <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(cand.forecast_text || '').trim().length.toLocaleString()} chars</span>
-                          <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                    {investigating ? (
+                      // No outcome document — there's nothing to reveal, so nothing to
+                      // upload. A suspect is a name; the killer is chosen further down,
+                      // once the case files below give the answer somewhere to point.
+                      <>
+                        <div className="flex items-center justify-between mb-2 mt-5">
+                          <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Suspects</h4>
+                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">{candidates.length} named</span>
                         </div>
-                      ))}
-                    </div>
-                    <label className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
-                      <FaPlus className="mr-2" /> Add a candidate outcome
-                      <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
-                    </label>
+                        <div className="space-y-2 mb-3">
+                          {candidates.map((cand, idx) => (
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                              <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Suspect name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                              <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                            </div>
+                          ))}
+                        </div>
+                        <button type="button" onClick={addSuspect} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                          <FaPlus className="mr-2" /> Add a suspect
+                        </button>
+                      </>
+                    ) : (
+                      // One outcome document per candidate, revealed on pick.
+                      <>
+                        <div className="flex items-center justify-between mb-2 mt-5">
+                          <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Candidate Outcomes</h4>
+                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">{candidates.length} uploaded</span>
+                        </div>
+                        <div className="space-y-2 mb-3">
+                          {candidates.map((cand, idx) => (
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                              <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                              <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(cand.forecast_text || '').trim().length.toLocaleString()} chars</span>
+                              <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
+                            </div>
+                          ))}
+                        </div>
+                        <label className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                          <FaPlus className="mr-2" /> Add a candidate outcome
+                          <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
+                        </label>
+                      </>
+                    )}
 
                     {/* M10: how a student reads their own confidential material, and
                         the per-role packets that make the `case` option possible. */}
@@ -1442,7 +1568,18 @@ const EditConfigPage = () => {
                             <button
                               key={opt.key}
                               type="button"
-                              onClick={() => setMgr('template', opt.key)}
+                              onClick={() => setConfig(prev => ({
+                                ...prev,
+                                // Investigation always reads as a case document — pinned
+                                // here rather than left to default, so switching template
+                                // never leaves 'cards' selected pointing at a strengths/
+                                // concerns tally that template no longer computes.
+                                manager_exercise: {
+                                  ...prev.manager_exercise,
+                                  template: opt.key,
+                                  ...(opt.key === 'investigation' ? { student_view: 'case' } : {}),
+                                },
+                              }))}
                               className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
                                 active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
                               }`}
@@ -1453,46 +1590,55 @@ const EditConfigPage = () => {
                           );
                         })}
                       </div>
-                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> What each student reads</h3>
-                      <div className="grid sm:grid-cols-2 gap-2 mb-3">
-                        {[
-                          { key: 'cards', title: 'Filtered cards', hint: "A card per candidate showing that role's strengths and concerns, pulled out of the Candidate Summary. Nothing extra to upload." },
-                          { key: 'case', title: 'Their own case', hint: 'Each role reads the full packet you upload below, as a case document. Closer to running it on paper.' },
-                        ].map((opt) => {
-                          const active = (me.student_view || 'cards') === opt.key;
-                          return (
-                            <button
-                              key={opt.key}
-                              type="button"
-                              onClick={() => setMgr('student_view', opt.key)}
-                              className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
-                                active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
-                              }`}
-                            >
-                              <span className="block text-sm font-bold text-[#222] mb-1">{opt.title}</span>
-                              <span className="block text-[11px] leading-snug text-gray-500">{opt.hint}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> {investigating ? 'Case files' : 'What each student reads'}</h3>
 
-                      {(me.student_view || 'cards') === 'case' && (
+                      {/* Investigation always reads as a case document — "filtered cards"
+                          is the strengths/concerns extraction, and there is no sense in
+                          which a suspect has strengths, so that mode is simply not offered
+                          here. `student_view` is pinned to 'case' the moment the template
+                          is picked (see the template buttons above). */}
+                      {!investigating && (
+                        <div className="grid sm:grid-cols-2 gap-2 mb-3">
+                          {[
+                            { key: 'cards', title: 'Filtered cards', hint: "A card per candidate showing that role's strengths and concerns, pulled out of the Candidate Summary. Nothing extra to upload." },
+                            { key: 'case', title: 'Their own case', hint: 'Each role reads the full packet you upload below, as a case document. Closer to running it on paper.' },
+                          ].map((opt) => {
+                            const active = (me.student_view || 'cards') === opt.key;
+                            return (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                onClick={() => setMgr('student_view', opt.key)}
+                                className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                                  active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
+                                }`}
+                              >
+                                <span className="block text-sm font-bold text-[#222] mb-1">{opt.title}</span>
+                                <span className="block text-[11px] leading-snug text-gray-500">{opt.hint}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {(investigating || (me.student_view || 'cards') === 'case') && (
                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                           <p className="text-[11px] text-gray-400 mb-3">
-                            One packet per confidential role. The role name is read from the document header —
-                            it must match the role in the case pack, or that student falls back to cards.
+                            {investigating
+                              ? "One case file per confidential role — the split version of the file that seat reads. Bind at least two, one per role students can hold; the killer question below only offers names once these are filled in."
+                              : "One packet per confidential role. The role name is read from the document header — it must match the role in the case pack, or that student falls back to cards."}
                           </p>
                           <div className="space-y-2 mb-3">
                             {(me.role_packets || []).map((p, idx) => (
                               <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
-                                <input type="text" value={p.role} onChange={(e) => setRolePacketRole(idx, e.target.value)} placeholder="Role (e.g. Logistics)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
+                                <input type="text" value={p.role} onChange={(e) => setRolePacketRole(idx, e.target.value)} placeholder={investigating ? 'e.g. Case File 1' : 'Role (e.g. Logistics)'} className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                                 <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(p.text || '').trim().length.toLocaleString()} chars</span>
                                 <button type="button" onClick={() => removeRolePacket(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
                               </div>
                             ))}
                           </div>
                           <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
-                            <FaPlus className="mr-2" /> Add a role packet
+                            <FaPlus className="mr-2" /> {investigating ? 'Add a case file' : 'Add a role packet'}
                             <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleRolePacketUpload(e.target.files?.[0])} />
                           </label>
                         </div>
@@ -1504,10 +1650,95 @@ const EditConfigPage = () => {
 
                     {/* The derived answer key. A wrong one is invisible once the
                         exercise is running, so saving is gated on it existing. */}
-                    <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaCheckCircle className="mr-2 text-[#FA6C43]"/> The Analysis</h4>
-                    <p className="text-[11px] text-gray-400 mb-3">Who holds what, what pools together, and which candidate the pooled evidence favours.</p>
+                    <h4 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center">
+                      <FaCheckCircle className="mr-2 text-[#FA6C43]"/> {investigating ? 'The Answer' : 'The Analysis'}
+                    </h4>
+                    <p className="text-[11px] text-gray-400 mb-3">
+                      {investigating
+                        ? "There is no tally to compute — a suspect doesn't have strengths or concerns. Set who the pooled evidence actually convicts directly; that is the answer key the results page reads."
+                        : 'Who holds what, what pools together, and which candidate the pooled evidence favours.'}
+                    </p>
 
-                    {!mePack ? (
+                    {investigating ? (
+                      // No AI extraction, no merges, no distinct-strengths tally: the
+                      // answer is a direct designation, kept in step with the suspect
+                      // list and case files by the resync effect near setKiller above.
+                      (() => {
+                        const suspectNames = candidates.map(c => (c.name || '').trim()).filter(Boolean);
+                        const readyToPick = suspectNames.length >= 2;
+                        return (
+                          <div className="space-y-4">
+                            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                              <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">
+                                Who is the killer?
+                                <InfoTip text="Set directly rather than computed — a suspect isn't scored on strengths and concerns. This is exactly what the results page checks every group's answer against." />
+                              </label>
+                              {readyToPick ? (
+                                <select
+                                  value={mePack?.answer_key?.best_option || ''}
+                                  onChange={(e) => setKiller(e.target.value)}
+                                  className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                                >
+                                  <option value="" disabled>Choose a suspect…</option>
+                                  {suspectNames.map((name, i) => <option key={i} value={name}>{name}</option>)}
+                                </select>
+                              ) : (
+                                <p className="text-sm text-gray-400">Name at least two suspects above first.</p>
+                              )}
+                              {mePack?.answer_key?.best_option && (
+                                <p className="text-[11px] font-semibold text-[#C2410C] mt-2">
+                                  Locked as the answer — never told to a room, only read on the results page.
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Same reuse mechanism hiring gets — the case (case files,
+                                suspects, this answer) is cohort-independent. */}
+                            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                              <label className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 mb-2">Save this case for reuse<InfoTip text="Stores the case files, suspects and this answer under a name. A new class can start from it and only needs a group size, breakout rooms and a class code. Saving under an existing name replaces it." /></label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={presetName}
+                                  onChange={(e) => setPresetName(e.target.value)}
+                                  placeholder="e.g. The Case of Robert Guion"
+                                  className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={saveCasePreset}
+                                  disabled={presetBusy || !presetName.trim() || !mePack}
+                                  className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                                >
+                                  {presetBusy ? 'Saving…' : 'Save case'}
+                                </button>
+                              </div>
+                              <div className="mt-3 flex gap-2">
+                                {[
+                                  { key: 'public', label: 'Shared', hint: 'Anyone building a class can use it' },
+                                  { key: 'private', label: 'Private', hint: 'Only you can see it' },
+                                ].map(v => (
+                                  <button
+                                    key={v.key}
+                                    type="button"
+                                    onClick={() => setPresetVisibility(v.key)}
+                                    className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                      presetVisibility === v.key
+                                        ? 'border-[#FA6C43] bg-[#FA6C43]/5'
+                                        : 'border-gray-200 bg-white hover:border-gray-300'
+                                    }`}
+                                  >
+                                    <div className="text-xs font-bold text-[#222]">{v.label}</div>
+                                    <div className="text-[10px] text-gray-500">{v.hint}</div>
+                                  </button>
+                                ))}
+                              </div>
+                              {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : !mePack ? (
                       <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 text-center">
                         <p className="text-sm text-gray-500 mb-4">Not analysed yet.</p>
                         <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95">
