@@ -1,6 +1,14 @@
 # @language  Python
 # @updated   2026-09-07
-# @changed   ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
+# @changed   validate_manager_exercise: the `investigation` template skips the per-candidate outcome
+#            document, the candidate_summary requirement, and the AI extraction fallback entirely — a
+#            suspect isn't scored on strengths/concerns, so its `case_pack` must arrive with
+#            `answer_key.best_option` already set (the frontend's `setKiller` builds it client-side)
+#            rather than falling through to `build_case_pack`, which reads a summary this template
+#            never collects. Requires >= 2 `role_packets` (case files) for that template. `template`
+#            is now computed before the candidate loop so both branches can read it. Shared by both
+#            config_routes.py and edit_config_routes.py (the latter calls this function directly).
+#            Prior: ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
 #            copy — same list was byte-identical in edit_config_routes.py and user_files.py.
 #            Prior: New Claude bots default the facilitator ON (opt-out kept): _default_facilitator_raw seeds an
 #            enabled block on create when the payload omits one and the model is Claude.
@@ -222,7 +230,20 @@ def validate_manager_exercise(source, target):
     if debrief_minutes <= 0:
         debrief_minutes = discuss_minutes
 
-    # Candidate roster — each entry carries the outcome document revealed on pick.
+    # Which exercise this is: the flow (does it reveal an outcome? does it debrief?)
+    # and the words the student screens use. Normalized rather than validated — an
+    # unknown template falls back to `hiring`, which is what every config authored
+    # before templates existed already runs. Computed early because it decides the
+    # shape of almost everything below it: a suspect isn't scored on strengths and
+    # concerns, so `investigation` skips the outcome-document / candidate-summary /
+    # AI-extraction requirements entirely and reads its answer straight off a
+    # professor-set `case_pack.answer_key.best_option` instead.
+    template = exercise_templates.normalize(raw.get('template'))
+    investigating = template == "investigation"
+
+    # Candidate/suspect roster. Hiring's entries each carry the outcome document
+    # revealed on pick; investigation's carry only a name — nothing is ever
+    # revealed to a room, so there is nothing to require a document for.
     raw_candidates = raw.get('candidates')
     if not isinstance(raw_candidates, list) or not raw_candidates:
         return jsonify({"error": "manager_exercise.candidates must be a non-empty list"}), 400
@@ -235,23 +256,17 @@ def validate_manager_exercise(source, target):
         if not name:
             return jsonify({"error": "each candidate must have a non-empty name"}), 400
         if name in seen_names:
-            return jsonify({"error": f"duplicate candidate name '{name}'"}), 400
+            return jsonify({"error": f"duplicate name '{name}'"}), 400
         seen_names.add(name)
         forecast_text = c.get('forecast_text')
         forecast_file_id = c.get('forecast_file_id')
-        if not isinstance(forecast_text, str) or not forecast_text.strip():
+        if not investigating and (not isinstance(forecast_text, str) or not forecast_text.strip()):
             return jsonify({"error": f"candidate '{name}' needs an uploaded outcome document"}), 400
         candidates.append({
             "name": name,
-            "forecast_text": forecast_text,
+            "forecast_text": forecast_text if isinstance(forecast_text, str) else "",
             "forecast_file_id": forecast_file_id.strip() if isinstance(forecast_file_id, str) else "",
         })
-
-    # Which exercise this is: the flow (does it reveal an outcome? does it debrief?)
-    # and the words the student screens use. Normalized rather than validated — an
-    # unknown template falls back to `hiring`, which is what every config authored
-    # before templates existed already runs.
-    template = exercise_templates.normalize(raw.get('template'))
 
     # M10: how a student reads their own confidential material in round 0.
     #   'cards' — the extracted per-role strengths/concerns as a card deck (default,
@@ -296,6 +311,13 @@ def validate_manager_exercise(source, target):
     if len(candidates) < 2:
         return jsonify({"error": "manager_exercise needs at least 2 candidates to choose between"}), 400
 
+    # Investigation binds each seat to a case file via `role_packets`, not the
+    # extracted `case_pack.roles` hiring gets from the candidate summary — with no
+    # extraction step for this template, at least two are required up front, or a
+    # class would run with nobody assigned a confidential role at all.
+    if investigating and len(role_packets) < 2:
+        return jsonify({"error": "manager_exercise needs at least 2 case files (one per confidential role) for the investigation template"}), 400
+
     # AI-only reference documents. Never sent to a student client — the candidate
     # summary states each role's private view and (in most authored cases) the
     # pooled totals, i.e. the answer key in plain text.
@@ -303,15 +325,18 @@ def validate_manager_exercise(source, target):
     # general_info does a different job from the summary: it is what the ROLE
     # requires, which is what a candidate's pooled picture gets tested against.
     # Without it the exercise degenerates into counting items, so it is required.
-    # Students already hold it on paper.
+    # Students already hold it on paper. Investigation reuses the same field for a
+    # different job — the shared premise every case file's holder reads — but it
+    # is required there too, for the same reason: it is what `general_info` in the
+    # snapshot's premise screen comes from either way.
     general_info = _me_doc_ref(raw, 'general_info')
     candidate_summary = _me_doc_ref(raw, 'candidate_summary')
-    if not candidate_summary["text"].strip():
+    # Investigation has no candidate-summary extraction step — there is no sense in
+    # which a suspect has strengths — so this is hiring-only.
+    if not investigating and not candidate_summary["text"].strip():
         return jsonify({"error": "manager_exercise.candidate_summary is required (upload the Candidate Summary document)"}), 400
-    # Required, because without it the facilitator has nothing to test a candidate
-    # against and the session collapses into counting items.
     if not general_info["text"].strip():
-        return jsonify({"error": "manager_exercise.general_info is required (upload the General Information document)"}), 400
+        return jsonify({"error": "manager_exercise.general_info is required (upload the General Information / case overview document)"}), 400
 
     class_preset = (raw.get('class_preset') or '').strip()
     learning_outcome = raw.get('learning_outcome')
@@ -330,8 +355,18 @@ def validate_manager_exercise(source, target):
     # Case pack: reuse a professor-reviewed pack if the client round-tripped one,
     # otherwise extract it from the uploaded documents. Tallies are recomputed
     # either way so a hand-edited pack can never disagree with its own items.
+    #
+    # Investigation has no extraction fallback — `build_case_pack` reads the
+    # candidate summary for strengths/concerns, which this template never
+    # collects — so the client (see EditConfigPage's `setKiller`) must round-trip
+    # a pack whose `answer_key.best_option` is already set; there is nothing to
+    # derive one from server-side.
     supplied = raw.get('case_pack')
-    if isinstance(supplied, dict) and supplied.get('options'):
+    if investigating:
+        if not (isinstance(supplied, dict) and (supplied.get('answer_key') or {}).get('best_option')):
+            return jsonify({"error": "manager_exercise.case_pack.answer_key.best_option is required (choose who the killer is)"}), 400
+        pack = case_pack.recompute(supplied)
+    elif isinstance(supplied, dict) and supplied.get('options'):
         pack = case_pack.recompute(supplied)
     else:
         pack, err = case_pack.build_case_pack(

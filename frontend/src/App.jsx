@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-09-07  @changed Added the professor-only /manager-exercise/:configId/dashboard route (live-class control panel: pairing for the investigation template, the breakout-room monitor for hiring). Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
+/* @language JSX  @updated 2026-09-07  @changed Merge: Studio Phase 1 routes (added /studio/:projectId/responses and the public /s/:projectId respondent form) alongside the professor-only /manager-exercise/:configId/dashboard route (live-class control panel: pairing for the investigation template, the breakout-room monitor for hiring). Prior: Added /studio and /studio/:projectId (Studio, the new faculty research-project builder), professor-only. Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -13,6 +13,10 @@ import LoginPage from './pages/LoginPage';
 import ConfigPage from './pages/ConfigPage';
 import ChatPage from './pages/ChatPage';
 import ConfigList from './pages/ConfigList';
+import StudioListPage from './pages/StudioListPage';
+import StudioBuilderPage from './pages/StudioBuilderPage';
+import StudioResponsesPage from './pages/StudioResponsesPage';
+import StudioRunnerPage from './pages/StudioRunnerPage';
 import EmailVerificationPage from './pages/EmailVerification';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -111,6 +115,10 @@ function App() {
           {/* Join link — public, redirects to register/login with class code */}
           <Route path="/join/:classCode" element={<JoinPage />} />
 
+          {/* Studio's public respondent form — no auth, mirrors the public/anonymous chat
+              pattern. Backend only ever serves a project here if status === 'published'. */}
+          <Route path="/s/:projectId" element={<StudioRunnerPage />} />
+
           {/* Student dashboard — requires login */}
           <Route element={<ProtectedRoute />}>
             <Route path="/student-dashboard" element={<StudentDashboardPage />} />
@@ -120,6 +128,9 @@ function App() {
           {/* Protected Routes - Professor only */}
           <Route element={<ProfessorRoute />}>
             <Route path="/config_list" element={<ConfigList />} />
+            <Route path="/studio" element={<StudioListPage />} />
+            <Route path="/studio/:projectId" element={<StudioBuilderPage />} />
+            <Route path="/studio/:projectId/responses" element={<StudioResponsesPage />} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/edit-config" element={<EditConfigPage />} />
             <Route path="/responses/:configId" element={<ResponsesPage />} />

@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-08-12
-# @changed   Registered the syllabus advisor blueprint (`/api/advisor/*`).
+# @updated   2026-09-07
+# @changed   Registered the Studio blueprint (`/api/studio/*`) — the new faculty research-project builder.
+#            Prior: Registered the syllabus advisor blueprint (`/api/advisor/*`).
 #            Prior: app-wide gate: an account still holding an admin-issued one-time password can
 #            reach nothing but the change-password screen.
 # v2026-05-20
@@ -44,6 +45,7 @@ from routes.experiential_routes import experiential_bp
 from routes.define_routes import define_bp
 from routes.advisor_routes import advisor_bp
 from routes.manager_exercise_routes import manager_exercise_bp
+from routes.studio_routes import studio_bp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -117,6 +119,7 @@ def create_app():
     app.register_blueprint(define_bp, url_prefix='/api')
     app.register_blueprint(advisor_bp, url_prefix='/api')
     app.register_blueprint(manager_exercise_bp, url_prefix='/api')
+    app.register_blueprint(studio_bp, url_prefix='/api')
 
     register_socket_events(socketio, app)
 
