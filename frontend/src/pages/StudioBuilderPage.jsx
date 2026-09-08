@@ -1,6 +1,11 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Micro-animation pass: placed blocks now animate-chip-in on an OUTER wrapper (not the
+// @changed   Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
+//            instruments now registered (11 landing in overflow) the list ran off the bottom of the
+//            viewport with no way to scroll to the rest. Now top-1/2 -translate-y-1/2 anchored
+//            (centers on the rail instead of growing from its top edge) with max-h-[min(70vh,26rem)]
+//            overflow-y-auto. Same fix applied to the Conditions popover's chip list (max-h-40).
+//            Prior: Micro-animation pass: placed blocks now animate-chip-in on an OUTER wrapper (not the
 //            dnd-kit-controlled div itself — that one's `transform` is continuously overwritten
 //            during drag, and a CSS animation with fill-mode:both on the same property would fight
 //            it once the entrance animation completes); instrument badges chip-in on attach; the
@@ -623,7 +628,7 @@ const StudioBuilderPage = () => {
                     Respondents are round-robin assigned one of these when they submit. No effect on
                     what they see yet — for briefing sections differently, or filtering results.
                   </p>
-                  <div className="flex flex-col gap-1 mb-2">
+                  <div className="flex flex-col gap-1 mb-2 max-h-40 overflow-y-auto">
                     {(project.conditions || []).map((c, idx) => (
                       <div key={idx} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#F7F8FA] text-sm" style={{ color: '#1F1F1F' }}>
                         <span className="flex-1 truncate">{c}</span>
@@ -770,7 +775,7 @@ const StudioBuilderPage = () => {
 
                   {overflowOpen && overflow.length > 0 && (
                     <div
-                      className="absolute left-full top-0 ml-2 w-52 rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-chip-in"
+                      className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-52 max-h-[min(70vh,26rem)] overflow-y-auto rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-chip-in"
                       style={{ fontFamily: FONT_BODY }}
                     >
                       {overflow.map((spec) => (
