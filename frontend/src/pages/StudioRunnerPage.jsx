@@ -1,6 +1,10 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   RespondExtra now also receives answerValue/question/projectId/blockId (previously just
+// @changed   Micro-animation pass: block cards now stagger-fade in on load (animate-chip-in +
+//            per-index delay) and pick up a soft orange border once answered; Submit gets a hover
+//            shadow; the "Thanks for your response" screen fades its lines in instead of popping in
+//            all at once.
+//            Prior: RespondExtra now also receives answerValue/question/projectId/blockId (previously just
 //            value/onChange) — needed by the Tier-3 live AI instruments (Comprehension Check, AI
 //            Devil's-Advocate, Adaptive Follow-Up), which call a new public endpoint mid-session
 //            and need to know the host block's own answer + question text + how to address the
@@ -274,9 +278,13 @@ const StudioRunnerPage = () => {
   if (submitted) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F8FA] px-6 text-center gap-3" style={{ fontFamily: FONT_BODY }}>
-        <FaCheckCircle className="text-4xl" style={{ color: '#1E7A3D' }} />
-        <h1 className="text-lg font-bold" style={{ color: '#1F1F1F' }}>Thanks for your response!</h1>
-        <p className="text-sm text-gray-500">You can close this window now.</p>
+        <FaCheckCircle className="text-4xl animate-chip-in" style={{ color: '#1E7A3D' }} />
+        <h1 className="text-lg font-bold animate-chip-in" style={{ color: '#1F1F1F', animationDelay: '120ms' }}>
+          Thanks for your response!
+        </h1>
+        <p className="text-sm text-gray-500 animate-chip-in" style={{ animationDelay: '200ms' }}>
+          You can close this window now.
+        </p>
       </div>
     );
   }
@@ -290,14 +298,22 @@ const StudioRunnerPage = () => {
         </div>
 
         <div className="flex flex-col gap-4">
-          {blocks.map((block) => {
+          {blocks.map((block, idx) => {
             const Component = getBlockComponent(block.type);
             if (!Component) return null;
 
             const effectiveConfig = applyBehaviorInstruments(block, respondentId, answers);
+            const isAnswered = answers[block.id] !== undefined && answers[block.id] !== null
+              && !(typeof answers[block.id] === 'string' && !answers[block.id].trim());
 
             return (
-              <div key={block.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div
+                key={block.id}
+                className={`bg-white rounded-2xl border shadow-sm animate-chip-in transition-colors duration-300 ${
+                  isAnswered ? 'border-[#FA6C43]/25' : 'border-gray-200'
+                }`}
+                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}
+              >
                 <Component
                   config={effectiveConfig}
                   mode="respond"
@@ -333,7 +349,7 @@ const StudioRunnerPage = () => {
         <button
           onClick={handleSubmit}
           disabled={submitting || gateActive}
-          className="w-full mt-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.99] disabled:opacity-60"
+          className="w-full mt-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.99] hover:shadow-lg disabled:opacity-60 disabled:hover:shadow-none"
           style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
         >
           {submitting

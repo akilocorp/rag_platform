@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   New file: the Adaptive Follow-Up Probe instrument. Badge + a live RespondExtra — once
+// @changed   Both RespondExtra states (offer / generated question) now key-remount + animate-chip-in,
+//            same reasoning as the other two live instruments' own changes.
+//            Prior: New file: the Adaptive Follow-Up Probe instrument. Badge + a live RespondExtra — once
 //            the host block has an answer, generates a bespoke follow-up question via
 //            /ai-instrument and lets the respondent answer it inline. Captures
 //            {followup_question, followup_answer} as instrument_values; the generated question
@@ -53,23 +55,23 @@ const RespondExtra = ({ value, onChange, answerValue, projectId, blockId }) => {
 
   if (!value?.followup_question) {
     return (
-      <div className="px-4 pb-4 -mt-1">
+      <div key="offer" className="px-4 pb-4 -mt-1 animate-chip-in">
         <button
           type="button"
           onClick={requestFollowup}
           disabled={loading}
-          className="text-xs font-semibold disabled:opacity-60"
+          className="text-xs font-semibold transition-transform active:scale-95 disabled:opacity-60 disabled:active:scale-100"
           style={{ color: '#1E6B4F', fontFamily: FONT_BODY }}
         >
-          {loading ? 'Thinking…' : 'One more thing…'}
+          {loading ? <span className="animate-pulse">Thinking…</span> : 'One more thing…'}
         </button>
-        {error && <p className="text-xs mt-1" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
+        {error && <p className="text-xs mt-1 animate-chip-in" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
       </div>
     );
   }
 
   return (
-    <div className="px-4 pb-4 -mt-1">
+    <div key="followup" className="px-4 pb-4 -mt-1 animate-chip-in">
       <label className="text-xs font-medium block mb-1.5" style={{ fontFamily: FONT_BODY, color: 'rgba(31,31,31,0.6)' }}>
         {value.followup_question}
       </label>
@@ -77,7 +79,7 @@ const RespondExtra = ({ value, onChange, answerValue, projectId, blockId }) => {
         type="text"
         value={value.followup_answer || ''}
         onChange={(e) => onChange({ ...value, followup_answer: e.target.value })}
-        className="w-full px-2.5 py-1.5 rounded-md border text-sm"
+        className="w-full px-2.5 py-1.5 rounded-md border text-sm transition-shadow focus:shadow-sm"
         style={{ borderColor: 'rgba(31,31,31,0.15)', fontFamily: FONT_BODY, color: '#1F1F1F' }}
       />
     </div>

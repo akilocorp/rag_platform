@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   New file: the AI Devil's-Advocate instrument. Badge + a live RespondExtra — once the
+// @changed   Both RespondExtra states (offer / rebuttal+slider) now key-remount + animate-chip-in,
+//            same reasoning as ComprehensionCheckInstrument's own change — same root element type
+//            at the same position means React patches instead of replaying without a key change.
+//            Prior: New file: the AI Devil's-Advocate instrument. Badge + a live RespondExtra — once the
 //            host block has an answer, offers to show a counterargument; on request, calls
 //            /ai-instrument for a Claude-generated rebuttal, then captures a post-rebuttal
 //            confidence rating (same 0-100 slider UI as Confidence Slider). Captures
@@ -54,24 +57,24 @@ const RespondExtra = ({ value, onChange, answerValue, projectId, blockId }) => {
 
   if (!value?.rebuttal) {
     return (
-      <div className="px-4 pb-4 -mt-1">
+      <div key="offer" className="px-4 pb-4 -mt-1 animate-chip-in">
         <button
           type="button"
           onClick={requestRebuttal}
           disabled={loading}
-          className="text-xs font-semibold disabled:opacity-60"
+          className="text-xs font-semibold transition-transform active:scale-95 disabled:opacity-60 disabled:active:scale-100"
           style={{ color: '#B85C1E', fontFamily: FONT_BODY }}
         >
-          {loading ? 'Thinking…' : 'See a counterargument'}
+          {loading ? <span className="animate-pulse">Thinking…</span> : 'See a counterargument'}
         </button>
-        {error && <p className="text-xs mt-1" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
+        {error && <p className="text-xs mt-1 animate-chip-in" style={{ color: '#E5484D', fontFamily: FONT_BODY }}>{error}</p>}
       </div>
     );
   }
 
   const postConfidence = value.post_confidence ?? 50;
   return (
-    <div className="px-4 pb-4 -mt-1">
+    <div key="rebuttal" className="px-4 pb-4 -mt-1 animate-chip-in">
       <p className="text-xs italic mb-2" style={{ fontFamily: FONT_BODY, color: 'rgba(31,31,31,0.7)' }}>
         &ldquo;{value.rebuttal}&rdquo;
       </p>

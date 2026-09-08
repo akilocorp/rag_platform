@@ -1,6 +1,13 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   RIBBON_ICONS gained 5 more keys for the Tier-2/Tier-3 AI-native instrument batch (LLM
+// @changed   Micro-animation pass: placed blocks now animate-chip-in on an OUTER wrapper (not the
+//            dnd-kit-controlled div itself — that one's `transform` is continuously overwritten
+//            during drag, and a CSS animation with fill-mode:both on the same property would fight
+//            it once the entrance animation completes); instrument badges chip-in on attach; the
+//            empty-canvas placeholder pulses and highlights orange on drag-over instead of a flat
+//            bg-color swap; ribbon items, header buttons, and the Conditions "Add" button all pick
+//            up active:scale press feedback they didn't have before.
+//            Prior: RIBBON_ICONS gained 5 more keys for the Tier-2/Tier-3 AI-native instrument batch (LLM
 //            Rubric Grader, Cross-Answer Inconsistency, Comprehension Check, AI Devil's Advocate,
 //            Adaptive Follow-Up) — no other changes needed here, same eager-glob self-registration.
 //            Prior: RIBBON_ICONS gained 3 keys for the first AI-native instrument batch (Vocal Emotion
@@ -125,8 +132,8 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) =
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors text-white ${
-        locked ? 'opacity-70 cursor-pointer' : 'hover:bg-white/15 cursor-grab active:cursor-grabbing'
+      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-all text-white ${
+        locked ? 'opacity-70 cursor-pointer active:scale-95' : 'hover:bg-white/15 cursor-grab active:cursor-grabbing active:scale-95'
       }`}
       title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : (onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`)}
     >
@@ -187,8 +194,8 @@ const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick 
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors text-[#1F1F1F] ${
-        locked ? 'opacity-60 cursor-pointer' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing'
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-all text-[#1F1F1F] ${
+        locked ? 'opacity-60 cursor-pointer active:scale-[0.97]' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing active:scale-[0.97]'
       }`}
       title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : undefined}
     >
@@ -226,51 +233,57 @@ const PlacedBlock = ({ block, allBlocks, onChange, onDelete, onRemoveInstrument,
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm">
-      <div className="flex items-start">
-        <button
-          {...attributes}
-          {...listeners}
-          className="p-3 pt-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
-          aria-label="Drag to reorder"
-        >
-          <FaGripVertical />
-        </button>
-        <div className="flex-1 min-w-0">
-          {Component ? (
-            <Component config={block.config} onChange={onChange} blockId={block.id} />
-          ) : (
-            <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
-          )}
-          {block.instruments?.length > 0 && (
-            <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
-              {block.instruments.map((inst) => {
-                const Badge = getInstrumentBadge(inst.type);
-                const ConfigEditor = getInstrumentConfigEditor(inst.type);
-                return (
-                  <div key={inst.id} className="flex flex-wrap items-center gap-2">
-                    {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
-                    {ConfigEditor && (
-                      <ConfigEditor
-                        config={inst.config}
-                        blockConfig={block.config}
-                        allBlocks={siblingBlocks}
-                        onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+    // Entrance animation lives on this outer wrapper, not the dnd-kit-controlled
+    // div below — that one's `transform` is continuously overwritten during
+    // drag/reorder, and a CSS animation with fill-mode:both on the same
+    // property would fight it once the entrance animation completes.
+    <div className="animate-chip-in">
+      <div ref={setNodeRef} style={style} className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm">
+        <div className="flex items-start">
+          <button
+            {...attributes}
+            {...listeners}
+            className="p-3 pt-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
+            aria-label="Drag to reorder"
+          >
+            <FaGripVertical />
+          </button>
+          <div className="flex-1 min-w-0">
+            {Component ? (
+              <Component config={block.config} onChange={onChange} blockId={block.id} />
+            ) : (
+              <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
+            )}
+            {block.instruments?.length > 0 && (
+              <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
+                {block.instruments.map((inst) => {
+                  const Badge = getInstrumentBadge(inst.type);
+                  const ConfigEditor = getInstrumentConfigEditor(inst.type);
+                  return (
+                    <div key={inst.id} className="flex flex-wrap items-center gap-2 animate-chip-in">
+                      {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
+                      {ConfigEditor && (
+                        <ConfigEditor
+                          config={inst.config}
+                          blockConfig={block.config}
+                          allBlocks={siblingBlocks}
+                          onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onDelete}
+            className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90"
+            aria-label="Delete block"
+          >
+            <FaTrash size={13} />
+          </button>
         </div>
-        <button
-          onClick={onDelete}
-          className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="Delete block"
-        >
-          <FaTrash size={13} />
-        </button>
       </div>
     </div>
   );
@@ -295,10 +308,18 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
       <div className="max-w-2xl mx-auto flex flex-col gap-4 pb-40">
         {blocks.length === 0 ? (
           <div
-            className="rounded-2xl border-2 border-dashed flex items-center justify-center py-20 text-sm text-center px-6"
-            style={{ borderColor: 'rgba(31,31,31,0.15)', color: 'rgba(31,31,31,0.35)', fontFamily: FONT_BODY }}
+            className={`rounded-2xl border-2 border-dashed flex items-center justify-center py-20 text-sm text-center px-6 transition-all duration-200 ${
+              isOver ? 'scale-[1.02]' : ''
+            }`}
+            style={{
+              borderColor: isOver ? '#FA6C43' : 'rgba(31,31,31,0.15)',
+              color: isOver ? '#FA6C43' : 'rgba(31,31,31,0.35)',
+              fontFamily: FONT_BODY,
+            }}
           >
-            Drag a block from the ribbon below to get started
+            <span className={isOver ? '' : 'animate-pulse'}>
+              Drag a block from the ribbon below to get started
+            </span>
           </div>
         ) : (
           <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
@@ -578,7 +599,7 @@ const StudioBuilderPage = () => {
 
             <button
               onClick={() => navigate(`/studio/${projectId}/responses`)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700"
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-transform active:scale-95"
             >
               <FaChartBar size={13} />
               Responses
@@ -587,7 +608,7 @@ const StudioBuilderPage = () => {
             <div className="relative">
               <button
                 onClick={() => setConditionsOpen((open) => !open)}
-                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700"
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-transform active:scale-95"
               >
                 <FaUsers size={13} />
                 Conditions{project.conditions?.length > 0 ? ` (${project.conditions.length})` : ''}
@@ -625,7 +646,7 @@ const StudioBuilderPage = () => {
                     <button
                       type="button"
                       onClick={addCondition}
-                      className="px-2.5 py-1.5 rounded-md text-sm font-semibold"
+                      className="px-2.5 py-1.5 rounded-md text-sm font-semibold transition-transform active:scale-95"
                       style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
                     >
                       Add
@@ -639,9 +660,9 @@ const StudioBuilderPage = () => {
               <button
                 onClick={handleCopyLink}
                 title={publicLink}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all active:scale-95"
               >
-                {copied ? <FaCheck size={12} style={{ color: '#1E7A3D' }} /> : <FaLink size={12} />}
+                {copied ? <FaCheck size={12} className="animate-chip-in" style={{ color: '#1E7A3D' }} /> : <FaLink size={12} />}
                 {copied ? 'Copied' : 'Copy link'}
               </button>
             )}
@@ -649,7 +670,7 @@ const StudioBuilderPage = () => {
             <button
               onClick={handleTogglePublish}
               disabled={publishing}
-              className="px-4 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-60"
+              className="px-4 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 disabled:opacity-60"
               style={
                 project.status === 'published'
                   ? { backgroundColor: '#F0F0F0', color: '#6B6B6B' }
