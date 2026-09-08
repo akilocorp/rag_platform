@@ -1,6 +1,11 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   applyBehaviorInstruments now takes `answers` too, for Piped Text (prefixes a block's
+// @changed   RespondExtra now also receives answerValue/question/projectId/blockId (previously just
+//            value/onChange) — needed by the Tier-3 live AI instruments (Comprehension Check, AI
+//            Devil's-Advocate, Adaptive Follow-Up), which call a new public endpoint mid-session
+//            and need to know the host block's own answer + question text + how to address the
+//            call. Existing RespondExtra components (Confidence Slider etc.) just ignore the new props.
+//            Prior: applyBehaviorInstruments now takes `answers` too, for Piped Text (prefixes a block's
 //            question with a sibling block's live answer — a no-op until that sibling is actually
 //            answered). Embedded Data: URL query params captured once on mount and sent as
 //            `embedded_data` alongside the submission. Condition assignment needs no client change
@@ -309,6 +314,10 @@ const StudioRunnerPage = () => {
                       key={inst.id}
                       value={instrumentValues[block.id]?.[inst.type]}
                       onChange={(v) => setInstrumentValue(block.id, inst.type, v)}
+                      answerValue={answers[block.id]}
+                      question={effectiveConfig?.question}
+                      projectId={projectId}
+                      blockId={block.id}
                     />
                   );
                 })}

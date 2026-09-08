@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   RIBBON_ICONS gained 3 keys for the first AI-native instrument batch (Vocal Emotion
+// @changed   RIBBON_ICONS gained 5 more keys for the Tier-2/Tier-3 AI-native instrument batch (LLM
+//            Rubric Grader, Cross-Answer Inconsistency, Comprehension Check, AI Devil's Advocate,
+//            Adaptive Follow-Up) — no other changes needed here, same eager-glob self-registration.
+//            Prior: RIBBON_ICONS gained 3 keys for the first AI-native instrument batch (Vocal Emotion
 //            Trace, Sentiment-Drift Tracker, Hesitation Detector) — all attach only to Voice
 //            Conversation, all is_ai=True so they render locked/undraggable same as that block.
 //            Prior: Three UX fixes. Tab toggle was a rounded-full pill sized to fit "Instruments" text,
@@ -53,6 +56,7 @@ import {
   FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
   FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
   FaSmile, FaChartLine, FaCommentDots,
+  FaGraduationCap, FaNotEqual, FaQuestionCircle, FaComments, FaSearchPlus,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -74,6 +78,8 @@ const RIBBON_ICONS = {
   scale: FaBalanceScale, 'list-ol': FaListOl, coins: FaCoins,
   exchange: FaExchangeAlt, 'th-large': FaThLarge, link: FaLink,
   smile: FaSmile, 'chart-line': FaChartLine, 'comment-dots': FaCommentDots,
+  'graduation-cap': FaGraduationCap, 'not-equal': FaNotEqual,
+  'question-circle': FaQuestionCircle, comments: FaComments, 'search-plus': FaSearchPlus,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
