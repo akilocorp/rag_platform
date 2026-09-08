@@ -1,6 +1,21 @@
 # @language  Python
 # @updated   2026-09-08
-# @changed   Every hardcoded sim-student prompt (STUDENT_SYSTEM, DISCUSS_TASK, HIRE_TASK, PICK_TASK,
+# @changed   Sim students can now run on a different PROVIDER, not just a different Claude model:
+#            `_ask` dispatches on STUDENT_MODEL's prefix to `_ask_openai` ("gpt*" — LangChain's
+#            ChatOpenAI, the same pattern video/scoring.py already calls successfully) or
+#            `_ask_anthropic` (everything else, the raw Anthropic SDK as before). STUDENT_MODEL
+#            default is now "gpt-4o": two different Claude models (haiku-4-5-20251001, then
+#            sonnet-4-6) both failed silently, so this isolates whether the fault is Anthropic-side
+#            specifically. Switching back later is just the env var / default string.
+# @changed   Prior: Diagnosing every sim-student call failing silently (a stuck test run: private picks
+#            recorded, then nothing — the discuss loop only ever said why after the WHOLE discuss
+#            window timed out). Two changes: STUDENT_MODEL temporarily pinned to "claude-sonnet-4-6"
+#            (the model FACILITATOR_MODEL already uses successfully) instead of
+#            "claude-haiku-4-5-20251001", to isolate whether that model id is the fault; and the
+#            discuss loop now bails after FAIL_FAST_ATTEMPTS consecutive real failures
+#            (`speaker.last_error` set, not a plain PASS) instead of waiting out the full window, so
+#            a broken run says why within seconds instead of up to 20 minutes.
+# @changed   Prior: Every hardcoded sim-student prompt (STUDENT_SYSTEM, DISCUSS_TASK, HIRE_TASK, PICK_TASK,
 #            the misleading/recall overrides — all written for the hiring template only) moved to
 #            Mongo via the new `tester_templates.get(state.template())`, read fresh in `_system`,
 #            `task_for` (now takes `state`), and `choose` (now takes a template field name like
@@ -68,6 +83,10 @@ import random
 import re
 from typing import Callable, Dict, List, Optional
 
+from flask import current_app
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
 from src.managers import ai_manager
 from src.managers import tester_templates
 from src.utils.models import sampling_kwargs
@@ -78,9 +97,20 @@ logger = logging.getLogger(__name__)
 # transcript, since ACTR addresses people by name and the professor is reading it.
 BOT_NAMES = ["Ava", "Ben", "Cara", "Dan", "Elle", "Finn", "Gina", "Hugo"]
 
-# Students are the cheap half of the run — the expensive half is ACTR, which is
-# whatever model the professor configured. Overridable for tuning.
-STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "claude-haiku-4-5-20251001")
+# Students are normally the cheap half of the run — the expensive half is ACTR,
+# whatever model the professor configured. Temporarily switched OFF Anthropic
+# entirely, as a diagnostic: every sim-student call was failing silently first
+# on "claude-haiku-4-5-20251001", then still failing on "claude-sonnet-4-6" (the
+# model FACILITATOR_MODEL in ai_manager.py otherwise uses successfully) — the
+# discuss loop only posted why after the WHOLE discuss window timed out (see
+# `spoken == 0` below; a fail-fast bail now cuts that to seconds). "gpt-4o" is a
+# different PROVIDER on a different code path (`_ask_openai`, below) — same
+# model string `video/scoring.py` already calls successfully — so if this works
+# where two different Claude models didn't, the fault is on the Anthropic side
+# specifically (key, account, network), not this file. Revert once confirmed;
+# overridable via env either way — a "gpt*" prefix routes to OpenAI, anything
+# else to Anthropic, so switching back is just changing this string.
+STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "gpt-4o")
 STUDENT_MAX_TOKENS = 80
 
 # Seconds. These pace the room so the professor can read it, and so ACTR gets a
@@ -196,32 +226,54 @@ class SimStudent:
              max_tokens: int = STUDENT_MAX_TOKENS, temperature: float = 1.0) -> str:
         """One model call in this student's voice. '' on any failure.
 
+        Dispatches on STUDENT_MODEL's prefix: `_ask_openai` for a "gpt*" id
+        (LangChain's ChatOpenAI, the same pattern `video/scoring.py` already
+        calls successfully), `_ask_anthropic` for anything else (the raw
+        Anthropic SDK, same as every other manager-exercise call). Both raise
+        on failure rather than returning "" themselves, so this one try/except
+        is the only place `last_error` is set regardless of which provider ran.
+
         Failures are swallowed on purpose: one dead student must not abort a run the
         professor is watching, and a room that carries on a seat short is still a
         readable answer to "what does my debrief look like".
         """
-        client = ai_manager._get_client()
-        if client is None:
-            self.last_error = ai_manager.LAST_CLIENT_ERROR or "no Anthropic client"
-            return ""
+        system_text = self._system(state, others)
+        user_text = f"The conversation so far:\n{transcript}\n\n{task}"
         try:
-            msg = client.messages.create(
-                model=STUDENT_MODEL, max_tokens=max_tokens,
-                **sampling_kwargs(STUDENT_MODEL, temperature),
-                system=[{"type": "text", "text": self._system(state, others),
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user",
-                           "content": f"The conversation so far:\n{transcript}\n\n{task}"}],
-            )
+            if STUDENT_MODEL.lower().startswith("gpt"):
+                text = self._ask_openai(system_text, user_text, max_tokens, temperature)
+            else:
+                text = self._ask_anthropic(system_text, user_text, max_tokens, temperature)
         except Exception as e:  # noqa: BLE001
             self.last_error = "%s: %s" % (type(e).__name__, e)
             logger.warning("sim student %s failed: %s", self.name, e, exc_info=True)
             return ""
         self.last_error = None
-        text = ai_manager._text_from_message(msg).strip()
         # Models prefix their own name even when told not to; the client already
         # renders the sender, so it reads as a bug in the transcript.
-        return re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text).strip()
+        return re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text.strip()).strip()
+
+    @staticmethod
+    def _ask_anthropic(system_text: str, user_text: str, max_tokens: int, temperature: float) -> str:
+        client = ai_manager._get_client()
+        if client is None:
+            raise RuntimeError(ai_manager.LAST_CLIENT_ERROR or "no Anthropic client")
+        msg = client.messages.create(
+            model=STUDENT_MODEL, max_tokens=max_tokens,
+            **sampling_kwargs(STUDENT_MODEL, temperature),
+            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_text}],
+        )
+        return ai_manager._text_from_message(msg)
+
+    @staticmethod
+    def _ask_openai(system_text: str, user_text: str, max_tokens: int, temperature: float) -> str:
+        api_key = current_app.config.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        llm = ChatOpenAI(model=STUDENT_MODEL, api_key=api_key, max_tokens=max_tokens, temperature=temperature)
+        resp = llm.invoke([SystemMessage(content=system_text), HumanMessage(content=user_text)])
+        return resp.content or ""
 
     def speak(self, state, transcript: str, task: str, others: str) -> Optional[str]:
         text = self._ask(state, transcript, task, others)
@@ -347,6 +399,15 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     flow = state.flow() if hasattr(state, "flow") else {"reveal": True, "debrief": True}
     discuss_turns = DISCUSS_TURNS if flow.get("debrief") else DISCUSS_TURNS_NO_DEBRIEF
     spoken = 0
+    # If every seat's calls are failing outright (not just declining to speak),
+    # waiting out the whole discuss window to say so — up to `discuss_minutes`,
+    # which defaults to 20 — leaves a professor watching a test run stare at
+    # nothing for that long before finding out why. A run stalls on `last_error`
+    # being set, not on a plain PASS (which leaves it None), so this only cuts a
+    # run short on a genuine failure, never on students who legitimately have
+    # nothing to add yet.
+    FAIL_FAST_ATTEMPTS = max(6, len(students) * 2)
+    consecutive_failures = 0
     while spoken < discuss_turns and state.phase() == "discuss":
         msgs = messages()
         speaker = _pick_speaker(students, msgs)
@@ -355,6 +416,13 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
         if text:
             post(speaker.uid, text)
             spoken += 1
+            consecutive_failures = 0
+        elif speaker.last_error:
+            consecutive_failures += 1
+            if consecutive_failures >= FAIL_FAST_ATTEMPTS:
+                break
+        else:
+            consecutive_failures = 0  # a real PASS, not a failure
         sleep(DISCUSS_GAP)
 
     # A round 1 that produced nothing is never the room being quiet — the bots are
