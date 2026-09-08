@@ -1,6 +1,12 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Generalized the old inline `hasRandomizer` one-off into applyBehaviorInstruments(),
+// @changed   applyBehaviorInstruments now takes `answers` too, for Piped Text (prefixes a block's
+//            question with a sibling block's live answer — a no-op until that sibling is actually
+//            answered). Embedded Data: URL query params captured once on mount and sent as
+//            `embedded_data` alongside the submission. Condition assignment needs no client change
+//            — the backend assigns it at submit time from the project doc, not something this page
+//            resolves or displays.
+//            Prior: Generalized the old inline `hasRandomizer` one-off into applyBehaviorInstruments(),
 //            which chains every behavior instrument that transforms a block's own rendered config
 //            (Subset Randomizer's slice, Option Randomizer's shuffle, Instructed Response's
 //            appended sentence) before handing config to the block's Component. Order matters when
@@ -80,7 +86,7 @@ const seededShuffle = (array, seedStr) => {
 // rendered config, in a fixed order (see file header for why subset comes
 // before reorder). Instruments with no rendering effect (Attention Check,
 // Speeder Flag, ...) simply don't match any `find()` here and fall through.
-const applyBehaviorInstruments = (block, respondentId) => {
+const applyBehaviorInstruments = (block, respondentId, answers) => {
   let config = block.config;
   const instruments = block.instruments || [];
 
@@ -102,6 +108,15 @@ const applyBehaviorInstruments = (block, respondentId) => {
     config = { ...config, question: `${config.question} (${instruction})` };
   }
 
+  // A no-op until the source block actually has an answer — a respondent
+  // who reaches the piped block before answering the source one just sees
+  // the question as written, no placeholder text.
+  const pipedText = instruments.find((i) => i.type === 'piped_text');
+  const sourceAnswer = pipedText && answers[pipedText.config?.source_block_id];
+  if (pipedText && sourceAnswer && config?.question) {
+    config = { ...config, question: `"${sourceAnswer}" — ${config.question}` };
+  }
+
   return config;
 };
 
@@ -119,6 +134,10 @@ const StudioRunnerPage = () => {
   const [now, setNow] = useState(() => performance.now());
   // Lazy initializer — getRespondentId() runs once, not on every render.
   const [respondentId] = useState(getRespondentId);
+  // Embedded Data — whatever URL query params this respondent arrived with
+  // (Qualtrics-style), captured once and sent along with the submission for
+  // later segmentation. Backend sanitizes/caps it; this is just capture.
+  const [embeddedData] = useState(() => Object.fromEntries(new URLSearchParams(window.location.search)));
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +218,7 @@ const StudioRunnerPage = () => {
     try {
       await apiClient.post(`/studio/public/projects/${projectId}/responses`, {
         respondent_id: respondentId,
+        embedded_data: embeddedData,
         answers: Array.from(blockIds).map((block_id) => {
           const entry = { block_id, value: answers[block_id] };
           const blk = blocks.find((b) => b.id === block_id);
@@ -269,7 +289,7 @@ const StudioRunnerPage = () => {
             const Component = getBlockComponent(block.type);
             if (!Component) return null;
 
-            const effectiveConfig = applyBehaviorInstruments(block, respondentId);
+            const effectiveConfig = applyBehaviorInstruments(block, respondentId, answers);
 
             return (
               <div key={block.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm">

@@ -41,7 +41,7 @@ import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
   FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
   FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
-  FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge,
+  FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -61,7 +61,7 @@ const RIBBON_ICONS = {
   shuffle: FaRandom, shield: FaShieldAlt, microphone: FaMicrophone,
   'clipboard-check': FaClipboardCheck, tachometer: FaTachometerAlt, filter: FaFilter,
   scale: FaBalanceScale, 'list-ol': FaListOl, coins: FaCoins,
-  exchange: FaExchangeAlt, 'th-large': FaThLarge,
+  exchange: FaExchangeAlt, 'th-large': FaThLarge, link: FaLink,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
@@ -174,7 +174,11 @@ const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick 
 // Also a valid drop target for instrument ribbon items (dnd-kit's useSortable
 // registers a droppable under the hood, so it accepts any active draggable in
 // the same DndContext, not just other sortables).
-const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
+const PlacedBlock = ({ block, allBlocks, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
+  // Sibling blocks only — excludes self before it ever reaches an
+  // instrument's ConfigEditor, so e.g. Piped Text's "pull from…" picker
+  // can't offer a block as its own source.
+  const siblingBlocks = allBlocks.filter((b) => b.id !== block.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Component = getBlockComponent(block.type);
 
@@ -213,6 +217,7 @@ const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument, onInstrume
                       <ConfigEditor
                         config={inst.config}
                         blockConfig={block.config}
+                        allBlocks={siblingBlocks}
                         onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
                       />
                     )}
@@ -264,6 +269,7 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
               <PlacedBlock
                 key={block.id}
                 block={block}
+                allBlocks={blocks}
                 onChange={(cfg) => onBlockChange(block.id, cfg)}
                 onDelete={() => onBlockDelete(block.id)}
                 onRemoveInstrument={(instType) => onRemoveInstrument(block.id, instType)}
@@ -286,6 +292,8 @@ const StudioBuilderPage = () => {
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
   const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
   const [overflowOpen, setOverflowOpen] = useState(false); // ribbon's "…" popover
+  const [conditionsOpen, setConditionsOpen] = useState(false); // header's Conditions popover
+  const [conditionDraft, setConditionDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [publishing, setPublishing] = useState(false);
@@ -327,6 +335,7 @@ const StudioBuilderPage = () => {
         await apiClient.put(`/studio/projects/${projectId}`, {
           title: project.title,
           pages: project.pages,
+          conditions: project.conditions || [],
         });
         setSaveState('saved');
       } catch (err) {
@@ -339,6 +348,20 @@ const StudioBuilderPage = () => {
   }, [project]);
 
   const publicLink = `${window.location.origin}/s/${projectId}`;
+
+  // Counterbalancing conditions — just names; the backend round-robin assigns
+  // one per respondent at submit time (routes/studio_routes.py's
+  // _assign_condition). No conditional-rendering engine consumes this yet —
+  // it's assignment + logging only, see the Piped Text instrument's note.
+  const addCondition = () => {
+    const name = conditionDraft.trim();
+    if (!name) return;
+    setProject((prev) => ({ ...prev, conditions: [...(prev.conditions || []), name] }));
+    setConditionDraft('');
+  };
+  const removeCondition = (idx) => {
+    setProject((prev) => ({ ...prev, conditions: (prev.conditions || []).filter((_, i) => i !== idx) }));
+  };
 
   // Publish/unpublish is a direct PUT, not routed through the debounced
   // autosave — a status flip should take effect immediately, not wait
@@ -509,6 +532,57 @@ const StudioBuilderPage = () => {
               <FaChartBar size={13} />
               Responses
             </button>
+
+            <div className="relative">
+              <button
+                onClick={() => setConditionsOpen((open) => !open)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700"
+              >
+                <FaUsers size={13} />
+                Conditions{project.conditions?.length > 0 ? ` (${project.conditions.length})` : ''}
+              </button>
+
+              {conditionsOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-64 rounded-2xl shadow-xl bg-white border border-gray-100 p-3 z-30 animate-chip-in"
+                  style={{ fontFamily: FONT_BODY }}
+                >
+                  <p className="text-[11px] mb-2" style={{ color: 'rgba(31,31,31,0.5)' }}>
+                    Respondents are round-robin assigned one of these when they submit. No effect on
+                    what they see yet — for briefing sections differently, or filtering results.
+                  </p>
+                  <div className="flex flex-col gap-1 mb-2">
+                    {(project.conditions || []).map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#F7F8FA] text-sm" style={{ color: '#1F1F1F' }}>
+                        <span className="flex-1 truncate">{c}</span>
+                        <button type="button" onClick={() => removeCondition(idx)} aria-label={`Remove ${c}`}>
+                          <FaTimes size={9} style={{ color: 'rgba(31,31,31,0.4)' }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={conditionDraft}
+                      onChange={(e) => setConditionDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCondition(); } }}
+                      placeholder="Condition name…"
+                      className="flex-1 px-2 py-1.5 rounded-md border text-sm"
+                      style={{ borderColor: 'rgba(31,31,31,0.15)', color: '#1F1F1F' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCondition}
+                      className="px-2.5 py-1.5 rounded-md text-sm font-semibold"
+                      style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {project.status === 'published' && (
               <button

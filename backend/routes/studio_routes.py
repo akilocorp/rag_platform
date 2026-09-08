@@ -1,6 +1,16 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Phase 2: instruments are now real. Added GET /studio/instrument-specs (feeds the
+# @updated   2026-09-08
+# @changed   3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
+#            accepts+sanitizes a client-supplied `embedded_data` dict (URL params captured at load),
+#            stored on the response doc, surfaced as dynamic CSV columns (same discovery pattern as
+#            instrument metrics). Counterbalanced conditions: projects gain a `conditions` list
+#            (save_project); submit_response round-robin-assigns one via an atomic
+#            `$inc`/find_one_and_update on the project doc (deliberately assigned at submit time, not
+#            page-load, since there's no respondent-keyed pre-assignment need without a conditional-
+#            rendering engine yet — see the Piped Text instrument's own note on that gap). Piping:
+#            no route changes — piped_text is a normal instrument, resolved entirely client-side in
+#            StudioRunnerPage from already-loaded answers.
+# Prior: Phase 2: instruments are now real. Added GET /studio/instrument-specs (feeds the
 #            Instruments ribbon tab); _sanitize_pages validates each block's `instruments` against
 #            the registry instead of force-emptying it; the public submit endpoint accepts a
 #            per-answer `events` array (frontend-captured performance.now() timestamps); and
@@ -32,7 +42,10 @@ Owner-scoped (faculty, JWT-required):
 Public (no auth — the first anonymous-write surface Studio has):
   GET    /api/studio/public/projects/<id>            — a project's pages/blocks, ONLY if published
   POST   /api/studio/public/projects/<id>/responses  — submit one respondent's full answer set
-                                                        (each answer may carry an `events` array)
+                                                        (each answer may carry an `events` array).
+                                                        May also carry `embedded_data` (sanitized,
+                                                        capped) and gets round-robin assigned one of
+                                                        the project's `conditions`, if any.
 
 Mongo access goes through current_app.config['MONGO_DB'] (the connection set
 up once in app.py) rather than a fresh pymongo.MongoClient per call — see
@@ -50,6 +63,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from models.user import User
@@ -190,6 +204,44 @@ def _sanitize_pages(pages_in):
     return pages_out
 
 
+MAX_CONDITIONS = 10
+MAX_EMBEDDED_KEYS = 20
+MAX_EMBEDDED_KEY_LEN = 100
+MAX_EMBEDDED_VALUE_LEN = 200
+
+
+def _sanitize_conditions(conditions_in):
+    """Coerce a project's counterbalancing condition names for a save.
+
+    Not a whitelist of anything sensitive — just capped so a professor can't
+    accidentally (or a forged request can't deliberately) balloon the list
+    that submit_response round-robins over.
+    """
+    if not isinstance(conditions_in, list):
+        return []
+    cleaned = [str(c).strip() for c in conditions_in if str(c).strip()]
+    return cleaned[:MAX_CONDITIONS]
+
+
+def _sanitize_embedded_data(embedded_data_in):
+    """Coerce the client-supplied embedded-data dict on a public submission.
+
+    This is the one anonymous-write endpoint's one arbitrary-shaped input —
+    capped on key count and per-key/value length so it can't be abused as a
+    free storage sink. Every value is coerced to a string; Qualtrics-style
+    embedded data (URL query params) is string-shaped anyway.
+    """
+    if not isinstance(embedded_data_in, dict):
+        return {}
+    out = {}
+    for k, v in embedded_data_in.items():
+        key = str(k).strip()[:MAX_EMBEDDED_KEY_LEN]
+        if not key or len(out) >= MAX_EMBEDDED_KEYS:
+            continue
+        out[key] = str(v)[:MAX_EMBEDDED_VALUE_LEN]
+    return out
+
+
 def _serialize(doc):
     """Mongo doc -> JSON-safe dict (ObjectId -> str)."""
     doc = dict(doc)
@@ -299,6 +351,26 @@ def _rate_limit_ok(db, project_id):
         return False
 
 
+def _assign_condition(db, project_oid, conditions):
+    """Round-robin assign one respondent to a counterbalancing condition.
+
+    Assigned at submit time (not page-load) via an atomic `$inc` on the
+    project doc's `condition_cursor` — deliberately not respondent-keyed,
+    since there's no conditional-rendering engine yet for a pre-assigned
+    condition to change what a respondent sees before they submit. Returns
+    None if the project defines no conditions.
+    """
+    if not conditions:
+        return None
+    result = db['studio_projects'].find_one_and_update(
+        {"_id": project_oid},
+        {"$inc": {"condition_cursor": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    cursor = (result or {}).get("condition_cursor", 1) - 1
+    return conditions[cursor % len(conditions)]
+
+
 @studio_bp.route('/studio/block-specs', methods=['GET'])
 @jwt_required()
 def block_specs():
@@ -336,6 +408,8 @@ def create_project():
         "pages": [
             {"id": uuid.uuid4().hex, "title": "Page 1", "order": 0, "blocks": []}
         ],
+        "conditions": [],
+        "condition_cursor": 0,
         "created_at": now,
         "updated_at": now,
     }
@@ -391,6 +465,8 @@ def save_project(project_id):
             updates['pages'] = _sanitize_pages(body['pages'])
         except ValueError as e:
             return jsonify({"message": str(e)}), 400
+    if 'conditions' in body:
+        updates['conditions'] = _sanitize_conditions(body['conditions'])
 
     db = current_app.config['MONGO_DB']
     db['studio_projects'].update_one({"_id": doc["_id"]}, {"$set": updates})
@@ -487,13 +563,23 @@ def submit_response(project_id):
             entry["instrument_values"] = instrument_values_by_id[bid]
         answers_out.append(entry)
 
-    db['studio_responses'].insert_one({
+    response_doc = {
         "project_id": project_id,
         "respondent_id": respondent_id,
         "started_at": now,
         "submitted_at": now,
         "answers": answers_out,
-    })
+    }
+
+    embedded_data = _sanitize_embedded_data(body.get('embedded_data'))
+    if embedded_data:
+        response_doc["embedded_data"] = embedded_data
+
+    condition = _assign_condition(db, oid, project.get('conditions') or [])
+    if condition is not None:
+        response_doc["condition"] = condition
+
+    db['studio_responses'].insert_one(response_doc)
     return jsonify({"submitted": True}), 201
 
 
@@ -559,21 +645,39 @@ def export_responses_csv(project_id):
                     question = question_by_block.get(a['block_id'], a['block_id'])
                     metric_columns.append((key, f"{question} — {inst_type}:{mk}"))
 
+    # Embedded-data keys, same "discover from actual data" approach as metric
+    # columns — a project's respondents may pass different URL params over
+    # time, and there's no schema declaring them up front.
+    embedded_keys = []
+    seen_embedded_keys = set()
+    for r in responses:
+        for k in (r.get('embedded_data') or {}):
+            if k not in seen_embedded_keys:
+                seen_embedded_keys.add(k)
+                embedded_keys.append(k)
+
+    has_condition = any(r.get('condition') for r in responses)
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
         ["respondent_id", "submitted_at"]
+        + (["condition"] if has_condition else [])
         + [label for _, label in columns]
         + [label for _, label in metric_columns]
+        + [f"embedded:{k}" for k in embedded_keys]
     )
 
     for r in responses:
         answers_by_id = {a.get('block_id'): a for a in r.get('answers', [])}
         row = [r.get('respondent_id', ''), r.get('submitted_at', '')]
+        if has_condition:
+            row.append(r.get('condition', ''))
         row += [(answers_by_id.get(bid) or {}).get('value', '') for bid, _ in columns]
         for (bid, inst_type, mk), _label in metric_columns:
             a = answers_by_id.get(bid) or {}
             row.append((a.get('metrics') or {}).get(inst_type, {}).get(mk, ''))
+        row += [(r.get('embedded_data') or {}).get(k, '') for k in embedded_keys]
         writer.writerow(row)
 
     filename = f"{(doc.get('title') or 'project').replace(' ', '_')}_responses.csv"
