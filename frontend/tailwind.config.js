@@ -1,3 +1,6 @@
+// @language  JavaScript (Tailwind config)
+// @updated   2026-09-08
+// @changed   Added dropzone-pulse keyframe/animation for the chat drag-and-drop overlay's dashed border.
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -33,14 +36,19 @@ export default {
           '0%':   { transform: 'translateY(28px)', opacity: '0' },
           '100%': { transform: 'translateY(0)',    opacity: '1' },
         },
+        'dropzone-pulse': {
+          '0%, 100%': { opacity: '1',    transform: 'scale(1)' },
+          '50%':      { opacity: '0.55', transform: 'scale(1.01)' },
+        },
       },
       animation: {
-        'send-launch':  'send-launch 0.32s cubic-bezier(0.4, 0, 1, 1) forwards',
-        'chip-in':      'chip-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both',
-        'chip-pop':     'chip-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both',
-        'send-sweep':   'send-sweep 0.9s linear infinite',
-        'send-pulse':   'send-pulse 0.55s cubic-bezier(0.4, 0, 0.2, 1)',
-        'send-fly-in':  'send-fly-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'send-launch':     'send-launch 0.32s cubic-bezier(0.4, 0, 1, 1) forwards',
+        'chip-in':         'chip-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both',
+        'chip-pop':        'chip-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+        'send-sweep':      'send-sweep 0.9s linear infinite',
+        'send-pulse':      'send-pulse 0.55s cubic-bezier(0.4, 0, 0.2, 1)',
+        'send-fly-in':     'send-fly-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'dropzone-pulse':  'dropzone-pulse 1.8s ease-in-out infinite',
       },
     },
   },

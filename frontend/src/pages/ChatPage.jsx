@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-03
- * @changed   isCallMode recolored again: #1F1F1F was a dark bg meant for white text — swapped for #F8FAFC,
+ * @updated   2026-09-08
+ * @changed   Drag-and-drop overlay's dashed border now breathes via animate-dropzone-pulse instead of
+ *            sitting static while a file is dragged over the page.
+ * Prior: isCallMode recolored again: #1F1F1F was a dark bg meant for white text — swapped for #F8FAFC,
  *            the same off-white the rest of this page already uses outside call mode, and flipped the hero/
  *            transcript text from white-on-dark to #1F1F1F-on-light to match.
  *            Prior: isCallMode layout rebuilt: mic/call control on top, full-width transcript below (always
@@ -1947,7 +1949,7 @@ const ChatPage = () => {
     <div className="flex h-[100dvh] overflow-hidden bg-[#F8FAFC] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isDragging && (
         <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center px-4 animate-chip-in">
-          <div className="absolute inset-3 sm:inset-5 rounded-3xl border-2 border-dashed border-[#FA6C43] bg-[#FA6C43]/8 backdrop-blur-[2px]" />
+          <div className="absolute inset-3 sm:inset-5 rounded-3xl border-2 border-dashed border-[#FA6C43] bg-[#FA6C43]/8 backdrop-blur-[2px] animate-dropzone-pulse" />
           <div className="relative bg-white shadow-xl rounded-2xl px-7 py-6 flex flex-col items-center gap-3 border border-[#F9D0C4]">
             <div className="p-3 rounded-full bg-[#F9D0C4]/50 text-[#FA6C43] animate-bounce">
               <FiUploadCloud className="w-7 h-7" />

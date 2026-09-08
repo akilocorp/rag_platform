@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
+// @updated   2026-09-08
+// @changed   Ribbon re-docked left-side vertical, Photoshop-toolbar style: icon-only items,
+//            hover reveals the label as a flyout chip instead of a permanent under-icon caption.
+//            Prior: Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
 //            option dropdown, Read-Time Gate's seconds input), rendered inline next to the badge
 //            and wired to a new onInstrumentConfigChange handler that flows through the same
 //            autosave PUT as everything else. getInstrumentComponent -> getInstrumentBadge/
@@ -50,9 +52,12 @@ const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-// A block or instrument type's icon+label in the ribbon. `dragSource`/`dragPayload`
+// A block or instrument type's icon in the ribbon. `dragSource`/`dragPayload`
 // distinguish which kind is being dragged in handleDragEnd. Blocks are also
 // clickable (appends to the end); instruments are drag-only (see file header).
+// Icon-only by default (Photoshop toolbar style); the label is an absolutely-
+// positioned flyout that fades/slides in from the icon on hover so the rail
+// stays narrow while docked to the left edge.
 const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `ribbon-${dragSource}-${spec.type}`,
@@ -71,11 +76,16 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-white/15 transition-colors text-white cursor-grab active:cursor-grabbing"
+      className="group relative flex items-center justify-center w-11 h-11 rounded-xl hover:bg-white/15 transition-colors text-white cursor-grab active:cursor-grabbing"
       title={onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`}
     >
       <Icon className="text-lg" />
-      <span className="text-[11px] font-semibold">{spec.label}</span>
+      <span
+        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+        style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF' }}
+      >
+        {spec.label}
+      </span>
     </button>
   );
 };
@@ -452,9 +462,9 @@ const StudioBuilderPage = () => {
           onInstrumentConfigChange={handleInstrumentConfigChange}
         />
 
-        {/* Bottom-center ribbon — brand orange, white icons/labels. Blocks | Instruments tabs. */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
-          <div className="flex items-center gap-0.5 p-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
+        {/* Left-side vertical ribbon — brand orange, white icons. Blocks | Instruments tabs. */}
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-0.5 p-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
             {['blocks', 'instruments'].map((tab) => (
               <button
                 key={tab}
@@ -471,7 +481,7 @@ const StudioBuilderPage = () => {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1 px-3 py-2 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
+          <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
             {ribbonTab === 'blocks'
               ? blockSpecs.map((spec) => (
                   <RibbonItem
