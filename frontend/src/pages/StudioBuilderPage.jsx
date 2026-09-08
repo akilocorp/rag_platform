@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Three UX fixes. Tab toggle was a rounded-full pill sized to fit "Instruments" text,
+// @changed   RIBBON_ICONS gained 3 keys for the first AI-native instrument batch (Vocal Emotion
+//            Trace, Sentiment-Drift Tracker, Hesitation Detector) — all attach only to Voice
+//            Conversation, all is_ai=True so they render locked/undraggable same as that block.
+//            Prior: Three UX fixes. Tab toggle was a rounded-full pill sized to fit "Instruments" text,
 //            which made it visibly wider than the icon rail below once it went vertical — replaced
 //            with two w-11 h-11 icon buttons (matching the rail exactly) with a hover flyout label,
 //            same mechanic as RibbonItem. Instrument/block compatibility was previously invisible:
@@ -49,6 +52,7 @@ import {
   FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
   FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
   FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
+  FaSmile, FaChartLine, FaCommentDots,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -69,6 +73,7 @@ const RIBBON_ICONS = {
   'clipboard-check': FaClipboardCheck, tachometer: FaTachometerAlt, filter: FaFilter,
   scale: FaBalanceScale, 'list-ol': FaListOl, coins: FaCoins,
   exchange: FaExchangeAlt, 'th-large': FaThLarge, link: FaLink,
+  smile: FaSmile, 'chart-line': FaChartLine, 'comment-dots': FaCommentDots,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
