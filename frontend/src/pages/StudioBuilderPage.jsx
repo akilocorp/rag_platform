@@ -1,6 +1,43 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
+// @updated   2026-09-08
+// @changed   Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
+//            instruments now registered (11 landing in overflow) the list ran off the bottom of the
+//            viewport with no way to scroll to the rest. Now top-1/2 -translate-y-1/2 anchored
+//            (centers on the rail instead of growing from its top edge) with max-h-[min(70vh,26rem)]
+//            overflow-y-auto. Same fix applied to the Conditions popover's chip list (max-h-40).
+//            Prior: Micro-animation pass: placed blocks now animate-chip-in on an OUTER wrapper (not the
+//            dnd-kit-controlled div itself — that one's `transform` is continuously overwritten
+//            during drag, and a CSS animation with fill-mode:both on the same property would fight
+//            it once the entrance animation completes); instrument badges chip-in on attach; the
+//            empty-canvas placeholder pulses and highlights orange on drag-over instead of a flat
+//            bg-color swap; ribbon items, header buttons, and the Conditions "Add" button all pick
+//            up active:scale press feedback they didn't have before.
+//            Prior: RIBBON_ICONS gained 5 more keys for the Tier-2/Tier-3 AI-native instrument batch (LLM
+//            Rubric Grader, Cross-Answer Inconsistency, Comprehension Check, AI Devil's Advocate,
+//            Adaptive Follow-Up) — no other changes needed here, same eager-glob self-registration.
+//            Prior: RIBBON_ICONS gained 3 keys for the first AI-native instrument batch (Vocal Emotion
+//            Trace, Sentiment-Drift Tracker, Hesitation Detector) — all attach only to Voice
+//            Conversation, all is_ai=True so they render locked/undraggable same as that block.
+//            Prior: Three UX fixes. Tab toggle was a rounded-full pill sized to fit "Instruments" text,
+//            which made it visibly wider than the icon rail below once it went vertical — replaced
+//            with two w-11 h-11 icon buttons (matching the rail exactly) with a hover flyout label,
+//            same mechanic as RibbonItem. Instrument/block compatibility was previously invisible:
+//            attachInstrument silently no-op'd on an incompatible drop; it now shows a toast
+//            (dropError state), and the ribbon's hover flyout shows an instrument's `applies_to`
+//            restriction (via new formatBlockType helper) before you even try dragging it.
+//            Prior: RIBBON_ICONS gained 5 new keys for the Qualtrics-style block batch (Semantic
+//            Differential, Forced Rank Order, Constant Sum, MaxDiff, Card Sort) — no other changes
+//            needed here, blocks register themselves via the existing eager-glob discovery.
+//            Prior: Ribbon rail now caps at RIBBON_VISIBLE_COUNT items; the rest collapse into a "…"
+//            overflow popover (RibbonMenuItem — same drag/click/lock behavior, inline label instead
+//            of a hover flyout). Feeds the 3 new Qualtrics-inspired instruments straight into overflow.
+//            Prior: Studio-wide AI badge + visual-only paywall: any block/instrument spec with `is_ai: true`
+//            (currently just the new Voice Conversation block) renders a lock chip in the ribbon,
+//            is undraggable, and clicking it opens an upgrade nudge (upgradeSpec state) instead of
+//            adding it — no real billing/entitlement behind this yet, purely UI.
+//            Prior: Ribbon re-docked left-side vertical, Photoshop-toolbar style: icon-only items,
+//            hover reveals the label as a flyout chip instead of a permanent under-icon caption.
+//            Prior: Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
 //            option dropdown, Read-Time Gate's seconds input), rendered inline next to the badge
 //            and wired to a new onInstrumentConfigChange handler that flows through the same
 //            autosave PUT as everything else. getInstrumentComponent -> getInstrumentBadge/
@@ -16,7 +53,7 @@
 //            Prior: New file: the Studio canvas builder — dotted-grid canvas, bottom-center orange/
 //            white ribbon of block types (drag OR click to add, via dnd-kit), reorder placed blocks
 //            by dragging them, debounced autosave to PUT /studio/projects/:id.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   DndContext, useDraggable, useDroppable, closestCenter, PointerSensor, useSensor, useSensors,
@@ -27,7 +64,11 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
-  FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt,
+  FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
+  FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
+  FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
+  FaSmile, FaChartLine, FaCommentDots,
+  FaGraduationCap, FaNotEqual, FaQuestionCircle, FaComments, FaSearchPlus,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -44,38 +85,135 @@ const RIBBON_ICONS = {
   text: FaFont, radio: FaDotCircle, toggle: FaToggleOn,
   paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
   stopwatch: FaStopwatch, slider: FaSlidersH, hourglass: FaHourglassHalf,
-  shuffle: FaRandom, shield: FaShieldAlt,
+  shuffle: FaRandom, shield: FaShieldAlt, microphone: FaMicrophone,
+  'clipboard-check': FaClipboardCheck, tachometer: FaTachometerAlt, filter: FaFilter,
+  scale: FaBalanceScale, 'list-ol': FaListOl, coins: FaCoins,
+  exchange: FaExchangeAlt, 'th-large': FaThLarge, link: FaLink,
+  smile: FaSmile, 'chart-line': FaChartLine, 'comment-dots': FaCommentDots,
+  'graduation-cap': FaGraduationCap, 'not-equal': FaNotEqual,
+  'question-circle': FaQuestionCircle, comments: FaComments, 'search-plus': FaSearchPlus,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
+// How many items show directly in the rail before the rest collapse into the
+// "…" overflow popover — keeps the rail from growing past the viewport as
+// more instruments/blocks get added.
+const RIBBON_VISIBLE_COUNT = 6;
+
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-// A block or instrument type's icon+label in the ribbon. `dragSource`/`dragPayload`
+// "single_choice" -> "Single Choice" — used both in the ribbon's compatibility
+// hint and the drop-rejected toast, so an instrument's `applies_to` restriction
+// (a list of block `type` strings) reads as English in both places.
+const formatBlockType = (type) => type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+// A block or instrument type's icon in the ribbon. `dragSource`/`dragPayload`
 // distinguish which kind is being dragged in handleDragEnd. Blocks are also
 // clickable (appends to the end); instruments are drag-only (see file header).
-const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
+// Icon-only by default (Photoshop toolbar style); the label is an absolutely-
+// positioned flyout that fades/slides in from the icon on hover so the rail
+// stays narrow while docked to the left edge.
+// `spec.is_ai` items (studio-wide AI badge) render a small lock chip and are
+// not draggable — this is a visual-only paywall stub, there's no billing
+// behind it yet, so `onLockedClick` just opens an upgrade nudge instead of
+// letting the item onto the canvas.
+const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
+  const locked = !!spec.is_ai;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `ribbon-${dragSource}-${spec.type}`,
     data: { source: dragSource, ...dragPayload },
+    disabled: locked,
   });
   const Icon = iconFor(spec.icon);
   return (
     <button
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
+      {...(locked ? {} : listeners)}
+      {...(locked ? {} : attributes)}
       type="button"
-      onClick={onClick}
+      onClick={locked ? onLockedClick : onClick}
       style={{
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-white/15 transition-colors text-white cursor-grab active:cursor-grabbing"
-      title={onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`}
+      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-all text-white ${
+        locked ? 'opacity-70 cursor-pointer active:scale-95' : 'hover:bg-white/15 cursor-grab active:cursor-grabbing active:scale-95'
+      }`}
+      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : (onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`)}
     >
       <Icon className="text-lg" />
-      <span className="text-[11px] font-semibold">{spec.label}</span>
+      {locked && (
+        <span
+          className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full shadow"
+          style={{ backgroundColor: '#1F1F1F' }}
+        >
+          <FaLock size={7} className="text-white" />
+        </span>
+      )}
+      <span
+        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 flex flex-col gap-0.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+        style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF' }}
+      >
+        <span className="flex items-center gap-1.5">
+          {spec.label}
+          {locked && (
+            <span
+              className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
+              style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+            >
+              AI
+            </span>
+          )}
+        </span>
+        {spec.applies_to && (
+          <span className="text-[10px] font-normal" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            {spec.applies_to.map(formatBlockType).join(', ')} only
+          </span>
+        )}
+      </span>
+    </button>
+  );
+};
+
+// A row inside the "…" overflow popover — same drag/click/lock behavior as
+// RibbonItem, but the label renders inline (it's an open menu, not a hover
+// flyout) since there's no narrow-rail constraint inside the popover.
+const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
+  const locked = !!spec.is_ai;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `ribbon-${dragSource}-${spec.type}`,
+    data: { source: dragSource, ...dragPayload },
+    disabled: locked,
+  });
+  const Icon = iconFor(spec.icon);
+  return (
+    <button
+      ref={setNodeRef}
+      {...(locked ? {} : listeners)}
+      {...(locked ? {} : attributes)}
+      type="button"
+      onClick={locked ? onLockedClick : onClick}
+      style={{
+        transform: transform ? CSS.Translate.toString(transform) : undefined,
+        opacity: isDragging ? 0.4 : 1,
+        fontFamily: FONT_BODY,
+      }}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-all text-[#1F1F1F] ${
+        locked ? 'opacity-60 cursor-pointer active:scale-[0.97]' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing active:scale-[0.97]'
+      }`}
+      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : undefined}
+    >
+      <Icon className="text-base shrink-0" style={{ color: '#FA6C43' }} />
+      <span className="flex-1 flex flex-col leading-tight">
+        {spec.label}
+        {spec.applies_to && (
+          <span className="text-[10px] font-normal" style={{ color: 'rgba(31,31,31,0.45)' }}>
+            {spec.applies_to.map(formatBlockType).join(', ')} only
+          </span>
+        )}
+      </span>
+      {locked && <FaLock size={10} className="shrink-0" style={{ color: 'rgba(31,31,31,0.4)' }} />}
     </button>
   );
 };
@@ -85,7 +223,11 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
 // Also a valid drop target for instrument ribbon items (dnd-kit's useSortable
 // registers a droppable under the hood, so it accepts any active draggable in
 // the same DndContext, not just other sortables).
-const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
+const PlacedBlock = ({ block, allBlocks, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
+  // Sibling blocks only — excludes self before it ever reaches an
+  // instrument's ConfigEditor, so e.g. Piped Text's "pull from…" picker
+  // can't offer a block as its own source.
+  const siblingBlocks = allBlocks.filter((b) => b.id !== block.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Component = getBlockComponent(block.type);
 
@@ -96,50 +238,57 @@ const PlacedBlock = ({ block, onChange, onDelete, onRemoveInstrument, onInstrume
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm">
-      <div className="flex items-start">
-        <button
-          {...attributes}
-          {...listeners}
-          className="p-3 pt-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
-          aria-label="Drag to reorder"
-        >
-          <FaGripVertical />
-        </button>
-        <div className="flex-1 min-w-0">
-          {Component ? (
-            <Component config={block.config} onChange={onChange} blockId={block.id} />
-          ) : (
-            <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
-          )}
-          {block.instruments?.length > 0 && (
-            <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
-              {block.instruments.map((inst) => {
-                const Badge = getInstrumentBadge(inst.type);
-                const ConfigEditor = getInstrumentConfigEditor(inst.type);
-                return (
-                  <div key={inst.id} className="flex flex-wrap items-center gap-2">
-                    {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
-                    {ConfigEditor && (
-                      <ConfigEditor
-                        config={inst.config}
-                        blockConfig={block.config}
-                        onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+    // Entrance animation lives on this outer wrapper, not the dnd-kit-controlled
+    // div below — that one's `transform` is continuously overwritten during
+    // drag/reorder, and a CSS animation with fill-mode:both on the same
+    // property would fight it once the entrance animation completes.
+    <div className="animate-chip-in">
+      <div ref={setNodeRef} style={style} className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm">
+        <div className="flex items-start">
+          <button
+            {...attributes}
+            {...listeners}
+            className="p-3 pt-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
+            aria-label="Drag to reorder"
+          >
+            <FaGripVertical />
+          </button>
+          <div className="flex-1 min-w-0">
+            {Component ? (
+              <Component config={block.config} onChange={onChange} blockId={block.id} />
+            ) : (
+              <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
+            )}
+            {block.instruments?.length > 0 && (
+              <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
+                {block.instruments.map((inst) => {
+                  const Badge = getInstrumentBadge(inst.type);
+                  const ConfigEditor = getInstrumentConfigEditor(inst.type);
+                  return (
+                    <div key={inst.id} className="flex flex-wrap items-center gap-2 animate-chip-in">
+                      {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
+                      {ConfigEditor && (
+                        <ConfigEditor
+                          config={inst.config}
+                          blockConfig={block.config}
+                          allBlocks={siblingBlocks}
+                          onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onDelete}
+            className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90"
+            aria-label="Delete block"
+          >
+            <FaTrash size={13} />
+          </button>
         </div>
-        <button
-          onClick={onDelete}
-          className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="Delete block"
-        >
-          <FaTrash size={13} />
-        </button>
       </div>
     </div>
   );
@@ -164,10 +313,18 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
       <div className="max-w-2xl mx-auto flex flex-col gap-4 pb-40">
         {blocks.length === 0 ? (
           <div
-            className="rounded-2xl border-2 border-dashed flex items-center justify-center py-20 text-sm text-center px-6"
-            style={{ borderColor: 'rgba(31,31,31,0.15)', color: 'rgba(31,31,31,0.35)', fontFamily: FONT_BODY }}
+            className={`rounded-2xl border-2 border-dashed flex items-center justify-center py-20 text-sm text-center px-6 transition-all duration-200 ${
+              isOver ? 'scale-[1.02]' : ''
+            }`}
+            style={{
+              borderColor: isOver ? '#FA6C43' : 'rgba(31,31,31,0.15)',
+              color: isOver ? '#FA6C43' : 'rgba(31,31,31,0.35)',
+              fontFamily: FONT_BODY,
+            }}
           >
-            Drag a block from the ribbon below to get started
+            <span className={isOver ? '' : 'animate-pulse'}>
+              Drag a block from the ribbon below to get started
+            </span>
           </div>
         ) : (
           <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
@@ -175,6 +332,7 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
               <PlacedBlock
                 key={block.id}
                 block={block}
+                allBlocks={blocks}
                 onChange={(cfg) => onBlockChange(block.id, cfg)}
                 onDelete={() => onBlockDelete(block.id)}
                 onRemoveInstrument={(instType) => onRemoveInstrument(block.id, instType)}
@@ -195,6 +353,12 @@ const StudioBuilderPage = () => {
   const [blockSpecs, setBlockSpecs] = useState([]);
   const [instrumentSpecs, setInstrumentSpecs] = useState([]);
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
+  const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
+  const [overflowOpen, setOverflowOpen] = useState(false); // ribbon's "…" popover
+  const [dropError, setDropError] = useState(null); // toast text for a rejected instrument drop
+  const dropErrorTimeoutRef = useRef(null);
+  const [conditionsOpen, setConditionsOpen] = useState(false); // header's Conditions popover
+  const [conditionDraft, setConditionDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [publishing, setPublishing] = useState(false);
@@ -236,6 +400,7 @@ const StudioBuilderPage = () => {
         await apiClient.put(`/studio/projects/${projectId}`, {
           title: project.title,
           pages: project.pages,
+          conditions: project.conditions || [],
         });
         setSaveState('saved');
       } catch (err) {
@@ -248,6 +413,20 @@ const StudioBuilderPage = () => {
   }, [project]);
 
   const publicLink = `${window.location.origin}/s/${projectId}`;
+
+  // Counterbalancing conditions — just names; the backend round-robin assigns
+  // one per respondent at submit time (routes/studio_routes.py's
+  // _assign_condition). No conditional-rendering engine consumes this yet —
+  // it's assignment + logging only, see the Piped Text instrument's note.
+  const addCondition = () => {
+    const name = conditionDraft.trim();
+    if (!name) return;
+    setProject((prev) => ({ ...prev, conditions: [...(prev.conditions || []), name] }));
+    setConditionDraft('');
+  };
+  const removeCondition = (idx) => {
+    setProject((prev) => ({ ...prev, conditions: (prev.conditions || []).filter((_, i) => i !== idx) }));
+  };
 
   // Publish/unpublish is a direct PUT, not routed through the debounced
   // autosave — a status flip should take effect immediately, not wait
@@ -277,7 +456,9 @@ const StudioBuilderPage = () => {
   };
 
   const page = project?.pages?.[0];
-  const blocks = page?.blocks || [];
+  // Memoized so attachInstrument's useCallback (which reads `blocks` to check
+  // applies_to compatibility) doesn't get a new identity every render.
+  const blocks = useMemo(() => page?.blocks || [], [page]);
 
   const updatePageBlocks = useCallback((updater) => {
     setProject((prev) => {
@@ -303,17 +484,27 @@ const StudioBuilderPage = () => {
     updatePageBlocks((blks) => blks.filter((b) => b.id !== blockId));
   };
 
+  // Checked *before* calling updatePageBlocks (rather than filtered out
+  // inside its map, as before) specifically so an incompatible drop can
+  // surface a toast instead of just doing nothing — that silent no-op was
+  // confusing enough to be its own bug report.
   const attachInstrument = useCallback((spec, targetBlockId) => {
-    updatePageBlocks((blks) => blks.map((b) => {
-      if (b.id !== targetBlockId) return b;
-      if (spec.applies_to && !spec.applies_to.includes(b.type)) return b; // not compatible, silently ignore
-      if ((b.instruments || []).some((i) => i.type === spec.type)) return b; // already attached
-      return {
-        ...b,
-        instruments: [...(b.instruments || []), { id: newId('inst'), type: spec.type, config: { ...spec.default_config } }],
-      };
-    }));
-  }, [updatePageBlocks]);
+    const targetBlock = blocks.find((b) => b.id === targetBlockId);
+    if (!targetBlock) return;
+    if (spec.applies_to && !spec.applies_to.includes(targetBlock.type)) {
+      if (dropErrorTimeoutRef.current) clearTimeout(dropErrorTimeoutRef.current);
+      setDropError(`${spec.label} only works on ${spec.applies_to.map(formatBlockType).join(', ')} blocks`);
+      dropErrorTimeoutRef.current = setTimeout(() => setDropError(null), 3000);
+      return;
+    }
+    if ((targetBlock.instruments || []).some((i) => i.type === spec.type)) return; // already attached
+
+    updatePageBlocks((blks) => blks.map((b) => (
+      b.id === targetBlockId
+        ? { ...b, instruments: [...(b.instruments || []), { id: newId('inst'), type: spec.type, config: { ...spec.default_config } }] }
+        : b
+    )));
+  }, [blocks, updatePageBlocks]);
 
   const handleRemoveInstrument = (blockId, instrumentType) => {
     updatePageBlocks((blks) => blks.map((b) => (
@@ -330,6 +521,7 @@ const StudioBuilderPage = () => {
   };
 
   const handleDragEnd = ({ active, over }) => {
+    setOverflowOpen(false); // any drag from the "…" popover should close it, success or not
     if (!over) return;
 
     if (active.data.current?.source === 'ribbon-block') {
@@ -412,19 +604,70 @@ const StudioBuilderPage = () => {
 
             <button
               onClick={() => navigate(`/studio/${projectId}/responses`)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700"
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-transform active:scale-95"
             >
               <FaChartBar size={13} />
               Responses
             </button>
 
+            <div className="relative">
+              <button
+                onClick={() => setConditionsOpen((open) => !open)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-transform active:scale-95"
+              >
+                <FaUsers size={13} />
+                Conditions{project.conditions?.length > 0 ? ` (${project.conditions.length})` : ''}
+              </button>
+
+              {conditionsOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-64 rounded-2xl shadow-xl bg-white border border-gray-100 p-3 z-30 animate-chip-in"
+                  style={{ fontFamily: FONT_BODY }}
+                >
+                  <p className="text-[11px] mb-2" style={{ color: 'rgba(31,31,31,0.5)' }}>
+                    Respondents are round-robin assigned one of these when they submit. No effect on
+                    what they see yet — for briefing sections differently, or filtering results.
+                  </p>
+                  <div className="flex flex-col gap-1 mb-2 max-h-40 overflow-y-auto">
+                    {(project.conditions || []).map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#F7F8FA] text-sm" style={{ color: '#1F1F1F' }}>
+                        <span className="flex-1 truncate">{c}</span>
+                        <button type="button" onClick={() => removeCondition(idx)} aria-label={`Remove ${c}`}>
+                          <FaTimes size={9} style={{ color: 'rgba(31,31,31,0.4)' }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={conditionDraft}
+                      onChange={(e) => setConditionDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCondition(); } }}
+                      placeholder="Condition name…"
+                      className="flex-1 px-2 py-1.5 rounded-md border text-sm"
+                      style={{ borderColor: 'rgba(31,31,31,0.15)', color: '#1F1F1F' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCondition}
+                      className="px-2.5 py-1.5 rounded-md text-sm font-semibold transition-transform active:scale-95"
+                      style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {project.status === 'published' && (
               <button
                 onClick={handleCopyLink}
                 title={publicLink}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all active:scale-95"
               >
-                {copied ? <FaCheck size={12} style={{ color: '#1E7A3D' }} /> : <FaLink size={12} />}
+                {copied ? <FaCheck size={12} className="animate-chip-in" style={{ color: '#1E7A3D' }} /> : <FaLink size={12} />}
                 {copied ? 'Copied' : 'Copy link'}
               </button>
             )}
@@ -432,7 +675,7 @@ const StudioBuilderPage = () => {
             <button
               onClick={handleTogglePublish}
               disabled={publishing}
-              className="px-4 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-60"
+              className="px-4 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 disabled:opacity-60"
               style={
                 project.status === 'published'
                   ? { backgroundColor: '#F0F0F0', color: '#6B6B6B' }
@@ -452,46 +695,148 @@ const StudioBuilderPage = () => {
           onInstrumentConfigChange={handleInstrumentConfigChange}
         />
 
-        {/* Bottom-center ribbon — brand orange, white icons/labels. Blocks | Instruments tabs. */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
-          <div className="flex items-center gap-0.5 p-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
-            {['blocks', 'instruments'].map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setRibbonTab(tab)}
-                className="px-3 py-1 rounded-full capitalize transition-colors"
-                style={
-                  ribbonTab === tab
-                    ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
-                    : { color: 'rgba(31,31,31,0.5)' }
-                }
+        {/* Left-side vertical ribbon — brand orange, white icons. Blocks | Instruments tabs. */}
+        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-0.5 p-0.5 rounded-2xl" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
+            <button
+              type="button"
+              onClick={() => { setRibbonTab('blocks'); setOverflowOpen(false); }}
+              className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
+              style={
+                ribbonTab === 'blocks'
+                  ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+                  : { color: 'rgba(31,31,31,0.5)' }
+              }
+            >
+              <FaThLarge className="text-base" />
+              <span
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
               >
-                {tab}
-              </button>
-            ))}
+                Blocks
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRibbonTab('instruments'); setOverflowOpen(false); }}
+              className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
+              style={
+                ribbonTab === 'instruments'
+                  ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+                  : { color: 'rgba(31,31,31,0.5)' }
+              }
+            >
+              <FaSlidersH className="text-base" />
+              <span
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
+              >
+                Instruments
+              </span>
+            </button>
           </div>
-          <div className="flex items-center gap-1 px-3 py-2 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
-            {ribbonTab === 'blocks'
-              ? blockSpecs.map((spec) => (
-                  <RibbonItem
-                    key={spec.type}
-                    spec={spec}
-                    dragSource="ribbon-block"
-                    dragPayload={{ blockType: spec.type }}
-                    onClick={() => appendBlock(spec)}
-                  />
-                ))
-              : instrumentSpecs.map((spec) => (
-                  <RibbonItem
-                    key={spec.type}
-                    spec={spec}
-                    dragSource="ribbon-instrument"
-                    dragPayload={{ instrumentType: spec.type }}
-                  />
-                ))}
+          <div className="relative flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
+            {(() => {
+              const activeSpecs = ribbonTab === 'blocks' ? blockSpecs : instrumentSpecs;
+              const visible = activeSpecs.slice(0, RIBBON_VISIBLE_COUNT);
+              const overflow = activeSpecs.slice(RIBBON_VISIBLE_COUNT);
+              const dragSource = ribbonTab === 'blocks' ? 'ribbon-block' : 'ribbon-instrument';
+              const payloadFor = (spec) => (
+                ribbonTab === 'blocks' ? { blockType: spec.type } : { instrumentType: spec.type }
+              );
+              const onClickFor = (spec) => (
+                ribbonTab === 'blocks' ? () => { appendBlock(spec); setOverflowOpen(false); } : undefined
+              );
+
+              return (
+                <>
+                  {visible.map((spec) => (
+                    <RibbonItem
+                      key={spec.type}
+                      spec={spec}
+                      dragSource={dragSource}
+                      dragPayload={payloadFor(spec)}
+                      onClick={onClickFor(spec)}
+                      onLockedClick={() => setUpgradeSpec(spec)}
+                    />
+                  ))}
+
+                  {overflow.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setOverflowOpen((open) => !open)}
+                      className="flex items-center justify-center w-11 h-11 rounded-xl hover:bg-white/15 transition-colors text-white"
+                      title="More tools"
+                      aria-expanded={overflowOpen}
+                    >
+                      <FaEllipsisH className="text-lg" />
+                    </button>
+                  )}
+
+                  {overflowOpen && overflow.length > 0 && (
+                    <div
+                      className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-52 max-h-[min(70vh,26rem)] overflow-y-auto rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-chip-in"
+                      style={{ fontFamily: FONT_BODY }}
+                    >
+                      {overflow.map((spec) => (
+                        <RibbonMenuItem
+                          key={spec.type}
+                          spec={spec}
+                          dragSource={dragSource}
+                          dragPayload={payloadFor(spec)}
+                          onClick={onClickFor(spec)}
+                          onLockedClick={() => { setUpgradeSpec(spec); setOverflowOpen(false); }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
+
+        {/* Visual-only paywall nudge for is_ai ribbon items — no real billing/entitlement
+            check behind this yet, it just blocks the add-to-canvas gesture with an upsell. */}
+        {upgradeSpec && (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4 animate-chip-in"
+            onClick={() => setUpgradeSpec(null)}
+          >
+            <div
+              className="bg-slate-900 text-white rounded-2xl p-6 max-w-sm flex items-start gap-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <FaLock className="w-5 h-5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">{upgradeSpec.label} is an AI feature.</p>
+                <p className="mt-1 text-slate-300 text-sm">
+                  AI-powered blocks and instruments are part of the upcoming Pro plan. Upgrade to add
+                  this to your project.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUpgradeSpec(null)}
+                  className="inline-block mt-4 px-4 py-2 rounded-lg bg-white text-slate-900 text-sm font-medium"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback for a rejected instrument drop — previously a silent no-op, see attachInstrument. */}
+        {dropError && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-chip-in">
+            <div
+              className="px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold"
+              style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
+            >
+              {dropError}
+            </div>
+          </div>
+        )}
       </div>
     </DndContext>
   );

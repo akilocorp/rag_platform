@@ -1,6 +1,7 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   New file: the Confidence Slider instrument. Badge for the builder canvas; RespondExtra
+// @updated   2026-09-08
+// @changed   RespondExtra fades/slides in on mount (animate-chip-in) instead of appearing instantly.
+//            Prior: New file: the Confidence Slider instrument. Badge for the builder canvas; RespondExtra
 //            is the actual 0-100 range input shown to the respondent below the block's own answer,
 //            rendered by StudioRunnerPage (not the builder) since it captures a real value.
 import React from 'react';
@@ -30,7 +31,7 @@ const Badge = ({ onRemove }) => (
 const RespondExtra = ({ value, onChange }) => {
   const current = value ?? 50;
   return (
-    <div className="px-4 pb-4 -mt-1">
+    <div className="px-4 pb-4 -mt-1 animate-chip-in">
       <label
         className="text-xs font-medium flex items-center justify-between mb-1.5"
         style={{ fontFamily: FONT_BODY, color: 'rgba(31,31,31,0.6)' }}

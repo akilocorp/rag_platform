@@ -1,6 +1,16 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Phase 2: instruments are now real. Added GET /studio/instrument-specs (feeds the
+# @updated   2026-09-08
+# @changed   3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
+#            accepts+sanitizes a client-supplied `embedded_data` dict (URL params captured at load),
+#            stored on the response doc, surfaced as dynamic CSV columns (same discovery pattern as
+#            instrument metrics). Counterbalanced conditions: projects gain a `conditions` list
+#            (save_project); submit_response round-robin-assigns one via an atomic
+#            `$inc`/find_one_and_update on the project doc (deliberately assigned at submit time, not
+#            page-load, since there's no respondent-keyed pre-assignment need without a conditional-
+#            rendering engine yet — see the Piped Text instrument's own note on that gap). Piping:
+#            no route changes — piped_text is a normal instrument, resolved entirely client-side in
+#            StudioRunnerPage from already-loaded answers.
+# Prior: Phase 2: instruments are now real. Added GET /studio/instrument-specs (feeds the
 #            Instruments ribbon tab); _sanitize_pages validates each block's `instruments` against
 #            the registry instead of force-emptying it; the public submit endpoint accepts a
 #            per-answer `events` array (frontend-captured performance.now() timestamps); and
@@ -32,7 +42,10 @@ Owner-scoped (faculty, JWT-required):
 Public (no auth — the first anonymous-write surface Studio has):
   GET    /api/studio/public/projects/<id>            — a project's pages/blocks, ONLY if published
   POST   /api/studio/public/projects/<id>/responses  — submit one respondent's full answer set
-                                                        (each answer may carry an `events` array)
+                                                        (each answer may carry an `events` array).
+                                                        May also carry `embedded_data` (sanitized,
+                                                        capped) and gets round-robin assigned one of
+                                                        the project's `conditions`, if any.
 
 Mongo access goes through current_app.config['MONGO_DB'] (the connection set
 up once in app.py) rather than a fresh pymongo.MongoClient per call — see
@@ -50,9 +63,11 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from models.user import User
+from src.studio.live_ai import call_live_ai_instrument
 from src.studio.registry import (
     compute_instrument_metric,
     get_block_specs,
@@ -72,6 +87,17 @@ FACULTY_ROLES = ("professor", "admin")
 # anonymous write endpoint this blueprint has. See _rate_limit_ok.
 STUDIO_RESPONSE_COOLDOWN_SECONDS = 30
 _rate_limit_index_ensured = False
+
+# A separate, more generous counting limiter for the /ai-instrument endpoint
+# (Tier-3 live AI calls): up to this many calls per (project, IP) per window.
+# This one spends real Claude API money on anonymous traffic and a
+# respondent may legitimately trigger several different live AI instruments
+# in one session, so it can't reuse the submit endpoint's simpler
+# insert-once cooldown (that one only ever needs to allow a single call).
+# See _ai_instrument_rate_limit_ok.
+AI_INSTRUMENT_MAX_CALLS = 10
+AI_INSTRUMENT_WINDOW_SECONDS = 600
+_ai_instrument_rate_limit_index_ensured = False
 
 
 def _is_faculty(user_id):
@@ -190,6 +216,44 @@ def _sanitize_pages(pages_in):
     return pages_out
 
 
+MAX_CONDITIONS = 10
+MAX_EMBEDDED_KEYS = 20
+MAX_EMBEDDED_KEY_LEN = 100
+MAX_EMBEDDED_VALUE_LEN = 200
+
+
+def _sanitize_conditions(conditions_in):
+    """Coerce a project's counterbalancing condition names for a save.
+
+    Not a whitelist of anything sensitive — just capped so a professor can't
+    accidentally (or a forged request can't deliberately) balloon the list
+    that submit_response round-robins over.
+    """
+    if not isinstance(conditions_in, list):
+        return []
+    cleaned = [str(c).strip() for c in conditions_in if str(c).strip()]
+    return cleaned[:MAX_CONDITIONS]
+
+
+def _sanitize_embedded_data(embedded_data_in):
+    """Coerce the client-supplied embedded-data dict on a public submission.
+
+    This is the one anonymous-write endpoint's one arbitrary-shaped input —
+    capped on key count and per-key/value length so it can't be abused as a
+    free storage sink. Every value is coerced to a string; Qualtrics-style
+    embedded data (URL query params) is string-shaped anyway.
+    """
+    if not isinstance(embedded_data_in, dict):
+        return {}
+    out = {}
+    for k, v in embedded_data_in.items():
+        key = str(k).strip()[:MAX_EMBEDDED_KEY_LEN]
+        if not key or len(out) >= MAX_EMBEDDED_KEYS:
+            continue
+        out[key] = str(v)[:MAX_EMBEDDED_VALUE_LEN]
+    return out
+
+
 def _serialize(doc):
     """Mongo doc -> JSON-safe dict (ObjectId -> str)."""
     doc = dict(doc)
@@ -217,25 +281,69 @@ def _block_by_id(project):
     return {blk['id']: blk for blk in _iter_blocks(project)}
 
 
-def _augment_responses_with_metrics(project, responses):
+def _augment_responses_with_metrics(project, responses, db=None):
     """Attach computed instrument metrics to each response's answers, in
     place, as `answer['metrics'] = {instrument_type: {...}}`. A no-op (no
     keys added) for any block/answer that carries no instrument or no
-    matching event data — most projects have none of either right now.
+    matching event data.
+
+    Metrics already cached on the stored doc (`answer['metrics']`) are reused
+    as-is rather than recomputed. This matters now that some instruments
+    (llm_rubric_grader, cross_answer_inconsistency) call Claude — recomputing
+    on every results-page view would re-bill the same response every time
+    it's viewed. Newly-computed metrics are written back to Mongo when `db`
+    is given (owner-only callers pass it; the caching is pointless — and the
+    extra write pointless overhead — for any caller that doesn't).
+
+    Known tradeoff: if a professor edits an instrument's config (e.g.
+    changes the rubric text) after responses already carry a cached score,
+    those responses keep the stale score — there's no cache invalidation
+    tied to config changes. Narrow edge case, not worth tracking config
+    versions for right now.
+
+    cross_answer_inconsistency is special-cased here (not left to the
+    generic per-answer loop) because it's the one instrument whose compute()
+    needs another block's answer from the SAME response — every other
+    instrument's compute() only ever sees its own block's answer. See that
+    instrument's own file for why the sibling data is injected as private
+    `_sibling_*` config keys rather than widening compute()'s signature.
     """
     block_by_id = _block_by_id(project)
     for r in responses:
+        newly_computed = False
+        answers_by_block = {a.get('block_id'): a for a in r.get('answers', [])}
         for a in r.get('answers', []):
             blk = block_by_id.get(a.get('block_id'))
             if not blk or not blk.get('instruments'):
                 continue
-            metrics = {}
+            existing = a.get('metrics') or {}
+            metrics = dict(existing)
             for inst in blk['instruments']:
-                m = compute_instrument_metric(inst['type'], a, inst.get('config'))
+                inst_type = inst['type']
+                if existing.get(inst_type):
+                    continue  # cached — reuse, don't re-bill
+                inst_config = inst.get('config') or {}
+                if inst_type == 'cross_answer_inconsistency':
+                    sibling_id = inst_config.get('compare_to_block_id')
+                    sibling_answer = answers_by_block.get(sibling_id) or {}
+                    sibling_block = block_by_id.get(sibling_id) or {}
+                    inst_config = {
+                        **inst_config,
+                        '_sibling_answer': sibling_answer.get('value'),
+                        '_sibling_question': (sibling_block.get('config') or {}).get('question'),
+                    }
+                m = compute_instrument_metric(inst_type, a, inst_config)
                 if m:
-                    metrics[inst['type']] = m
+                    metrics[inst_type] = m
+                    newly_computed = True
             if metrics:
                 a['metrics'] = metrics
+        if newly_computed and db is not None and r.get('_id'):
+            try:
+                rid = r['_id'] if isinstance(r['_id'], ObjectId) else ObjectId(r['_id'])
+                db['studio_responses'].update_one({'_id': rid}, {'$set': {'answers': r['answers']}})
+            except Exception:
+                logger.warning("Failed to persist computed metrics for response %s", r.get('_id'), exc_info=True)
     return responses
 
 
@@ -299,6 +407,54 @@ def _rate_limit_ok(db, project_id):
         return False
 
 
+def _assign_condition(db, project_oid, conditions):
+    """Round-robin assign one respondent to a counterbalancing condition.
+
+    Assigned at submit time (not page-load) via an atomic `$inc` on the
+    project doc's `condition_cursor` — deliberately not respondent-keyed,
+    since there's no conditional-rendering engine yet for a pre-assigned
+    condition to change what a respondent sees before they submit. Returns
+    None if the project defines no conditions.
+    """
+    if not conditions:
+        return None
+    result = db['studio_projects'].find_one_and_update(
+        {"_id": project_oid},
+        {"$inc": {"condition_cursor": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    cursor = (result or {}).get("condition_cursor", 1) - 1
+    return conditions[cursor % len(conditions)]
+
+
+def _ai_instrument_rate_limit_collection(db):
+    global _ai_instrument_rate_limit_index_ensured
+    col = db['studio_ai_instrument_calls']
+    if not _ai_instrument_rate_limit_index_ensured:
+        col.create_index('created_at', expireAfterSeconds=AI_INSTRUMENT_WINDOW_SECONDS)
+        _ai_instrument_rate_limit_index_ensured = True
+    return col
+
+
+def _ai_instrument_rate_limit_ok(db, project_id):
+    """True if this (project, caller IP) may make another live AI-instrument
+    call right now — up to AI_INSTRUMENT_MAX_CALLS within AI_INSTRUMENT_WINDOW_SECONDS.
+
+    A counting limiter (insert-then-count), not the submit endpoint's
+    simpler insert-once cooldown: this endpoint needs to allow a handful of
+    calls per session, not just one. Same TTL-expiry mechanism as
+    _rate_limit_collection, separate collection so the two windows don't
+    interfere with each other.
+    """
+    col = _ai_instrument_rate_limit_collection(db)
+    key = hashlib.sha256(f"{project_id}:{_client_ip()}".encode()).hexdigest()
+    count = col.count_documents({"key": key})
+    if count >= AI_INSTRUMENT_MAX_CALLS:
+        return False
+    col.insert_one({"key": key, "created_at": datetime.now(timezone.utc)})
+    return True
+
+
 @studio_bp.route('/studio/block-specs', methods=['GET'])
 @jwt_required()
 def block_specs():
@@ -336,6 +492,8 @@ def create_project():
         "pages": [
             {"id": uuid.uuid4().hex, "title": "Page 1", "order": 0, "blocks": []}
         ],
+        "conditions": [],
+        "condition_cursor": 0,
         "created_at": now,
         "updated_at": now,
     }
@@ -391,6 +549,8 @@ def save_project(project_id):
             updates['pages'] = _sanitize_pages(body['pages'])
         except ValueError as e:
             return jsonify({"message": str(e)}), 400
+    if 'conditions' in body:
+        updates['conditions'] = _sanitize_conditions(body['conditions'])
 
     db = current_app.config['MONGO_DB']
     db['studio_projects'].update_one({"_id": doc["_id"]}, {"$set": updates})
@@ -487,14 +647,63 @@ def submit_response(project_id):
             entry["instrument_values"] = instrument_values_by_id[bid]
         answers_out.append(entry)
 
-    db['studio_responses'].insert_one({
+    response_doc = {
         "project_id": project_id,
         "respondent_id": respondent_id,
         "started_at": now,
         "submitted_at": now,
         "answers": answers_out,
-    })
+    }
+
+    embedded_data = _sanitize_embedded_data(body.get('embedded_data'))
+    if embedded_data:
+        response_doc["embedded_data"] = embedded_data
+
+    condition = _assign_condition(db, oid, project.get('conditions') or [])
+    if condition is not None:
+        response_doc["condition"] = condition
+
+    db['studio_responses'].insert_one(response_doc)
     return jsonify({"submitted": True}), 201
+
+
+@studio_bp.route('/studio/public/projects/<project_id>/ai-instrument', methods=['POST'])
+def ai_instrument_call(project_id):
+    """Live, mid-session Claude call for a Tier-3 instrument (Comprehension-
+    Paraphrase Check, AI Devil's-Advocate, Adaptive Follow-Up Probe) attached
+    to a block the respondent is currently answering.
+
+    This is the one endpoint in Studio that spends real API money on
+    anonymous, unauthenticated traffic — see AI_INSTRUMENT_MAX_CALLS and
+    _ai_instrument_rate_limit_ok for the dedicated counting limiter that
+    exists specifically because of that.
+    """
+    db = current_app.config['MONGO_DB']
+    try:
+        oid = ObjectId(project_id)
+    except (InvalidId, Exception):
+        return jsonify({"message": "Invalid project id"}), 400
+    project = db['studio_projects'].find_one({"_id": oid, "status": "published"})
+    if not project:
+        return jsonify({"message": "Project not found"}), 404
+
+    if not _ai_instrument_rate_limit_ok(db, project_id):
+        return jsonify({"message": "Please slow down and try again in a few minutes."}), 429
+
+    body = request.get_json(silent=True) or {}
+    instrument_type = str(body.get('instrument_type') or '')
+    block_id = str(body.get('block_id') or '')
+
+    block = _block_by_id(project).get(block_id)
+    if not block:
+        return jsonify({"message": "Unknown block"}), 400
+    if not any(i.get('type') == instrument_type for i in (block.get('instruments') or [])):
+        return jsonify({"message": "Instrument is not attached to this block"}), 400
+
+    result = call_live_ai_instrument(instrument_type, block, body.get('input'))
+    if result is None:
+        return jsonify({"message": "AI is unavailable right now — please try again shortly."}), 502
+    return jsonify({"result": result}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +725,7 @@ def list_responses(project_id):
     for r in cursor:
         r['_id'] = str(r['_id'])
         responses.append(r)
-    _augment_responses_with_metrics(doc, responses)
+    _augment_responses_with_metrics(doc, responses, db=db)
     return jsonify({"responses": responses}), 200
 
 
@@ -539,7 +748,7 @@ def export_responses_csv(project_id):
     ]
 
     responses = list(db['studio_responses'].find({"project_id": project_id}).sort("submitted_at", 1))
-    _augment_responses_with_metrics(doc, responses)
+    _augment_responses_with_metrics(doc, responses, db=db)
 
     # Metric columns are discovered from the actual computed data rather than
     # statically from the instrument spec, since a compute()'s return shape
@@ -559,21 +768,39 @@ def export_responses_csv(project_id):
                     question = question_by_block.get(a['block_id'], a['block_id'])
                     metric_columns.append((key, f"{question} — {inst_type}:{mk}"))
 
+    # Embedded-data keys, same "discover from actual data" approach as metric
+    # columns — a project's respondents may pass different URL params over
+    # time, and there's no schema declaring them up front.
+    embedded_keys = []
+    seen_embedded_keys = set()
+    for r in responses:
+        for k in (r.get('embedded_data') or {}):
+            if k not in seen_embedded_keys:
+                seen_embedded_keys.add(k)
+                embedded_keys.append(k)
+
+    has_condition = any(r.get('condition') for r in responses)
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
         ["respondent_id", "submitted_at"]
+        + (["condition"] if has_condition else [])
         + [label for _, label in columns]
         + [label for _, label in metric_columns]
+        + [f"embedded:{k}" for k in embedded_keys]
     )
 
     for r in responses:
         answers_by_id = {a.get('block_id'): a for a in r.get('answers', [])}
         row = [r.get('respondent_id', ''), r.get('submitted_at', '')]
+        if has_condition:
+            row.append(r.get('condition', ''))
         row += [(answers_by_id.get(bid) or {}).get('value', '') for bid, _ in columns]
         for (bid, inst_type, mk), _label in metric_columns:
             a = answers_by_id.get(bid) or {}
             row.append((a.get('metrics') or {}).get(inst_type, {}).get(mk, ''))
+        row += [(r.get('embedded_data') or {}).get(k, '') for k in embedded_keys]
         writer.writerow(row)
 
     filename = f"{(doc.get('title') or 'project').replace(' ', '_')}_responses.csv"

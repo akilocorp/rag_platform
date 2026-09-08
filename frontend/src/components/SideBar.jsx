@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-25
- * @changed   Home logo now targets role-aware dashboardPath() so students aren't bounced back into chat.
+ * @updated   2026-09-08
+ * @changed   Accordion headers get a press-scale on click; accordion content fades/slides in on open
+ *            instead of a flat opacity toggle.
+ * Prior: Home logo now targets role-aware dashboardPath() so students aren't bounced back into chat.
  */
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -349,7 +351,7 @@ export const ChatSidebar = ({
             <div className="mb-2">
               <button
                 onClick={() => switchTab('chats')}
-                className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200 group"
+                className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] active:scale-[0.98] transition-all duration-200 group"
               >
                 <span className="flex items-center text-[13px] font-semibold text-[#222]">
                   <FiChevronDown
@@ -372,8 +374,8 @@ export const ChatSidebar = ({
               >
                 <div className="overflow-hidden">
                   <div
-                    className={`pt-1 transition-opacity duration-300 ${
-                      activeTab === 'chats' ? 'opacity-100' : 'opacity-0'
+                    className={`pt-1 transition-all duration-300 ease-out ${
+                      activeTab === 'chats' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'
                     }`}
                   >
                     <div className="space-y-1 isolate">
@@ -503,7 +505,7 @@ export const ChatSidebar = ({
               <div className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-[#F0F6FB] transition-colors duration-200">
                 <button
                   onClick={() => switchTab('files')}
-                  className="flex items-center text-[13px] font-semibold text-[#222] flex-1 min-w-0"
+                  className="flex items-center text-[13px] font-semibold text-[#222] flex-1 min-w-0 active:scale-[0.98] transition-transform duration-200"
                 >
                   <FiChevronDown
                     className={`mr-1.5 w-3.5 h-3.5 text-gray-500 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
@@ -524,8 +526,8 @@ export const ChatSidebar = ({
               >
                 <div className="overflow-hidden">
                   <div
-                    className={`pt-1 transition-opacity duration-300 ${
-                      activeTab === 'files' ? 'opacity-100' : 'opacity-0'
+                    className={`pt-1 transition-all duration-300 ease-out ${
+                      activeTab === 'files' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'
                     }`}
                   >
                     <FilesPanel

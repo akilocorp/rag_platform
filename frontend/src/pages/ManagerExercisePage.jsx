@@ -1,4 +1,10 @@
-/* @language JSX  @updated 2026-09-07  @changed Professor-paired templates (`flow.prof_paired`, `investigation`): the
+/* @language JSX  @updated 2026-09-08  @changed Every leaveBreakout() "Back to lobby" escape hatch (waiting/kiosk/done/
+   discuss-header) is now also gated on `!flow.prof_paired` — the done screen's was reachable for the investigation
+   template (there is no lobby to go back to), and the discuss-header one was reachable mid-exercise, during the live
+   round-1 discussion. The done screen also swaps its heading to "Your exercise finished." for that template instead
+   of "Session complete". Prior: RoleCaseDocument no longer tells a reader "Your teammates are reading
+   something different" — that line was itself a leak the hide-role-number work was supposed to close. Prior:
+   Professor-paired templates (`flow.prof_paired`, `investigation`): the
    breakout lobby is replaced by `join_investigation_pool` — a new `pool` phase ("wait for your instructor") with no
    room list or headcount shown. New `reading` phase reuses the existing premise/cards screens (with a live countdown
    chip) and, once its clock runs out, the server flips the room straight to `solo` — the `prevPhaseForReadingRef`
@@ -242,9 +248,6 @@ const RoleCaseDocument = ({ role, text, onContinue, lex = LEXICON_FALLBACK }) =>
           <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
             {fillNodes(lex.role_note, 'role', roleLabel(role))}
           </h2>
-          <p className="text-sm text-gray-500">
-            This is yours alone. Your teammates are reading something different.
-          </p>
         </div>
 
         <div className="rounded-3xl bg-white border border-gray-200 shadow-sm p-8 sm:p-10 text-left mb-8">
@@ -1534,12 +1537,17 @@ const ManagerExercisePage = () => {
             Start with {roster.length} {roster.length === 1 ? 'person' : 'people'}
           </button>
 
-          <button
-            onClick={leaveBreakout}
-            className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
-          >
-            <FaArrowLeft className="text-xs" /> Switch group
-          </button>
+          {/* Professor-paired templates never show a lobby to leave back into —
+              this phase is unreachable for them anyway (see the connect handler),
+              but the guard stays so nothing here can ever route one there. */}
+          {!flow.prof_paired && (
+            <button
+              onClick={leaveBreakout}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
+            >
+              <FaArrowLeft className="text-xs" /> Switch group
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1677,18 +1685,26 @@ const ManagerExercisePage = () => {
               <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
                 <FaCheckCircle className="text-3xl text-[#FA6C43]" />
               </div>
-              <h2 className="text-2xl font-bold text-[#222] mb-2">Session complete</h2>
+              <h2 className="text-2xl font-bold text-[#222] mb-2">
+                {flow.prof_paired ? 'Your exercise finished.' : 'Session complete'}
+              </h2>
               <p className="text-gray-500 text-sm">
                 {chosenCandidate
                   ? <>Your group's final choice was <strong className="text-[#222]">{chosenCandidate}</strong>.</>
                   : 'Thanks for taking part.'}
               </p>
-              <button
-                onClick={leaveBreakout}
-                className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-6 py-3 shadow-sm transition-all active:scale-95"
-              >
-                <FaArrowLeft className="text-xs" /> Back to lobby
-              </button>
+              {/* Professor-paired templates never offer a lobby — there isn't one to
+                  go back to, and a student is never routed there for this template
+                  regardless of phase. See the connect handler and every other
+                  leaveBreakout() button in this file, all gated the same way. */}
+              {!flow.prof_paired && (
+                <button
+                  onClick={leaveBreakout}
+                  className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-6 py-3 shadow-sm transition-all active:scale-95"
+                >
+                  <FaArrowLeft className="text-xs" /> Back to lobby
+                </button>
+              )}
             </div>
 
             {/* M9: the payoff of having captured a private answer — what this
@@ -1969,8 +1985,11 @@ const ManagerExercisePage = () => {
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
         <div className="flex items-center gap-4 min-w-0">
           {/* Escape hatch back to the lobby, matching the one on the kiosk wait
-              screen. Round 1 only — leaving mid-debrief has nothing to return to. */}
-          {!isDebrief && (
+              screen. Round 1 only — leaving mid-debrief has nothing to return to.
+              Never for a professor-paired template: there is no lobby for it to
+              go back to, and a student in this template must never be routed to
+              the breakout-room lobby, mid-exercise included. */}
+          {!isDebrief && !flow.prof_paired && (
             <button
               onClick={leaveBreakout}
               title="Leave this group and go back to the lobby"

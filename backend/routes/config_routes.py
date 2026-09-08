@@ -1,6 +1,13 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   validate_manager_exercise: the `investigation` template skips the per-candidate outcome
+# @updated   2026-09-08
+# @changed   validate_manager_exercise gains `investigation_group_size`/`investigation_group_size_max`
+#            (the professor's own pairing-group sizes — default 3/2+1 — read by
+#            investigation_pool.pair() instead of a hardcoded group-of-3) and, fixing a real gap,
+#            `reading_minutes`: that field was being read by exercise_state.py straight off the raw
+#            payload but was never validated or written into `target` here, so it silently never
+#            persisted through this route. All three are now normalized and included in the output
+#            dict like every other manager_exercise field.
+# @changed   Prior: validate_manager_exercise: the `investigation` template skips the per-candidate outcome
 #            document, the candidate_summary requirement, and the AI extraction fallback entirely — a
 #            suspect isn't scored on strengths/concerns, so its `case_pack` must arrive with
 #            `answer_key.best_option` already set (the frontend's `setKiller` builds it client-side)
@@ -196,6 +203,24 @@ def validate_manager_exercise(source, target):
     if not 1 <= num_rooms <= ME_MAX_ROOMS:
         return jsonify({"error": f"manager_exercise.num_rooms must be between 1 and {ME_MAX_ROOMS}"}), 400
 
+    # Professor-paired templates only (investigation) — `num_students`/`num_rooms`
+    # above are the self-service breakout lobby's fields and don't apply here;
+    # pairing computes its own groups from these two instead. `group_size` is the
+    # ideal size; `group_size_max` is how far a group may grow to absorb a
+    # remainder or a latecomer, so it can never be smaller than the ideal.
+    try:
+        investigation_group_size = int(raw.get('investigation_group_size') or 3)
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.investigation_group_size must be an integer"}), 400
+    if investigation_group_size < 2:
+        return jsonify({"error": "manager_exercise.investigation_group_size must be >= 2"}), 400
+    try:
+        investigation_group_size_max = int(raw.get('investigation_group_size_max') or (investigation_group_size + 1))
+    except (ValueError, TypeError):
+        return jsonify({"error": "manager_exercise.investigation_group_size_max must be an integer"}), 400
+    if investigation_group_size_max < investigation_group_size:
+        investigation_group_size_max = investigation_group_size
+
     # Discuss window (minutes).
     try:
         discuss_minutes = float(raw.get('discuss_minutes'))
@@ -229,6 +254,18 @@ def validate_manager_exercise(source, target):
         return jsonify({"error": "manager_exercise.debrief_minutes must be a number"}), 400
     if debrief_minutes <= 0:
         debrief_minutes = discuss_minutes
+
+    # Professor-paired templates only (investigation): the timed case-reading
+    # window between pairing and the private decision. Optional, defaulting to
+    # 30 — this was previously read straight off the raw payload by
+    # exercise_state.py without ever being validated or written to `target`
+    # here, so it silently never persisted through this route; now it does.
+    try:
+        reading_minutes = float(raw.get('reading_minutes') or 30)
+    except (ValueError, TypeError):
+        reading_minutes = 30.0
+    if reading_minutes <= 0:
+        reading_minutes = 30.0
 
     # Which exercise this is: the flow (does it reveal an outcome? does it debrief?)
     # and the words the student screens use. Normalized rather than validated — an
@@ -383,6 +420,9 @@ def validate_manager_exercise(source, target):
         "choose_minutes": choose_minutes,
         "final_call_seconds": final_call_seconds,
         "debrief_minutes": debrief_minutes,
+        "reading_minutes": reading_minutes,
+        "investigation_group_size": investigation_group_size,
+        "investigation_group_size_max": investigation_group_size_max,
         "student_view": student_view,
         "role_packets": role_packets,
         "class_preset": class_preset,

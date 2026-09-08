@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-09-07
-# @changed   register() and student_register() were near-identical (dup-check, hash, create-unverified,
+# @changed   send_verification_email now passes logo_url/illustration_url to the template (the
+#            reset_password.html pattern) so the verify email is on-brand instead of the old
+#            generic indigo template. ASCII-safety guard on frontend_url copied from
+#            send_password_reset_email for the same reason it exists there.
+#            Prior: register() and student_register() were near-identical (dup-check, hash, create-unverified,
 #            email-token) — collapsed the shared middle into _register_new_user(); each route keeps its
 #            own role/classes/success-message. No behavior change.
 #            Prior: Accounts opened by an admin carry a one-time password: login flags it, tokens carry the
@@ -32,11 +36,22 @@ def send_verification_email(user_email, token):
     try:
         # Get the frontend URL from config, default to localhost
         frontend_url = current_app.config.get('FRONTEND_URL', 'https://app.bitterlylab.com')
+        try:
+            frontend_url.encode('ascii')
+        except UnicodeEncodeError:
+            frontend_url = 'https://app.bitterlylab.com'
         verify_url = f"{frontend_url}/verify-email?token={token}"
-        
+        logo_url = f"{frontend_url}/Logo.svg"
+        illustration_url = f"{frontend_url}/illustrations/survey-clipboard-research.svg"
+
         # Render the HTML template
         # Flask looks for this in the 'templates' folder at the app root
-        html_content = render_template('email/verify_email.html', verify_url=verify_url)
+        html_content = render_template(
+            'email/verify_email.html',
+            verify_url=verify_url,
+            logo_url=logo_url,
+            illustration_url=illustration_url,
+        )
 
         msg = Message(
             subject="🚀 Welcome to Actr Lab! Please verify your email",
