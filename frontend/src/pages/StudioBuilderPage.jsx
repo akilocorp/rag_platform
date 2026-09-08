@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Studio-wide AI badge + visual-only paywall: any block/instrument spec with `is_ai: true`
+// @changed   Ribbon rail now caps at RIBBON_VISIBLE_COUNT items; the rest collapse into a "…"
+//            overflow popover (RibbonMenuItem — same drag/click/lock behavior, inline label instead
+//            of a hover flyout). Feeds the 3 new Qualtrics-inspired instruments straight into overflow.
+//            Prior: Studio-wide AI badge + visual-only paywall: any block/instrument spec with `is_ai: true`
 //            (currently just the new Voice Conversation block) renders a lock chip in the ribbon,
 //            is undraggable, and clicking it opens an upgrade nudge (upgradeSpec state) instead of
 //            adding it — no real billing/entitlement behind this yet, purely UI.
@@ -34,6 +37,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
   FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
+  FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -51,8 +55,14 @@ const RIBBON_ICONS = {
   paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
   stopwatch: FaStopwatch, slider: FaSlidersH, hourglass: FaHourglassHalf,
   shuffle: FaRandom, shield: FaShieldAlt, microphone: FaMicrophone,
+  'clipboard-check': FaClipboardCheck, tachometer: FaTachometerAlt, filter: FaFilter,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
+
+// How many items show directly in the rail before the rest collapse into the
+// "…" overflow popover — keeps the rail from growing past the viewport as
+// more instruments/blocks get added.
+const RIBBON_VISIBLE_COUNT = 6;
 
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -114,6 +124,41 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) =
           </span>
         )}
       </span>
+    </button>
+  );
+};
+
+// A row inside the "…" overflow popover — same drag/click/lock behavior as
+// RibbonItem, but the label renders inline (it's an open menu, not a hover
+// flyout) since there's no narrow-rail constraint inside the popover.
+const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
+  const locked = !!spec.is_ai;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `ribbon-${dragSource}-${spec.type}`,
+    data: { source: dragSource, ...dragPayload },
+    disabled: locked,
+  });
+  const Icon = iconFor(spec.icon);
+  return (
+    <button
+      ref={setNodeRef}
+      {...(locked ? {} : listeners)}
+      {...(locked ? {} : attributes)}
+      type="button"
+      onClick={locked ? onLockedClick : onClick}
+      style={{
+        transform: transform ? CSS.Translate.toString(transform) : undefined,
+        opacity: isDragging ? 0.4 : 1,
+        fontFamily: FONT_BODY,
+      }}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors text-[#1F1F1F] ${
+        locked ? 'opacity-60 cursor-pointer' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing'
+      }`}
+      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : undefined}
+    >
+      <Icon className="text-base shrink-0" style={{ color: '#FA6C43' }} />
+      <span className="flex-1">{spec.label}</span>
+      {locked && <FaLock size={10} className="shrink-0" style={{ color: 'rgba(31,31,31,0.4)' }} />}
     </button>
   );
 };
@@ -234,6 +279,7 @@ const StudioBuilderPage = () => {
   const [instrumentSpecs, setInstrumentSpecs] = useState([]);
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
   const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
+  const [overflowOpen, setOverflowOpen] = useState(false); // ribbon's "…" popover
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [publishing, setPublishing] = useState(false);
@@ -369,6 +415,7 @@ const StudioBuilderPage = () => {
   };
 
   const handleDragEnd = ({ active, over }) => {
+    setOverflowOpen(false); // any drag from the "…" popover should close it, success or not
     if (!over) return;
 
     if (active.data.current?.source === 'ribbon-block') {
@@ -498,7 +545,7 @@ const StudioBuilderPage = () => {
               <button
                 key={tab}
                 type="button"
-                onClick={() => setRibbonTab(tab)}
+                onClick={() => { setRibbonTab(tab); setOverflowOpen(false); }}
                 className="px-3 py-1 rounded-full capitalize transition-colors"
                 style={
                   ribbonTab === tab
@@ -510,27 +557,64 @@ const StudioBuilderPage = () => {
               </button>
             ))}
           </div>
-          <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
-            {ribbonTab === 'blocks'
-              ? blockSpecs.map((spec) => (
-                  <RibbonItem
-                    key={spec.type}
-                    spec={spec}
-                    dragSource="ribbon-block"
-                    dragPayload={{ blockType: spec.type }}
-                    onClick={() => appendBlock(spec)}
-                    onLockedClick={() => setUpgradeSpec(spec)}
-                  />
-                ))
-              : instrumentSpecs.map((spec) => (
-                  <RibbonItem
-                    key={spec.type}
-                    spec={spec}
-                    dragSource="ribbon-instrument"
-                    dragPayload={{ instrumentType: spec.type }}
-                    onLockedClick={() => setUpgradeSpec(spec)}
-                  />
-                ))}
+          <div className="relative flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
+            {(() => {
+              const activeSpecs = ribbonTab === 'blocks' ? blockSpecs : instrumentSpecs;
+              const visible = activeSpecs.slice(0, RIBBON_VISIBLE_COUNT);
+              const overflow = activeSpecs.slice(RIBBON_VISIBLE_COUNT);
+              const dragSource = ribbonTab === 'blocks' ? 'ribbon-block' : 'ribbon-instrument';
+              const payloadFor = (spec) => (
+                ribbonTab === 'blocks' ? { blockType: spec.type } : { instrumentType: spec.type }
+              );
+              const onClickFor = (spec) => (
+                ribbonTab === 'blocks' ? () => { appendBlock(spec); setOverflowOpen(false); } : undefined
+              );
+
+              return (
+                <>
+                  {visible.map((spec) => (
+                    <RibbonItem
+                      key={spec.type}
+                      spec={spec}
+                      dragSource={dragSource}
+                      dragPayload={payloadFor(spec)}
+                      onClick={onClickFor(spec)}
+                      onLockedClick={() => setUpgradeSpec(spec)}
+                    />
+                  ))}
+
+                  {overflow.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setOverflowOpen((open) => !open)}
+                      className="flex items-center justify-center w-11 h-11 rounded-xl hover:bg-white/15 transition-colors text-white"
+                      title="More tools"
+                      aria-expanded={overflowOpen}
+                    >
+                      <FaEllipsisH className="text-lg" />
+                    </button>
+                  )}
+
+                  {overflowOpen && overflow.length > 0 && (
+                    <div
+                      className="absolute left-full top-0 ml-2 w-52 rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-chip-in"
+                      style={{ fontFamily: FONT_BODY }}
+                    >
+                      {overflow.map((spec) => (
+                        <RibbonMenuItem
+                          key={spec.type}
+                          spec={spec}
+                          dragSource={dragSource}
+                          dragPayload={payloadFor(spec)}
+                          onClick={onClickFor(spec)}
+                          onLockedClick={() => { setUpgradeSpec(spec); setOverflowOpen(false); }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 

@@ -1,6 +1,13 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Phase 3: wires in the three new instruments. Confidence Slider renders its
+// @updated   2026-09-08
+// @changed   Generalized the old inline `hasRandomizer` one-off into applyBehaviorInstruments(),
+//            which chains every behavior instrument that transforms a block's own rendered config
+//            (Subset Randomizer's slice, Option Randomizer's shuffle, Instructed Response's
+//            appended sentence) before handing config to the block's Component. Order matters when
+//            Subset Randomizer and Option Randomizer are both attached to the same block: subset
+//            first (decide which options exist at all), then randomize their order — reversed, a
+//            stable subset could still leak "the answer is always first" to a repeat respondent.
+//            Prior: Phase 3: wires in the three new instruments. Confidence Slider renders its
 //            RespondExtra below the block and its value goes into a new `instrument_values` state
 //            (separate from `answers` — it's a secondary value, not the block's own answer).
 //            Read-Time Gate disables Submit until every gated block's `seconds` has elapsed since
@@ -67,6 +74,35 @@ const seededShuffle = (array, seedStr) => {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+};
+
+// Chains every attached behavior instrument that transforms a block's own
+// rendered config, in a fixed order (see file header for why subset comes
+// before reorder). Instruments with no rendering effect (Attention Check,
+// Speeder Flag, ...) simply don't match any `find()` here and fall through.
+const applyBehaviorInstruments = (block, respondentId) => {
+  let config = block.config;
+  const instruments = block.instruments || [];
+
+  const subset = instruments.find((i) => i.type === 'subset_randomizer');
+  if (subset && Array.isArray(config?.options)) {
+    const count = Math.min(subset.config?.count ?? 2, config.options.length);
+    const shuffled = seededShuffle(config.options, `${respondentId}:${block.id}:subset`);
+    config = { ...config, options: shuffled.slice(0, count) };
+  }
+
+  const randomizer = instruments.find((i) => i.type === 'option_randomizer');
+  if (randomizer && Array.isArray(config?.options)) {
+    config = { ...config, options: seededShuffle(config.options, `${respondentId}:${block.id}`) };
+  }
+
+  const instructedResponse = instruments.find((i) => i.type === 'instructed_response');
+  if (instructedResponse && config?.question) {
+    const instruction = instructedResponse.config?.instruction_text || 'For quality purposes, please select this option.';
+    config = { ...config, question: `${config.question} (${instruction})` };
+  }
+
+  return config;
 };
 
 const StudioRunnerPage = () => {
@@ -233,10 +269,7 @@ const StudioRunnerPage = () => {
             const Component = getBlockComponent(block.type);
             if (!Component) return null;
 
-            const hasRandomizer = (block.instruments || []).some((i) => i.type === 'option_randomizer');
-            const effectiveConfig = hasRandomizer && Array.isArray(block.config?.options)
-              ? { ...block.config, options: seededShuffle(block.config.options, `${respondentId}:${block.id}`) }
-              : block.config;
+            const effectiveConfig = applyBehaviorInstruments(block, respondentId);
 
             return (
               <div key={block.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm">
