@@ -2,34 +2,33 @@
 
 ## Current flow (recommended)
 
-No manual JavaScript editing in Qualtrics required — everything is generated for you.
+ACTRLabs generates two small blocks. The iframe belongs in the question HTML;
+the loader belongs in Qualtrics' supported Question JavaScript editor. The full
+bridge is hosted at `/qualtrics-embed.js`, so future fixes are deployed once on
+ACTRLabs rather than copied into every survey.
 
 1. Open the assistant in **Edit Assistant** → turn on **Qualtrics embedding**.
-2. Click **Create Session — Get Embed HTML**. This calls `/qualtrics-parent-snippet.js`
-   (source: `frontend/public/qualtrics-parent-snippet.js`) client-side, bakes in the
-   assistant's `config_id` and your app's origin, and combines it with a single
-   `<iframe>` pointing at `https://app.bitterlylab.com/chat/<configId>`.
-3. Click **Copy HTML**.
+2. Click **Get Qualtrics embed code**.
+3. Copy the iframe into a Text/Graphic question's HTML view.
 4. In Qualtrics: **Survey Flow → Add a New Element → Embedded Data**, add fields:
    - `transcript`
    - `chat_status`
    - `condition` (only if your survey uses conditions/branching — this widget doesn't
      write to it, it just needs to exist so it shows up in the export)
-5. Add a **Text/Graphic** question, switch to the HTML view, and paste the copied block.
-   That's it — no "Advanced JavaScript" question option, no hidden storage question.
+5. Open that question's JavaScript editor and paste the generated loader. The
+   loader downloads the maintained bridge from ACTRLabs. No hidden question is needed.
 
 ### How it works
 - Each participant is identified automatically via `${e://Field/ResponseID}`, baked into
   the iframe `src` by Qualtrics' own piped-text substitution.
-- The inlined `<script>` runs as a normal part of the question's HTML (Qualtrics'
-  `SurveyEngine.js` is already loaded on the page by then) and listens for `postMessage`
+- The hosted bridge runs through Qualtrics' supported JavaScript lifecycle and listens for `postMessage`
   events from the chat iframe:
   - `CHAT_MESSAGE` — appended to the running transcript, written to the `transcript`
     embedded data field, `chat_status` flips to `in_progress`.
   - On `Qualtrics.SurveyEngine.addOnPageSubmit` (i.e. when the chat "ends" and the
     participant moves to the next page), `chat_status` is set to `completed`.
 - All chat logic (streaming, RAG, model calls) lives on the backend / in the iframe's
-  page (`ChatPage.jsx`) — nothing needs to change in Qualtrics beyond the one pasted block.
+  page (`ChatPage.jsx`). Qualtrics only keeps the iframe and the small hosted-script loader.
 - Origin check: the snippet only accepts `postMessage`s from the exact origin baked in
   at generation time (your app's origin), so a stray postMessage from elsewhere in the
   survey page is ignored.

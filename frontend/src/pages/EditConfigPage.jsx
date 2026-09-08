@@ -73,9 +73,9 @@ const EditConfigPage = () => {
   // Qualtrics embed code generator
   const [showQualtricsModal, setShowQualtricsModal] = useState(false);
   const [qualtricsHtml, setQualtricsHtml] = useState('');
-  const [qualtricsLoading, setQualtricsLoading] = useState(false);
+  const [qualtricsJavascript, setQualtricsJavascript] = useState('');
   const [qualtricsError, setQualtricsError] = useState('');
-  const [qualtricsCopied, setQualtricsCopied] = useState(false);
+  const [qualtricsCopied, setQualtricsCopied] = useState('');
   
   // HeyGen State
   const [heygenAvatars, setHeygenAvatars] = useState([]);
@@ -286,50 +286,48 @@ const EditConfigPage = () => {
     setConfig(prev => ({ ...prev, [name]: val }));
   };
 
-  // Builds the ready-to-paste Qualtrics HTML block: the parent snippet
-  // (fetched from /qualtrics-parent-snippet.js, config baked in) inlined
-  // above a single <iframe>. Paste the whole thing into a Text/Graphic
-  // question's HTML view — no separate "Add JavaScript" step needed.
+  // The iframe belongs in question HTML; the small loader belongs in the
+  // supported Qualtrics Question JavaScript editor. All bridge logic stays
+  // hosted at ACTRLabs so integration fixes do not require survey rewrites.
   const openQualtricsModal = async () => {
     const id = config.config_id || config._id;
     if (!id) return;
     setShowQualtricsModal(true);
-    setQualtricsLoading(true);
     setQualtricsError('');
-    setQualtricsCopied(false);
-    try {
-      const res = await fetch('/qualtrics-parent-snippet.js');
-      if (!res.ok) throw new Error('Could not load snippet template');
-      const origin = window.location.origin;
-      const snippet = (await res.text())
-        .replaceAll('__CONFIG_ID__', id)
-        .replaceAll('__EMBED_ORIGIN__', origin);
-
-      const html = [
-        '<script>',
-        snippet,
-        '</script>',
-        '<iframe',
-        `  src="${origin}/chat/${id}?qualtricsId=\${e://Field/ResponseID}"`,
-        '  width="100%" height="650" style="border:none" frameborder="0"',
-        '  allow="clipboard-read; clipboard-write; microphone">',
-        '</iframe>'
-      ].join('\n');
-
-      setQualtricsHtml(html);
-    } catch (err) {
-      setQualtricsError('Failed to generate embed code. Please try again.');
-    } finally {
-      setQualtricsLoading(false);
+    setQualtricsCopied('');
+    const origin = window.location.origin.replace(/\/$/, '');
+    if (!origin.startsWith('https://')) {
+      setQualtricsError('Qualtrics requires an HTTPS ACTRLabs URL. Generate the final code from the production site.');
     }
+    setQualtricsHtml([
+      '<iframe',
+      `  src="${origin}/chat/${id}?qualtricsId=\${e://Field/ResponseID}&embed=qualtrics"`,
+      '  title="ACTRLabs chatbot"',
+      '  width="100%" height="650" style="border:0"',
+      '  allow="clipboard-read; clipboard-write; microphone">',
+      '</iframe>'
+    ].join('\n'));
+    setQualtricsJavascript([
+      'Qualtrics.SurveyEngine.addOnReady(function () {',
+      '  window.ACTRLabsQualtrics = {',
+      `    embedOrigin: "${origin}",`,
+      `    configId: "${id}"`,
+      '  };',
+      '  var script = document.createElement("script");',
+      `  script.src = "${origin}/qualtrics-embed.js";`,
+      '  script.async = true;',
+      '  document.head.appendChild(script);',
+      '});'
+    ].join('\n'));
   };
 
-  const copyQualtricsHtml = async () => {
+  const copyQualtricsCode = async (kind) => {
+    const text = kind === 'html' ? qualtricsHtml : qualtricsJavascript;
     try {
-      await navigator.clipboard.writeText(qualtricsHtml);
-      setQualtricsCopied(true);
-      setTimeout(() => setQualtricsCopied(false), 2000);
-    } catch (err) {
+      await navigator.clipboard.writeText(text);
+      setQualtricsCopied(kind);
+      setTimeout(() => setQualtricsCopied(''), 2000);
+    } catch {
       setQualtricsError('Copy failed — select the text and copy manually.');
     }
   };
@@ -1033,6 +1031,41 @@ const EditConfigPage = () => {
                 </div>
               )}
             </div>
+
+            {/* Survey deployment belongs beside Public Access: both describe
+                how participants enter this assistant, not how the model thinks. */}
+            {isChatLike(config.bot_type) && (
+              <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Embed in Qualtrics</label>
+                    <p className="text-xs text-gray-500 font-medium">Generate the iframe and connect it to ACTRLabs-hosted transcript storage code.</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      name="qualtrics_enabled"
+                      className="sr-only peer"
+                      checked={!!config.qualtrics_enabled}
+                      onChange={(event) => setConfig(prev => ({
+                        ...prev,
+                        qualtrics_enabled: event.target.checked,
+                        ...(event.target.checked ? { is_public: true, public_purpose: 'research' } : {}),
+                      }))}
+                    />
+                    <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]" />
+                  </label>
+                </div>
+                {config.qualtrics_enabled && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <button type="button" onClick={openQualtricsModal} className="inline-flex items-center gap-2 py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-gray-900 hover:bg-gray-700 transition-colors">
+                      <FaCode className="text-xs" /> Get Qualtrics embed code
+                    </button>
+                    <p className="text-[11px] text-gray-400 mt-2">Enabling this also selects Public Access → Research so participants are not asked to sign in.</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* CONDITIONAL LOGIC: Video Analysis vs Group Chat vs Standard */}
             {config.bot_type === 'experiential' ? (
@@ -2008,34 +2041,6 @@ const EditConfigPage = () => {
                   )}
                 </div>
 
-                {/* Qualtrics embedding */}
-                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Qualtrics embedding</label>
-                      <p className="text-xs text-gray-500 font-medium">Turn on to embed this assistant in a Qualtrics survey via iframe.</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input type="checkbox" name="qualtrics_enabled" className="sr-only peer" checked={!!config.qualtrics_enabled} onChange={handleChange} />
-                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
-                    </label>
-                  </div>
-                  {config.qualtrics_enabled && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <button
-                        type="button"
-                        onClick={openQualtricsModal}
-                        className="inline-flex items-center gap-2 py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-gray-900 hover:bg-gray-700 transition-colors"
-                      >
-                        <FaCode className="text-xs" /> Create Session — Get Embed HTML
-                      </button>
-                      <p className="text-[11px] text-gray-400 mt-2">
-                        Generates one script+iframe HTML block. Paste it into a Qualtrics Text/Graphic question's HTML view — no separate JavaScript step needed.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
                 {/* Class rollout — optional class code + shared message pool */}
                 <div className="border-t border-gray-100 pt-8 mt-8">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
@@ -2133,41 +2138,36 @@ const EditConfigPage = () => {
 
       {showQualtricsModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full mx-4 max-h-[85vh] flex flex-col">
-            <h3 className="text-xl font-bold mb-1">Qualtrics Embed Code</h3>
-            <p className="text-gray-500 text-sm mb-5">
-              In Survey Flow → Embedded Data, add fields <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">transcript</code>,{' '}
-              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">chat_status</code>
-              {' '}(and <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">condition</code> if you use conditions). Then add a Text/Graphic question and paste this HTML into its HTML view.
-            </p>
+          <div className="bg-white rounded-[2rem] p-8 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-1">Connect this assistant to Qualtrics</h3>
+            <p className="text-gray-500 text-sm mb-5">ACTRLabs already stores the chat. Complete step 2 only when you also want a copy in Qualtrics Embedded Data.</p>
 
-            {qualtricsLoading ? (
-              <div className="flex items-center justify-center py-16 text-gray-400">
-                <FaSpinner className="animate-spin" />
-                <span className="ml-2 text-sm font-medium">Generating…</span>
-              </div>
-            ) : qualtricsError ? (
-              <p className="text-sm text-red-600 mb-4">{qualtricsError}</p>
-            ) : (
-              <textarea
-                readOnly
-                value={qualtricsHtml}
-                onClick={(e) => e.target.select()}
-                className="flex-1 min-h-[260px] w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 resize-none focus:outline-none"
-              />
-            )}
+            {qualtricsError && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">{qualtricsError}</p>}
 
-            <div className="flex justify-end gap-3 mt-6">
-              <button type="button" onClick={() => setShowQualtricsModal(false)} className="py-3 px-5 rounded-xl font-bold border-2 border-gray-200">Close</button>
-              <button
-                type="button"
-                onClick={copyQualtricsHtml}
-                disabled={qualtricsLoading || !!qualtricsError}
-                className="py-3 px-5 rounded-xl font-bold text-white bg-[#FA6C43] disabled:opacity-60 flex items-center gap-2"
-              >
-                {qualtricsCopied ? <><FaCheck className="text-xs" /> Copied</> : <><FaCopy className="text-xs" /> Copy HTML</>}
-              </button>
+            <div className="space-y-5">
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <div><p className="text-sm font-bold">1. Embed HTML</p><p className="text-xs text-gray-500">Paste into a Text/Graphic question's HTML view.</p></div>
+                  <button type="button" onClick={() => copyQualtricsCode('html')} className="py-2 px-3 rounded-lg font-bold text-xs text-white bg-[#FA6C43] flex items-center gap-2">
+                    {qualtricsCopied === 'html' ? <><FaCheck /> Copied</> : <><FaCopy /> Copy HTML</>}
+                  </button>
+                </div>
+                <textarea readOnly value={qualtricsHtml} onClick={(e) => e.target.select()} className="min-h-[145px] w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 resize-none focus:outline-none" />
+              </section>
+
+              <section className="pt-5 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div><p className="text-sm font-bold">2. Save a copy in Qualtrics <span className="font-normal text-gray-400">(optional)</span></p><p className="text-xs text-gray-500">Add Embedded Data fields <code>transcript</code> and <code>chat_status</code>, then paste this into the question's JavaScript editor.</p></div>
+                  <button type="button" onClick={() => copyQualtricsCode('javascript')} className="py-2 px-3 rounded-lg font-bold text-xs text-white bg-gray-900 flex items-center gap-2">
+                    {qualtricsCopied === 'javascript' ? <><FaCheck /> Copied</> : <><FaCopy /> Copy JavaScript</>}
+                  </button>
+                </div>
+                <textarea readOnly value={qualtricsJavascript} onClick={(e) => e.target.select()} className="min-h-[210px] w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 resize-none focus:outline-none" />
+                <p className="text-[11px] text-gray-400 mt-2">The loader points to ACTRLabs. Future bridge fixes are deployed there, so this survey code stays unchanged.</p>
+              </section>
             </div>
+
+            <div className="flex justify-end mt-6"><button type="button" onClick={() => setShowQualtricsModal(false)} className="py-3 px-5 rounded-xl font-bold border-2 border-gray-200">Close</button></div>
           </div>
         </div>
       )}

@@ -1835,15 +1835,17 @@ const ChatPage = () => {
 
   // --- 6. QUALTRICS INTEGRATION: Send messages to Parent Window ---
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (!qualtricsIdRef.current || window.parent === window || messages.length === 0) return;
 
     // Send all messages that haven't been sent yet (handles user+AI added in same render)
     const unsent = messages.slice(qualtricsSentCountRef.current);
     unsent.forEach((msg, i) => {
       const absoluteIndex = qualtricsSentCountRef.current + i;
 
-      // Skip streaming AI placeholders (empty text, isTyping) — wait for the final update
-      if (msg.sender === 'ai' && (!msg.text || msg.isTyping)) return;
+      // The first streamed token clears isTyping, so isLoading is the reliable
+      // signal that the answer is still growing. Send the AI row only once the
+      // complete response has arrived.
+      if (msg.sender === 'ai' && (!msg.text || msg.isTyping || isLoading)) return;
 
       window.parent.postMessage({
         type: "CHAT_MESSAGE",
@@ -1863,7 +1865,7 @@ const ChatPage = () => {
       qualtricsSentCountRef.current = absoluteIndex + 1;
     });
 
-  }, [messages, configId]); // <--- Runs every time 'messages' changes
+  }, [messages, configId, isLoading]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
