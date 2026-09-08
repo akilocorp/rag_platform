@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   New file: @block decorator + module-level registry, mirroring
+# @updated   2026-09-08
+# @changed   Added `is_ai` flag to @block for the studio-wide AI badge/visual paywall lock.
+# Prior: New file: @block decorator + module-level registry, mirroring
 #            src/agentic/tools/base.py's @tool pattern. Studio (faculty research-project
 #            builder) Phase 0 — see backend/routes/studio_routes.py for the CRUD API this feeds.
 """
@@ -24,6 +25,7 @@ def block(
     label: str,
     icon: str,
     default_config: Dict[str, Any],
+    is_ai: bool = False,
 ):
     """Register a block type.
 
@@ -34,6 +36,9 @@ def block(
 
     `label`/`icon` feed the builder's ribbon; `default_config` seeds a newly
     dropped block before the professor edits it.
+    `is_ai` — marks the block as AI-powered for the builder's studio-wide AI
+    badge (and, today, the visual-only paywall lock alongside it). Purely a
+    display flag; nothing here enforces it.
     """
     def wrap(fn: Callable[[Dict[str, Any]], Dict[str, Any]]):
         if block_type in BLOCKS:
@@ -48,6 +53,7 @@ def block(
                 "label": label,
                 "icon": icon,
                 "default_config": default_config,
+                "is_ai": is_ai,
             },
         }
         return fn

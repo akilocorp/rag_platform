@@ -1,6 +1,10 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Ribbon re-docked left-side vertical, Photoshop-toolbar style: icon-only items,
+// @changed   Studio-wide AI badge + visual-only paywall: any block/instrument spec with `is_ai: true`
+//            (currently just the new Voice Conversation block) renders a lock chip in the ribbon,
+//            is undraggable, and clicking it opens an upgrade nudge (upgradeSpec state) instead of
+//            adding it — no real billing/entitlement behind this yet, purely UI.
+//            Prior: Ribbon re-docked left-side vertical, Photoshop-toolbar style: icon-only items,
 //            hover reveals the label as a flyout chip instead of a permanent under-icon caption.
 //            Prior: Phase 3: instruments can now carry a ConfigEditor (e.g. Attention Check's expected-
 //            option dropdown, Read-Time Gate's seconds input), rendered inline next to the badge
@@ -29,7 +33,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
-  FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt,
+  FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -46,7 +50,7 @@ const RIBBON_ICONS = {
   text: FaFont, radio: FaDotCircle, toggle: FaToggleOn,
   paragraph: FaParagraph, star: FaStar, 'align-left': FaAlignLeft,
   stopwatch: FaStopwatch, slider: FaSlidersH, hourglass: FaHourglassHalf,
-  shuffle: FaRandom, shield: FaShieldAlt,
+  shuffle: FaRandom, shield: FaShieldAlt, microphone: FaMicrophone,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
@@ -58,33 +62,57 @@ const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).
 // Icon-only by default (Photoshop toolbar style); the label is an absolutely-
 // positioned flyout that fades/slides in from the icon on hover so the rail
 // stays narrow while docked to the left edge.
-const RibbonItem = ({ spec, dragSource, dragPayload, onClick }) => {
+// `spec.is_ai` items (studio-wide AI badge) render a small lock chip and are
+// not draggable — this is a visual-only paywall stub, there's no billing
+// behind it yet, so `onLockedClick` just opens an upgrade nudge instead of
+// letting the item onto the canvas.
+const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
+  const locked = !!spec.is_ai;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `ribbon-${dragSource}-${spec.type}`,
     data: { source: dragSource, ...dragPayload },
+    disabled: locked,
   });
   const Icon = iconFor(spec.icon);
   return (
     <button
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
+      {...(locked ? {} : listeners)}
+      {...(locked ? {} : attributes)}
       type="button"
-      onClick={onClick}
+      onClick={locked ? onLockedClick : onClick}
       style={{
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className="group relative flex items-center justify-center w-11 h-11 rounded-xl hover:bg-white/15 transition-colors text-white cursor-grab active:cursor-grabbing"
-      title={onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`}
+      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors text-white ${
+        locked ? 'opacity-70 cursor-pointer' : 'hover:bg-white/15 cursor-grab active:cursor-grabbing'
+      }`}
+      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : (onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`)}
     >
       <Icon className="text-lg" />
+      {locked && (
+        <span
+          className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full shadow"
+          style={{ backgroundColor: '#1F1F1F' }}
+        >
+          <FaLock size={7} className="text-white" />
+        </span>
+      )}
       <span
-        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
         style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF' }}
       >
         {spec.label}
+        {locked && (
+          <span
+            className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
+            style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+          >
+            AI
+          </span>
+        )}
       </span>
     </button>
   );
@@ -205,6 +233,7 @@ const StudioBuilderPage = () => {
   const [blockSpecs, setBlockSpecs] = useState([]);
   const [instrumentSpecs, setInstrumentSpecs] = useState([]);
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
+  const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [publishing, setPublishing] = useState(false);
@@ -490,6 +519,7 @@ const StudioBuilderPage = () => {
                     dragSource="ribbon-block"
                     dragPayload={{ blockType: spec.type }}
                     onClick={() => appendBlock(spec)}
+                    onLockedClick={() => setUpgradeSpec(spec)}
                   />
                 ))
               : instrumentSpecs.map((spec) => (
@@ -498,10 +528,41 @@ const StudioBuilderPage = () => {
                     spec={spec}
                     dragSource="ribbon-instrument"
                     dragPayload={{ instrumentType: spec.type }}
+                    onLockedClick={() => setUpgradeSpec(spec)}
                   />
                 ))}
           </div>
         </div>
+
+        {/* Visual-only paywall nudge for is_ai ribbon items — no real billing/entitlement
+            check behind this yet, it just blocks the add-to-canvas gesture with an upsell. */}
+        {upgradeSpec && (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4 animate-chip-in"
+            onClick={() => setUpgradeSpec(null)}
+          >
+            <div
+              className="bg-slate-900 text-white rounded-2xl p-6 max-w-sm flex items-start gap-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <FaLock className="w-5 h-5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">{upgradeSpec.label} is an AI feature.</p>
+                <p className="mt-1 text-slate-300 text-sm">
+                  AI-powered blocks and instruments are part of the upcoming Pro plan. Upgrade to add
+                  this to your project.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUpgradeSpec(null)}
+                  className="inline-block mt-4 px-4 py-2 rounded-lg bg-white text-slate-900 text-sm font-medium"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DndContext>
   );
