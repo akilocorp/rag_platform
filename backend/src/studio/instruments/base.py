@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Phase 3: compute()'s signature changed from (events, value, config) to (answer, config),
+# @updated   2026-09-08
+# @changed   Added `is_ai` flag to @instrument for the studio-wide AI badge/visual paywall lock.
+# Prior: Phase 3: compute()'s signature changed from (events, value, config) to (answer, config),
 #            where `answer` is the full per-block answer dict ({value, events?, instrument_values?}).
 #            Reaction Timer only ever needed `events`; Confidence Slider's metric comes from
 #            `instrument_values` instead — passing the whole dict lets each instrument pull whatever
@@ -44,6 +45,7 @@ def instrument(
     applies_to: Optional[List[str]] = None,
     needs_events: bool = False,
     compute: Optional[Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]] = None,
+    is_ai: bool = False,
 ):
     """Register an instrument type.
 
@@ -61,6 +63,9 @@ def instrument(
     single response's full answer dict ({value, events?, instrument_values?})
     for the results view. Measurement instruments normally supply this;
     behavior ones usually won't need to (nothing to compute).
+    `is_ai` — marks the instrument as AI-powered for the builder's studio-wide
+    AI badge (and, today, the visual-only paywall lock alongside it). Purely a
+    display flag; nothing here enforces it.
     """
     def wrap(fn: Callable[[Dict[str, Any]], Dict[str, Any]]):
         if instrument_type in INSTRUMENTS:
@@ -79,6 +84,7 @@ def instrument(
                 "applies_to": applies_to,
                 "needs_events": needs_events,
                 "default_config": default_config,
+                "is_ai": is_ai,
             },
         }
         return fn

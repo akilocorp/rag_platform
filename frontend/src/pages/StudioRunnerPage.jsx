@@ -1,6 +1,28 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Phase 3: wires in the three new instruments. Confidence Slider renders its
+// @updated   2026-09-08
+// @changed   Micro-animation pass: block cards now stagger-fade in on load (animate-chip-in +
+//            per-index delay) and pick up a soft orange border once answered; Submit gets a hover
+//            shadow; the "Thanks for your response" screen fades its lines in instead of popping in
+//            all at once.
+//            Prior: RespondExtra now also receives answerValue/question/projectId/blockId (previously just
+//            value/onChange) — needed by the Tier-3 live AI instruments (Comprehension Check, AI
+//            Devil's-Advocate, Adaptive Follow-Up), which call a new public endpoint mid-session
+//            and need to know the host block's own answer + question text + how to address the
+//            call. Existing RespondExtra components (Confidence Slider etc.) just ignore the new props.
+//            Prior: applyBehaviorInstruments now takes `answers` too, for Piped Text (prefixes a block's
+//            question with a sibling block's live answer — a no-op until that sibling is actually
+//            answered). Embedded Data: URL query params captured once on mount and sent as
+//            `embedded_data` alongside the submission. Condition assignment needs no client change
+//            — the backend assigns it at submit time from the project doc, not something this page
+//            resolves or displays.
+//            Prior: Generalized the old inline `hasRandomizer` one-off into applyBehaviorInstruments(),
+//            which chains every behavior instrument that transforms a block's own rendered config
+//            (Subset Randomizer's slice, Option Randomizer's shuffle, Instructed Response's
+//            appended sentence) before handing config to the block's Component. Order matters when
+//            Subset Randomizer and Option Randomizer are both attached to the same block: subset
+//            first (decide which options exist at all), then randomize their order — reversed, a
+//            stable subset could still leak "the answer is always first" to a repeat respondent.
+//            Prior: Phase 3: wires in the three new instruments. Confidence Slider renders its
 //            RespondExtra below the block and its value goes into a new `instrument_values` state
 //            (separate from `answers` — it's a secondary value, not the block's own answer).
 //            Read-Time Gate disables Submit until every gated block's `seconds` has elapsed since
@@ -69,6 +91,44 @@ const seededShuffle = (array, seedStr) => {
   return out;
 };
 
+// Chains every attached behavior instrument that transforms a block's own
+// rendered config, in a fixed order (see file header for why subset comes
+// before reorder). Instruments with no rendering effect (Attention Check,
+// Speeder Flag, ...) simply don't match any `find()` here and fall through.
+const applyBehaviorInstruments = (block, respondentId, answers) => {
+  let config = block.config;
+  const instruments = block.instruments || [];
+
+  const subset = instruments.find((i) => i.type === 'subset_randomizer');
+  if (subset && Array.isArray(config?.options)) {
+    const count = Math.min(subset.config?.count ?? 2, config.options.length);
+    const shuffled = seededShuffle(config.options, `${respondentId}:${block.id}:subset`);
+    config = { ...config, options: shuffled.slice(0, count) };
+  }
+
+  const randomizer = instruments.find((i) => i.type === 'option_randomizer');
+  if (randomizer && Array.isArray(config?.options)) {
+    config = { ...config, options: seededShuffle(config.options, `${respondentId}:${block.id}`) };
+  }
+
+  const instructedResponse = instruments.find((i) => i.type === 'instructed_response');
+  if (instructedResponse && config?.question) {
+    const instruction = instructedResponse.config?.instruction_text || 'For quality purposes, please select this option.';
+    config = { ...config, question: `${config.question} (${instruction})` };
+  }
+
+  // A no-op until the source block actually has an answer — a respondent
+  // who reaches the piped block before answering the source one just sees
+  // the question as written, no placeholder text.
+  const pipedText = instruments.find((i) => i.type === 'piped_text');
+  const sourceAnswer = pipedText && answers[pipedText.config?.source_block_id];
+  if (pipedText && sourceAnswer && config?.question) {
+    config = { ...config, question: `"${sourceAnswer}" — ${config.question}` };
+  }
+
+  return config;
+};
+
 const StudioRunnerPage = () => {
   const { projectId } = useParams();
   const [project, setProject] = useState(null);
@@ -83,6 +143,10 @@ const StudioRunnerPage = () => {
   const [now, setNow] = useState(() => performance.now());
   // Lazy initializer — getRespondentId() runs once, not on every render.
   const [respondentId] = useState(getRespondentId);
+  // Embedded Data — whatever URL query params this respondent arrived with
+  // (Qualtrics-style), captured once and sent along with the submission for
+  // later segmentation. Backend sanitizes/caps it; this is just capture.
+  const [embeddedData] = useState(() => Object.fromEntries(new URLSearchParams(window.location.search)));
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +227,7 @@ const StudioRunnerPage = () => {
     try {
       await apiClient.post(`/studio/public/projects/${projectId}/responses`, {
         respondent_id: respondentId,
+        embedded_data: embeddedData,
         answers: Array.from(blockIds).map((block_id) => {
           const entry = { block_id, value: answers[block_id] };
           const blk = blocks.find((b) => b.id === block_id);
@@ -213,9 +278,13 @@ const StudioRunnerPage = () => {
   if (submitted) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F7F8FA] px-6 text-center gap-3" style={{ fontFamily: FONT_BODY }}>
-        <FaCheckCircle className="text-4xl" style={{ color: '#1E7A3D' }} />
-        <h1 className="text-lg font-bold" style={{ color: '#1F1F1F' }}>Thanks for your response!</h1>
-        <p className="text-sm text-gray-500">You can close this window now.</p>
+        <FaCheckCircle className="text-4xl animate-chip-in" style={{ color: '#1E7A3D' }} />
+        <h1 className="text-lg font-bold animate-chip-in" style={{ color: '#1F1F1F', animationDelay: '120ms' }}>
+          Thanks for your response!
+        </h1>
+        <p className="text-sm text-gray-500 animate-chip-in" style={{ animationDelay: '200ms' }}>
+          You can close this window now.
+        </p>
       </div>
     );
   }
@@ -229,17 +298,22 @@ const StudioRunnerPage = () => {
         </div>
 
         <div className="flex flex-col gap-4">
-          {blocks.map((block) => {
+          {blocks.map((block, idx) => {
             const Component = getBlockComponent(block.type);
             if (!Component) return null;
 
-            const hasRandomizer = (block.instruments || []).some((i) => i.type === 'option_randomizer');
-            const effectiveConfig = hasRandomizer && Array.isArray(block.config?.options)
-              ? { ...block.config, options: seededShuffle(block.config.options, `${respondentId}:${block.id}`) }
-              : block.config;
+            const effectiveConfig = applyBehaviorInstruments(block, respondentId, answers);
+            const isAnswered = answers[block.id] !== undefined && answers[block.id] !== null
+              && !(typeof answers[block.id] === 'string' && !answers[block.id].trim());
 
             return (
-              <div key={block.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div
+                key={block.id}
+                className={`bg-white rounded-2xl border shadow-sm animate-chip-in transition-colors duration-300 ${
+                  isAnswered ? 'border-[#FA6C43]/25' : 'border-gray-200'
+                }`}
+                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}
+              >
                 <Component
                   config={effectiveConfig}
                   mode="respond"
@@ -256,6 +330,10 @@ const StudioRunnerPage = () => {
                       key={inst.id}
                       value={instrumentValues[block.id]?.[inst.type]}
                       onChange={(v) => setInstrumentValue(block.id, inst.type, v)}
+                      answerValue={answers[block.id]}
+                      question={effectiveConfig?.question}
+                      projectId={projectId}
+                      blockId={block.id}
                     />
                   );
                 })}
@@ -271,7 +349,7 @@ const StudioRunnerPage = () => {
         <button
           onClick={handleSubmit}
           disabled={submitting || gateActive}
-          className="w-full mt-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.99] disabled:opacity-60"
+          className="w-full mt-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.99] hover:shadow-lg disabled:opacity-60 disabled:hover:shadow-none"
           style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
         >
           {submitting
