@@ -1,6 +1,13 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   RIBBON_ICONS gained 5 new keys for the Qualtrics-style block batch (Semantic
+// @changed   Three UX fixes. Tab toggle was a rounded-full pill sized to fit "Instruments" text,
+//            which made it visibly wider than the icon rail below once it went vertical — replaced
+//            with two w-11 h-11 icon buttons (matching the rail exactly) with a hover flyout label,
+//            same mechanic as RibbonItem. Instrument/block compatibility was previously invisible:
+//            attachInstrument silently no-op'd on an incompatible drop; it now shows a toast
+//            (dropError state), and the ribbon's hover flyout shows an instrument's `applies_to`
+//            restriction (via new formatBlockType helper) before you even try dragging it.
+//            Prior: RIBBON_ICONS gained 5 new keys for the Qualtrics-style block batch (Semantic
 //            Differential, Forced Rank Order, Constant Sum, MaxDiff, Card Sort) — no other changes
 //            needed here, blocks register themselves via the existing eager-glob discovery.
 //            Prior: Ribbon rail now caps at RIBBON_VISIBLE_COUNT items; the rest collapse into a "…"
@@ -28,7 +35,7 @@
 //            Prior: New file: the Studio canvas builder — dotted-grid canvas, bottom-center orange/
 //            white ribbon of block types (drag OR click to add, via dnd-kit), reorder placed blocks
 //            by dragging them, debounced autosave to PUT /studio/projects/:id.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   DndContext, useDraggable, useDroppable, closestCenter, PointerSensor, useSensor, useSensors,
@@ -71,6 +78,11 @@ const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 const RIBBON_VISIBLE_COUNT = 6;
 
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+// "single_choice" -> "Single Choice" — used both in the ribbon's compatibility
+// hint and the drop-rejected toast, so an instrument's `applies_to` restriction
+// (a list of block `type` strings) reads as English in both places.
+const formatBlockType = (type) => type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 // A block or instrument type's icon in the ribbon. `dragSource`/`dragPayload`
 // distinguish which kind is being dragged in handleDragEnd. Blocks are also
@@ -117,16 +129,23 @@ const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) =
         </span>
       )}
       <span
-        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 flex flex-col gap-0.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
         style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF' }}
       >
-        {spec.label}
-        {locked && (
-          <span
-            className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
-            style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
-          >
-            AI
+        <span className="flex items-center gap-1.5">
+          {spec.label}
+          {locked && (
+            <span
+              className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
+              style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
+            >
+              AI
+            </span>
+          )}
+        </span>
+        {spec.applies_to && (
+          <span className="text-[10px] font-normal" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            {spec.applies_to.map(formatBlockType).join(', ')} only
           </span>
         )}
       </span>
@@ -163,7 +182,14 @@ const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick 
       title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : undefined}
     >
       <Icon className="text-base shrink-0" style={{ color: '#FA6C43' }} />
-      <span className="flex-1">{spec.label}</span>
+      <span className="flex-1 flex flex-col leading-tight">
+        {spec.label}
+        {spec.applies_to && (
+          <span className="text-[10px] font-normal" style={{ color: 'rgba(31,31,31,0.45)' }}>
+            {spec.applies_to.map(formatBlockType).join(', ')} only
+          </span>
+        )}
+      </span>
       {locked && <FaLock size={10} className="shrink-0" style={{ color: 'rgba(31,31,31,0.4)' }} />}
     </button>
   );
@@ -292,6 +318,8 @@ const StudioBuilderPage = () => {
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
   const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
   const [overflowOpen, setOverflowOpen] = useState(false); // ribbon's "…" popover
+  const [dropError, setDropError] = useState(null); // toast text for a rejected instrument drop
+  const dropErrorTimeoutRef = useRef(null);
   const [conditionsOpen, setConditionsOpen] = useState(false); // header's Conditions popover
   const [conditionDraft, setConditionDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -391,7 +419,9 @@ const StudioBuilderPage = () => {
   };
 
   const page = project?.pages?.[0];
-  const blocks = page?.blocks || [];
+  // Memoized so attachInstrument's useCallback (which reads `blocks` to check
+  // applies_to compatibility) doesn't get a new identity every render.
+  const blocks = useMemo(() => page?.blocks || [], [page]);
 
   const updatePageBlocks = useCallback((updater) => {
     setProject((prev) => {
@@ -417,17 +447,27 @@ const StudioBuilderPage = () => {
     updatePageBlocks((blks) => blks.filter((b) => b.id !== blockId));
   };
 
+  // Checked *before* calling updatePageBlocks (rather than filtered out
+  // inside its map, as before) specifically so an incompatible drop can
+  // surface a toast instead of just doing nothing — that silent no-op was
+  // confusing enough to be its own bug report.
   const attachInstrument = useCallback((spec, targetBlockId) => {
-    updatePageBlocks((blks) => blks.map((b) => {
-      if (b.id !== targetBlockId) return b;
-      if (spec.applies_to && !spec.applies_to.includes(b.type)) return b; // not compatible, silently ignore
-      if ((b.instruments || []).some((i) => i.type === spec.type)) return b; // already attached
-      return {
-        ...b,
-        instruments: [...(b.instruments || []), { id: newId('inst'), type: spec.type, config: { ...spec.default_config } }],
-      };
-    }));
-  }, [updatePageBlocks]);
+    const targetBlock = blocks.find((b) => b.id === targetBlockId);
+    if (!targetBlock) return;
+    if (spec.applies_to && !spec.applies_to.includes(targetBlock.type)) {
+      if (dropErrorTimeoutRef.current) clearTimeout(dropErrorTimeoutRef.current);
+      setDropError(`${spec.label} only works on ${spec.applies_to.map(formatBlockType).join(', ')} blocks`);
+      dropErrorTimeoutRef.current = setTimeout(() => setDropError(null), 3000);
+      return;
+    }
+    if ((targetBlock.instruments || []).some((i) => i.type === spec.type)) return; // already attached
+
+    updatePageBlocks((blks) => blks.map((b) => (
+      b.id === targetBlockId
+        ? { ...b, instruments: [...(b.instruments || []), { id: newId('inst'), type: spec.type, config: { ...spec.default_config } }] }
+        : b
+    )));
+  }, [blocks, updatePageBlocks]);
 
   const handleRemoveInstrument = (blockId, instrumentType) => {
     updatePageBlocks((blks) => blks.map((b) => (
@@ -620,22 +660,43 @@ const StudioBuilderPage = () => {
 
         {/* Left-side vertical ribbon — brand orange, white icons. Blocks | Instruments tabs. */}
         <div className="fixed left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2">
-          <div className="flex flex-col items-center gap-0.5 p-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
-            {['blocks', 'instruments'].map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => { setRibbonTab(tab); setOverflowOpen(false); }}
-                className="px-3 py-1 rounded-full capitalize transition-colors"
-                style={
-                  ribbonTab === tab
-                    ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
-                    : { color: 'rgba(31,31,31,0.5)' }
-                }
+          <div className="flex flex-col items-center gap-0.5 p-0.5 rounded-2xl" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
+            <button
+              type="button"
+              onClick={() => { setRibbonTab('blocks'); setOverflowOpen(false); }}
+              className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
+              style={
+                ribbonTab === 'blocks'
+                  ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+                  : { color: 'rgba(31,31,31,0.5)' }
+              }
+            >
+              <FaThLarge className="text-base" />
+              <span
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
               >
-                {tab}
-              </button>
-            ))}
+                Blocks
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRibbonTab('instruments'); setOverflowOpen(false); }}
+              className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
+              style={
+                ribbonTab === 'instruments'
+                  ? { backgroundColor: '#FA6C43', color: '#FFFFFF' }
+                  : { color: 'rgba(31,31,31,0.5)' }
+              }
+            >
+              <FaSlidersH className="text-base" />
+              <span
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
+              >
+                Instruments
+              </span>
+            </button>
           </div>
           <div className="relative flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
             {(() => {
@@ -724,6 +785,18 @@ const StudioBuilderPage = () => {
                   Got it
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback for a rejected instrument drop — previously a silent no-op, see attachInstrument. */}
+        {dropError && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-chip-in">
+            <div
+              className="px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold"
+              style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
+            >
+              {dropError}
             </div>
           </div>
         )}

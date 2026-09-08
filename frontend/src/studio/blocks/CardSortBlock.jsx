@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   New file: the Card Sort block. Respond mode is a per-item category picker — a
+// @changed   ListEditor takes an explicit `itemLabel` instead of deriving a singular from `label`
+//            via a naive trailing-"s" strip — that turned "Categories" into "+ Add categorie".
+//            Prior: New file: the Card Sort block. Respond mode is a per-item category picker — a
 //            dropdown when `categories` is non-empty (closed sort), a free-text input when it's
 //            empty (open sort) — rather than true drag-tile UI. Same data (which category each item
 //            landed in), simpler interaction; see backend src/studio/blocks/card_sort.py.
@@ -9,7 +11,7 @@ import { registerBlock } from './registryStore';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
-const ListEditor = ({ label, items, onUpdate, onAdd, onRemove, minItems = 1 }) => (
+const ListEditor = ({ label, itemLabel, items, onUpdate, onAdd, onRemove, minItems = 1 }) => (
   <div className="flex flex-col gap-1.5 mt-1">
     <p className="text-xs font-semibold" style={{ fontFamily: FONT_BODY, color: 'rgba(31,31,31,0.6)' }}>{label}</p>
     {items.map((item, idx) => (
@@ -40,7 +42,7 @@ const ListEditor = ({ label, items, onUpdate, onAdd, onRemove, minItems = 1 }) =
       className="self-start text-xs font-semibold mt-0.5"
       style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
     >
-      + Add {label.toLowerCase().replace(/s$/, '')}
+      + Add {itemLabel}
     </button>
   </div>
 );
@@ -109,8 +111,8 @@ const CardSortBlock = ({ config, mode = 'edit', onChange, value, onAnswer, error
         className="w-full px-3 py-2 rounded-lg border text-sm font-semibold"
         style={{ borderColor: 'rgba(31,31,31,0.15)', fontFamily: FONT_BODY, color: '#1F1F1F' }}
       />
-      <ListEditor label="Items" items={items} onUpdate={updateItem} onAdd={addItem} onRemove={removeItem} minItems={1} />
-      <ListEditor label="Categories" items={categories} onUpdate={updateCategory} onAdd={addCategory} onRemove={removeCategory} minItems={0} />
+      <ListEditor label="Items" itemLabel="item" items={items} onUpdate={updateItem} onAdd={addItem} onRemove={removeItem} minItems={1} />
+      <ListEditor label="Categories" itemLabel="category" items={categories} onUpdate={updateCategory} onAdd={addCategory} onRemove={removeCategory} minItems={0} />
       <p className="text-[11px] mt-0.5" style={{ fontFamily: FONT_BODY, color: 'rgba(31,31,31,0.45)' }}>
         No categories = open sort (respondent names their own).
       </p>
