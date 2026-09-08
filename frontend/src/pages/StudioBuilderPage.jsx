@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-08
-// @changed   Ribbon rail now caps at RIBBON_VISIBLE_COUNT items; the rest collapse into a "…"
+// @changed   RIBBON_ICONS gained 5 new keys for the Qualtrics-style block batch (Semantic
+//            Differential, Forced Rank Order, Constant Sum, MaxDiff, Card Sort) — no other changes
+//            needed here, blocks register themselves via the existing eager-glob discovery.
+//            Prior: Ribbon rail now caps at RIBBON_VISIBLE_COUNT items; the rest collapse into a "…"
 //            overflow popover (RibbonMenuItem — same drag/click/lock behavior, inline label instead
 //            of a hover flyout). Feeds the 3 new Qualtrics-inspired instruments straight into overflow.
 //            Prior: Studio-wide AI badge + visual-only paywall: any block/instrument spec with `is_ai: true`
@@ -38,6 +41,7 @@ import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
   FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
   FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
+  FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -56,6 +60,8 @@ const RIBBON_ICONS = {
   stopwatch: FaStopwatch, slider: FaSlidersH, hourglass: FaHourglassHalf,
   shuffle: FaRandom, shield: FaShieldAlt, microphone: FaMicrophone,
   'clipboard-check': FaClipboardCheck, tachometer: FaTachometerAlt, filter: FaFilter,
+  scale: FaBalanceScale, 'list-ol': FaListOl, coins: FaCoins,
+  exchange: FaExchangeAlt, 'th-large': FaThLarge,
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
