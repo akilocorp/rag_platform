@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-07  @changed Professor-paired templates (`flow.prof_paired`, `investigation`): the
+/* @language JSX  @updated 2026-09-08  @changed RoleCaseDocument no longer tells a reader "Your teammates are reading
+   something different" — that line was itself a leak the hide-role-number work was supposed to close. Prior:
+   Professor-paired templates (`flow.prof_paired`, `investigation`): the
    breakout lobby is replaced by `join_investigation_pool` — a new `pool` phase ("wait for your instructor") with no
    room list or headcount shown. New `reading` phase reuses the existing premise/cards screens (with a live countdown
    chip) and, once its clock runs out, the server flips the room straight to `solo` — the `prevPhaseForReadingRef`
@@ -242,9 +244,6 @@ const RoleCaseDocument = ({ role, text, onContinue, lex = LEXICON_FALLBACK }) =>
           <h2 className="text-2xl sm:text-3xl mb-2" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>
             {fillNodes(lex.role_note, 'role', roleLabel(role))}
           </h2>
-          <p className="text-sm text-gray-500">
-            This is yours alone. Your teammates are reading something different.
-          </p>
         </div>
 
         <div className="rounded-3xl bg-white border border-gray-200 shadow-sm p-8 sm:p-10 text-left mb-8">

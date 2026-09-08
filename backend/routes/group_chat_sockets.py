@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Professor-paired investigation rooms (`flow.prof_paired`): new `join_investigation_pool`
+# @updated   2026-09-08
+# @changed   `_launch_pairing` and `handle_join_investigation_pool` now read the professor's own
+#            `investigation_group_size` / `investigation_group_size_max` off the config (defaults
+#            3/4) and pass them into `investigation_pool.pair`/`join` instead of the module's old
+#            hardcoded group-of-3. `pair()` is also no longer one-shot — see investigation_pool.py.
+#            Prior: Professor-paired investigation rooms (`flow.prof_paired`): new `join_investigation_pool`
 #            socket event replaces the breakout lobby for that template — a student is either
 #            reconnected into their existing room, dropped into one as a late arrival, or told to
 #            wait (`pool_waiting`), and never sees the headcount or room list. `trigger_pairing`
@@ -689,7 +693,16 @@ def register_socket_events(socketio, app):
         live request context this doesn't have.
         """
         config_id = str(config_doc.get("_id"))
-        groups = investigation_pool.pair(config_id, lambda i: _room_id_for(config_id, i))
+        me_config = _manager_exercise_config(config_doc)
+        try:
+            normal_size = max(1, int(me_config.get("investigation_group_size") or 3))
+        except (TypeError, ValueError):
+            normal_size = 3
+        try:
+            max_size = max(normal_size, int(me_config.get("investigation_group_size_max") or normal_size + 1))
+        except (TypeError, ValueError):
+            max_size = normal_size + 1
+        groups = investigation_pool.pair(config_id, lambda i: _room_id_for(config_id, i), normal_size, max_size)
         for g in groups:
             room_id = g["room_id"]
             state = _bootstrap_exercise(room_id, config_doc, create_session=True)
@@ -1013,7 +1026,12 @@ def register_socket_events(socketio, app):
             emit('match_found', {'room_id': existing_room}, to=request.sid)
             return
 
-        status, room_id = investigation_pool.join(config_id, uid, display_name)
+        try:
+            max_size = int(me_config.get("investigation_group_size_max")
+                           or (int(me_config.get("investigation_group_size") or 3) + 1))
+        except (TypeError, ValueError):
+            max_size = 4
+        status, room_id = investigation_pool.join(config_id, uid, display_name, max_size)
         if status == "assigned" and room_id:
             # A genuinely new late arrival: seat them now. `note_participant`'s
             # existing role round-robin hands them whichever case file matches

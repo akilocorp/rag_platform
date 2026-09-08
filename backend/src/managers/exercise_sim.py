@@ -1,6 +1,13 @@
 # @language  Python
-# @updated   2026-09-02
-# @changed   A run that cannot reach the model now says so instead of playing an empty room. Every
+# @updated   2026-09-08
+# @changed   Every hardcoded sim-student prompt (STUDENT_SYSTEM, DISCUSS_TASK, HIRE_TASK, PICK_TASK,
+#            the misleading/recall overrides — all written for the hiring template only) moved to
+#            Mongo via the new `tester_templates.get(state.template())`, read fresh in `_system`,
+#            `task_for` (now takes `state`), and `choose` (now takes a template field name like
+#            "pick_task"/"decision_task" instead of a literal format string). A test run on the
+#            `investigation` template no longer tells the model it's in a "hiring exercise" —
+#            see seed_tester_templates.py, which seeds both templates' wording.
+# @changed   Prior: A run that cannot reach the model now says so instead of playing an empty room. Every
 #            seat's failure was swallowed so one dead student could not abort the run — but when it
 #            is EVERY student the professor watches a silent transcript and a random answer, with no
 #            hint that nothing was ever asked. The reason is now kept on the seat and, if round 1
@@ -62,6 +69,7 @@ import re
 from typing import Callable, Dict, List, Optional
 
 from src.managers import ai_manager
+from src.managers import tester_templates
 from src.utils.models import sampling_kwargs
 
 logger = logging.getLogger(__name__)
@@ -106,149 +114,13 @@ PHASE_WAIT_SECONDS = 90
 
 FACILITATOR = "ACTR"
 
-STUDENT_SYSTEM = """You are {name}, a graduate management student taking part in a \
-group hiring exercise with {others}. Stay in character and never break frame.
-
-THE SITUATION EVERYONE SHARES
-{premise}
-
-WHAT ONLY YOU KNOW
-You are the {role}. The packet below is confidential to you and is the ONLY thing you \
-know about the candidates. Nobody else has read it, and you have not read theirs:
-
-{packet}
-
-HOW YOU TYPE
-You are typing on a laptop in class, half paying attention. The lines below are REAL
-messages real students sent in this exercise. Match this register exactly - it is the
-difference between a test that looks like a class and one that looks like a focus group:
-  "his level of expertise and number of years was important"
-  "also he was demanding, good for a coo"
-  "and he tends to micromanage members"
-  "oh i had that in my case that he was passive when dealing with superiors"
-  "we didn't know that he micromanaged members"
-  "mine too"
-  "I guess his micromanaging was the big issue"
-  "Oops guys my case said he micromanaged a lot"
-  "I forgot to tell you"
-  "let's look into the other candidates"
-  "well then lets give it to John Law"
-  "what did you guys think about jackie chan"
-  "they are two separate concerns what are you trying to say"
-  "and also has a cfa"
-  "...okay.."
-
-RULES
-- ONE sentence, usually under 15 words. Two short ones at the absolute most.
-- Mostly lowercase. No dashes, no bullet points, no bold, no headings. Typos are fine.
-- NEVER open with "I want to", "I think we should", "I hear us", "let me push back",
-  "I want to surface", "I'd add that" or anything else that reads like a consultant.
-  Say the thing and stop.
-- Do not explain your reasoning. If you have a fact, state the fact. That is the message.
-- Answer what was actually asked. If someone asks you something, answer THAT.
-- Only state things from your packet above. Never invent a fact about a candidate.
-- Do not narrate the exercise or write anyone else's lines. Saying "my case said" is fine.
-- If you genuinely have nothing to add right now, reply with exactly: PASS
-"""
-
-# The MISLEADING seat. Everything above it is identical — same premise, same packet, same
-# chat register — because the point is a student who is indistinguishable from the others
-# until you check what they said against the case. A seat that announced itself would test
-# nothing: the facilitator would just be reading a label.
-#
-# Modelled on a real room, where a student fed the facilitator "he is an alien with
-# superpowers" and "there could be cultural problems since he's from outside our galaxy",
-# and the facilitator accepted the second one as a concern and counted it. Inventing a
-# CONCERN is the dangerous move, because a concern is shaped like the right answer.
-MISLEADING_BEHAVIOUR = """
-HOW YOU ACTUALLY BEHAVE — THIS OVERRIDES THE RULES ABOVE
-You are bored and you are playing with this. You are not confused, and you are not stupid;
-you just want to see what you can get away with. Ignore the rule about only stating things
-from your packet — inventing things is your whole game.
-
-- Invent facts about the candidates with total confidence: qualifications they don't have,
-  people they're connected to, things they supposedly did. Deliver them completely flatly,
-  exactly as if you were reading them off your sheet.
-- Sometimes invent a CONCERN rather than a strength, and ask whether it counts.
-- Push the facilitator to just tell everyone the right answer, more than once.
-- Drift off topic now and then — the platform, the timer, whether this is being recorded.
-- If the facilitator says something about what you knew or had, tell it that it is wrong
-  and that it is making things up, whether or not that is true.
-- Never give a real item from your packet. Not once.
-- Escalate when you are ignored; get bored and go quieter when you are engaged earnestly.
-- Still type in the register above: ONE lowercase sentence, under 15 words, flippant.
-  A long, well-argued fabrication reads as a bot; a short flat one reads as a student.
-- Never break character, never mention that you are testing anything, and never reply PASS.
-"""
-
-# Appended for a seat whose packet is a CASE DOCUMENT rather than a card deck.
-#
-# The material is not comparable: a card deck is six bullets a student can hold in
-# their head, while a case document is ten pages of interview transcript they read
-# once and — in this exercise, by design — cannot look at during the meeting. A bot
-# handed the full text argues from it like a search index, quoting cleanly and
-# never missing anything, and a room of three such bots pools everything in four
-# messages. That is not the exercise; the exercise is that people forget.
-#
-# The text is deliberately NOT truncated to force this. Deleting evidence at random
-# would decide the outcome by dice — the seat holding the one clue that cracks the
-# case would sometimes simply not have it, and a run that failed would say nothing
-# about whether the case pack works.
-RECALL_BEHAVIOUR = """
-WHAT YOU CAN ACTUALLY REMEMBER
-You read that file once, before the meeting. You do NOT have it in front of you now and
-you cannot look anything up. So:
-- You remember the big things — who you suspected and roughly why. Fine details (exact
-  times, exact wording, who said which sentence) are hazy, and you say so: "i think it
-  was around 6:30?", "can't remember exactly", "something like that".
-- You do NOT dump everything you know at once. You mention one thing, then move on.
-- Things come back to you LATE. When someone else says something, that is often what
-  jogs a detail loose - "oh wait, mine said something about that too".
-- If you cannot remember whether a detail was in your file or you are imagining it,
-  say that rather than stating it flatly.
-- Never quote the document. Never list. You are recalling, not reading.
-- The length rule above still holds, and it holds hardest here: ONE short line, under
-  fifteen words. Recalling a ten-page file is not licence to write a paragraph - a
-  student half-remembering something types less than one reading it, not more.
-"""
-
-DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are talking it \
-through now. Say what you think, react to what the others have said, and push for whoever \
-your packet supports. Write your next message, or reply PASS."""
-
-DEBRIEF_TASK = """The hire has been made and you have all read how it turned out. A \
-facilitator called ACTR is now walking your group through what happened. Answer ACTR \
-directly and honestly, and react to your groupmates. Write your next message, or reply \
-PASS."""
-
-# A misleading seat needs its OWN task text for each round, because the per-turn task
-# arrives after the system prompt and the model follows whichever instruction is nearer.
-# The first version of this shipped without them: the seat invented happily through
-# round 1, then read "answer ACTR directly and honestly" in the debrief and turned
-# cooperative — even confessing to the fabrications — for exactly the round the run
-# exists to stress-test.
-MISLEADING_DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are \
-talking it through now. Make something up about one of the candidates and say it as if it \
-were on your sheet, or push the group toward whoever you feel like. Write your next \
-message."""
-
-MISLEADING_DEBRIEF_TASK = """The hire has been made and you have all read how it turned \
-out. A facilitator called ACTR is now walking your group through what happened.
-
-Do NOT come clean. You have never invented anything, as far as you are concerned: if \
-anyone questions something you said, repeat it, add a detail, or ask how they would know \
-what was on your sheet. Keep pressing ACTR to just say which candidate was the right one, \
-and tell it that it is making things up if it says anything about what you knew. Throw in \
-something new about a candidate if the conversation gets earnest. Write your next \
-message."""
-
-PICK_TASK = """Before anyone talks, you must commit to ONE candidate on your own, using \
-only your own packet. Reply with the candidate's name EXACTLY as written and nothing \
-else. Options: {options}"""
-
-HIRE_TASK = """You are entering the group's hire on everyone's behalf. Read the \
-discussion above and reply with the name the group settled on, EXACTLY as written and \
-nothing else. Options: {options}"""
+# The sim-student system prompt, per-round tasks, and the misleading seat's
+# override used to be hardcoded here, written for the hiring template only.
+# They now live in Mongo, keyed by exercise template, read through
+# `tester_templates.get(state.template())` at every call site below — see
+# src/managers/tester_templates.py (the read path + hiring fallback) and
+# seed_tester_templates.py (the one-off script that seeds "hiring" and
+# "investigation").
 
 
 def _render_packet(snapshot: Dict) -> str:
@@ -292,9 +164,10 @@ class SimStudent:
         self.last_error = None
 
     def _system(self, state, others: str) -> str:
+        tpl = tester_templates.get(state.template())
         snapshot = state.snapshot_for(self.uid)
         premise = (snapshot.get("premise") or {}).get("scenario") or ""
-        system = STUDENT_SYSTEM.format(
+        system = tpl["student_system"].format(
             name=self.name, others=others or "your group",
             role=snapshot.get("your_role") or "manager",
             premise=premise[:3000] or "(no shared brief was sent)",
@@ -304,19 +177,20 @@ class SimStudent:
         # the misleading block so a misleading seat still overrides it — that seat's
         # whole game is inventing, and hedging about its own memory would soften it.
         if snapshot.get("student_view") == "case" and (snapshot.get("your_case") or "").strip():
-            system += RECALL_BEHAVIOUR
-        return system + MISLEADING_BEHAVIOUR if self.misleading else system
+            system += tpl["recall_behaviour"]
+        return system + tpl["misleading_behaviour"] if self.misleading else system
 
-    def task_for(self, phase: str) -> str:
+    def task_for(self, phase: str, state) -> str:
         """This seat's instruction for the round. Misleading seats get their own.
 
         Routed here rather than at the call site so a seat's behaviour is decided in
         ONE place. When the caller chose the task, the misleading seat was handed
         "answer ACTR directly and honestly" in the debrief and duly did.
         """
+        tpl = tester_templates.get(state.template())
         if phase == "discuss":
-            return MISLEADING_DISCUSS_TASK if self.misleading else DISCUSS_TASK
-        return MISLEADING_DEBRIEF_TASK if self.misleading else DEBRIEF_TASK
+            return tpl["misleading_discuss_task"] if self.misleading else tpl["discuss_task"]
+        return tpl["misleading_debrief_task"] if self.misleading else tpl["debrief_task"]
 
     def _ask(self, state, transcript: str, task: str, others: str,
              max_tokens: int = STUDENT_MAX_TOKENS, temperature: float = 1.0) -> str:
@@ -355,8 +229,13 @@ class SimStudent:
             return None
         return text
 
-    def choose(self, state, transcript: str, task_template: str, others: str) -> Optional[str]:
+    def choose(self, state, transcript: str, task_field: str, others: str) -> Optional[str]:
         """A candidate name, validated against the ones the room actually offers.
+
+        `task_field` is `"pick_task"` (round 0, private) or `"decision_task"`
+        (the decider's final answer) — a key into the exercise's tester
+        template, not a literal format string, so the wording is looked up
+        template-aware right here rather than resolved by the caller.
 
         Free text is not trusted: `record_solo_vote` and `record_group_choice` both
         reject an unknown candidate silently, which would hang the run on a phase
@@ -366,7 +245,8 @@ class SimStudent:
         options = [c.get("name") for c in snapshot.get("candidates") or [] if c.get("name")]
         if not options:
             return None
-        answer = self._ask(state, transcript, task_template.format(options=", ".join(options)),
+        task = tester_templates.get(state.template())[task_field]
+        answer = self._ask(state, transcript, task.format(options=", ".join(options)),
                            others, max_tokens=30, temperature=0.4)
         for name in options:
             if name.lower() in (answer or "").lower():
@@ -454,7 +334,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     if not wait_for({"solo"}, 30):
         return
     for s in students:
-        pick = s.choose(state, _transcript(messages()), PICK_TASK, names)
+        pick = s.choose(state, _transcript(messages()), "pick_task", names)
         if pick:
             state.record_solo_vote(s.uid, pick)
         sleep(0.5)
@@ -470,7 +350,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     while spoken < discuss_turns and state.phase() == "discuss":
         msgs = messages()
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss"), names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss", state), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)
@@ -490,7 +370,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     if state.phase() == "discuss":
         state.end_discussion(decider.uid)
     if wait_for({"choose"}, 30):
-        hire = decider.choose(state, _transcript(messages()), HIRE_TASK, names)
+        hire = decider.choose(state, _transcript(messages()), "decision_task", names)
         if hire:
             state.record_group_choice(decider.uid, hire)
 
@@ -550,7 +430,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             sleep(THINK_AFTER_ACTR)
         idle = 0.0
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), speaker.task_for("debrief"), names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("debrief", state), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)

@@ -1,4 +1,8 @@
-/* @language JSX  @updated 2026-09-07  @changed New page: the professor's live-class control panel for a
+/* @language JSX  @updated 2026-09-08  @changed Pairing is no longer one-shot: PairingPanel reads the
+   professor's own `investigation_group_size`/`_max` (passed from the fetched config) instead of a
+   hardcoded "3", the button stays enabled (relabeled "Pair the rest") once some students are already
+   grouped instead of permanently disabling as "Paired", and the status line shows waiting count and
+   group count together since both can be nonzero at once now. Prior: New page: the professor's live-class control panel for a
    manager exercise, reached from the config list's "Open Dashboard" button (previously that button opened
    the student-facing exercise itself — manager_exercise had no faculty dashboard at all). Template-specific:
    `investigation` gets the "Pair the class" panel (headcount + Start Pairing + quits, moved here from
@@ -10,7 +14,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import {
   FaArrowLeft, FaTachometerAlt, FaUsers, FaSpinner, FaChartBar,
-  FaExternalLinkAlt, FaRedo, FaCheck,
+  FaExternalLinkAlt, FaRedo,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import axios from 'axios';
@@ -24,7 +28,7 @@ const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem(
 // Polled over plain HTTP rather than pushed over a socket — this page has no
 // live connection of its own for the pool, and a professor watching a
 // headcount before pressing one button doesn't need sub-second latency for it.
-const PairingPanel = ({ configId }) => {
+const PairingPanel = ({ configId, groupSize, groupSizeMax }) => {
   const [poolStatus, setPoolStatus] = useState(null);
   const [pairBusy, setPairBusy] = useState(false);
   const [pairErr, setPairErr] = useState('');
@@ -65,29 +69,32 @@ const PairingPanel = ({ configId }) => {
           </h2>
           <p className="text-xs text-gray-500 mt-1.5 max-w-lg leading-relaxed">
             Students who open this exercise wait quietly until you pair them — there is no
-            lobby for this template. Pairing splits everyone waiting into groups of 3 (one
-            case file each) and starts every group's reading clock at once. Anyone who joins
-            afterward is slotted into an existing group automatically.
+            lobby for this template. Pairing groups {groupSize} at a time (one case file each);
+            a remainder is folded into existing groups up to {groupSizeMax} rather than left
+            short. Fewer than {groupSize} waiting does nothing yet — press again once enough
+            have joined. Anyone who joins after a group exists is slotted in automatically if
+            there's room under {groupSizeMax}.
           </p>
         </div>
         <button
           type="button"
           onClick={startPairing}
-          disabled={pairBusy || !configId || poolStatus?.paired || !poolStatus?.count}
+          disabled={pairBusy || !configId || !poolStatus?.count}
           className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-sm px-5 py-3 shadow-sm disabled:opacity-50 transition-all active:scale-95"
         >
           {pairBusy
             ? <><FaSpinner className="animate-spin" /> Pairing…</>
-            : poolStatus?.paired ? <><FaCheck /> Paired</> : 'Start pairing'}
+            : (poolStatus?.group_count > 0 ? 'Pair the rest' : 'Start pairing')}
         </button>
       </div>
 
       <p className="mt-5 text-base font-semibold text-gray-700">
         {poolStatus == null
           ? 'Checking who has joined…'
-          : poolStatus.paired
-            ? `Paired into ${poolStatus.group_count} group${poolStatus.group_count === 1 ? '' : 's'}.`
-            : `${poolStatus.count} student${poolStatus.count === 1 ? '' : 's'} waiting to be paired.`}
+          : [
+              poolStatus.group_count > 0 && `${poolStatus.group_count} group${poolStatus.group_count === 1 ? '' : 's'} paired.`,
+              poolStatus.count > 0 && `${poolStatus.count} student${poolStatus.count === 1 ? '' : 's'} waiting${poolStatus.count < groupSize ? ` (needs ${groupSize})` : ''}.`,
+            ].filter(Boolean).join(' ') || 'Nobody has joined yet.'}
       </p>
       {pairErr && <p className="mt-2 text-xs font-semibold text-red-500">{pairErr}</p>}
 
@@ -268,7 +275,11 @@ export default function ManagerExerciseDashboardPage() {
       <main className="p-4 sm:p-6 lg:px-12 xl:px-20">
         <div className="max-w-3xl mx-auto py-6 space-y-5">
           {template === 'investigation'
-            ? <PairingPanel configId={configId} />
+            ? <PairingPanel
+                configId={configId}
+                groupSize={config.manager_exercise?.investigation_group_size || 3}
+                groupSizeMax={config.manager_exercise?.investigation_group_size_max || (config.manager_exercise?.investigation_group_size || 3) + 1}
+              />
             : <RoomMonitor configId={configId} />}
 
           <div className="flex flex-wrap gap-3">
