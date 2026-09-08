@@ -23,6 +23,7 @@ from src.agentic.agent_runner import stream_agentic_response, FORMATTING_GUIDE
 from src.agentic.tools.base import ToolContext
 from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
+from src.services.response_delay import delay_ndjson_stream
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -887,6 +888,7 @@ def chat(config_id, chat_id):
             "web_access": 1, "bot_name": 1, "instructions": 1,
             "class_code": 1, "usage_pool": 1, "is_playground": 1, "is_personal": 1,
             "facilitator": 1,
+            "response_delay": 1,
         }
     )
 
@@ -949,8 +951,7 @@ def chat(config_id, chat_id):
     # tool-using runner. Everything else falls through to the legacy chain.
     model_name_check = (config_doc.get("model_name") or "").lower()
     if config_doc.get("web_access") and model_name_check.startswith("claude"):
-        resp = Response(
-            stream_with_context(_generate_agentic(
+        agentic_stream = _generate_agentic(
                 config_doc=config_doc,
                 user_input=user_input,
                 chat_id=chat_id,
@@ -965,6 +966,10 @@ def chat(config_id, chat_id):
                 student_email=student_email,
                 marketing_opt_in=marketing_opt_in,
                 identity=identity,
+            )
+        resp = Response(
+            stream_with_context(delay_ndjson_stream(
+                agentic_stream, config_doc.get("response_delay")
             )),
             mimetype='application/x-ndjson',
         )
@@ -1275,7 +1280,10 @@ def chat(config_id, chat_id):
             logger.error(f"Stream Error: {e}")
             yield json.dumps({"type": "error", "data": str(e)}) + "\n"
 
-    resp = Response(generate(), mimetype='application/x-ndjson')
+    resp = Response(
+        delay_ndjson_stream(generate(), config_doc.get("response_delay")),
+        mimetype='application/x-ndjson',
+    )
     if device_cookie:
         _set_device_cookie(resp, device_cookie, request)
     return resp

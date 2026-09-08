@@ -8,6 +8,7 @@ import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
 import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
+import ResponseDelaySettings, { DEFAULT_RESPONSE_DELAY } from '../components/ResponseDelaySettings';
 
 const EditConfigPage = () => {
   const navigate = useNavigate();
@@ -108,6 +109,9 @@ const EditConfigPage = () => {
         qualtrics_enabled: !!configFromState.qualtrics_enabled,
         audio_enabled: !!configFromState.audio_enabled,
         hume_config_id: configFromState.hume_config_id || '',
+        response_delay: (configFromState.response_delay && typeof configFromState.response_delay === 'object')
+            ? { ...DEFAULT_RESPONSE_DELAY, ...configFromState.response_delay }
+            : { ...DEFAULT_RESPONSE_DELAY },
         facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
             ? { enabled: false, instruction: '', allowedWidgets: null, presets: [], ...configFromState.facilitator }
             : { enabled: false, instruction: '', allowedWidgets: null, presets: [] }
@@ -312,9 +316,10 @@ const EditConfigPage = () => {
       const scoringSpec = configToSubmit.scoring_spec;
       const experientialConfig = configToSubmit.experiential_config;
       const facilitator = configToSubmit.facilitator;
+      const responseDelay = configToSubmit.response_delay;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'response_delay') {
           formData.append(key, value);
         }
       });
@@ -326,6 +331,9 @@ const EditConfigPage = () => {
       }
       if (facilitator && typeof facilitator === 'object') {
         formData.append('facilitator', JSON.stringify(facilitator));
+      }
+      if (responseDelay && typeof responseDelay === 'object') {
+        formData.append('response_delay', JSON.stringify(responseDelay));
       }
       
       // Append bots safely
@@ -688,6 +696,11 @@ const EditConfigPage = () => {
                     </label>
                   </div>
                 </div>
+
+                <ResponseDelaySettings
+                  value={config.response_delay}
+                  onChange={(response_delay) => setConfig(prev => ({ ...prev, response_delay }))}
+                />
 
                 {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
                 <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">

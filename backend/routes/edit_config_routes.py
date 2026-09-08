@@ -9,6 +9,7 @@ from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from routes.config_routes import validate_class_usage
 from src.facilitator.config import normalize_config as normalize_facilitator
+from src.services.response_delay import normalize_response_delay
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -107,6 +108,7 @@ def update_existing_config(config_id):
             "model_name": data.get('model_name'),
             "temperature": float(data.get('temperature', 0.7)),
             "response_timeout": int(data.get('response_timeout', 3)),
+            "response_delay": normalize_response_delay(data.get('response_delay')),
             "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],
             "qualtrics_enabled": str(data.get('qualtrics_enabled', 'false')).lower() in ['true', '1'],
