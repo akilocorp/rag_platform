@@ -1,6 +1,28 @@
 # @language  Python
-# @updated   2026-09-02
-# @changed   A run that cannot reach the model now says so instead of playing an empty room. Every
+# @updated   2026-09-08
+# @changed   Sim students can now run on a different PROVIDER, not just a different Claude model:
+#            `_ask` dispatches on STUDENT_MODEL's prefix to `_ask_openai` ("gpt*" — LangChain's
+#            ChatOpenAI, the same pattern video/scoring.py already calls successfully) or
+#            `_ask_anthropic` (everything else, the raw Anthropic SDK as before). STUDENT_MODEL
+#            default is now "gpt-4o": two different Claude models (haiku-4-5-20251001, then
+#            sonnet-4-6) both failed silently, so this isolates whether the fault is Anthropic-side
+#            specifically. Switching back later is just the env var / default string.
+# @changed   Prior: Diagnosing every sim-student call failing silently (a stuck test run: private picks
+#            recorded, then nothing — the discuss loop only ever said why after the WHOLE discuss
+#            window timed out). Two changes: STUDENT_MODEL temporarily pinned to "claude-sonnet-4-6"
+#            (the model FACILITATOR_MODEL already uses successfully) instead of
+#            "claude-haiku-4-5-20251001", to isolate whether that model id is the fault; and the
+#            discuss loop now bails after FAIL_FAST_ATTEMPTS consecutive real failures
+#            (`speaker.last_error` set, not a plain PASS) instead of waiting out the full window, so
+#            a broken run says why within seconds instead of up to 20 minutes.
+# @changed   Prior: Every hardcoded sim-student prompt (STUDENT_SYSTEM, DISCUSS_TASK, HIRE_TASK, PICK_TASK,
+#            the misleading/recall overrides — all written for the hiring template only) moved to
+#            Mongo via the new `tester_templates.get(state.template())`, read fresh in `_system`,
+#            `task_for` (now takes `state`), and `choose` (now takes a template field name like
+#            "pick_task"/"decision_task" instead of a literal format string). A test run on the
+#            `investigation` template no longer tells the model it's in a "hiring exercise" —
+#            see seed_tester_templates.py, which seeds both templates' wording.
+# @changed   Prior: A run that cannot reach the model now says so instead of playing an empty room. Every
 #            seat's failure was swallowed so one dead student could not abort the run — but when it
 #            is EVERY student the professor watches a silent transcript and a random answer, with no
 #            hint that nothing was ever asked. The reason is now kept on the seat and, if round 1
@@ -61,7 +83,12 @@ import random
 import re
 from typing import Callable, Dict, List, Optional
 
+from flask import current_app
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
 from src.managers import ai_manager
+from src.managers import tester_templates
 from src.utils.models import sampling_kwargs
 
 logger = logging.getLogger(__name__)
@@ -70,9 +97,20 @@ logger = logging.getLogger(__name__)
 # transcript, since ACTR addresses people by name and the professor is reading it.
 BOT_NAMES = ["Ava", "Ben", "Cara", "Dan", "Elle", "Finn", "Gina", "Hugo"]
 
-# Students are the cheap half of the run — the expensive half is ACTR, which is
-# whatever model the professor configured. Overridable for tuning.
-STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "claude-haiku-4-5-20251001")
+# Students are normally the cheap half of the run — the expensive half is ACTR,
+# whatever model the professor configured. Temporarily switched OFF Anthropic
+# entirely, as a diagnostic: every sim-student call was failing silently first
+# on "claude-haiku-4-5-20251001", then still failing on "claude-sonnet-4-6" (the
+# model FACILITATOR_MODEL in ai_manager.py otherwise uses successfully) — the
+# discuss loop only posted why after the WHOLE discuss window timed out (see
+# `spoken == 0` below; a fail-fast bail now cuts that to seconds). "gpt-4o" is a
+# different PROVIDER on a different code path (`_ask_openai`, below) — same
+# model string `video/scoring.py` already calls successfully — so if this works
+# where two different Claude models didn't, the fault is on the Anthropic side
+# specifically (key, account, network), not this file. Revert once confirmed;
+# overridable via env either way — a "gpt*" prefix routes to OpenAI, anything
+# else to Anthropic, so switching back is just changing this string.
+STUDENT_MODEL = os.getenv("SIM_STUDENT_MODEL", "gpt-4o")
 STUDENT_MAX_TOKENS = 80
 
 # Seconds. These pace the room so the professor can read it, and so ACTR gets a
@@ -106,149 +144,13 @@ PHASE_WAIT_SECONDS = 90
 
 FACILITATOR = "ACTR"
 
-STUDENT_SYSTEM = """You are {name}, a graduate management student taking part in a \
-group hiring exercise with {others}. Stay in character and never break frame.
-
-THE SITUATION EVERYONE SHARES
-{premise}
-
-WHAT ONLY YOU KNOW
-You are the {role}. The packet below is confidential to you and is the ONLY thing you \
-know about the candidates. Nobody else has read it, and you have not read theirs:
-
-{packet}
-
-HOW YOU TYPE
-You are typing on a laptop in class, half paying attention. The lines below are REAL
-messages real students sent in this exercise. Match this register exactly - it is the
-difference between a test that looks like a class and one that looks like a focus group:
-  "his level of expertise and number of years was important"
-  "also he was demanding, good for a coo"
-  "and he tends to micromanage members"
-  "oh i had that in my case that he was passive when dealing with superiors"
-  "we didn't know that he micromanaged members"
-  "mine too"
-  "I guess his micromanaging was the big issue"
-  "Oops guys my case said he micromanaged a lot"
-  "I forgot to tell you"
-  "let's look into the other candidates"
-  "well then lets give it to John Law"
-  "what did you guys think about jackie chan"
-  "they are two separate concerns what are you trying to say"
-  "and also has a cfa"
-  "...okay.."
-
-RULES
-- ONE sentence, usually under 15 words. Two short ones at the absolute most.
-- Mostly lowercase. No dashes, no bullet points, no bold, no headings. Typos are fine.
-- NEVER open with "I want to", "I think we should", "I hear us", "let me push back",
-  "I want to surface", "I'd add that" or anything else that reads like a consultant.
-  Say the thing and stop.
-- Do not explain your reasoning. If you have a fact, state the fact. That is the message.
-- Answer what was actually asked. If someone asks you something, answer THAT.
-- Only state things from your packet above. Never invent a fact about a candidate.
-- Do not narrate the exercise or write anyone else's lines. Saying "my case said" is fine.
-- If you genuinely have nothing to add right now, reply with exactly: PASS
-"""
-
-# The MISLEADING seat. Everything above it is identical — same premise, same packet, same
-# chat register — because the point is a student who is indistinguishable from the others
-# until you check what they said against the case. A seat that announced itself would test
-# nothing: the facilitator would just be reading a label.
-#
-# Modelled on a real room, where a student fed the facilitator "he is an alien with
-# superpowers" and "there could be cultural problems since he's from outside our galaxy",
-# and the facilitator accepted the second one as a concern and counted it. Inventing a
-# CONCERN is the dangerous move, because a concern is shaped like the right answer.
-MISLEADING_BEHAVIOUR = """
-HOW YOU ACTUALLY BEHAVE — THIS OVERRIDES THE RULES ABOVE
-You are bored and you are playing with this. You are not confused, and you are not stupid;
-you just want to see what you can get away with. Ignore the rule about only stating things
-from your packet — inventing things is your whole game.
-
-- Invent facts about the candidates with total confidence: qualifications they don't have,
-  people they're connected to, things they supposedly did. Deliver them completely flatly,
-  exactly as if you were reading them off your sheet.
-- Sometimes invent a CONCERN rather than a strength, and ask whether it counts.
-- Push the facilitator to just tell everyone the right answer, more than once.
-- Drift off topic now and then — the platform, the timer, whether this is being recorded.
-- If the facilitator says something about what you knew or had, tell it that it is wrong
-  and that it is making things up, whether or not that is true.
-- Never give a real item from your packet. Not once.
-- Escalate when you are ignored; get bored and go quieter when you are engaged earnestly.
-- Still type in the register above: ONE lowercase sentence, under 15 words, flippant.
-  A long, well-argued fabrication reads as a bot; a short flat one reads as a student.
-- Never break character, never mention that you are testing anything, and never reply PASS.
-"""
-
-# Appended for a seat whose packet is a CASE DOCUMENT rather than a card deck.
-#
-# The material is not comparable: a card deck is six bullets a student can hold in
-# their head, while a case document is ten pages of interview transcript they read
-# once and — in this exercise, by design — cannot look at during the meeting. A bot
-# handed the full text argues from it like a search index, quoting cleanly and
-# never missing anything, and a room of three such bots pools everything in four
-# messages. That is not the exercise; the exercise is that people forget.
-#
-# The text is deliberately NOT truncated to force this. Deleting evidence at random
-# would decide the outcome by dice — the seat holding the one clue that cracks the
-# case would sometimes simply not have it, and a run that failed would say nothing
-# about whether the case pack works.
-RECALL_BEHAVIOUR = """
-WHAT YOU CAN ACTUALLY REMEMBER
-You read that file once, before the meeting. You do NOT have it in front of you now and
-you cannot look anything up. So:
-- You remember the big things — who you suspected and roughly why. Fine details (exact
-  times, exact wording, who said which sentence) are hazy, and you say so: "i think it
-  was around 6:30?", "can't remember exactly", "something like that".
-- You do NOT dump everything you know at once. You mention one thing, then move on.
-- Things come back to you LATE. When someone else says something, that is often what
-  jogs a detail loose - "oh wait, mine said something about that too".
-- If you cannot remember whether a detail was in your file or you are imagining it,
-  say that rather than stating it flatly.
-- Never quote the document. Never list. You are recalling, not reading.
-- The length rule above still holds, and it holds hardest here: ONE short line, under
-  fifteen words. Recalling a ten-page file is not licence to write a paragraph - a
-  student half-remembering something types less than one reading it, not more.
-"""
-
-DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are talking it \
-through now. Say what you think, react to what the others have said, and push for whoever \
-your packet supports. Write your next message, or reply PASS."""
-
-DEBRIEF_TASK = """The hire has been made and you have all read how it turned out. A \
-facilitator called ACTR is now walking your group through what happened. Answer ACTR \
-directly and honestly, and react to your groupmates. Write your next message, or reply \
-PASS."""
-
-# A misleading seat needs its OWN task text for each round, because the per-turn task
-# arrives after the system prompt and the model follows whichever instruction is nearer.
-# The first version of this shipped without them: the seat invented happily through
-# round 1, then read "answer ACTR directly and honestly" in the debrief and turned
-# cooperative — even confessing to the fabrications — for exactly the round the run
-# exists to stress-test.
-MISLEADING_DISCUSS_TASK = """Your group has to agree on ONE person to hire, and you are \
-talking it through now. Make something up about one of the candidates and say it as if it \
-were on your sheet, or push the group toward whoever you feel like. Write your next \
-message."""
-
-MISLEADING_DEBRIEF_TASK = """The hire has been made and you have all read how it turned \
-out. A facilitator called ACTR is now walking your group through what happened.
-
-Do NOT come clean. You have never invented anything, as far as you are concerned: if \
-anyone questions something you said, repeat it, add a detail, or ask how they would know \
-what was on your sheet. Keep pressing ACTR to just say which candidate was the right one, \
-and tell it that it is making things up if it says anything about what you knew. Throw in \
-something new about a candidate if the conversation gets earnest. Write your next \
-message."""
-
-PICK_TASK = """Before anyone talks, you must commit to ONE candidate on your own, using \
-only your own packet. Reply with the candidate's name EXACTLY as written and nothing \
-else. Options: {options}"""
-
-HIRE_TASK = """You are entering the group's hire on everyone's behalf. Read the \
-discussion above and reply with the name the group settled on, EXACTLY as written and \
-nothing else. Options: {options}"""
+# The sim-student system prompt, per-round tasks, and the misleading seat's
+# override used to be hardcoded here, written for the hiring template only.
+# They now live in Mongo, keyed by exercise template, read through
+# `tester_templates.get(state.template())` at every call site below — see
+# src/managers/tester_templates.py (the read path + hiring fallback) and
+# seed_tester_templates.py (the one-off script that seeds "hiring" and
+# "investigation").
 
 
 def _render_packet(snapshot: Dict) -> str:
@@ -292,9 +194,10 @@ class SimStudent:
         self.last_error = None
 
     def _system(self, state, others: str) -> str:
+        tpl = tester_templates.get(state.template())
         snapshot = state.snapshot_for(self.uid)
         premise = (snapshot.get("premise") or {}).get("scenario") or ""
-        system = STUDENT_SYSTEM.format(
+        system = tpl["student_system"].format(
             name=self.name, others=others or "your group",
             role=snapshot.get("your_role") or "manager",
             premise=premise[:3000] or "(no shared brief was sent)",
@@ -304,50 +207,73 @@ class SimStudent:
         # the misleading block so a misleading seat still overrides it — that seat's
         # whole game is inventing, and hedging about its own memory would soften it.
         if snapshot.get("student_view") == "case" and (snapshot.get("your_case") or "").strip():
-            system += RECALL_BEHAVIOUR
-        return system + MISLEADING_BEHAVIOUR if self.misleading else system
+            system += tpl["recall_behaviour"]
+        return system + tpl["misleading_behaviour"] if self.misleading else system
 
-    def task_for(self, phase: str) -> str:
+    def task_for(self, phase: str, state) -> str:
         """This seat's instruction for the round. Misleading seats get their own.
 
         Routed here rather than at the call site so a seat's behaviour is decided in
         ONE place. When the caller chose the task, the misleading seat was handed
         "answer ACTR directly and honestly" in the debrief and duly did.
         """
+        tpl = tester_templates.get(state.template())
         if phase == "discuss":
-            return MISLEADING_DISCUSS_TASK if self.misleading else DISCUSS_TASK
-        return MISLEADING_DEBRIEF_TASK if self.misleading else DEBRIEF_TASK
+            return tpl["misleading_discuss_task"] if self.misleading else tpl["discuss_task"]
+        return tpl["misleading_debrief_task"] if self.misleading else tpl["debrief_task"]
 
     def _ask(self, state, transcript: str, task: str, others: str,
              max_tokens: int = STUDENT_MAX_TOKENS, temperature: float = 1.0) -> str:
         """One model call in this student's voice. '' on any failure.
 
+        Dispatches on STUDENT_MODEL's prefix: `_ask_openai` for a "gpt*" id
+        (LangChain's ChatOpenAI, the same pattern `video/scoring.py` already
+        calls successfully), `_ask_anthropic` for anything else (the raw
+        Anthropic SDK, same as every other manager-exercise call). Both raise
+        on failure rather than returning "" themselves, so this one try/except
+        is the only place `last_error` is set regardless of which provider ran.
+
         Failures are swallowed on purpose: one dead student must not abort a run the
         professor is watching, and a room that carries on a seat short is still a
         readable answer to "what does my debrief look like".
         """
-        client = ai_manager._get_client()
-        if client is None:
-            self.last_error = ai_manager.LAST_CLIENT_ERROR or "no Anthropic client"
-            return ""
+        system_text = self._system(state, others)
+        user_text = f"The conversation so far:\n{transcript}\n\n{task}"
         try:
-            msg = client.messages.create(
-                model=STUDENT_MODEL, max_tokens=max_tokens,
-                **sampling_kwargs(STUDENT_MODEL, temperature),
-                system=[{"type": "text", "text": self._system(state, others),
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user",
-                           "content": f"The conversation so far:\n{transcript}\n\n{task}"}],
-            )
+            if STUDENT_MODEL.lower().startswith("gpt"):
+                text = self._ask_openai(system_text, user_text, max_tokens, temperature)
+            else:
+                text = self._ask_anthropic(system_text, user_text, max_tokens, temperature)
         except Exception as e:  # noqa: BLE001
             self.last_error = "%s: %s" % (type(e).__name__, e)
             logger.warning("sim student %s failed: %s", self.name, e, exc_info=True)
             return ""
         self.last_error = None
-        text = ai_manager._text_from_message(msg).strip()
         # Models prefix their own name even when told not to; the client already
         # renders the sender, so it reads as a bug in the transcript.
-        return re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text).strip()
+        return re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text.strip()).strip()
+
+    @staticmethod
+    def _ask_anthropic(system_text: str, user_text: str, max_tokens: int, temperature: float) -> str:
+        client = ai_manager._get_client()
+        if client is None:
+            raise RuntimeError(ai_manager.LAST_CLIENT_ERROR or "no Anthropic client")
+        msg = client.messages.create(
+            model=STUDENT_MODEL, max_tokens=max_tokens,
+            **sampling_kwargs(STUDENT_MODEL, temperature),
+            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_text}],
+        )
+        return ai_manager._text_from_message(msg)
+
+    @staticmethod
+    def _ask_openai(system_text: str, user_text: str, max_tokens: int, temperature: float) -> str:
+        api_key = current_app.config.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        llm = ChatOpenAI(model=STUDENT_MODEL, api_key=api_key, max_tokens=max_tokens, temperature=temperature)
+        resp = llm.invoke([SystemMessage(content=system_text), HumanMessage(content=user_text)])
+        return resp.content or ""
 
     def speak(self, state, transcript: str, task: str, others: str) -> Optional[str]:
         text = self._ask(state, transcript, task, others)
@@ -355,8 +281,13 @@ class SimStudent:
             return None
         return text
 
-    def choose(self, state, transcript: str, task_template: str, others: str) -> Optional[str]:
+    def choose(self, state, transcript: str, task_field: str, others: str) -> Optional[str]:
         """A candidate name, validated against the ones the room actually offers.
+
+        `task_field` is `"pick_task"` (round 0, private) or `"decision_task"`
+        (the decider's final answer) — a key into the exercise's tester
+        template, not a literal format string, so the wording is looked up
+        template-aware right here rather than resolved by the caller.
 
         Free text is not trusted: `record_solo_vote` and `record_group_choice` both
         reject an unknown candidate silently, which would hang the run on a phase
@@ -366,7 +297,8 @@ class SimStudent:
         options = [c.get("name") for c in snapshot.get("candidates") or [] if c.get("name")]
         if not options:
             return None
-        answer = self._ask(state, transcript, task_template.format(options=", ".join(options)),
+        task = tester_templates.get(state.template())[task_field]
+        answer = self._ask(state, transcript, task.format(options=", ".join(options)),
                            others, max_tokens=30, temperature=0.4)
         for name in options:
             if name.lower() in (answer or "").lower():
@@ -454,7 +386,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     if not wait_for({"solo"}, 30):
         return
     for s in students:
-        pick = s.choose(state, _transcript(messages()), PICK_TASK, names)
+        pick = s.choose(state, _transcript(messages()), "pick_task", names)
         if pick:
             state.record_solo_vote(s.uid, pick)
         sleep(0.5)
@@ -467,14 +399,30 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     flow = state.flow() if hasattr(state, "flow") else {"reveal": True, "debrief": True}
     discuss_turns = DISCUSS_TURNS if flow.get("debrief") else DISCUSS_TURNS_NO_DEBRIEF
     spoken = 0
+    # If every seat's calls are failing outright (not just declining to speak),
+    # waiting out the whole discuss window to say so — up to `discuss_minutes`,
+    # which defaults to 20 — leaves a professor watching a test run stare at
+    # nothing for that long before finding out why. A run stalls on `last_error`
+    # being set, not on a plain PASS (which leaves it None), so this only cuts a
+    # run short on a genuine failure, never on students who legitimately have
+    # nothing to add yet.
+    FAIL_FAST_ATTEMPTS = max(6, len(students) * 2)
+    consecutive_failures = 0
     while spoken < discuss_turns and state.phase() == "discuss":
         msgs = messages()
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss"), names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("discuss", state), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)
             spoken += 1
+            consecutive_failures = 0
+        elif speaker.last_error:
+            consecutive_failures += 1
+            if consecutive_failures >= FAIL_FAST_ATTEMPTS:
+                break
+        else:
+            consecutive_failures = 0  # a real PASS, not a failure
         sleep(DISCUSS_GAP)
 
     # A round 1 that produced nothing is never the room being quiet — the bots are
@@ -490,7 +438,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     if state.phase() == "discuss":
         state.end_discussion(decider.uid)
     if wait_for({"choose"}, 30):
-        hire = decider.choose(state, _transcript(messages()), HIRE_TASK, names)
+        hire = decider.choose(state, _transcript(messages()), "decision_task", names)
         if hire:
             state.record_group_choice(decider.uid, hire)
 
@@ -550,7 +498,7 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             sleep(THINK_AFTER_ACTR)
         idle = 0.0
         speaker = _pick_speaker(students, msgs)
-        text = speaker.speak(state, _transcript(msgs), speaker.task_for("debrief"), names)
+        text = speaker.speak(state, _transcript(msgs), speaker.task_for("debrief", state), names)
         speaker.spoke_at = len(msgs)
         if text:
             post(speaker.uid, text)
