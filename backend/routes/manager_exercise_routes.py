@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   GET /<config_id>/pool-status + POST /<config_id>/pair — the professor-paired
+# @updated   2026-09-11
+# @changed   POST /<config_id>/class-summary + POST /<config_id>/group-summary/<room_id> — the two AI
+#            reads on the results page: a few sentences on what the whole class did, and four on one
+#            group (what they did, what they each picked alone, what they decided, what the debrief
+#            surfaced). The group one reads the room's real transcript so the debrief sentence is
+#            grounded rather than inferred from the outcome.
+#            Prior: GET /<config_id>/pool-status + POST /<config_id>/pair — the professor-paired
 #            (`investigation` template) pairing panel: live headcount of students waiting to be
 #            placed, and the "Start Pairing" action, which forwards into `investigation_pool` via
 #            `group_chat_sockets.trigger_pairing`. Both require the `investigation` template
@@ -37,6 +42,7 @@ WHY A TEST RUN IS A REAL ROOM
     storage to keep in step.
 """
 import logging
+import os
 
 from bson import ObjectId
 from flask import Blueprint, jsonify, current_app, request
@@ -329,6 +335,135 @@ def get_results(config_id):
         "group_tally": _tallied(group_counts, len(decided)),
         "solo_tally": _tallied(solo_counts, students_total),
     }), 200
+
+
+SUMMARY_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _summarize(prompt, max_tokens=400):
+    """One short Claude call. Returns (text, error_message)."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None, "AI summaries are not configured on this server."
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=SUMMARY_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip(), None
+    except Exception as e:  # noqa: BLE001
+        logger.exception("manager-exercise summary failed")
+        return None, f"Could not generate the summary: {e}"
+
+
+@manager_exercise_bp.route('/manager-exercise/<config_id>/class-summary', methods=['POST'])
+@jwt_required()
+def post_class_summary(config_id):
+    """A few sentences on what the whole class did, for the professor to open with.
+
+    Written from the same tallies the page already renders — no new source of truth,
+    so the prose can never disagree with the numbers beside it.
+    """
+    config_doc, error = _load_owned_config(config_id)
+    if error:
+        return error
+
+    data = request.get_json(silent=True) or {}
+    rooms = data.get("rooms") or []
+    answer = data.get("answer") or ""
+    verb = "named" if data.get("template") == "investigation" else "hired"
+
+    if not rooms:
+        return jsonify({"summary": "No group has finished this exercise yet."}), 200
+
+    lines = []
+    for r in rooms:
+        picks = [s.get("solo_pick") for s in (r.get("students") or []) if s.get("solo_pick")]
+        lines.append(
+            f"- {r.get('label')}: {verb} {r.get('group_choice') or 'nothing yet'}"
+            f"{' (correct)' if r.get('correct') is True else ' (incorrect)' if r.get('correct') is False else ''}"
+            f"; private picks were {', '.join(picks) if picks else 'not submitted'}"
+        )
+
+    prompt = (
+        "You are summarizing a whole class's results from a group decision exercise, for the professor "
+        "who is about to lead the discussion.\n"
+        f"{'The right answer was: ' + answer + '.' if answer else 'This case has no single right answer.'}\n\n"
+        "Each group's outcome, and what its members had privately picked beforehand:\n"
+        + "\n".join(lines)
+        + "\n\nWrite 3-4 sentences on what the class did overall: the dominant pattern, how many groups "
+          "landed on the right answer, and the one thing most worth raising in the debrief. Plain prose, "
+          "no headings, no bullet points, no preamble."
+    )
+    text, err = _summarize(prompt)
+    if err:
+        return jsonify({"error": err}), 503
+    return jsonify({"summary": text}), 200
+
+
+@manager_exercise_bp.route('/manager-exercise/<config_id>/group-summary/<room_id>', methods=['POST'])
+@jwt_required()
+def post_group_summary(config_id, room_id):
+    """Four sentences on one group: what they did, what they each picked alone,
+    what they decided together, and what came out of the debrief.
+
+    The debrief sentence is grounded in the room's real transcript rather than
+    inferred from the outcome — a group that reached the right answer for the wrong
+    reason is exactly what the professor is looking for here.
+    """
+    config_doc, error = _load_owned_config(config_id)
+    if error:
+        return error
+    if not room_id.startswith(f"{config_id}_"):
+        return jsonify({"error": "That room does not belong to this exercise"}), 400
+
+    doc = ManagerExerciseSession.find_by_room(room_id)
+    if not doc:
+        return jsonify({"error": "No such group"}), 404
+
+    me = config_doc.get("manager_exercise") or {}
+    answer = ((me.get("case_pack") or {}).get("answer_key") or {}).get("best_option") or ""
+    verb = "named" if exercise_templates.normalize(me.get("template")) == "investigation" else "hired"
+    chosen = doc.get("chosen_candidate")
+    solo_votes = ((doc.get("solo_ballot") or {}).get("votes")) or {}
+
+    people = []
+    for entry in (doc.get("roster") or []):
+        pick = solo_votes.get(entry.get("uid"))
+        people.append(
+            f"- {entry.get('name') or 'a student'}"
+            f"{' (' + entry.get('role') + ')' if entry.get('role') else ''}"
+            f": privately picked {pick or 'nothing'}"
+        )
+
+    # The tail of the transcript is the debrief — ACTR only speaks in that phase, so
+    # the last stretch of messages is what the fourth sentence is actually about.
+    messages = list(
+        current_app.config["MONGO_DB"]["group_chat_messages"]
+        .find({"room_id": room_id}, {"_id": 0, "sender": 1, "text": 1, "turn": 1})
+        .sort("turn", -1).limit(40)
+    )
+    transcript = "\n".join(f"{m.get('sender')}: {m.get('text')}" for m in reversed(messages))[:6000]
+
+    prompt = (
+        "You are summarizing one group's results from a class decision exercise, for the professor.\n"
+        f"{'The right answer was: ' + answer + '.' if answer else 'This case has no single right answer.'}\n\n"
+        "What each member picked privately, before the group talked:\n"
+        + "\n".join(people)
+        + f"\n\nWhat the group finally {verb}: {chosen or 'nothing — they never decided'}.\n\n"
+        + (f"The end of their transcript, including the debrief:\n{transcript}\n\n" if transcript else "")
+        + "Write EXACTLY 4 sentences, in this order: (1) what this group did overall, (2) what its members "
+          "had personally decided before discussing, (3) what the group decided together and whether that "
+          "was right, (4) what actually came out of their debrief. Plain prose, no bullet points, no "
+          "headings, no preamble. If the transcript shows no debrief, say so in the fourth sentence."
+    )
+    text, err = _summarize(prompt)
+    if err:
+        return jsonify({"error": err}), 503
+    return jsonify({"summary": text, "room_id": room_id}), 200
 
 
 @manager_exercise_bp.route('/manager-exercise/run/<room_id>', methods=['GET'])

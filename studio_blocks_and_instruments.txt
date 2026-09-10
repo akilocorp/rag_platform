@@ -1,0 +1,142 @@
+STUDIO — BLOCKS AND INSTRUMENTS
+================================
+
+BLOCKS (12) — question/content types
+-------------------------------------
+
+Short Text
+  Single-line text answer.
+
+Long Text
+  Multi-line paragraph answer.
+
+Instructions (rich_text)
+  Content-only — no answer, no "required" field (skipped by validation
+  entirely).
+
+Single Choice
+  Radio buttons, pick one of N options.
+
+Yes / No
+  Binary choice, its own block so professors don't hand-configure a
+  2-option Single Choice every time.
+
+Rating Scale
+  Pick an integer 1 to scale_max (Likert-style).
+
+Semantic Differential
+  Bipolar scale between two adjective labels (e.g. "Weak ... Strong").
+
+Forced Rank Order
+  Order every option via up/down buttons (not drag-and-drop — avoids
+  nesting a second dnd-kit context inside a block).
+
+Constant Sum
+  Allocate a fixed budget across options. Running total is shown live but
+  not hard-enforced — a respondent can still submit an unbalanced
+  allocation.
+
+MaxDiff (Best/Worst)
+  Single-trial: pick the most and least preferred option from a subset.
+  Not full multi-round MaxDiff (Studio only has one page of blocks today).
+
+Card Sort
+  Assign each item to a category. Dropdown picker if categories are
+  defined (closed sort); free-text input if not (open sort). Not true
+  drag-tile sorting, same data either way.
+
+Voice Conversation [AI, locked]
+  Live spoken back-and-forth via Hume EVI. Transcript is captured as the
+  block's answer.
+
+
+INSTRUMENTS (17) — attach to a block, modify or measure it
+-------------------------------------------------------------
+
+-- Data quality / behavior --
+
+Attention Check
+  Flags (never blocks) whether a Single Choice answer matches an expected
+  "trap" option.
+
+Instructed Response
+  Appends a compliance sentence to the question text at render time,
+  flags whether the respondent complied.
+
+Speeder Flag
+  Flags unusually fast submissions in the results view. Measurement
+  only — does not block Submit (Read-Time Gate's soft sibling).
+
+Read-Time Gate
+  Blocks Submit until N seconds have elapsed since the block was shown.
+
+Option Randomizer
+  Shuffles a Single Choice block's option order per respondent.
+
+Subset Randomizer
+  Shows only N of a Single Choice block's options, picked per respondent.
+
+-- Measurement --
+
+Confidence Slider
+  Captures a secondary 0-100 "how sure are you?" rating alongside any
+  block's own answer.
+
+Reaction Timer
+  Records milliseconds from when the block was shown to when it was
+  submitted.
+
+Piped Text
+  Prefixes a block's question with a sibling block's live answer.
+
+-- AI-native: free (uses data Voice Conversation already captures) --
+
+Vocal Emotion Trace [AI, locked]
+  Averages Hume's per-turn prosody scores across the respondent's
+  turns, reports the dominant emotion.
+
+Sentiment-Drift Tracker [AI, locked]
+  Tracks how that dominant emotion's intensity moved from the first
+  user turn to the last — a trend, not a snapshot.
+
+Hesitation Detector [AI, locked]
+  Counts filler words/hedges in the transcript. A plain regex, not an
+  LLM call — flagged AI because it's tied to the voice modality, same
+  framing as Voice Conversation itself.
+
+-- AI-native: Tier 2 (Claude call, owner-side, results-view time) --
+
+LLM Rubric Grader [AI, locked]
+  Scores a text answer against a professor-written rubric. Result is
+  cached on the response so re-viewing results doesn't re-bill the call.
+
+Cross-Answer Inconsistency [AI, locked]
+  Flags contradictions between this answer and a chosen sibling block's
+  answer. Also cached after first computation.
+
+-- AI-native: Tier 3 (Claude call, live, mid-session) --
+
+Comprehension Check [AI, locked]
+  Respondent paraphrases the question in their own words; Claude scores
+  how faithfully they captured its meaning.
+
+AI Devil's Advocate [AI, locked]
+  Claude generates a one-shot counterargument to the respondent's stated
+  position, then captures a post-rebuttal confidence rating.
+
+Adaptive Follow-Up [AI, locked]
+  Claude generates a bespoke follow-up question based on what the
+  respondent just answered, and captures their reply to it.
+
+
+NOTES
+-----
+[AI, locked] = is_ai: true in the registry. Shows the AI badge + lock icon
+in the Studio ribbon and can't be dragged onto the canvas yet — the
+paywall behind these is currently visual-only, no real billing/entitlement
+enforcement exists.
+
+Tier 3 instruments call a public, rate-limited endpoint
+(/studio/public/projects/<id>/ai-instrument) since they run live during an
+anonymous respondent's session — capped at 10 calls per project+IP per 10
+minutes, separate from every other rate limit in Studio.
