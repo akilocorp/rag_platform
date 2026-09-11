@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   POST /<config_id>/class-summary + POST /<config_id>/group-summary/<room_id> — the two AI
+# @changed   The group summary reads the WHOLE room transcript, not its tail: sentence one is about what
+#            the group argued over in the discussion round, which a tail-only window cut off entirely. A
+#            long room keeps its opening and its ending and drops the middle.
+#            Prior: POST /<config_id>/class-summary + POST /<config_id>/group-summary/<room_id> — the two AI
 #            reads on the results page: a few sentences on what the whole class did, and four on one
 #            group (what they did, what they each picked alone, what they decided, what the debrief
 #            surfaced). The group one reads the room's real transcript so the debrief sentence is
@@ -439,28 +442,39 @@ def post_group_summary(config_id, room_id):
             f": privately picked {pick or 'nothing'}"
         )
 
-    # The tail of the transcript is the debrief — ACTR only speaks in that phase, so
-    # the last stretch of messages is what the fourth sentence is actually about.
+    # The WHOLE conversation, not just its tail: sentence one is about what the group
+    # argued over in the discussion round, which is the part a tail-only window cuts off.
+    # An over-long room keeps its head and its end — the opening moves and the debrief —
+    # and drops the middle, which is where the repetition lives.
     messages = list(
         current_app.config["MONGO_DB"]["group_chat_messages"]
         .find({"room_id": room_id}, {"_id": 0, "sender": 1, "text": 1, "turn": 1})
-        .sort("turn", -1).limit(40)
+        .sort("turn", 1)
     )
-    transcript = "\n".join(f"{m.get('sender')}: {m.get('text')}" for m in reversed(messages))[:6000]
+    lines = [f"{m.get('sender')}: {m.get('text')}" for m in messages if m.get("text")]
+    if len(lines) > 160:
+        lines = lines[:60] + [f"... [{len(lines) - 160} messages omitted] ..."] + lines[-100:]
+    transcript = "\n".join(lines)[:14000]
 
     prompt = (
-        "You are summarizing one group's results from a class decision exercise, for the professor.\n"
+        "You are summarizing one group's session in a class decision exercise, for the professor who "
+        "will debrief the class.\n"
         f"{'The right answer was: ' + answer + '.' if answer else 'This case has no single right answer.'}\n\n"
         "What each member picked privately, before the group talked:\n"
         + "\n".join(people)
         + f"\n\nWhat the group finally {verb}: {chosen or 'nothing — they never decided'}.\n\n"
-        + (f"The end of their transcript, including the debrief:\n{transcript}\n\n" if transcript else "")
-        + "Write EXACTLY 4 sentences, in this order: (1) what this group did overall, (2) what its members "
-          "had personally decided before discussing, (3) what the group decided together and whether that "
-          "was right, (4) what actually came out of their debrief. Plain prose, no bullet points, no "
-          "headings, no preamble. If the transcript shows no debrief, say so in the fourth sentence."
+        + (f"Their full conversation — the group discussion, then the facilitated debrief "
+           f"(the facilitator speaks only in the debrief):\n{transcript}\n\n" if transcript else
+           "Their transcript is empty — this group never talked.\n\n")
+        + "Write EXACTLY 4 sentences, in this order: (1) what this group actually discussed — the "
+          "substance of their conversation, the arguments that moved it, and who pushed what, (2) what "
+          "its members had personally decided before that discussion, (3) what they decided together "
+          "and whether it was right, (4) what came out of their debrief conversation. Ground every "
+          "sentence in what the transcript really says — quote a phrase where it earns it, and never "
+          "invent discussion that isn't there. Plain prose, no bullet points, no headings, no preamble. "
+          "If the transcript shows no debrief, say so plainly in the fourth sentence."
     )
-    text, err = _summarize(prompt)
+    text, err = _summarize(prompt, max_tokens=600)
     if err:
         return jsonify({"error": err}), 503
     return jsonify({"summary": text, "room_id": room_id}), 200
