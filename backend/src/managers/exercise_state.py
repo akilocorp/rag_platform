@@ -1,6 +1,11 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   `general_info_seconds` / `review_seconds` read off the config and passed out in the
+# @changed   Round 0 is TIMED. `begin_solo` arms a deadline covering the whole private round
+#            (`round0_seconds` = brief + cards + decision, since one phase spans all of them) and
+#            `_run_solo_window` opens round 1 when it lapses, decided or not. Replaces
+#            SOLO_GRACE_SECONDS, a 15-minute backstop for an absent student, with the round's real
+#            length. New `solo_minutes` (default 2) is the student-facing decision budget.
+#            Prior: `general_info_seconds` / `review_seconds` read off the config and passed out in the
 #            snapshot: the lengths of the two client-local prelude gates (the brief, then the cards).
 #            The countdown runs on the client because each student walks the prelude at their own
 #            desk, but the length is the professor's.
@@ -194,12 +199,6 @@ _PHASE_ROUND = {
     PHASE_DONE: 2,
 }
 
-# M9: the solo round normally ends when every student has submitted their private
-# pick — the same all-members gate the kiosk uses. The kiosk can afford no timeout
-# because an instructor is pacing it; nobody is pacing this one, so a student who
-# walks away must not strand the room forever.
-SOLO_GRACE_SECONDS = 900
-
 # --- Turn-taking ------------------------------------------------------------
 # WITHIN the debrief there are no gates. ACTR is invoked on every student message
 # and decides for itself, from the facts `turn_context()` hands it plus the worked
@@ -279,6 +278,7 @@ class ExerciseState:
         self.reading_seconds: float = cfg["reading_seconds"]
         self.general_info_seconds: float = cfg["general_info_seconds"]
         self.review_seconds: float = cfg["review_seconds"]
+        self.solo_seconds: float = cfg["solo_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -341,6 +341,10 @@ class ExerciseState:
             # prelude at their own desk, so there is no room-wide deadline to keep.
             "general_info_seconds": float(c.get("general_info_minutes") or 3) * 60.0,
             "review_seconds": float(c.get("review_minutes") or 3) * 60.0,
+            # Round 0's own window. Covers BOTH client stages the private decision is
+            # split across — the "on your own" notice and the ballot itself — so the
+            # ballot gets whatever the notice didn't spend.
+            "solo_seconds": float(c.get("solo_minutes") or 2) * 60.0,
         }
 
     # ==================================================================
@@ -625,6 +629,11 @@ class ExerciseState:
                 # sitting in the page.
                 "general_info_seconds": self.general_info_seconds,
                 "review_seconds": self.review_seconds,
+                # The private decision's budget (its notice screen plus the ballot).
+                # Paced on the client for the same reason as the gates above — it is
+                # one student's own screen — with `phase_deadline_ts` above as the
+                # room-level ceiling that ends the round regardless.
+                "solo_seconds": self.solo_seconds,
                 "can_start": self.can_start(),
                 # M9 round 0. `your_solo_vote` is this viewer's OWN private pick,
                 # restored so a refresh mid-round-0 doesn't ask them to decide twice.
@@ -771,8 +780,16 @@ class ExerciseState:
                 # the grace watch for the students still to come.
                 if self._all_solo_voted():
                     self._finish_solo()
+                elif self.phase_deadline_ts is None:
+                    # Persisted under the older untimed round — give it a full window
+                    # from now rather than expiring a room that just came back.
+                    with self._lock:
+                        self.phase_deadline_ts = time.time() + self.round0_seconds()
+                        self._persist({"phase_deadline_ts": self.phase_deadline_ts})
+                    self._broadcast_phase()
+                    self._socketio.start_background_task(self._run_solo_window)
                 else:
-                    self._socketio.start_background_task(self._solo_grace_watch)
+                    self._resume_timed(PHASE_SOLO, self._finish_solo)
             elif self._phase == PHASE_DISCUSS:
                 # M3: discuss is the PRE-vote deliberation, so when its timer elapses
                 # the next thing is the ballot, not the done screen.
@@ -888,25 +905,45 @@ class ExerciseState:
         the structural half of keeping the facilitator out of the group's first
         decision.
 
-        Untimed: the round ends when every student has submitted. `_solo_grace_watch`
-        is the backstop for the student who never does.
+        TIMED. The round ends when every student has submitted OR when the clock runs
+        out, whichever lands first — and the clock is the whole room's, so a student
+        who never decides doesn't hold everyone else on this screen. Whoever has not
+        picked when it lapses simply has nothing recorded for round 0; that is a
+        better trade than a room stuck waiting on one absent person.
+
+        The deadline covers the WHOLE round-0 walk, not just the ballot: this one
+        phase spans the brief, the candidate cards, the notice and the decision, all
+        of them client-local stages. So the room-level ceiling is their sum. The
+        student-facing 2-minute decision budget is paced on the client (it starts when
+        they reach the notice); this is the backstop that guarantees the room moves
+        together even if a client never reports in.
         """
         with self._lock:
             if self._phase not in (PHASE_WAITING, PHASE_READING):
                 return
             self._phase = PHASE_SOLO
-            self.phase_deadline_ts = None
+            self.phase_deadline_ts = time.time() + self.round0_seconds()
             self.solo_ballot = {"open": True, "votes": {}}
             self._persist({
                 "phase": PHASE_SOLO,
-                "phase_deadline_ts": None,
+                "phase_deadline_ts": self.phase_deadline_ts,
                 "solo_ballot": self.solo_ballot,
             })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "solo"})
         if self._socketio:
-            self._socketio.start_background_task(self._solo_grace_watch)
+            self._socketio.start_background_task(self._run_solo_window)
+
+    def round0_seconds(self) -> float:
+        """How long the whole private round may run: brief + cards + the decision.
+
+        The three are separate fields because they pace separate screens, but only
+        their sum can be a phase deadline — `solo` is one phase covering all of them.
+        A student who reads fast simply reaches the ballot with more of the window
+        left; nobody gets less than the decision budget the professor set.
+        """
+        return self.general_info_seconds + self.review_seconds + self.solo_seconds
 
     def _all_solo_voted(self) -> bool:
         """True once every seated student has submitted a private pick (empty room → False)."""
@@ -951,15 +988,15 @@ class ExerciseState:
             self._persist({"solo_ballot": self.solo_ballot})
         self.begin_discuss()
 
-    def _solo_grace_watch(self):
-        """Backstop: force round 1 open if someone never submits a private pick.
+    def _run_solo_window(self):
+        """The private round's clock: open round 1 when it lapses, decided or not.
 
-        Whoever has not decided by now keeps no vote — they simply have nothing
-        recorded for round 0. Holding the whole room on one absent student is worse
-        than losing one data point.
+        Everyone who has not picked by now keeps no vote. This used to be a 15-minute
+        backstop for an absent student; it is now the round's actual length, because
+        the screen it paces is a single decision and a room should not sit on it.
         """
         with self._app.app_context():
-            self._socketio.sleep(SOLO_GRACE_SECONDS)
+            self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_SOLO:
                 self._finish_solo()
 

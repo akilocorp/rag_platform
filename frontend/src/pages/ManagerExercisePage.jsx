@@ -1,4 +1,8 @@
-/* @language JSX  @updated 2026-09-11  @changed Timed prelude gates: the general-info brief and the
+/* @language JSX  @updated 2026-09-11  @changed The private decision is timed and buttonless: the "on
+   your own" notice lost "I'm ready" and now holds 20s before opening the ballot itself, both screens
+   sharing ONE budget (solo_minutes, 2 min default) so the ballot gets the remaining 1:40. Running out
+   with nothing locked in moves the student on with no pick recorded rather than stranding the room.
+   Prior: Timed prelude gates: the general-info brief and the
    candidate deck each run a countdown (professor-set, 3 min default, off the snapshot) that expires
    straight into the next screen. The deadline is stamped into localStorage per room+stage, so a
    refresh resumes the same clock rather than handing back a fresh three minutes — and a student who
@@ -96,6 +100,12 @@ const roleLabel = (role) => ((role || '').replace(/\s*managers?\s*$/i, '').trim(
 // snapshot (see backend/src/managers/exercise_templates.py); this is the fallback so
 // a client that renders before the snapshot lands, or talks to a server that predates
 // templates, still shows the hiring wording it always did rather than blanks.
+// How long the "on your own" notice holds before opening the ballot itself. It has no
+// button: the screen exists to be read, and a button there only measures who clicks
+// fastest. Deliberately a constant, not a config field — it paces one sentence, and
+// the window that actually matters (round 0's whole length) is the professor's.
+const NOTICE_HOLD_SECONDS = 20;
+
 const LEXICON_FALLBACK = {
   role_headline: 'You are the {role} Manager',
   role_note: 'What you know as the {role} Manager',
@@ -522,6 +532,9 @@ const ManagerExercisePage = () => {
   const [generalInfoSecs, setGeneralInfoSecs] = useState(180);
   const [reviewSecs, setReviewSecs] = useState(180);
   const [preludeLeft, setPreludeLeft] = useState(null);
+  // The private decision's budget (notice + ballot), and how much of it is left.
+  const [soloSecs, setSoloSecs] = useState(120);
+  const [decisionLeft, setDecisionLeft] = useState(null);
   const [soloPick, setSoloPick] = useState(null);        // local selection, pre-submit
   const [yourSoloVote, setYourSoloVote] = useState(null);
   const [soloSubmitted, setSoloSubmitted] = useState(0);
@@ -648,6 +661,7 @@ const ManagerExercisePage = () => {
       // replay the brief with an already-expired clock, skipping it instantly.
       localStorage.removeItem(`me_prelude_${rid}_premise`);
       localStorage.removeItem(`me_prelude_${rid}_cards`);
+      localStorage.removeItem(`me_decision_${rid}`);
     } catch { /* localStorage may be unavailable */ }
   };
 
@@ -707,6 +721,42 @@ const ManagerExercisePage = () => {
     const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
   }, [phase, soloStage, generalInfoSecs, reviewSecs]);
+
+  // ONE budget for the private decision, spanning both of its screens: the notice
+  // spends the first NOTICE_HOLD_SECONDS of it and opens the ballot itself, and the
+  // ballot runs on whatever is left (2:00 − 0:20 = 1:40 by default). It is stamped
+  // when the student first reaches the notice, so it is genuinely their own decision
+  // time and not whatever the room had left after the brief.
+  //
+  // Running out with nothing locked in moves them on with no pick recorded — the same
+  // place locking in leads, minus the vote. The room itself advances when everyone is
+  // in or when the server's round-0 ceiling lapses, whichever is first.
+  useEffect(() => {
+    const onDecision = phase === 'solo' && (soloStage === 'notice' || soloStage === 'decide');
+    if (!onDecision || !roomIdRef.current || !soloSecs) { setDecisionLeft(null); return; }
+
+    const key = `me_decision_${roomIdRef.current}`;
+    let deadline = null;
+    try { deadline = Number(localStorage.getItem(key)) || null; } catch { /* localStorage may be unavailable */ }
+    if (!deadline) {
+      deadline = Date.now() + soloSecs * 1000;
+      try { localStorage.setItem(key, String(deadline)); } catch { /* localStorage may be unavailable */ }
+    }
+
+    const tick = () => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setDecisionLeft(left);
+      if (soloStage === 'notice') {
+        // The notice is over once its hold has been spent out of the budget.
+        if (left <= Math.max(0, soloSecs - NOTICE_HOLD_SECONDS)) setSoloStage('decide');
+      } else if (left <= 0) {
+        setSoloStage('handoff');
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [phase, soloStage, soloSecs]);
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
   // Also derives the DISPLAY NAME, which is what the server stores as the message
@@ -770,6 +820,7 @@ const ManagerExercisePage = () => {
     if (typeof s.your_case === 'string') setYourCase(s.your_case);
     if (typeof s.general_info_seconds === 'number' && s.general_info_seconds > 0) setGeneralInfoSecs(s.general_info_seconds);
     if (typeof s.review_seconds === 'number' && s.review_seconds > 0) setReviewSecs(s.review_seconds);
+    if (typeof s.solo_seconds === 'number' && s.solo_seconds > 0) setSoloSecs(s.solo_seconds);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
     // M9 round 0. `your_solo_vote` is this viewer's own pick and the only one they
@@ -1956,8 +2007,16 @@ const ManagerExercisePage = () => {
         eyebrow="On your own"
         title="First, decide on your own."
         body="Before you talk to anyone, make the call yourself. Nobody in your group will see who you picked, and you won't see theirs. Go with what your own notes tell you."
-        action="I'm ready"
-        onAction={() => setSoloStage('decide')}
+        footer={(
+          <div className="mt-2 flex flex-col items-center gap-3">
+            {decisionLeft != null && CountdownChip({
+              label: 'Opens in',
+              urgent: false,
+              seconds: Math.max(0, decisionLeft - Math.max(0, soloSecs - NOTICE_HOLD_SECONDS)),
+            })}
+            <p className="text-xs text-gray-400">Your decision opens automatically. Read this while you wait.</p>
+          </div>
+        )}
       />
     );
   }
@@ -1973,6 +2032,13 @@ const ManagerExercisePage = () => {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">Your decision</p>
             <h1 className="text-3xl mb-3" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{lexicon.solo_prompt}</h1>
             <p className="text-sm text-gray-500">This one is yours alone. It stays private.</p>
+            {/* Their own decision budget. At zero they move on with nothing
+                recorded — the room does not wait on an undecided student. */}
+            {decisionLeft != null && (
+              <div className="flex justify-center mt-5">
+                {CountdownChip({ label: 'Time left', urgent: decisionLeft <= 30, seconds: decisionLeft })}
+              </div>
+            )}
           </div>
 
           <div className="grid gap-3">

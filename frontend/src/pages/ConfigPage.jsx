@@ -222,6 +222,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
       num_rooms: 5,                                   // how many groups the class splits into
       general_info_minutes: 3,                        // prelude gate: the shared brief
       review_minutes: 3,                              // prelude gate: their own candidate cards
+      solo_minutes: 2,                                // round 0: the private decision, notice + ballot
       discuss_minutes: 20,                            // round 1: the group's own deliberation
       debrief_minutes: 20,                            // round 2: the facilitated debrief
       reading_minutes: 30,                            // professor-paired templates: the timed case-reading window
@@ -1059,8 +1060,11 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Reviewing candidates (minutes)<InfoTip text="How long each student gets on their own confidential cards before the private decision opens. When it runs out the deck closes itself and they cannot reopen it." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.review_minutes} onChange={(e) => setMgr('review_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
-                    {/* Two windows, one per conversation. Round 0 (the private
-                        decision) is untimed — it ends when everyone has submitted. */}
+                    <div className="mb-5">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 0 &mdash; private decision (minutes)<InfoTip text="How long each student has to make their own call before the group talks. Covers both screens: the short 'on your own' notice and the ballot itself. When it runs out the room moves to the discussion whether or not everyone has decided — whoever hasn't simply has no private pick recorded." /></label>
+                      <input type="number" min="0" step="any" value={config.manager_exercise.solo_minutes} onChange={(e) => setMgr('solo_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                    </div>
+                    {/* One window per conversation. */}
                     <div className="mb-5">
                       <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts the moment the round opens." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />

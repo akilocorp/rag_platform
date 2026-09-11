@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   `general_info_minutes` + `review_minutes` on manager_exercise (both default 3): the two
+# @changed   `solo_minutes` on manager_exercise (default 2): round 0's decision budget, covering the
+#            "on your own" notice and the ballot.
+#            Prior: `general_info_minutes` + `review_minutes` on manager_exercise (both default 3): the two
 #            prelude gates a student walks before the private decision. Validated and persisted here,
 #            so the edit route gets them for free via validate_manager_exercise.
 #            Prior banner follows.
@@ -292,6 +294,17 @@ def validate_manager_exercise(source, target):
     if review_minutes <= 0:
         review_minutes = 3.0
 
+    # Round 0's window, covering both screens the private decision is split across
+    # (the "on your own" notice, then the ballot). Unlike the prelude gates this one
+    # is the SERVER's: when it lapses the whole room moves to the group discussion,
+    # decided or not, so it cannot be paced per-student.
+    try:
+        solo_minutes = float(raw.get('solo_minutes') or 2)
+    except (ValueError, TypeError):
+        solo_minutes = 2.0
+    if solo_minutes <= 0:
+        solo_minutes = 2.0
+
     # Which exercise this is: the flow (does it reveal an outcome? does it debrief?)
     # and the words the student screens use. Normalized rather than validated — an
     # unknown template falls back to `hiring`, which is what every config authored
@@ -448,6 +461,7 @@ def validate_manager_exercise(source, target):
         "reading_minutes": reading_minutes,
         "general_info_minutes": general_info_minutes,
         "review_minutes": review_minutes,
+        "solo_minutes": solo_minutes,
         "investigation_group_size": investigation_group_size,
         "investigation_group_size_max": investigation_group_size_max,
         "student_view": student_view,
