@@ -1,6 +1,10 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   Round 1's clock arms when the round OPENS, not on the first student message. The lazy clock
+# @changed   `general_info_seconds` / `review_seconds` read off the config and passed out in the
+#            snapshot: the lengths of the two client-local prelude gates (the brief, then the cards).
+#            The countdown runs on the client because each student walks the prelude at their own
+#            desk, but the length is the professor's.
+#            Prior: Round 1's clock arms when the round OPENS, not on the first student message. The lazy clock
 #            meant the countdown a room got depended on when somebody happened to type, so two groups in
 #            the same class ran on different amounts of time and neither could pace against the timer on
 #            screen. `PRELUDE_GRACE_SECONDS` and the grace watch it existed for are gone; `arm_discuss_timer`
@@ -273,6 +277,8 @@ class ExerciseState:
         self.final_call_seconds: float = cfg["final_call_seconds"]
         self.debrief_seconds: float = cfg["debrief_seconds"]
         self.reading_seconds: float = cfg["reading_seconds"]
+        self.general_info_seconds: float = cfg["general_info_seconds"]
+        self.review_seconds: float = cfg["review_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -329,6 +335,12 @@ class ExerciseState:
             # EditConfigPage's "Case-reading window"); 30 by default — long enough
             # for a real case document, not just a one-page brief.
             "reading_seconds": float(c.get("reading_minutes") or 30) * 60.0,
+            # The two prelude gates. These pace CLIENT-LOCAL stages (the general-info
+            # brief and the candidate deck), which is why they are only passed out in
+            # the snapshot rather than driving a server phase: each student walks the
+            # prelude at their own desk, so there is no room-wide deadline to keep.
+            "general_info_seconds": float(c.get("general_info_minutes") or 3) * 60.0,
+            "review_seconds": float(c.get("review_minutes") or 3) * 60.0,
         }
 
     # ==================================================================
@@ -606,6 +618,13 @@ class ExerciseState:
                 "your_case": self.case_for(uid) if case_visible else "",
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
+                # How long the two client-local prelude stages last, in seconds. The
+                # countdown is run by the client because these stages are its own —
+                # each student reads at their own desk — but the LENGTH is the
+                # professor's, so it comes from here rather than a hardcoded default
+                # sitting in the page.
+                "general_info_seconds": self.general_info_seconds,
+                "review_seconds": self.review_seconds,
                 "can_start": self.can_start(),
                 # M9 round 0. `your_solo_vote` is this viewer's OWN private pick,
                 # restored so a refresh mid-round-0 doesn't ask them to decide twice.

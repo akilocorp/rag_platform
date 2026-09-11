@@ -220,6 +220,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
     manager_exercise: {
       num_students: 3,                                // capacity of one breakout room
       num_rooms: 5,                                   // how many groups the class splits into
+      general_info_minutes: 3,                        // prelude gate: the shared brief
+      review_minutes: 3,                              // prelude gate: their own candidate cards
       discuss_minutes: 20,                            // round 1: the group's own deliberation
       debrief_minutes: 20,                            // round 2: the facilitated debrief
       reading_minutes: 30,                            // professor-paired templates: the timed case-reading window
@@ -1046,10 +1048,21 @@ const ConfigModal = ({ isOpen, onClose }) => {
                         Room for up to {config.manager_exercise.num_rooms * config.manager_exercise.num_students} students.
                       </p>
                     </div>
+                    {/* The two prelude gates. Each student walks these alone at their
+                        own desk, so they are paced per-student rather than per-room —
+                        and both run out into the next screen with no way back. */}
+                    <div className="mb-5">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">General info (minutes)<InfoTip text="How long each student gets on the shared brief before their own cards open. When it runs out they move on automatically and cannot come back to it." /></label>
+                      <input type="number" min="0" step="any" value={config.manager_exercise.general_info_minutes} onChange={(e) => setMgr('general_info_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                    </div>
+                    <div className="mb-5">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Reviewing candidates (minutes)<InfoTip text="How long each student gets on their own confidential cards before the private decision opens. When it runs out the deck closes itself and they cannot reopen it." /></label>
+                      <input type="number" min="0" step="any" value={config.manager_exercise.review_minutes} onChange={(e) => setMgr('review_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                    </div>
                     {/* Two windows, one per conversation. Round 0 (the private
                         decision) is untimed — it ends when everyone has submitted. */}
                     <div className="mb-5">
-                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts the moment the round opens." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
                     <div className={config.manager_exercise.template === 'investigation' ? 'mb-5' : ''}>

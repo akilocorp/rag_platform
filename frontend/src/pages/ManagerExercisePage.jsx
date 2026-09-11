@@ -1,4 +1,9 @@
-/* @language JSX  @updated 2026-09-08  @changed Every leaveBreakout() "Back to lobby" escape hatch (waiting/kiosk/done/
+/* @language JSX  @updated 2026-09-11  @changed Timed prelude gates: the general-info brief and the
+   candidate deck each run a countdown (professor-set, 3 min default, off the snapshot) that expires
+   straight into the next screen. The deadline is stamped into localStorage per room+stage, so a
+   refresh resumes the same clock rather than handing back a fresh three minutes — and a student who
+   lands back on an expired stage is pushed forward again, which is what makes the gate one-way.
+   Prior banner: @language JSX  @updated 2026-09-08  @changed Every leaveBreakout() "Back to lobby" escape hatch (waiting/kiosk/done/
    discuss-header) is now also gated on `!flow.prof_paired` — the done screen's was reachable for the investigation
    template (there is no lobby to go back to), and the discuss-header one was reachable mid-exercise, during the live
    round-1 discussion. The done screen also swaps its heading to "Your exercise finished." for that template instead
@@ -512,6 +517,11 @@ const ManagerExercisePage = () => {
   // refresh mid-round-0 doesn't ask them to decide twice. There is deliberately no
   // solo tally in state — the server never sends one.
   const [soloStage, setSoloStage] = useState('premise'); // premise|cards|notice|decide|handoff
+  // Prelude gate lengths, in seconds, off the snapshot (professor-set; 3 min each by
+  // default), plus the live countdown for whichever gate is on screen.
+  const [generalInfoSecs, setGeneralInfoSecs] = useState(180);
+  const [reviewSecs, setReviewSecs] = useState(180);
+  const [preludeLeft, setPreludeLeft] = useState(null);
   const [soloPick, setSoloPick] = useState(null);        // local selection, pre-submit
   const [yourSoloVote, setYourSoloVote] = useState(null);
   const [soloSubmitted, setSoloSubmitted] = useState(0);
@@ -634,6 +644,10 @@ const ManagerExercisePage = () => {
       // doesn't leave them behind forever.
       localStorage.removeItem(`me_premise_seen_${rid}_r1`);
       localStorage.removeItem(`me_premise_seen_${rid}_r2`);
+      // The prelude gate deadlines go with them: a reset that left these behind would
+      // replay the brief with an already-expired clock, skipping it instantly.
+      localStorage.removeItem(`me_prelude_${rid}_premise`);
+      localStorage.removeItem(`me_prelude_${rid}_cards`);
     } catch { /* localStorage may be unavailable */ }
   };
 
@@ -656,6 +670,43 @@ const ManagerExercisePage = () => {
     // itself advances the room (see prevPhaseForReadingRef above).
     setSoloStage(phaseRef.current === 'reading' ? 'reading_wait' : 'notice');
   };
+
+  // Prelude gates (general info, then the candidate cards). These two stages are
+  // client-local, so their clocks are too — but the DEADLINE is stamped into
+  // localStorage the first time a stage opens, which is what makes the gate real:
+  // a refresh resumes the same countdown instead of handing back a fresh three
+  // minutes, and a student who lands back on an expired stage is pushed straight
+  // forward again. There is no way back to a stage once its clock has run out.
+  const preludeAdvanceRef = useRef(() => {});
+  useEffect(() => {
+    preludeAdvanceRef.current = () => {
+      if (soloStage === 'premise') setSoloStage('cards');
+      else finishPremiseIntro();
+    };
+  });
+
+  useEffect(() => {
+    const gated = phase === 'solo' && (soloStage === 'premise' || soloStage === 'cards');
+    const total = soloStage === 'premise' ? generalInfoSecs : reviewSecs;
+    if (!gated || !total || !roomIdRef.current) { setPreludeLeft(null); return; }
+
+    const key = `me_prelude_${roomIdRef.current}_${soloStage}`;
+    let deadline = null;
+    try { deadline = Number(localStorage.getItem(key)) || null; } catch { /* localStorage may be unavailable */ }
+    if (!deadline) {
+      deadline = Date.now() + total * 1000;
+      try { localStorage.setItem(key, String(deadline)); } catch { /* localStorage may be unavailable */ }
+    }
+
+    const tick = () => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setPreludeLeft(left);
+      if (left <= 0) preludeAdvanceRef.current();
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [phase, soloStage, generalInfoSecs, reviewSecs]);
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
   // Also derives the DISPLAY NAME, which is what the server stores as the message
@@ -717,6 +768,8 @@ const ManagerExercisePage = () => {
       setFlow({ reveal: true, debrief: true, prof_paired: false, hide_case_after_reading: false, ...s.flow });
     }
     if (typeof s.your_case === 'string') setYourCase(s.your_case);
+    if (typeof s.general_info_seconds === 'number' && s.general_info_seconds > 0) setGeneralInfoSecs(s.general_info_seconds);
+    if (typeof s.review_seconds === 'number' && s.review_seconds > 0) setReviewSecs(s.review_seconds);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
     // M9 round 0. `your_solo_vote` is this viewer's own pick and the only one they
@@ -1158,22 +1211,26 @@ const ManagerExercisePage = () => {
   // Shared UI fragments
   // -------------------------------------------------------------------------
 
-  // Prominent countdown chip driven by the server deadline.
-  const CountdownChip = ({ label, urgent }) => (
-    <div
-      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-sm transition-all animate-in fade-in zoom-in-95 duration-300 ${
-        urgent
-          ? 'border-red-300 bg-red-50 text-red-600'
-          : 'border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 text-[#C2410C]'
-      }`}
-    >
-      <FaRegClock className={`text-sm ${secsLeft != null && secsLeft <= 10 ? 'animate-pulse' : ''}`} />
-      <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
-      <span className="tabular-nums text-sm font-extrabold">
-        {secsLeft == null ? '—:—' : fmtClock(secsLeft)}
-      </span>
-    </div>
-  );
+  // Prominent countdown chip. Defaults to the server deadline; `seconds` overrides it
+  // for the two prelude stages, which run on a client-local clock (see preludeLeft).
+  const CountdownChip = ({ label, urgent, seconds }) => {
+    const value = seconds === undefined ? secsLeft : seconds;
+    return (
+      <div
+        className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-sm transition-all animate-in fade-in zoom-in-95 duration-300 ${
+          urgent
+            ? 'border-red-300 bg-red-50 text-red-600'
+            : 'border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 text-[#C2410C]'
+        }`}
+      >
+        <FaRegClock className={`text-sm ${value != null && value <= 10 ? 'animate-pulse' : ''}`} />
+        <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
+        <span className="tabular-nums text-sm font-extrabold">
+          {value == null ? '—:—' : fmtClock(value)}
+        </span>
+      </div>
+    );
+  };
 
   // The hire dialog (M13). Only the decider can act on it; everyone else reads the
   // same candidate list with the options inert, so the room watches the decision
@@ -1760,11 +1817,17 @@ const ManagerExercisePage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
         <div className="max-w-2xl mx-auto w-full text-center">
-          {/* Professor-paired templates only: this is the one screen where reading
-              is actually on a clock — nothing here for the self-paced hiring flow. */}
+          {/* Two different clocks can own this screen. `reading` is the server's
+              room-wide window (professor-paired templates); the prelude gate is this
+              student's own, and expires straight into the cards. */}
           {phase === 'reading' && secsLeft != null && (
             <div className="flex justify-center mb-6 animate-in fade-in duration-500">
               {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
+            </div>
+          )}
+          {phase === 'solo' && preludeLeft != null && (
+            <div className="flex justify-center mb-6 animate-in fade-in duration-500">
+              {CountdownChip({ label: 'General info', urgent: preludeLeft <= 30, seconds: preludeLeft })}
             </div>
           )}
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
@@ -1812,6 +1875,11 @@ const ManagerExercisePage = () => {
           >
             Next →
           </button>
+          {preludeLeft != null && (
+            <p className="mt-4 text-xs text-gray-400">
+              Moves on automatically when the time is up.
+            </p>
+          )}
 
           {/* Author byline / attribution — a tiny grey copyright-style footer at the
               very bottom, split out of the brief on the backend so it never reads as
@@ -1835,11 +1903,17 @@ const ManagerExercisePage = () => {
     // Professor-paired templates only: a fixed countdown while the actual case
     // document is up — the longest-lived screen of the reading window, so this
     // is where the clock matters most to keep visible.
-    const readingClock = phase === 'reading' && secsLeft != null && (
+    const readingClock = phase === 'reading' && secsLeft != null ? (
       <div className="fixed top-4 inset-x-0 flex justify-center z-10 animate-in fade-in duration-500">
         {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
       </div>
-    );
+    ) : phase === 'solo' && preludeLeft != null ? (
+      // The self-paced flow's own gate: when this runs out the deck closes itself and
+      // the private decision opens. Pressing Continue early does the same thing.
+      <div className="fixed top-4 inset-x-0 flex justify-center z-10 animate-in fade-in duration-500">
+        {CountdownChip({ label: 'Review time', urgent: preludeLeft <= 30, seconds: preludeLeft })}
+      </div>
+    ) : null;
     if (studentView === 'case' && yourCase.trim()) {
       return (
         <>
