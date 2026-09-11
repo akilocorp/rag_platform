@@ -1,4 +1,12 @@
-/* @language JSX  @updated 2026-09-07  @changed "Group by group" rebuilt as one continuous roster (Group /
+/* @language JSX  @updated 2026-09-11  @changed Every group row now carries an explicit "See summary"
+   button — the previous version only made the group LABEL clickable, and a bad replace meant even that
+   landed solely on the empty-group row, so the roster had no way in at all.
+   Prior: Two AI reads added to the page: a "Class summary" card
+   (a few sentences on what the whole class did, generated once per page load, not per 15s poll) and a
+   click-through per-group modal — four sentences covering what the group did, what each member picked
+   alone, what they decided together, and what their debrief surfaced, cached per room. Group labels in
+   the roster are now buttons that open it.
+   Prior: "Group by group" rebuilt as one continuous roster (Group /
    Name / Role / Individual decision / Group decision) instead of a boxed mini-table per room: `rowSpan`
    merges the Group and Group-decision cells down each group's row block (a professor asked for exactly this
    shape — the layout they'd get pasting the data into a spreadsheet by hand), styled as an app table rather
@@ -10,7 +18,7 @@
    tells a room whether it was right; this is where that conversation happens instead. */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaArrowLeft, FaCheck, FaTimes, FaChartBar, FaSpinner } from 'react-icons/fa';
+import { FaArrowLeft, FaCheck, FaTimes, FaChartBar, FaSpinner, FaRedo, FaComments } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import UserInfo from '../components/UserInfo';
 
@@ -84,11 +92,69 @@ const GroupDecisionBadge = ({ choice, correct, phase }) => {
   );
 };
 
+// One group's four sentences, over the page. Opened by clicking a group in the roster
+// below; the text is generated on open and kept per room for the life of the page, so
+// clicking back into a group you already read costs nothing.
+const GroupSummaryModal = ({ room, text, loading, error, onRegenerate, onClose }) => {
+  if (!room) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/45"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl max-h-[80vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-base font-extrabold text-[#222]">{room.label}</h3>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              {room.students.length} student{room.students.length === 1 ? '' : 's'}
+              {room.group_choice ? ` · ${room.group_choice}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-lg text-gray-400 hover:bg-gray-100">
+            <FaTimes />
+          </button>
+        </div>
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm text-gray-400 py-4">
+            <FaSpinner className="animate-spin" /> Reading this group’s session…
+          </p>
+        ) : error ? (
+          <p className="text-sm text-red-500 py-2">{error}</p>
+        ) : (
+          <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-line">{text}</p>
+        )}
+        <div className="flex justify-end mt-5">
+          <button
+            onClick={onRegenerate}
+            disabled={loading}
+            className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] flex items-center gap-1.5 disabled:opacity-40"
+          >
+            <FaRedo /> Regenerate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function ManagerExerciseResultsPage() {
   const { configId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+
+  // Class-level summary — asked for once the results have loaded, and only when at
+  // least one group has actually decided something to summarize.
+  const [classSummary, setClassSummary] = useState('');
+  const [classLoading, setClassLoading] = useState(false);
+  const [classError, setClassError] = useState('');
+
+  // Per-group summaries, cached by room id so reopening a group is instant.
+  const [openRoom, setOpenRoom] = useState(null);
+  const [groupSummaries, setGroupSummaries] = useState({});
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +181,51 @@ export default function ManagerExerciseResultsPage() {
     tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [load]);
+
+  const loadClassSummary = useCallback(async (d) => {
+    if (!d || !(d.rooms || []).some((r) => r.group_choice)) return;
+    setClassLoading(true);
+    setClassError('');
+    try {
+      const res = await apiClient.post(`/manager-exercise/${configId}/class-summary`, {
+        rooms: d.rooms, answer: d.answer, template: d.template,
+      });
+      setClassSummary(res.data.summary || '');
+    } catch (e) {
+      setClassError(e?.response?.data?.error || 'Could not generate a class summary.');
+    } finally {
+      setClassLoading(false);
+    }
+  }, [configId]);
+
+  // Generate once, when the first load lands with something worth summarizing. Polling
+  // re-runs `load` every 15s while groups are live, so this deliberately does NOT key
+  // off `data` — a professor watching a class finish should not get a new paragraph
+  // (and a new bill) every fifteen seconds.
+  useEffect(() => {
+    if (data && !classSummary && !classLoading && !classError) loadClassSummary(data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!data]);
+
+  const loadGroupSummary = useCallback(async (room, force) => {
+    if (!force && groupSummaries[room.room_id]) return;
+    setGroupLoading(true);
+    setGroupError('');
+    try {
+      const res = await apiClient.post(`/manager-exercise/${configId}/group-summary/${room.room_id}`, {});
+      setGroupSummaries((prev) => ({ ...prev, [room.room_id]: res.data.summary || '' }));
+    } catch (e) {
+      setGroupError(e?.response?.data?.error || 'Could not summarize this group.');
+    } finally {
+      setGroupLoading(false);
+    }
+  }, [configId, groupSummaries]);
+
+  const openGroup = (room) => {
+    setOpenRoom(room);
+    setGroupError('');
+    loadGroupSummary(room, false);
+  };
 
   if (error) {
     return (
@@ -177,6 +288,32 @@ export default function ManagerExerciseResultsPage() {
             />
           </div>
 
+          {/* What the class did, in prose — the thing a professor reads out before
+              opening the discussion, written from the same tallies rendered below. */}
+          {(rooms.some((r) => r.group_choice)) && (
+            <section className="rounded-3xl border border-gray-200 bg-white p-6">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Class summary</h2>
+                <button
+                  onClick={() => loadClassSummary(data)}
+                  disabled={classLoading}
+                  className="text-xs font-semibold text-gray-500 hover:text-[#FA6C43] flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <FaRedo /> Regenerate
+                </button>
+              </div>
+              {classLoading ? (
+                <p className="flex items-center gap-2 text-sm text-gray-400">
+                  <FaSpinner className="animate-spin" /> Reading the class…
+                </p>
+              ) : classError ? (
+                <p className="text-sm text-gray-500">{classError}</p>
+              ) : (
+                <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-line">{classSummary}</p>
+              )}
+            </section>
+          )}
+
           {/* The two tallies side by side is the whole point of having captured a
               private round: the gap between them is what the class is about. */}
           <div className="grid md:grid-cols-2 gap-4">
@@ -202,7 +339,11 @@ export default function ManagerExerciseResultsPage() {
               row between them does the rest of the grouping work, without
               drawing it as a hard spreadsheet grid. */}
           <section className="rounded-3xl border border-gray-200 bg-white overflow-hidden">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 px-6 pt-6 pb-4">Group by group</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 px-6 pt-6 pb-1">Group by group</h2>
+            <p className="px-6 pb-4 text-xs text-gray-400">
+              Hit <span className="font-bold text-[#C2410C]">See summary</span> on any group to read what they
+              actually discussed and what came out of their debrief.
+            </p>
             {rooms.length === 0 && <p className="px-6 pb-6 text-sm text-gray-400">No group has started this exercise yet.</p>}
             {rooms.length > 0 && (
               <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
@@ -246,9 +387,20 @@ export default function ManagerExerciseResultsPage() {
                             <tr key={i} className={tint}>
                               {i === 0 && (
                                 <td rowSpan={rowCount} className="px-4 py-3 align-middle rounded-l-xl">
-                                  <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
-                                    {room.label}
-                                  </span>
+                                  <div className="flex flex-col items-start gap-2">
+                                    <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
+                                      {room.label}
+                                    </span>
+                                    {/* The read-what-happened-in-here affordance. A real button
+                                        rather than a clickable label: nothing else in this table
+                                        is pressable, so it has to say so. */}
+                                    <button
+                                      onClick={() => openGroup(room)}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#FA6C43]/30 bg-[#FFF5F2] text-[#C2410C] text-[11px] font-bold whitespace-nowrap hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors"
+                                    >
+                                      <FaComments className="text-[10px]" /> See summary
+                                    </button>
+                                  </div>
                                 </td>
                               )}
                               <td className="px-4 py-3">
@@ -292,6 +444,15 @@ export default function ManagerExerciseResultsPage() {
           </section>
         </div>
       </main>
+
+      <GroupSummaryModal
+        room={openRoom}
+        text={openRoom ? groupSummaries[openRoom.room_id] : ''}
+        loading={groupLoading}
+        error={groupError}
+        onRegenerate={() => openRoom && loadGroupSummary(openRoom, true)}
+        onClose={() => setOpenRoom(null)}
+      />
     </div>
   );
 }

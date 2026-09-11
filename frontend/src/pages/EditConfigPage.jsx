@@ -180,6 +180,11 @@ const EditConfigPage = () => {
         resolvedManagerExercise = {
             num_students: Math.max(2, Math.min(10, parseInt(me.num_students, 10) || 3)),
             num_rooms: Math.max(1, Math.min(20, parseInt(me.num_rooms, 10) || 5)),
+            // Prelude gates. A config authored before these existed has neither, and
+            // falls back to the same 3 minutes the backend defaults to.
+            general_info_minutes: typeof me.general_info_minutes === 'number' ? me.general_info_minutes : 3,
+            review_minutes: typeof me.review_minutes === 'number' ? me.review_minutes : 3,
+            solo_minutes: typeof me.solo_minutes === 'number' ? me.solo_minutes : 2,
             discuss_minutes: typeof me.discuss_minutes === 'number' ? me.discuss_minutes : 20,
             // Falls back to the round-1 window for configs saved before round 2 had
             // its own. NOTE: this literal is a whitelist rebuild, not a spread — a
@@ -1434,10 +1439,24 @@ const EditConfigPage = () => {
                           </div>
                         </>
                       )}
-                      {/* Two windows, one per conversation. Round 0 (the private
-                          decision) is untimed — it ends when everyone has submitted. */}
+                      {/* The two prelude gates. Each student walks these alone at their
+                          own desk, so they are paced per-student rather than per-room —
+                          and both run out into the next screen with no way back. */}
                       <div className="mb-5">
-                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts on their first message, so reading time is free." /></label>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">General info (minutes)<InfoTip text="How long each student gets on the shared brief before their own cards open. When it runs out they move on automatically and cannot come back to it." /></label>
+                        <input type="number" min="0" step="any" value={me.general_info_minutes} onChange={(e) => setMgr('general_info_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                      </div>
+                      <div className="mb-5">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Reviewing candidates (minutes)<InfoTip text="How long each student gets on their own confidential cards before the private decision opens. When it runs out the deck closes itself and they cannot reopen it." /></label>
+                        <input type="number" min="0" step="any" value={me.review_minutes} onChange={(e) => setMgr('review_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                      </div>
+                      <div className="mb-5">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 0 &mdash; private decision (minutes)<InfoTip text="How long each student has to make their own call before the group talks. Covers both screens: the short 'on your own' notice and the ballot itself. When it runs out the room moves to the discussion whether or not everyone has decided — whoever hasn't simply has no private pick recorded." /></label>
+                        <input type="number" min="0" step="any" value={me.solo_minutes} onChange={(e) => setMgr('solo_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
+                      </div>
+                      {/* One window per conversation. */}
+                      <div className="mb-5">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 1 &mdash; team discussion (minutes)<InfoTip text="How long the group has to talk it through before the ballot opens. The facilitator is not present for this round: it is the students' own decision. The clock starts the moment the round opens." /></label>
                         <input type="number" min="0" step="any" value={me.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
                       <div className={(me.template || 'hiring') === 'investigation' ? 'mb-5' : ''}>

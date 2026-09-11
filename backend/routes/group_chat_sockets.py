@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   `_launch_pairing` and `handle_join_investigation_pool` now read the professor's own
+# @updated   2026-09-11
+# @changed   The `arm_discuss_timer` calls on a student message are now a safety net, not the thing that
+#            starts round 1 — `exercise_state.begin_discuss` arms the clock on entry.
+#            Prior: `_launch_pairing` and `handle_join_investigation_pool` now read the professor's own
 #            `investigation_group_size` / `investigation_group_size_max` off the config (defaults
 #            3/4) and pass them into `investigation_pool.pair`/`join` instead of the module's old
 #            hardcoded group-of-3. `pair()` is also no longer one-shot — see investigation_pool.py.
@@ -1137,10 +1139,9 @@ def register_socket_events(socketio, app):
                 }, to=request.sid)
                 return
             state.note_participant(uid)
-            # M7: the first student message is what actually starts the discussion, so
-            # it arms the (until now lazy) discuss clock — the settling-in time before
-            # this doesn't count against deliberation. Idempotent after the first, and
-            # a no-op outside round 1.
+            # The clock now arms when round 1 opens, so this is a no-op in every normal
+            # room. It stays as the safety net for a room persisted under the older lazy
+            # clock and rehydrated mid-round with no deadline on it.
             state.arm_discuss_timer()
             _post(state, state.display_name(uid), text, uid, reply_to=reply_to)
             state.note_student_message(uid)

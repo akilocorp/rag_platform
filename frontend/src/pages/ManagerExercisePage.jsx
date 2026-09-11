@@ -1,4 +1,15 @@
-/* @language JSX  @updated 2026-09-08  @changed Every leaveBreakout() "Back to lobby" escape hatch (waiting/kiosk/done/
+/* @language JSX  @updated 2026-09-11  @changed The kiosk gate ("your group has decided") loses its
+   Continue button too: it holds 15s, shows the count, and starts the reveal walkthrough itself.
+   Prior: The private decision is timed and buttonless: the "on
+   your own" notice lost "I'm ready" and now holds 20s before opening the ballot itself, both screens
+   sharing ONE budget (solo_minutes, 2 min default) so the ballot gets the remaining 1:40. Running out
+   with nothing locked in moves the student on with no pick recorded rather than stranding the room.
+   Prior: Timed prelude gates: the general-info brief and the
+   candidate deck each run a countdown (professor-set, 3 min default, off the snapshot) that expires
+   straight into the next screen. The deadline is stamped into localStorage per room+stage, so a
+   refresh resumes the same clock rather than handing back a fresh three minutes — and a student who
+   lands back on an expired stage is pushed forward again, which is what makes the gate one-way.
+   Prior banner: @language JSX  @updated 2026-09-08  @changed Every leaveBreakout() "Back to lobby" escape hatch (waiting/kiosk/done/
    discuss-header) is now also gated on `!flow.prof_paired` — the done screen's was reachable for the investigation
    template (there is no lobby to go back to), and the discuss-header one was reachable mid-exercise, during the live
    round-1 discussion. The done screen also swaps its heading to "Your exercise finished." for that template instead
@@ -91,6 +102,17 @@ const roleLabel = (role) => ((role || '').replace(/\s*managers?\s*$/i, '').trim(
 // snapshot (see backend/src/managers/exercise_templates.py); this is the fallback so
 // a client that renders before the snapshot lands, or talks to a server that predates
 // templates, still shows the hiring wording it always did rather than blanks.
+// How long the "on your own" notice holds before opening the ballot itself. It has no
+// button: the screen exists to be read, and a button there only measures who clicks
+// fastest. Deliberately a constant, not a config field — it paces one sentence, and
+// the window that actually matters (round 0's whole length) is the professor's.
+const NOTICE_HOLD_SECONDS = 20;
+
+// How long the "your group has decided" stop holds before the reveal walkthrough
+// starts itself. Short: it exists to lift the room's eyes to the instructor, not to
+// be read.
+const KIOSK_GATE_SECONDS = 15;
+
 const LEXICON_FALLBACK = {
   role_headline: 'You are the {role} Manager',
   role_note: 'What you know as the {role} Manager',
@@ -218,20 +240,44 @@ const TimeSkipAnimation = ({ onDone }) => {
 };
 
 // M6: the kiosk gate — a deliberate full-screen stop so students look up at the
-// instructor. Pressing Continue advances only THIS student (the phase machine
-// holds the shared discussion until everyone has).
-const KioskGate = ({ onContinue }) => (
-  <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-    <div className="max-w-md">
-      {/* On the white screen the icon chip flips to the brand-peach tile + orange
-          glyph used on the other light screens, and the body copy to muted grey. */}
-      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center"><FaRegClock className="text-2xl text-[#FA6C43]" /></div>
-      <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
-      <p className="text-gray-500 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. Press Continue when you're ready to see how the hire played out.</p>
-      <button onClick={onContinue} className="rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-10 py-4 shadow-lg transition-all active:scale-[0.97]">Continue</button>
+// instructor. It holds KIOSK_GATE_SECONDS and then advances THIS student on its own
+// (the phase machine still holds the shared reveal until everyone has come through).
+//
+// No button: the screen's whole job is to take the room's attention off the laptop
+// for a moment, and a button turns that into a race to click it. The count is shown
+// so nobody wonders whether they are stuck.
+const KioskGate = ({ onContinue }) => {
+  const [left, setLeft] = useState(KIOSK_GATE_SECONDS);
+  // The advance is held in a ref so the interval never restarts mid-countdown on a
+  // parent re-render, which would keep resetting the clock.
+  const advance = useRef(onContinue);
+  advance.current = onContinue;
+  useEffect(() => {
+    const deadline = Date.now() + KIOSK_GATE_SECONDS * 1000;
+    const iv = setInterval(() => {
+      const secs = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setLeft(secs);
+      if (secs <= 0) { clearInterval(iv); advance.current(); }
+    }, 250);
+    return () => clearInterval(iv);
+  }, []);
+  return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="max-w-md">
+        {/* On the white screen the icon chip flips to the brand-peach tile + orange
+            glyph used on the other light screens, and the body copy to muted grey. */}
+        <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center"><FaRegClock className="text-2xl text-[#FA6C43]" /></div>
+        <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
+        <p className="text-gray-500 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. You'll see how the hire played out in a moment.</p>
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-[#F9D0C4]/25 px-5 py-2.5 text-[#C2410C]">
+          <FaRegClock className={`text-sm ${left <= 5 ? 'animate-pulse' : ''}`} />
+          <span className="text-xs font-bold uppercase tracking-widest">Continues in</span>
+          <span className="tabular-nums text-sm font-extrabold">{left}s</span>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // M10: the `case` alternative to the card deck. The student reads their own role's
 // uploaded packet as a continuous case document rather than as filtered bullets.
@@ -512,6 +558,14 @@ const ManagerExercisePage = () => {
   // refresh mid-round-0 doesn't ask them to decide twice. There is deliberately no
   // solo tally in state — the server never sends one.
   const [soloStage, setSoloStage] = useState('premise'); // premise|cards|notice|decide|handoff
+  // Prelude gate lengths, in seconds, off the snapshot (professor-set; 3 min each by
+  // default), plus the live countdown for whichever gate is on screen.
+  const [generalInfoSecs, setGeneralInfoSecs] = useState(180);
+  const [reviewSecs, setReviewSecs] = useState(180);
+  const [preludeLeft, setPreludeLeft] = useState(null);
+  // The private decision's budget (notice + ballot), and how much of it is left.
+  const [soloSecs, setSoloSecs] = useState(120);
+  const [decisionLeft, setDecisionLeft] = useState(null);
   const [soloPick, setSoloPick] = useState(null);        // local selection, pre-submit
   const [yourSoloVote, setYourSoloVote] = useState(null);
   const [soloSubmitted, setSoloSubmitted] = useState(0);
@@ -634,6 +688,11 @@ const ManagerExercisePage = () => {
       // doesn't leave them behind forever.
       localStorage.removeItem(`me_premise_seen_${rid}_r1`);
       localStorage.removeItem(`me_premise_seen_${rid}_r2`);
+      // The prelude gate deadlines go with them: a reset that left these behind would
+      // replay the brief with an already-expired clock, skipping it instantly.
+      localStorage.removeItem(`me_prelude_${rid}_premise`);
+      localStorage.removeItem(`me_prelude_${rid}_cards`);
+      localStorage.removeItem(`me_decision_${rid}`);
     } catch { /* localStorage may be unavailable */ }
   };
 
@@ -656,6 +715,79 @@ const ManagerExercisePage = () => {
     // itself advances the room (see prevPhaseForReadingRef above).
     setSoloStage(phaseRef.current === 'reading' ? 'reading_wait' : 'notice');
   };
+
+  // Prelude gates (general info, then the candidate cards). These two stages are
+  // client-local, so their clocks are too — but the DEADLINE is stamped into
+  // localStorage the first time a stage opens, which is what makes the gate real:
+  // a refresh resumes the same countdown instead of handing back a fresh three
+  // minutes, and a student who lands back on an expired stage is pushed straight
+  // forward again. There is no way back to a stage once its clock has run out.
+  const preludeAdvanceRef = useRef(() => {});
+  useEffect(() => {
+    preludeAdvanceRef.current = () => {
+      if (soloStage === 'premise') setSoloStage('cards');
+      else finishPremiseIntro();
+    };
+  });
+
+  useEffect(() => {
+    const gated = phase === 'solo' && (soloStage === 'premise' || soloStage === 'cards');
+    const total = soloStage === 'premise' ? generalInfoSecs : reviewSecs;
+    if (!gated || !total || !roomIdRef.current) { setPreludeLeft(null); return; }
+
+    const key = `me_prelude_${roomIdRef.current}_${soloStage}`;
+    let deadline = null;
+    try { deadline = Number(localStorage.getItem(key)) || null; } catch { /* localStorage may be unavailable */ }
+    if (!deadline) {
+      deadline = Date.now() + total * 1000;
+      try { localStorage.setItem(key, String(deadline)); } catch { /* localStorage may be unavailable */ }
+    }
+
+    const tick = () => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setPreludeLeft(left);
+      if (left <= 0) preludeAdvanceRef.current();
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [phase, soloStage, generalInfoSecs, reviewSecs]);
+
+  // ONE budget for the private decision, spanning both of its screens: the notice
+  // spends the first NOTICE_HOLD_SECONDS of it and opens the ballot itself, and the
+  // ballot runs on whatever is left (2:00 − 0:20 = 1:40 by default). It is stamped
+  // when the student first reaches the notice, so it is genuinely their own decision
+  // time and not whatever the room had left after the brief.
+  //
+  // Running out with nothing locked in moves them on with no pick recorded — the same
+  // place locking in leads, minus the vote. The room itself advances when everyone is
+  // in or when the server's round-0 ceiling lapses, whichever is first.
+  useEffect(() => {
+    const onDecision = phase === 'solo' && (soloStage === 'notice' || soloStage === 'decide');
+    if (!onDecision || !roomIdRef.current || !soloSecs) { setDecisionLeft(null); return; }
+
+    const key = `me_decision_${roomIdRef.current}`;
+    let deadline = null;
+    try { deadline = Number(localStorage.getItem(key)) || null; } catch { /* localStorage may be unavailable */ }
+    if (!deadline) {
+      deadline = Date.now() + soloSecs * 1000;
+      try { localStorage.setItem(key, String(deadline)); } catch { /* localStorage may be unavailable */ }
+    }
+
+    const tick = () => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setDecisionLeft(left);
+      if (soloStage === 'notice') {
+        // The notice is over once its hold has been spent out of the budget.
+        if (left <= Math.max(0, soloSecs - NOTICE_HOLD_SECONDS)) setSoloStage('decide');
+      } else if (left <= 0) {
+        setSoloStage('handoff');
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [phase, soloStage, soloSecs]);
 
   // Resolve a persistent user identity: JWT user_id → Qualtrics responseId → localStorage.
   // Also derives the DISPLAY NAME, which is what the server stores as the message
@@ -717,6 +849,9 @@ const ManagerExercisePage = () => {
       setFlow({ reveal: true, debrief: true, prof_paired: false, hide_case_after_reading: false, ...s.flow });
     }
     if (typeof s.your_case === 'string') setYourCase(s.your_case);
+    if (typeof s.general_info_seconds === 'number' && s.general_info_seconds > 0) setGeneralInfoSecs(s.general_info_seconds);
+    if (typeof s.review_seconds === 'number' && s.review_seconds > 0) setReviewSecs(s.review_seconds);
+    if (typeof s.solo_seconds === 'number' && s.solo_seconds > 0) setSoloSecs(s.solo_seconds);
     if (s.premise && typeof s.premise.scenario === 'string') setScenario(s.premise.scenario);
     if (s.premise && typeof s.premise.credits === 'string') setCredits(s.premise.credits);
     // M9 round 0. `your_solo_vote` is this viewer's own pick and the only one they
@@ -1158,22 +1293,26 @@ const ManagerExercisePage = () => {
   // Shared UI fragments
   // -------------------------------------------------------------------------
 
-  // Prominent countdown chip driven by the server deadline.
-  const CountdownChip = ({ label, urgent }) => (
-    <div
-      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-sm transition-all animate-in fade-in zoom-in-95 duration-300 ${
-        urgent
-          ? 'border-red-300 bg-red-50 text-red-600'
-          : 'border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 text-[#C2410C]'
-      }`}
-    >
-      <FaRegClock className={`text-sm ${secsLeft != null && secsLeft <= 10 ? 'animate-pulse' : ''}`} />
-      <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
-      <span className="tabular-nums text-sm font-extrabold">
-        {secsLeft == null ? '—:—' : fmtClock(secsLeft)}
-      </span>
-    </div>
-  );
+  // Prominent countdown chip. Defaults to the server deadline; `seconds` overrides it
+  // for the two prelude stages, which run on a client-local clock (see preludeLeft).
+  const CountdownChip = ({ label, urgent, seconds }) => {
+    const value = seconds === undefined ? secsLeft : seconds;
+    return (
+      <div
+        className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-sm transition-all animate-in fade-in zoom-in-95 duration-300 ${
+          urgent
+            ? 'border-red-300 bg-red-50 text-red-600'
+            : 'border-[#FA6C43]/35 bg-gradient-to-r from-[#F9D0C4]/50 to-[#FA6C43]/15 text-[#C2410C]'
+        }`}
+      >
+        <FaRegClock className={`text-sm ${value != null && value <= 10 ? 'animate-pulse' : ''}`} />
+        <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
+        <span className="tabular-nums text-sm font-extrabold">
+          {value == null ? '—:—' : fmtClock(value)}
+        </span>
+      </div>
+    );
+  };
 
   // The hire dialog (M13). Only the decider can act on it; everyone else reads the
   // same candidate list with the options inert, so the room watches the decision
@@ -1760,11 +1899,17 @@ const ManagerExercisePage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#1F1F1F] px-6 py-12 overflow-y-auto scrollbar-thin">
         <div className="max-w-2xl mx-auto w-full text-center">
-          {/* Professor-paired templates only: this is the one screen where reading
-              is actually on a clock — nothing here for the self-paced hiring flow. */}
+          {/* Two different clocks can own this screen. `reading` is the server's
+              room-wide window (professor-paired templates); the prelude gate is this
+              student's own, and expires straight into the cards. */}
           {phase === 'reading' && secsLeft != null && (
             <div className="flex justify-center mb-6 animate-in fade-in duration-500">
               {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
+            </div>
+          )}
+          {phase === 'solo' && preludeLeft != null && (
+            <div className="flex justify-center mb-6 animate-in fade-in duration-500">
+              {CountdownChip({ label: 'General info', urgent: preludeLeft <= 30, seconds: preludeLeft })}
             </div>
           )}
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500" style={rise(0)}>The brief</p>
@@ -1812,6 +1957,11 @@ const ManagerExercisePage = () => {
           >
             Next →
           </button>
+          {preludeLeft != null && (
+            <p className="mt-4 text-xs text-gray-400">
+              Moves on automatically when the time is up.
+            </p>
+          )}
 
           {/* Author byline / attribution — a tiny grey copyright-style footer at the
               very bottom, split out of the brief on the backend so it never reads as
@@ -1835,11 +1985,17 @@ const ManagerExercisePage = () => {
     // Professor-paired templates only: a fixed countdown while the actual case
     // document is up — the longest-lived screen of the reading window, so this
     // is where the clock matters most to keep visible.
-    const readingClock = phase === 'reading' && secsLeft != null && (
+    const readingClock = phase === 'reading' && secsLeft != null ? (
       <div className="fixed top-4 inset-x-0 flex justify-center z-10 animate-in fade-in duration-500">
         {CountdownChip({ label: 'Reading time', urgent: secsLeft <= 30 })}
       </div>
-    );
+    ) : phase === 'solo' && preludeLeft != null ? (
+      // The self-paced flow's own gate: when this runs out the deck closes itself and
+      // the private decision opens. Pressing Continue early does the same thing.
+      <div className="fixed top-4 inset-x-0 flex justify-center z-10 animate-in fade-in duration-500">
+        {CountdownChip({ label: 'Review time', urgent: preludeLeft <= 30, seconds: preludeLeft })}
+      </div>
+    ) : null;
     if (studentView === 'case' && yourCase.trim()) {
       return (
         <>
@@ -1882,8 +2038,16 @@ const ManagerExercisePage = () => {
         eyebrow="On your own"
         title="First, decide on your own."
         body="Before you talk to anyone, make the call yourself. Nobody in your group will see who you picked, and you won't see theirs. Go with what your own notes tell you."
-        action="I'm ready"
-        onAction={() => setSoloStage('decide')}
+        footer={(
+          <div className="mt-2 flex flex-col items-center gap-3">
+            {decisionLeft != null && CountdownChip({
+              label: 'Opens in',
+              urgent: false,
+              seconds: Math.max(0, decisionLeft - Math.max(0, soloSecs - NOTICE_HOLD_SECONDS)),
+            })}
+            <p className="text-xs text-gray-400">Your decision opens automatically. Read this while you wait.</p>
+          </div>
+        )}
       />
     );
   }
@@ -1899,6 +2063,13 @@ const ManagerExercisePage = () => {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">Your decision</p>
             <h1 className="text-3xl mb-3" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{lexicon.solo_prompt}</h1>
             <p className="text-sm text-gray-500">This one is yours alone. It stays private.</p>
+            {/* Their own decision budget. At zero they move on with nothing
+                recorded — the room does not wait on an undecided student. */}
+            {decisionLeft != null && (
+              <div className="flex justify-center mt-5">
+                {CountdownChip({ label: 'Time left', urgent: decisionLeft <= 30, seconds: decisionLeft })}
+              </div>
+            )}
           </div>
 
           <div className="grid gap-3">
