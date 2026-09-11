@@ -1,6 +1,11 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   Round 0 is TIMED. `begin_solo` arms a deadline covering the whole private round
+# @changed   A room that never enters a decision is now ENDED rather than given one: when the final
+#            call lapses with an empty ballot, `expire_undecided` sets a terminal `expired` flag, keeps
+#            chosen_candidate/forecast_shown_for null, emits `exercise_expired` and goes straight to
+#            done — no reveal, no Post Outcome Discussion, no ACTR wrap-up. The old path invented a
+#            hire via `_fallback_choice` and walked the room through the outcome as if they had decided.
+#            Prior: Round 0 is TIMED. `begin_solo` arms a deadline covering the whole private round
 #            (`round0_seconds` = brief + cards + decision, since one phase spans all of them) and
 #            `_run_solo_window` opens round 1 when it lapses, decided or not. Replaces
 #            SOLO_GRACE_SECONDS, a 15-minute backstop for an absent student, with the round's real
@@ -296,6 +301,9 @@ class ExerciseState:
             self.continue_acks: List[str] = []
             self.chosen_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
+            # True once the room was ended for never entering a decision. Terminal:
+            # it suppresses the reveal and the Post Outcome Discussion.
+            self.expired: bool = False
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -369,6 +377,7 @@ class ExerciseState:
         self.continue_acks = list(doc.get("continue_acks") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
+        self.expired = bool(doc.get("expired"))
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -622,6 +631,10 @@ class ExerciseState:
                 "your_case": self.case_for(uid) if case_visible else "",
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
+                # The room ran out of time without entering a decision. The client
+                # renders a terminal notice instead of the done screen, and there is
+                # no outcome to show because none was ever unlocked.
+                "expired": self.expired,
                 # How long the two client-local prelude stages last, in seconds. The
                 # countdown is run by the client because these stages are its own —
                 # each student reads at their own desk — but the LENGTH is the
@@ -1058,7 +1071,46 @@ class ExerciseState:
             self._enter_final_call()
             self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_CHOOSE and self.collective_ballot.get("open"):
-                self.resolve_collective()
+                # Nothing entered by the time the final call lapses is not a decision
+                # the room made badly — it is no decision at all. A room that never
+                # commits is out; it does not get handed a pick it never chose and
+                # then an outcome to read as though it had.
+                if self._pick_winner(self._tally(self.collective_ballot.get("votes", {}))):
+                    self.resolve_collective()
+                else:
+                    self.expire_undecided()
+
+    def expire_undecided(self):
+        """End the session because the group never entered a decision.
+
+        Deliberately NOT `resolve_collective`'s fallback path. Falling back invented a
+        hire out of an empty ballot and walked the room through the reveal and the
+        Post Outcome Discussion, which reads as though they had done the exercise —
+        the one group that most needs to notice it didn't. They get a terminal screen
+        saying why, no outcome document, and nothing to discuss.
+        """
+        with self._lock:
+            if self._phase == PHASE_DONE:
+                return
+            self.expired = True
+            self.collective_ballot["open"] = False
+            self.collective_ballot["final_call"] = False
+            # No pick, and so nothing revealed — the outcome document stays sealed.
+            self.chosen_candidate = None
+            self.forecast_shown_for = None
+            self._persist({
+                "expired": True,
+                "chosen_candidate": None,
+                "forecast_shown_for": None,
+                "collective_ballot": self.collective_ballot,
+            })
+
+        self._emit("ballot_update", {"room_id": self.room_id, "open": False, "candidates": []})
+        self._emit("exercise_expired", {
+            "room_id": self.room_id,
+            "reason": "no_decision",
+        })
+        self._enter_done()
 
     def _enter_final_call(self):
         """Open the short final-call window: same ballot, a new tight deadline.
@@ -1242,7 +1294,9 @@ class ExerciseState:
         # `on_wrapup` is ACTR's closing message, so it belongs only to a template that
         # HAS a facilitator. Firing it on one that doesn't would have ACTR appear for
         # the first and only time on the last screen of an exercise it was kept out of.
-        if self.flow().get("debrief"):
+        # An expired room has nothing to wrap up: ACTR was never in the session,
+        # and a closing reflection on a decision nobody made would be theatre.
+        if self.flow().get("debrief") and not self.expired:
             self._run_hook("on_wrapup")
 
     def _broadcast_phase(self):

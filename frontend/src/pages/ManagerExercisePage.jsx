@@ -1,4 +1,10 @@
-/* @language JSX  @updated 2026-09-11  @changed The outcome reveal no longer tells students whether
+/* @language JSX  @updated 2026-09-11  @changed Three fail-safes: the browser-Back guard now covers
+   every template (it was gated on an investigation-only flag, so it was off in exactly the rooms where
+   a group waits on the person leaving) and says plainly that leaving quits; an `expired` room renders a
+   terminal "time ran out" screen ahead of every other branch, so it can never fall through to the
+   reveal; and the group-chat header names who enters the decision — "You enter the group's decision"
+   for the decider, "<name> enters the decision" for everyone else.
+   Prior: The outcome reveal no longer tells students whether
    they chose well: the green "paid off" / rust "went badly" verdict banner is replaced by a neutral
    "Six months later — you hired X, here's what happened", and the now-unread chosenVerdict state is
    gone from this page. The backend still computes it and ACTR still opens the debrief on it.
@@ -549,6 +555,9 @@ const ManagerExercisePage = () => {
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
   const [forecastText, setForecastText] = useState(null);
+  // The room ran out of time without entering a decision. Terminal, and it
+  // outranks every other screen: there is no outcome and nothing to discuss.
+  const [expired, setExpired] = useState(false);
   const kioskInitedRef = useRef(false);
 
   // ---- round 0: the private decision (M9) ----
@@ -639,17 +648,20 @@ const ManagerExercisePage = () => {
     prevPhaseForReadingRef.current = phase;
   }, [phase]);
 
-  // Professor-paired templates only (`flow.hide_case_after_reading`): once the case
-  // is gone for good, the browser's own Back button must not read as "go back to
-  // the case" — a student who presses it is quitting the exercise, not paging
-  // through it. One sentinel history entry is pushed the moment the guarded zone
-  // is entered; a Back press is caught as `popstate`, re-arms the sentinel (so a
-  // second press can't slip through while the confirm is open), and asks. See
-  // `handlePopState` below, which reads `guardArmedRef` set here.
+  // The exercise runs forward only. Every screen in it is a stage someone else's
+  // clock depends on, so the browser's Back button must not read as "page back one
+  // step" — a student who presses it is leaving their group, not navigating. One
+  // sentinel history entry is pushed the moment the guarded zone is entered; a Back
+  // press is caught as `popstate`, re-arms the sentinel (so a second press can't
+  // slip through while the confirm is open), and asks.
+  //
+  // This used to be gated on `flow.hide_case_after_reading`, which is a
+  // professor-paired investigation flag — so the guard existed but was switched off
+  // for every hiring room, the ones where a group is actually waiting on the person
+  // pressing Back. It now covers the whole exercise on every template.
   const guardArmedRef = useRef(false);
   useEffect(() => {
-    const guarded = flow.hide_case_after_reading
-      && ['solo', 'discuss', 'choose', 'kiosk', 'debrief'].includes(phase);
+    const guarded = ['solo', 'discuss', 'choose', 'kiosk', 'debrief'].includes(phase);
     if (guarded && !guardArmedRef.current) {
       guardArmedRef.current = true;
       window.history.pushState({ meGuard: true }, '', window.location.href);
@@ -665,7 +677,9 @@ const ManagerExercisePage = () => {
       // resolves can't slip past the guard.
       window.history.pushState({ meGuard: true }, '', window.location.href);
       const wantsToQuit = window.confirm(
-        "Going back will quit the exercise for good — you won't be able to return to your case file. Quit now?"
+        "You can't go back during the exercise.\n\n"
+        + "Leaving now quits it for good: you won't be able to rejoin your group, "
+        + "and they'll carry on without you.\n\nQuit the exercise?"
       );
       if (wantsToQuit) {
         socketRef.current?.emit('quit_exercise', {
@@ -878,6 +892,7 @@ const ManagerExercisePage = () => {
     if (typeof s.decider_name === 'string') setDeciderName(s.decider_name);
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
+    if (typeof s.expired === 'boolean') setExpired(s.expired);
     if (typeof s.ready_count === 'number') setReadyCount(s.ready_count);
     if (typeof s.ready_total === 'number') setReadyTotal(s.ready_total);
     if (typeof s.you_are_ready === 'boolean') setYouAreReady(s.you_are_ready);
@@ -1072,6 +1087,14 @@ const ManagerExercisePage = () => {
 
         socket.on('collective_result', (d) => {
           setChosenCandidate(d.chosen_candidate);
+          setBallotOpen(false);
+          setFinalCall(false);
+        });
+
+        // The decision window closed with nothing entered. Ends the session here:
+        // no reveal, no Post Outcome Discussion, and the reason said plainly.
+        socket.on('exercise_expired', () => {
+          setExpired(true);
           setBallotOpen(false);
           setFinalCall(false);
         });
@@ -1484,6 +1507,34 @@ const ManagerExercisePage = () => {
   // Phase: loading
   // -------------------------------------------------------------------------
   if (phase === 'loading') return <LoadingScreen message="Setting up your exercise…" />;
+
+  // Checked before every other phase: an expired room must never fall through to
+  // the kiosk, the reveal or the Post Outcome Discussion, whichever screen its
+  // client happened to be on when the clock ran out.
+  if (expired) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="max-w-md animate-in fade-in zoom-in-95 duration-400">
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
+            <FaRegClock className="text-3xl text-[#FA6C43]" />
+          </div>
+          <h1 className="text-2xl font-extrabold mb-3">Time ran out on your decision.</h1>
+          <p className="text-gray-500 leading-relaxed mb-2">
+            Your group never entered an answer, so the exercise has ended here. You won't see
+            how it would have turned out — that only opens for a group that commits to a decision.
+          </p>
+          <p className="text-sm text-gray-400 mb-8">Your instructor can see where your group got to.</p>
+          <button
+            onClick={leaveBreakout}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+          >
+            <FaArrowLeft className="text-xs" /> Back to lobby
+          </button>
+        </div>
+      </div>
+    );
+  }
+
 
   // -------------------------------------------------------------------------
   // Phase: pool (professor-paired templates — joined, not yet placed in a room)
@@ -2173,6 +2224,22 @@ const ManagerExercisePage = () => {
             {chosenCandidate && (
               <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-[#FA6C43]/35 bg-[#FA6C43]/5 px-3 py-1 text-xs font-semibold text-[#C2410C] shadow-sm">
                 <FaUserTie className="text-[10px]" /> {chosenCandidate}
+              </span>
+            )}
+            {/* Who enters the group's answer, said out loud in round 1 rather than
+                sprung on the room at the ballot. One person is picked at random and
+                only they can submit; without this the group discovers that at the
+                decision screen, which is the worst possible moment to learn it. */}
+            {!isDebrief && !chosenCandidate && (youDecide || deciderName) && (
+              <span
+                className={`hidden sm:inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-sm ${
+                  youDecide
+                    ? 'border-[#FA6C43]/40 bg-[#FA6C43]/10 text-[#C2410C]'
+                    : 'border-gray-200 bg-gray-50 text-gray-600'
+                }`}
+              >
+                <FaUserTie className="text-[10px]" />
+                {youDecide ? "You enter the group's decision" : `${deciderName} enters the decision`}
               </span>
             )}
           </div>
