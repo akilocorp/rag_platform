@@ -2180,7 +2180,7 @@ const ManagerExercisePage = () => {
         <div className="flex items-center gap-4 shrink-0">
           {/* Clock visible for the whole window; only the last 10s reads as urgent
               (and only then does the beep start — see discussBeepOn). */}
-          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Post-decision' : 'Discuss', urgent: secsLeft <= 10 })}
+          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Post Outcome' : 'Discuss', urgent: secsLeft <= 10 })}
           <UserInfo />
         </div>
       </header>

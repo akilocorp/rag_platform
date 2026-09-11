@@ -1070,7 +1070,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
                       <input type="number" min="0" step="any" value={config.manager_exercise.discuss_minutes} onChange={(e) => setMgr('discuss_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
                     <div className={config.manager_exercise.template === 'investigation' ? 'mb-5' : ''}>
-                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; post-decision discussion (minutes)<InfoTip text="How long the facilitated post-decision discussion may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Round 2 &mdash; Post Outcome Discussion (minutes)<InfoTip text="How long the facilitated Post Outcome Discussion may run after the outcome is revealed. This is a backstop: the facilitator normally closes the session itself once the group has worked out what they missed." /></label>
                       <input type="number" min="0" step="any" value={config.manager_exercise.debrief_minutes} onChange={(e) => setMgr('debrief_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                     </div>
                     {/* Professor-paired templates only (investigation): the timed window
@@ -1272,8 +1272,8 @@ const ConfigModal = ({ isOpen, onClose }) => {
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> How the exercise runs</h3>
                     <div className="grid sm:grid-cols-2 gap-2 mb-6">
                       {[
-                        { key: 'hiring', title: 'Hiring committee', hint: 'The group picks a candidate, reads how the hire turned out six months later, then ACTR leads a post-decision discussion.' },
-                        { key: 'investigation', title: 'Investigation', hint: "The group names one person and stops — no outcome shown, no post-decision discussion. You read every group's answer on the results page." },
+                        { key: 'hiring', title: 'Hiring committee', hint: 'The group picks a candidate, reads how the hire turned out six months later, then ACTR leads a Post Outcome Discussion.' },
+                        { key: 'investigation', title: 'Investigation', hint: "The group names one person and stops — no outcome shown, no Post Outcome Discussion. You read every group's answer on the results page." },
                       ].map((opt) => {
                         const active = (config.manager_exercise.template || 'hiring') === opt.key;
                         return (
