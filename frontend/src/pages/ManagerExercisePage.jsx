@@ -1,4 +1,7 @@
-/* @language JSX  @updated 2026-09-11  @changed Three fail-safes: the browser-Back guard now covers
+/* @language JSX  @updated 2026-09-11  @changed Students never see the breakout lobby on any template:
+   the pool-vs-lobby choice is made on `config.owned` rather than the template id, so a student always
+   joins the pairing pool and the lobby survives only for the owner previewing their own exercise.
+   Prior: Three fail-safes: the browser-Back guard now covers
    every template (it was gated on an investigation-only flag, so it was off in exactly the rooms where
    a group waits on the person leaving) and says plainly that leaving quits; an `expired` room renders a
    terminal "time ran out" screen ahead of every other branch, so it can never fall through to the
@@ -930,10 +933,15 @@ const ManagerExercisePage = () => {
         if (!displayNameRef.current) displayNameRef.current = uid;
         setConfig(configResponse.data.config);
 
-        // Professor-paired templates (see exercise_templates.py's `prof_paired`)
-        // skip the student breakout lobby entirely — they join a pool instead.
-        const isInvestigation = configResponse.data.config?.bot_type === 'manager_exercise'
-          && (configResponse.data.config?.manager_exercise?.template === 'investigation');
+        // Every template is professor-paired now (exercise_templates.py's
+        // `prof_paired`), so a STUDENT never sees the breakout lobby — they join the
+        // pool and wait to be placed. The lobby survives for the OWNER only, which is
+        // how a professor previews and resets rooms on their own exercise.
+        //
+        // Read off ownership rather than the template, because this runs before any
+        // snapshot has arrived: `config.owned` is on the config response, the `flow`
+        // flags are not.
+        const usePool = !configResponse.data.config?.owned;
 
         socketRef.current = io('/', { path: '/socket.io' });
         const socket = socketRef.current;
@@ -951,7 +959,7 @@ const ManagerExercisePage = () => {
         // (hiring) or join the pairing pool (investigation).
         socket.on('connect', () => {
           if (roomIdRef.current) { enterRoom(roomIdRef.current); return; }
-          if (isInvestigation) {
+          if (usePool) {
             socket.emit('join_investigation_pool', {
               config_id: configId, uid: userIdRef.current, display_name: displayNameRef.current,
             });

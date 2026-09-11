@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-09-11
-# @changed   The `arm_discuss_timer` calls on a student message are now a safety net, not the thing that
+# @changed   `_launch_pairing` branches on the new `reading_window` flow flag: an investigation room
+#            still opens its timed reading phase, a hiring room goes straight to round 0, whose own
+#            per-student gates are its reading.
+#            Prior: The `arm_discuss_timer` calls on a student message are now a safety net, not the thing that
 #            starts round 1 — `exercise_state.begin_discuss` arms the clock on entry.
 #            Prior: `_launch_pairing` and `handle_join_investigation_pool` now read the professor's own
 #            `investigation_group_size` / `investigation_group_size_max` off the config (defaults
@@ -710,10 +713,19 @@ def register_socket_events(socketio, app):
             state = _bootstrap_exercise(room_id, config_doc, create_session=True)
             for m in g["members"]:
                 state.note_participant(m["uid"], m["name"])
-            # One `begin_reading()` per room, after every initial member is seated —
-            # not per-member — so the room's clock starts once, at pairing, not
-            # re-armed by each `note_participant` call.
-            state.begin_reading()
+            # One call per room, after every initial member is seated — not
+            # per-member — so the room's clock starts once, at pairing, rather than
+            # being re-armed by each `note_participant`.
+            #
+            # Which call depends on the template. A room-wide reading window exists
+            # for a case that is on one shared clock and then vanishes; hiring paces
+            # its reading per student (the general-info and card gates inside round
+            # 0), so pairing drops it straight into the private decision instead of
+            # parking the whole room on a window it does not use.
+            if exercise_templates.flow(me_config.get("template")).get("reading_window"):
+                state.begin_reading()
+            else:
+                state.begin_solo()
             for m in g["members"]:
                 target_sid = uid_to_sid.get(m["uid"])
                 if target_sid:
