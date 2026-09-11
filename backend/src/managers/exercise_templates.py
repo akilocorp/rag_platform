@@ -48,7 +48,7 @@ _HIRING: Dict = {
     "label": "Hiring committee",
     "description": (
         "A selection committee picks one candidate. Each member holds a partial view of the "
-        "same shortlist. Six months later the outcome lands and ACTR debriefs the room."
+        "same shortlist. Six months later the outcome lands and ACTR leads a post-decision discussion."
     ),
     "flow": {
         # The kiosk gate + "six months later" outcome document.

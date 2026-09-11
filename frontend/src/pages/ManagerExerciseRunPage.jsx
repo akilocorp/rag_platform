@@ -24,7 +24,7 @@ const PHASES = [
   { id: 'discuss', label: 'Round 1 — the group decides' },
   { id: 'choose', label: 'The hire' },
   { id: 'kiosk', label: 'Six months later' },
-  { id: 'debrief', label: 'Round 2 — debrief with ACTR' },
+  { id: 'debrief', label: 'Round 2 — post-decision discussion with ACTR' },
   { id: 'done', label: 'Finished' },
 ];
 
