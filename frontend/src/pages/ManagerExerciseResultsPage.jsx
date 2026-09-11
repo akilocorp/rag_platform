@@ -1,4 +1,7 @@
-/* @language JSX  @updated 2026-09-11  @changed Two AI reads added to the page: a "Class summary" card
+/* @language JSX  @updated 2026-09-11  @changed Every group row now carries an explicit "See summary"
+   button — the previous version only made the group LABEL clickable, and a bad replace meant even that
+   landed solely on the empty-group row, so the roster had no way in at all.
+   Prior: Two AI reads added to the page: a "Class summary" card
    (a few sentences on what the whole class did, generated once per page load, not per 15s poll) and a
    click-through per-group modal — four sentences covering what the group did, what each member picked
    alone, what they decided together, and what their debrief surfaced, cached per room. Group labels in
@@ -15,7 +18,7 @@
    tells a room whether it was right; this is where that conversation happens instead. */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaArrowLeft, FaCheck, FaTimes, FaChartBar, FaSpinner, FaRedo } from 'react-icons/fa';
+import { FaArrowLeft, FaCheck, FaTimes, FaChartBar, FaSpinner, FaRedo, FaComments } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import UserInfo from '../components/UserInfo';
 
@@ -337,7 +340,10 @@ export default function ManagerExerciseResultsPage() {
               drawing it as a hard spreadsheet grid. */}
           <section className="rounded-3xl border border-gray-200 bg-white overflow-hidden">
             <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 px-6 pt-6 pb-1">Group by group</h2>
-            <p className="px-6 pb-4 text-xs text-gray-400">Click a group to read what happened in it.</p>
+            <p className="px-6 pb-4 text-xs text-gray-400">
+              Hit <span className="font-bold text-[#C2410C]">See summary</span> on any group to read what they
+              actually discussed and what came out of their debrief.
+            </p>
             {rooms.length === 0 && <p className="px-6 pb-6 text-sm text-gray-400">No group has started this exercise yet.</p>}
             {rooms.length > 0 && (
               <div className="overflow-x-auto px-2 pb-2 sm:px-4 sm:pb-4">
@@ -366,12 +372,9 @@ export default function ManagerExerciseResultsPage() {
                           {room.students.length === 0 ? (
                             <tr className={tint}>
                               <td className="px-4 py-3 rounded-l-xl">
-                                <button
-                                  onClick={() => openGroup(room)}
-                                  className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap hover:bg-[#FA6C43] hover:text-white transition-colors"
-                                >
+                                <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
                                   {room.label}
-                                </button>
+                                </span>
                               </td>
                               <td colSpan={3} className="px-4 py-3 text-gray-400 italic">Nobody sat in this group.</td>
                               <td className="px-4 py-3 text-center rounded-r-xl">
@@ -384,9 +387,20 @@ export default function ManagerExerciseResultsPage() {
                             <tr key={i} className={tint}>
                               {i === 0 && (
                                 <td rowSpan={rowCount} className="px-4 py-3 align-middle rounded-l-xl">
-                                  <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
-                                    {room.label}
-                                  </span>
+                                  <div className="flex flex-col items-start gap-2">
+                                    <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
+                                      {room.label}
+                                    </span>
+                                    {/* The read-what-happened-in-here affordance. A real button
+                                        rather than a clickable label: nothing else in this table
+                                        is pressable, so it has to say so. */}
+                                    <button
+                                      onClick={() => openGroup(room)}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#FA6C43]/30 bg-[#FFF5F2] text-[#C2410C] text-[11px] font-bold whitespace-nowrap hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors"
+                                    >
+                                      <FaComments className="text-[10px]" /> See summary
+                                    </button>
+                                  </div>
                                 </td>
                               )}
                               <td className="px-4 py-3">
