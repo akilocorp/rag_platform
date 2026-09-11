@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   New `reading` phase for professor-paired templates (`flow.prof_paired`): `begin_reading`
+# @updated   2026-09-11
+# @changed   Round 1's clock arms when the round OPENS, not on the first student message. The lazy clock
+#            meant the countdown a room got depended on when somebody happened to type, so two groups in
+#            the same class ran on different amounts of time and neither could pace against the timer on
+#            screen. `PRELUDE_GRACE_SECONDS` and the grace watch it existed for are gone; `arm_discuss_timer`
+#            survives only to rescue a room persisted under the old behaviour and rehydrated mid-round.
+#            Prior: New `reading` phase for professor-paired templates (`flow.prof_paired`): `begin_reading`
 #            puts a room on a real clock the instant it's paired (no lobby, no manual Start), and
 #            `_run_reading_window` auto-advances it into `solo` when the clock runs out — `begin_solo`
 #            now accepts entry from `waiting` (hiring's Start button) OR `reading`. `flow.hide_case_after_reading`
@@ -184,12 +189,6 @@ _PHASE_ROUND = {
     PHASE_DEBRIEF: 2,
     PHASE_DONE: 2,
 }
-
-# M7: the discuss clock is LAZY — it starts when discussion actually begins (the
-# first student message), NOT when the phase opens, so a room that is still reading
-# doesn't burn deliberation time. If a room stays silent this long the clock arms
-# anyway, so a quiet room still advances to the vote instead of hanging.
-PRELUDE_GRACE_SECONDS = 240
 
 # M9: the solo round normally ends when every student has submitted their private
 # pick — the same all-members gate the kiosk uses. The kiosk can afford no timeout
@@ -758,10 +757,12 @@ class ExerciseState:
             elif self._phase == PHASE_DISCUSS:
                 # M3: discuss is the PRE-vote deliberation, so when its timer elapses
                 # the next thing is the ballot, not the done screen.
-                # M7: a room rebuilt while still unarmed (nobody has spoken yet) has no
-                # deadline to resume — restart the grace watch instead of expiring now.
+                # A room persisted under the older lazy clock can rehydrate with no
+                # deadline at all. Give it a full window from now rather than expiring
+                # it on the spot — the alternative is a room that reappears after a
+                # restart already out of time.
                 if self.phase_deadline_ts is None:
-                    self._socketio.start_background_task(self._prelude_grace_watch)
+                    self.arm_discuss_timer()
                 else:
                     self._resume_timed(PHASE_DISCUSS, self.begin_choose)
             elif self._phase == PHASE_DEBRIEF:
@@ -1048,20 +1049,23 @@ class ExerciseState:
             if self._phase != PHASE_SOLO:
                 return
             self._phase = PHASE_DISCUSS
-            # M7: leave the clock UNARMED (deadline None). It starts on the first
-            # student message (arm_discuss_timer), so a group still settling in
-            # doesn't burn deliberation time; the grace watch below arms it anyway if
-            # the room stays silent.
-            self.phase_deadline_ts = None
+            # The clock arms HERE, when the round opens — not on the first student
+            # message. It used to be lazy so a room still settling in didn't burn
+            # deliberation time, but that traded one problem for a worse one: the
+            # countdown a room saw depended on when somebody happened to type, so two
+            # groups in the same class got different amounts of time and neither could
+            # pace itself against the clock on screen. Every other phase arms on entry;
+            # this one now does too.
+            self.phase_deadline_ts = time.time() + self.discuss_seconds
             self._persist({
                 "phase": PHASE_DISCUSS,
-                "phase_deadline_ts": None,
+                "phase_deadline_ts": self.phase_deadline_ts,
             })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
         if self._socketio:
-            self._socketio.start_background_task(self._prelude_grace_watch)
+            self._socketio.start_background_task(self._run_discuss_window)
 
     def end_discussion(self, uid: str) -> bool:
         """The decider closes round 1 early and goes to the hire (M13).
@@ -1081,20 +1085,13 @@ class ExerciseState:
         self.begin_choose()
         return True
 
-    def _prelude_grace_watch(self):
-        """Fallback: arm the discuss clock after the grace window if it is still
-        unarmed, so a room where nobody types still advances to the vote."""
-        with self._app.app_context():
-            self._socketio.sleep(PRELUDE_GRACE_SECONDS)
-            if self._phase == PHASE_DISCUSS and self.phase_deadline_ts is None:
-                self.arm_discuss_timer()
-
     def arm_discuss_timer(self):
-        """Start the discuss countdown the first time discussion actually begins (M7).
+        """Arm the discuss clock if it somehow isn't armed yet.
 
-        Idempotent: only the first call (a student message, or the grace watch) arms
-        it; every later call no-ops. Broadcasts the phase so clients pick up the
-        countdown, then hands off to the window task that opens the ballot on expiry.
+        `begin_discuss` arms it on entry, so this is now only reached by a room that
+        was persisted under the older lazy clock and rehydrated mid-round. Idempotent:
+        an armed clock is left exactly where it is, so a resumed room never has its
+        remaining time quietly reset by a student typing.
         """
         with self._lock:
             if self._phase != PHASE_DISCUSS or self.phase_deadline_ts is not None:
