@@ -1,4 +1,8 @@
-/* @language JSX  @updated 2026-09-11  @changed The kiosk gate ("your group has decided") loses its
+/* @language JSX  @updated 2026-09-11  @changed The outcome reveal no longer tells students whether
+   they chose well: the green "paid off" / rust "went badly" verdict banner is replaced by a neutral
+   "Six months later — you hired X, here's what happened", and the now-unread chosenVerdict state is
+   gone from this page. The backend still computes it and ACTR still opens the debrief on it.
+   Prior: The kiosk gate ("your group has decided") loses its
    Continue button too: it holds 15s, shows the count, and starts the reveal walkthrough itself.
    Prior: The private decision is timed and buttonless: the "on
    your own" notice lost "I'm ready" and now holds 20s before opening the ballot itself, both screens
@@ -545,7 +549,6 @@ const ManagerExercisePage = () => {
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
   const [forecastText, setForecastText] = useState(null);
-  const [chosenVerdict, setChosenVerdict] = useState(null); // M2: 'success' | 'failure'
   const kioskInitedRef = useRef(false);
 
   // ---- round 0: the private decision (M9) ----
@@ -875,7 +878,6 @@ const ManagerExercisePage = () => {
     if (typeof s.decider_name === 'string') setDeciderName(s.decider_name);
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
-    if (s.chosen_verdict !== undefined) setChosenVerdict(s.chosen_verdict);
     if (typeof s.ready_count === 'number') setReadyCount(s.ready_count);
     if (typeof s.ready_total === 'number') setReadyTotal(s.ready_total);
     if (typeof s.you_are_ready === 'boolean') setYouAreReady(s.you_are_ready);
@@ -1081,7 +1083,6 @@ const ManagerExercisePage = () => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
           if (typeof d.forecast_text === 'string') setForecastText(d.forecast_text);
-          if (d.chosen_verdict !== undefined) setChosenVerdict(d.chosen_verdict);
           if (d.chosen_candidate !== undefined && d.chosen_candidate) setChosenCandidate(d.chosen_candidate);
         });
       } catch (e) {
@@ -1716,25 +1717,20 @@ const ManagerExercisePage = () => {
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto space-y-6">
-            {/* M2: frame the reveal as a celebration (the hire worked out) or an
-                aftermath (it went badly), branched on the pick's outcome verdict. */}
-            {(() => {
-              const win = chosenVerdict === 'success';
-              // Success stays emerald (a meaningful "it worked out" signal); a failed
-              // hire uses the brand palette instead of the old off-brand amber/cream.
-              return (
-                <div className={`rounded-2xl px-5 py-4 text-center border animate-in fade-in slide-in-from-bottom-2 duration-500 ${
-                  win ? 'bg-emerald-50 border-emerald-200' : 'bg-[#F9D0C4]/25 border-[#FA6C43]/40'
-                }`}>
-                  <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
-                  <div className={`text-lg font-extrabold ${win ? 'text-emerald-700' : 'text-[#C2410C]'}`}>
-                    {win
-                      ? `Hiring ${chosenCandidate || 'them'} paid off.`
-                      : `Hiring ${chosenCandidate || 'them'} went badly.`}
-                  </div>
-                </div>
-              );
-            })()}
+            {/* Deliberately NOT a verdict. This used to open with "Hiring X paid off"
+                or "went badly", colour-coded green or rust, which answered the
+                question the debrief is supposed to ask: the room read the headline,
+                learned whether they had won, and discussed that instead of the
+                document. The outcome document below says what happened in six months;
+                what that means about their decision is the debrief's work, not this
+                banner's. `chosen_verdict` is still on the snapshot and still steers
+                ACTR's opener — it is only no longer shown to students here. */}
+            <div className="rounded-2xl px-5 py-4 text-center border border-gray-200 bg-white animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
+              <div className="text-lg font-extrabold text-[#222]">
+                You hired {chosenCandidate || 'them'}. Here's what happened.
+              </div>
+            </div>
             {/* null = outcome not received yet (loading); '' = revealed but no document
                 authored (graceful fallback, never a perpetual spinner); text = show it. */}
             {forecastText
