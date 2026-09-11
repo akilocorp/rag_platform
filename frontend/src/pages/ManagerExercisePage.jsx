@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-11  @changed The private decision is timed and buttonless: the "on
+/* @language JSX  @updated 2026-09-11  @changed The kiosk gate ("your group has decided") loses its
+   Continue button too: it holds 15s, shows the count, and starts the reveal walkthrough itself.
+   Prior: The private decision is timed and buttonless: the "on
    your own" notice lost "I'm ready" and now holds 20s before opening the ballot itself, both screens
    sharing ONE budget (solo_minutes, 2 min default) so the ballot gets the remaining 1:40. Running out
    with nothing locked in moves the student on with no pick recorded rather than stranding the room.
@@ -105,6 +107,11 @@ const roleLabel = (role) => ((role || '').replace(/\s*managers?\s*$/i, '').trim(
 // fastest. Deliberately a constant, not a config field — it paces one sentence, and
 // the window that actually matters (round 0's whole length) is the professor's.
 const NOTICE_HOLD_SECONDS = 20;
+
+// How long the "your group has decided" stop holds before the reveal walkthrough
+// starts itself. Short: it exists to lift the room's eyes to the instructor, not to
+// be read.
+const KIOSK_GATE_SECONDS = 15;
 
 const LEXICON_FALLBACK = {
   role_headline: 'You are the {role} Manager',
@@ -233,20 +240,44 @@ const TimeSkipAnimation = ({ onDone }) => {
 };
 
 // M6: the kiosk gate — a deliberate full-screen stop so students look up at the
-// instructor. Pressing Continue advances only THIS student (the phase machine
-// holds the shared discussion until everyone has).
-const KioskGate = ({ onContinue }) => (
-  <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-    <div className="max-w-md">
-      {/* On the white screen the icon chip flips to the brand-peach tile + orange
-          glyph used on the other light screens, and the body copy to muted grey. */}
-      <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center"><FaRegClock className="text-2xl text-[#FA6C43]" /></div>
-      <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
-      <p className="text-gray-500 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. Press Continue when you're ready to see how the hire played out.</p>
-      <button onClick={onContinue} className="rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-10 py-4 shadow-lg transition-all active:scale-[0.97]">Continue</button>
+// instructor. It holds KIOSK_GATE_SECONDS and then advances THIS student on its own
+// (the phase machine still holds the shared reveal until everyone has come through).
+//
+// No button: the screen's whole job is to take the room's attention off the laptop
+// for a moment, and a button turns that into a race to click it. The count is shown
+// so nobody wonders whether they are stuck.
+const KioskGate = ({ onContinue }) => {
+  const [left, setLeft] = useState(KIOSK_GATE_SECONDS);
+  // The advance is held in a ref so the interval never restarts mid-countdown on a
+  // parent re-render, which would keep resetting the clock.
+  const advance = useRef(onContinue);
+  advance.current = onContinue;
+  useEffect(() => {
+    const deadline = Date.now() + KIOSK_GATE_SECONDS * 1000;
+    const iv = setInterval(() => {
+      const secs = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setLeft(secs);
+      if (secs <= 0) { clearInterval(iv); advance.current(); }
+    }, 250);
+    return () => clearInterval(iv);
+  }, []);
+  return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="max-w-md">
+        {/* On the white screen the icon chip flips to the brand-peach tile + orange
+            glyph used on the other light screens, and the body copy to muted grey. */}
+        <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center"><FaRegClock className="text-2xl text-[#FA6C43]" /></div>
+        <h1 className="text-2xl font-extrabold mb-3">Your group has decided.</h1>
+        <p className="text-gray-500 mb-8 leading-relaxed">Eyes up front — your instructor will set the scene. You'll see how the hire played out in a moment.</p>
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#FA6C43]/35 bg-[#F9D0C4]/25 px-5 py-2.5 text-[#C2410C]">
+          <FaRegClock className={`text-sm ${left <= 5 ? 'animate-pulse' : ''}`} />
+          <span className="text-xs font-bold uppercase tracking-widest">Continues in</span>
+          <span className="tabular-nums text-sm font-extrabold">{left}s</span>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // M10: the `case` alternative to the card deck. The student reads their own role's
 // uploaded packet as a continuous case document rather than as filtered bullets.
