@@ -48,7 +48,7 @@ _HIRING: Dict = {
     "label": "Hiring committee",
     "description": (
         "A selection committee picks one candidate. Each member holds a partial view of the "
-        "same shortlist. Six months later the outcome lands and ACTR debriefs the room."
+        "same shortlist. Six months later the outcome lands and ACTR leads a Post Outcome Discussion."
     ),
     "flow": {
         # The kiosk gate + "six months later" outcome document.
@@ -56,9 +56,17 @@ _HIRING: Dict = {
         # Round 2 with the facilitator. Requires `reveal` — the debrief opens on
         # the outcome the room has just read.
         "debrief": True,
-        # Students pick their own breakout room from a live lobby list. False here
-        # means the professor pairs the class instead — see `prof_paired` below.
-        "prof_paired": False,
+        # The professor pairs the class from a headcount; students never pick a
+        # breakout room. Was False — students chose their own room from a live
+        # lobby — which let a class seat itself unevenly and left a group of one
+        # waiting on nobody. Both templates now pair the same way.
+        "prof_paired": True,
+        # Whether pairing opens a room-wide READING window (`reading` phase) before
+        # the private decision. Investigation needs one because its case document is
+        # on a shared clock and then vanishes; hiring paces its own reading per
+        # student (the general-info and card gates), so a paired hiring room goes
+        # straight to round 0.
+        "reading_window": False,
         # Whether the confidential material disappears once the timed reading
         # window closes. Hiring's cards stay up through the whole discussion —
         # that is how a group argues from its packets.
@@ -111,9 +119,11 @@ _INVESTIGATION: Dict = {
         # Structurally off, not prompted off: with no reveal there is no outcome
         # document for a facilitator to debrief against.
         "debrief": False,
-        # The professor pairs the class from a headcount instead of students
-        # picking a breakout room themselves — see `investigation_pool.py`.
+        # The professor pairs the class from a headcount — see `investigation_pool.py`.
         "prof_paired": True,
+        # The case is on one shared clock and then disappears, so pairing opens the
+        # timed `reading` phase rather than dropping the room straight into round 0.
+        "reading_window": True,
         # Once the timed reading window closes, `your_case`/`your_credentials`
         # blank out for good (see `ExerciseState._case_visible`). A suspect is
         # argued from memory, not from a document open in another tab.

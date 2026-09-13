@@ -1,4 +1,17 @@
-/* @language JSX  @updated 2026-09-11  @changed The kiosk gate ("your group has decided") loses its
+/* @language JSX  @updated 2026-09-11  @changed Students never see the breakout lobby on any template:
+   the pool-vs-lobby choice is made on `config.owned` rather than the template id, so a student always
+   joins the pairing pool and the lobby survives only for the owner previewing their own exercise.
+   Prior: Three fail-safes: the browser-Back guard now covers
+   every template (it was gated on an investigation-only flag, so it was off in exactly the rooms where
+   a group waits on the person leaving) and says plainly that leaving quits; an `expired` room renders a
+   terminal "time ran out" screen ahead of every other branch, so it can never fall through to the
+   reveal; and the group-chat header names who enters the decision — "You enter the group's decision"
+   for the decider, "<name> enters the decision" for everyone else.
+   Prior: The outcome reveal no longer tells students whether
+   they chose well: the green "paid off" / rust "went badly" verdict banner is replaced by a neutral
+   "Six months later — you hired X, here's what happened", and the now-unread chosenVerdict state is
+   gone from this page. The backend still computes it and ACTR still opens the debrief on it.
+   Prior: The kiosk gate ("your group has decided") loses its
    Continue button too: it holds 15s, shows the count, and starts the reveal walkthrough itself.
    Prior: The private decision is timed and buttonless: the "on
    your own" notice lost "I'm ready" and now holds 20s before opening the ballot itself, both screens
@@ -545,7 +558,9 @@ const ManagerExercisePage = () => {
   const [kioskTotal, setKioskTotal] = useState(0);
   const [youContinued, setYouContinued] = useState(false);
   const [forecastText, setForecastText] = useState(null);
-  const [chosenVerdict, setChosenVerdict] = useState(null); // M2: 'success' | 'failure'
+  // The room ran out of time without entering a decision. Terminal, and it
+  // outranks every other screen: there is no outcome and nothing to discuss.
+  const [expired, setExpired] = useState(false);
   const kioskInitedRef = useRef(false);
 
   // ---- round 0: the private decision (M9) ----
@@ -636,17 +651,20 @@ const ManagerExercisePage = () => {
     prevPhaseForReadingRef.current = phase;
   }, [phase]);
 
-  // Professor-paired templates only (`flow.hide_case_after_reading`): once the case
-  // is gone for good, the browser's own Back button must not read as "go back to
-  // the case" — a student who presses it is quitting the exercise, not paging
-  // through it. One sentinel history entry is pushed the moment the guarded zone
-  // is entered; a Back press is caught as `popstate`, re-arms the sentinel (so a
-  // second press can't slip through while the confirm is open), and asks. See
-  // `handlePopState` below, which reads `guardArmedRef` set here.
+  // The exercise runs forward only. Every screen in it is a stage someone else's
+  // clock depends on, so the browser's Back button must not read as "page back one
+  // step" — a student who presses it is leaving their group, not navigating. One
+  // sentinel history entry is pushed the moment the guarded zone is entered; a Back
+  // press is caught as `popstate`, re-arms the sentinel (so a second press can't
+  // slip through while the confirm is open), and asks.
+  //
+  // This used to be gated on `flow.hide_case_after_reading`, which is a
+  // professor-paired investigation flag — so the guard existed but was switched off
+  // for every hiring room, the ones where a group is actually waiting on the person
+  // pressing Back. It now covers the whole exercise on every template.
   const guardArmedRef = useRef(false);
   useEffect(() => {
-    const guarded = flow.hide_case_after_reading
-      && ['solo', 'discuss', 'choose', 'kiosk', 'debrief'].includes(phase);
+    const guarded = ['solo', 'discuss', 'choose', 'kiosk', 'debrief'].includes(phase);
     if (guarded && !guardArmedRef.current) {
       guardArmedRef.current = true;
       window.history.pushState({ meGuard: true }, '', window.location.href);
@@ -662,7 +680,9 @@ const ManagerExercisePage = () => {
       // resolves can't slip past the guard.
       window.history.pushState({ meGuard: true }, '', window.location.href);
       const wantsToQuit = window.confirm(
-        "Going back will quit the exercise for good — you won't be able to return to your case file. Quit now?"
+        "You can't go back during the exercise.\n\n"
+        + "Leaving now quits it for good: you won't be able to rejoin your group, "
+        + "and they'll carry on without you.\n\nQuit the exercise?"
       );
       if (wantsToQuit) {
         socketRef.current?.emit('quit_exercise', {
@@ -875,7 +895,7 @@ const ManagerExercisePage = () => {
     if (typeof s.decider_name === 'string') setDeciderName(s.decider_name);
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
-    if (s.chosen_verdict !== undefined) setChosenVerdict(s.chosen_verdict);
+    if (typeof s.expired === 'boolean') setExpired(s.expired);
     if (typeof s.ready_count === 'number') setReadyCount(s.ready_count);
     if (typeof s.ready_total === 'number') setReadyTotal(s.ready_total);
     if (typeof s.you_are_ready === 'boolean') setYouAreReady(s.you_are_ready);
@@ -913,10 +933,15 @@ const ManagerExercisePage = () => {
         if (!displayNameRef.current) displayNameRef.current = uid;
         setConfig(configResponse.data.config);
 
-        // Professor-paired templates (see exercise_templates.py's `prof_paired`)
-        // skip the student breakout lobby entirely — they join a pool instead.
-        const isInvestigation = configResponse.data.config?.bot_type === 'manager_exercise'
-          && (configResponse.data.config?.manager_exercise?.template === 'investigation');
+        // Every template is professor-paired now (exercise_templates.py's
+        // `prof_paired`), so a STUDENT never sees the breakout lobby — they join the
+        // pool and wait to be placed. The lobby survives for the OWNER only, which is
+        // how a professor previews and resets rooms on their own exercise.
+        //
+        // Read off ownership rather than the template, because this runs before any
+        // snapshot has arrived: `config.owned` is on the config response, the `flow`
+        // flags are not.
+        const usePool = !configResponse.data.config?.owned;
 
         socketRef.current = io('/', { path: '/socket.io' });
         const socket = socketRef.current;
@@ -934,7 +959,7 @@ const ManagerExercisePage = () => {
         // (hiring) or join the pairing pool (investigation).
         socket.on('connect', () => {
           if (roomIdRef.current) { enterRoom(roomIdRef.current); return; }
-          if (isInvestigation) {
+          if (usePool) {
             socket.emit('join_investigation_pool', {
               config_id: configId, uid: userIdRef.current, display_name: displayNameRef.current,
             });
@@ -1074,6 +1099,14 @@ const ManagerExercisePage = () => {
           setFinalCall(false);
         });
 
+        // The decision window closed with nothing entered. Ends the session here:
+        // no reveal, no Post Outcome Discussion, and the reason said plainly.
+        socket.on('exercise_expired', () => {
+          setExpired(true);
+          setBallotOpen(false);
+          setFinalCall(false);
+        });
+
         // M6: live kiosk tally — how many of the room have pressed Continue. Kiosk
         // entry also carries the reveal payload (chosen candidate/verdict/outcome)
         // so the per-student reveal loads live; no full snapshot is pushed here.
@@ -1081,7 +1114,6 @@ const ManagerExercisePage = () => {
           if (typeof d.acked === 'number') setKioskAcked(d.acked);
           if (typeof d.total === 'number') setKioskTotal(d.total);
           if (typeof d.forecast_text === 'string') setForecastText(d.forecast_text);
-          if (d.chosen_verdict !== undefined) setChosenVerdict(d.chosen_verdict);
           if (d.chosen_candidate !== undefined && d.chosen_candidate) setChosenCandidate(d.chosen_candidate);
         });
       } catch (e) {
@@ -1484,6 +1516,34 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'loading') return <LoadingScreen message="Setting up your exercise…" />;
 
+  // Checked before every other phase: an expired room must never fall through to
+  // the kiosk, the reveal or the Post Outcome Discussion, whichever screen its
+  // client happened to be on when the clock ran out.
+  if (expired) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="max-w-md animate-in fade-in zoom-in-95 duration-400">
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
+            <FaRegClock className="text-3xl text-[#FA6C43]" />
+          </div>
+          <h1 className="text-2xl font-extrabold mb-3">Time ran out on your decision.</h1>
+          <p className="text-gray-500 leading-relaxed mb-2">
+            Your group never entered an answer, so the exercise has ended here. You won't see
+            how it would have turned out — that only opens for a group that commits to a decision.
+          </p>
+          <p className="text-sm text-gray-400 mb-8">Your instructor can see where your group got to.</p>
+          <button
+            onClick={leaveBreakout}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+          >
+            <FaArrowLeft className="text-xs" /> Back to lobby
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+
   // -------------------------------------------------------------------------
   // Phase: pool (professor-paired templates — joined, not yet placed in a room)
   // -------------------------------------------------------------------------
@@ -1716,25 +1776,20 @@ const ManagerExercisePage = () => {
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto space-y-6">
-            {/* M2: frame the reveal as a celebration (the hire worked out) or an
-                aftermath (it went badly), branched on the pick's outcome verdict. */}
-            {(() => {
-              const win = chosenVerdict === 'success';
-              // Success stays emerald (a meaningful "it worked out" signal); a failed
-              // hire uses the brand palette instead of the old off-brand amber/cream.
-              return (
-                <div className={`rounded-2xl px-5 py-4 text-center border animate-in fade-in slide-in-from-bottom-2 duration-500 ${
-                  win ? 'bg-emerald-50 border-emerald-200' : 'bg-[#F9D0C4]/25 border-[#FA6C43]/40'
-                }`}>
-                  <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
-                  <div className={`text-lg font-extrabold ${win ? 'text-emerald-700' : 'text-[#C2410C]'}`}>
-                    {win
-                      ? `Hiring ${chosenCandidate || 'them'} paid off.`
-                      : `Hiring ${chosenCandidate || 'them'} went badly.`}
-                  </div>
-                </div>
-              );
-            })()}
+            {/* Deliberately NOT a verdict. This used to open with "Hiring X paid off"
+                or "went badly", colour-coded green or rust, which answered the
+                question the debrief is supposed to ask: the room read the headline,
+                learned whether they had won, and discussed that instead of the
+                document. The outcome document below says what happened in six months;
+                what that means about their decision is the debrief's work, not this
+                banner's. `chosen_verdict` is still on the snapshot and still steers
+                ACTR's opener — it is only no longer shown to students here. */}
+            <div className="rounded-2xl px-5 py-4 text-center border border-gray-200 bg-white animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Six months later</div>
+              <div className="text-lg font-extrabold text-[#222]">
+                You hired {chosenCandidate || 'them'}. Here's what happened.
+              </div>
+            </div>
             {/* null = outcome not received yet (loading); '' = revealed but no document
                 authored (graceful fallback, never a perpetual spinner); text = show it. */}
             {forecastText
@@ -2179,12 +2234,28 @@ const ManagerExercisePage = () => {
                 <FaUserTie className="text-[10px]" /> {chosenCandidate}
               </span>
             )}
+            {/* Who enters the group's answer, said out loud in round 1 rather than
+                sprung on the room at the ballot. One person is picked at random and
+                only they can submit; without this the group discovers that at the
+                decision screen, which is the worst possible moment to learn it. */}
+            {!isDebrief && !chosenCandidate && (youDecide || deciderName) && (
+              <span
+                className={`hidden sm:inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-sm ${
+                  youDecide
+                    ? 'border-[#FA6C43]/40 bg-[#FA6C43]/10 text-[#C2410C]'
+                    : 'border-gray-200 bg-gray-50 text-gray-600'
+                }`}
+              >
+                <FaUserTie className="text-[10px]" />
+                {youDecide ? "You enter the group's decision" : `${deciderName} enters the decision`}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4 shrink-0">
           {/* Clock visible for the whole window; only the last 10s reads as urgent
               (and only then does the beep start — see discussBeepOn). */}
-          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Debrief' : 'Discuss', urgent: secsLeft <= 10 })}
+          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Post Outcome' : 'Discuss', urgent: secsLeft <= 10 })}
           <UserInfo />
         </div>
       </header>

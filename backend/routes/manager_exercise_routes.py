@@ -88,18 +88,18 @@ def _load_owned_config(config_id):
     return doc, None
 
 
-def _load_owned_investigation_config(config_id):
-    """`_load_owned_config`, plus requiring the `investigation` template.
+def _load_owned_paired_config(config_id):
+    """`_load_owned_config`, plus requiring a template the professor pairs.
 
-    The pairing pool only exists for that template (see `flow.prof_paired` in
-    `exercise_templates.py`) — a hiring config has no pool to poll or pair, its
-    students pick their own breakout room instead.
+    Gated on the `prof_paired` flow flag rather than on a template id: both
+    templates pair now, and a future one that doesn't should be excluded by what it
+    declares, not by being absent from a hardcoded list here.
     """
     config_doc, error = _load_owned_config(config_id)
     if error:
         return None, error
     me = config_doc.get("manager_exercise") or {}
-    if exercise_templates.normalize(me.get("template")) != "investigation":
+    if not exercise_templates.flow(me.get("template")).get("prof_paired"):
         return None, (jsonify({"error": "This exercise does not use professor pairing"}), 400)
     return config_doc, None
 
@@ -209,7 +209,7 @@ def _tallied(counts, total):
 def get_pool_status(config_id):
     """The professor's live headcount for the pairing panel: who has joined and
     not yet been placed, whether pairing has already run, and any quits."""
-    config_doc, error = _load_owned_investigation_config(config_id)
+    config_doc, error = _load_owned_paired_config(config_id)
     if error:
         return error
     return jsonify(investigation_pool.status(config_id)), 200
@@ -225,7 +225,7 @@ def post_pair(config_id):
     Idempotent: calling this again after pairing has already run for this config
     returns the same groups rather than reshuffling students who may be mid-exercise.
     """
-    config_doc, error = _load_owned_investigation_config(config_id)
+    config_doc, error = _load_owned_paired_config(config_id)
     if error:
         return error
     try:

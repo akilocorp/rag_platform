@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-08  @changed Pairing is no longer one-shot: PairingPanel reads the
+/* @language JSX  @updated 2026-09-11  @changed Both templates pair now, so the pairing panel is no
+   longer investigation-only and the room monitor sits under it rather than instead of it.
+   Prior banner: @language JSX  @updated 2026-09-08  @changed Pairing is no longer one-shot: PairingPanel reads the
    professor's own `investigation_group_size`/`_max` (passed from the fetched config) instead of a
    hardcoded "3", the button stays enabled (relabeled "Pair the rest") once some students are already
    grouped instead of permanently disabling as "Paired", and the status line shows waiting count and
@@ -23,7 +25,8 @@ import UserInfo from '../components/UserInfo';
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
 // ---------------------------------------------------------------------------
-// Investigation template: pairing panel
+// Pairing panel — every template. The professor freezes whoever is waiting into
+// groups; students never choose a room.
 // ---------------------------------------------------------------------------
 // Polled over plain HTTP rather than pushed over a socket — this page has no
 // live connection of its own for the pool, and a professor watching a
@@ -68,8 +71,8 @@ const PairingPanel = ({ configId, groupSize, groupSizeMax }) => {
             <FaUsers className="text-[#FA6C43]" /> Pair the class
           </h2>
           <p className="text-xs text-gray-500 mt-1.5 max-w-lg leading-relaxed">
-            Students who open this exercise wait quietly until you pair them — there is no
-            lobby for this template. Pairing groups {groupSize} at a time (one case file each);
+            Students who open this exercise wait quietly until you pair them — they never
+            see a lobby. Pairing groups {groupSize} at a time (one packet each);
             a remainder is folded into existing groups up to {groupSizeMax} rather than left
             short. Fewer than {groupSize} waiting does nothing yet — press again once enough
             have joined. Anyone who joins after a group exists is slotted in automatically if
@@ -118,8 +121,7 @@ const PairingPanel = ({ configId, groupSize, groupSizeMax }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Every other template (hiring): a live view of the self-service breakout
-// lobby, with owner-only reset — the same controls a professor could already
+// Room monitor: what each paired room is doing, with owner-only reset — the same controls a professor could already
 // reach by opening the exercise's own URL directly (bootstrap detects
 // ownership there), surfaced here instead so "Open Dashboard" is the one
 // place to go regardless of template.
@@ -254,8 +256,6 @@ export default function ManagerExerciseDashboardPage() {
     );
   }
 
-  const template = config.manager_exercise?.template === 'investigation' ? 'investigation' : 'hiring';
-
   return (
     <div className="min-h-screen bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur sticky top-0 z-10 h-16 shadow-sm">
@@ -274,13 +274,17 @@ export default function ManagerExerciseDashboardPage() {
 
       <main className="p-4 sm:p-6 lg:px-12 xl:px-20">
         <div className="max-w-3xl mx-auto py-6 space-y-5">
-          {template === 'investigation'
-            ? <PairingPanel
-                configId={configId}
-                groupSize={config.manager_exercise?.investigation_group_size || 3}
-                groupSizeMax={config.manager_exercise?.investigation_group_size_max || (config.manager_exercise?.investigation_group_size || 3) + 1}
-              />
-            : <RoomMonitor configId={configId} />}
+          {/* Both templates are paired by the professor now, so the pairing panel is
+              no longer investigation's alone. The room monitor stays underneath it
+              rather than being replaced by it: once a class is paired, seeing what
+              each room is doing is the other half of running the exercise, and a
+              hiring professor previewing their own rooms still needs it. */}
+          <PairingPanel
+            configId={configId}
+            groupSize={config.manager_exercise?.investigation_group_size || 3}
+            groupSizeMax={config.manager_exercise?.investigation_group_size_max || (config.manager_exercise?.investigation_group_size || 3) + 1}
+          />
+          <RoomMonitor configId={configId} />
 
           <div className="flex flex-wrap gap-3">
             <button
