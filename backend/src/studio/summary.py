@@ -1,6 +1,12 @@
 # @language  Python
 # @updated   2026-09-13
-# @changed   New file: live-summary aggregation for Studio's "Present" view (a Mentimeter-style
+# @changed   `_tally` and the rating/semantic-differential histogram now carry a `value` alongside
+#            `label` (identical for tallies, an int for histograms) — the Present view's
+#            click-to-filter needs the exact, correctly-typed value to send back to
+#            routes/studio_routes.py's new filter_block_id/filter_value query params, which filter
+#            `responses` before this module ever sees them (so every aggregation function here is
+#            unchanged — filtering is just a smaller input list).
+# Prior: New file: live-summary aggregation for Studio's "Present" view (a Mentimeter-style
 #            QR + live-results screen for in-class use). Deliberately excludes every AI-native
 #            instrument and every data-quality/compliance instrument (Attention Check, Instructed
 #            Response, Speeder Flag, Read-Time Gate, both Randomizers, Piped Text) — this view only
@@ -45,7 +51,11 @@ def _tally(values, categories):
     counts = Counter(v for v in values if v in categories)
     total = sum(counts.values())
     return [
-        {"label": c, "count": counts.get(c, 0), "pct": _pct(counts.get(c, 0), total)}
+        # `value` rides along separately from `label` (identical here, both
+        # strings) so the Present view's click-to-filter can send back
+        # exactly what a respondent's answer equals, regardless of chart
+        # type — histograms below carry an int in the same slot.
+        {"label": c, "value": c, "count": counts.get(c, 0), "pct": _pct(counts.get(c, 0), total)}
         for c in categories
     ], total
 
@@ -109,7 +119,7 @@ def _summarize_block(block, answers):
         nums = [v for v in values if isinstance(v, (int, float))]
         histogram = Counter(int(v) for v in nums if 1 <= v <= top)
         data = [
-            {"label": str(n), "count": histogram.get(n, 0), "pct": _pct(histogram.get(n, 0), len(nums))}
+            {"label": str(n), "value": n, "count": histogram.get(n, 0), "pct": _pct(histogram.get(n, 0), len(nums))}
             for n in range(1, top + 1)
         ]
         avg = round(sum(nums) / len(nums), 2) if nums else None

@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-09-13
-# @changed   Added GET /studio/projects/<id>/live-summary — the data source for the new Present
+# @changed   live-summary gained cross-filter query params (filter_block_id/filter_value) — filters
+#            the raw response list before handing it to build_live_summary, so every aggregation
+#            function stays unchanged. Powers the Present view's click-a-bar-to-filter-everything-else.
+# Prior: Added GET /studio/projects/<id>/live-summary — the data source for the new Present
 #            view (a Mentimeter-style QR + live-results screen for in-class use). Delegates all
 #            aggregation to the new src/studio/summary.py; see that file's header for why it
 #            excludes every AI-native and data-quality/compliance instrument by design, not oversight.
@@ -60,6 +63,7 @@ by a few older models in this codebase) is a connection-pool leak.
 import csv
 import hashlib
 import io
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -741,6 +745,13 @@ def live_summary(project_id):
     """Data source for the Present view — polled every few seconds while a
     professor has it open on a projector. See src/studio/summary.py for what
     is (and deliberately isn't) aggregated here.
+
+    Optional `?filter_block_id=<id>&filter_value=<json>` cross-filters: only
+    responses whose answer to `filter_block_id` equals `filter_value` (JSON-
+    decoded, so a rating's int and a choice's string both round-trip
+    correctly) are aggregated. Filtering happens here, on the raw response
+    list, before it ever reaches build_live_summary — every aggregation
+    function in summary.py is unchanged, it just sees fewer responses.
     """
     user_id = get_jwt_identity()
     doc, error = _load_owned_project(project_id, user_id)
@@ -750,6 +761,22 @@ def live_summary(project_id):
 
     db = current_app.config['MONGO_DB']
     responses = list(db['studio_responses'].find({"project_id": project_id}))
+
+    filter_block_id = request.args.get('filter_block_id')
+    filter_value_raw = request.args.get('filter_value')
+    if filter_block_id and filter_value_raw is not None:
+        try:
+            filter_value = json.loads(filter_value_raw)
+        except (TypeError, ValueError):
+            filter_value = filter_value_raw
+        responses = [
+            r for r in responses
+            if any(
+                a.get('block_id') == filter_block_id and a.get('value') == filter_value
+                for a in r.get('answers', [])
+            )
+        ]
+
     return jsonify(build_live_summary(doc, responses)), 200
 
 
