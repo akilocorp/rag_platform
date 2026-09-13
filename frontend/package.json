@@ -24,6 +24,7 @@
     "livekit-client": "^2.16.1",
     "marked": "^16.0.0",
     "motion": "^12.38.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-icons": "^5.5.0",

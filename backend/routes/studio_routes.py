@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
+# @updated   2026-09-13
+# @changed   Added GET /studio/projects/<id>/live-summary — the data source for the new Present
+#            view (a Mentimeter-style QR + live-results screen for in-class use). Delegates all
+#            aggregation to the new src/studio/summary.py; see that file's header for why it
+#            excludes every AI-native and data-quality/compliance instrument by design, not oversight.
+# Prior: 3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
 #            accepts+sanitizes a client-supplied `embedded_data` dict (URL params captured at load),
 #            stored on the response doc, surfaced as dynamic CSV columns (same discovery pattern as
 #            instrument metrics). Counterbalanced conditions: projects gain a `conditions` list
@@ -38,6 +42,7 @@ Owner-scoped (faculty, JWT-required):
   DELETE /api/studio/projects/<id>           — delete
   GET    /api/studio/projects/<id>/responses      — raw response list, with computed instrument metrics
   GET    /api/studio/projects/<id>/responses.csv  — flattened CSV export, same metrics as columns
+  GET    /api/studio/projects/<id>/live-summary   — aggregated stats for the Present view (polled)
 
 Public (no auth — the first anonymous-write surface Studio has):
   GET    /api/studio/public/projects/<id>            — a project's pages/blocks, ONLY if published
@@ -68,6 +73,7 @@ from pymongo.errors import DuplicateKeyError
 
 from models.user import User
 from src.studio.live_ai import call_live_ai_instrument
+from src.studio.summary import build_live_summary
 from src.studio.registry import (
     compute_instrument_metric,
     get_block_specs,
@@ -727,6 +733,24 @@ def list_responses(project_id):
         responses.append(r)
     _augment_responses_with_metrics(doc, responses, db=db)
     return jsonify({"responses": responses}), 200
+
+
+@studio_bp.route('/studio/projects/<project_id>/live-summary', methods=['GET'])
+@jwt_required()
+def live_summary(project_id):
+    """Data source for the Present view — polled every few seconds while a
+    professor has it open on a projector. See src/studio/summary.py for what
+    is (and deliberately isn't) aggregated here.
+    """
+    user_id = get_jwt_identity()
+    doc, error = _load_owned_project(project_id, user_id)
+    if error:
+        payload, status = error
+        return jsonify(payload), status
+
+    db = current_app.config['MONGO_DB']
+    responses = list(db['studio_responses'].find({"project_id": project_id}))
+    return jsonify(build_live_summary(doc, responses)), 200
 
 
 @studio_bp.route('/studio/projects/<project_id>/responses.csv', methods=['GET'])
