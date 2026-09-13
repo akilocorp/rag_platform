@@ -1,6 +1,10 @@
 // @language JavaScript (React / JSX)
 // @updated   2026-09-13
-// @changed   Four additions. (1) Live cross-filtering: clicking a bar in any `bar`-chart block
+// @changed   Fixed a text-overflow bug: the copy-link button and project title had no width bound,
+//            so a long public URL or project name bled past the left panel's edges on a narrow
+//            screen instead of wrapping or clipping. Both now get max-w-full truncate + a title
+//            attribute for the full text on hover; the copy handler still copies the untruncated URL.
+//            Prior: Four additions. (1) Live cross-filtering: clicking a bar in any `bar`-chart block
 //            (Yes/No, Single Choice, Rating Scale, Semantic Differential — the block types whose
 //            answer is a single scalar) sends filter_block_id/filter_value to the poll, which
 //            re-aggregates every other block against just that respondent subset; clicking the same
@@ -583,7 +587,7 @@ const StudioPresentPage = () => {
 
       <div className="flex-1 flex flex-col lg:flex-row gap-6 px-6 pb-6 overflow-hidden">
         <div className="lg:w-[360px] shrink-0 flex flex-col items-center text-center gap-3">
-          <h1 className="text-xl font-bold text-white">{summary?.title}</h1>
+          <h1 className="max-w-full text-xl font-bold text-white truncate" title={summary?.title}>{summary?.title}</h1>
           <p className="text-sm" style={{ color: 'rgba(255,255,255,0.55)' }}>Scan to join</p>
           <MotionDiv
             className="bg-white rounded-3xl p-4 shadow-2xl"
@@ -595,7 +599,8 @@ const StudioPresentPage = () => {
           </MotionDiv>
           <button
             onClick={handleCopyLink}
-            className="text-sm font-mono px-3 py-1.5 rounded-lg transition-all active:scale-95"
+            title={publicLink}
+            className="max-w-full text-sm font-mono px-3 py-1.5 rounded-lg transition-all active:scale-95 truncate"
             style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: ORANGE }}
           >
             {copied ? 'Copied!' : publicLink.replace(/^https?:\/\//, '')}
