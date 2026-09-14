@@ -1,6 +1,25 @@
 // @language JavaScript (React)
-// @updated 2026-09-06
-// @changed Hero gradient bugfix + recolor: the AnimatedGradient config/noise/style objects were
+// @updated 2026-09-14
+// @changed Manager-feedback pass. Hero fully replaced: the scroll-revealed dark mass (GSAP
+//          clip-path timeline + continuous WebGL2 shader + PromptInput chat composer + a
+//          per-keystroke typewriter effect) is gone, swapped for a static white hero modeled on a
+//          template the team supplied — a giant word-by-word pull-up (new
+//          components/ui/words-pull-up.jsx, framer-motion, fires once on scroll-into-view) of
+//          "ACTRLabs" itself, plus a short pitch + a "Get started" CTA. This is also the fix for
+//          the reported browser-overload: that hero was 3-4 independent animation systems running
+//          concurrently on load, not counting the rest of the page's own GSAP work. The nav no
+//          longer fades in on scroll — it's visible from the first frame now, which is the actual
+//          fix for "make sure people know they've landed on the right page." Removed with the
+//          composer: MODEL_OPTIONS, HERO_PROMPTS, LANDING_FREE_CREDITS, the /api/usage/me credits
+//          fetch, and the register-gate modal (nothing left to gate — there's no free-chat demo in
+//          the hero to hit a credit limit on). PHILOSOPHY_PARAGRAPHS rewritten to speak to
+//          educators/researchers building simulations, not students studying. TESTIMONIAL_PANELS
+//          drops the student entry; the audience accordion (one expanded, two collapsed to a rail,
+//          auto-rotating every 7s) is replaced by a static 2-column side-by-side layout — no
+//          activePanel state, both videos autoplay together once in view. App.jsx's root route now
+//          points here instead of /home (reusing the existing isLoggedIn()-based RootRedirect
+//          pattern, not a new auth mechanism).
+//          Prior: Hero gradient bugfix + recolor: the AnimatedGradient config/noise/style objects were
 //          inline JSX literals, so every LandingV2 re-render (incl. every ~22-42ms keystroke of the
 //          hero typewriter effect) gave AnimatedGradient a new `config` reference, and its WebGL
 //          setup effect depends on that — tearing down and rebuilding the whole GL program and
@@ -44,9 +63,17 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { motion } from 'framer-motion';
+import { FaArrowRight } from 'react-icons/fa';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
-import { PromptInput } from '../components/ui/ai-chat-input';
-import AnimatedGradient from '../components/ui/animated-gradient';
+import { WordsPullUp } from '../components/ui/words-pull-up';
+
+// Plain identifiers so the hero's JSX tags aren't member expressions
+// (<motion.p>) — this project's eslint config has no react/JSX-aware
+// no-unused-vars handling, which otherwise flags `motion` as unused despite
+// being referenced only via a tag name.
+const MotionP = motion.p;
+const MotionDiv = motion.div;
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -54,58 +81,6 @@ const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 const FONT_SERIF = "'Newsreader', Georgia, serif";
 const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
-
-// Hoisted to module scope (not inline in JSX) so these are the SAME object
-// reference across every LandingV2 render. AnimatedGradient's WebGL setup
-// effect depends on this config (via a useMemo) and tears down + rebuilds
-// the entire GL program whenever it changes — an inline object literal
-// would be a new reference every render, and LandingV2 re-renders on every
-// keystroke of the hero's typewriter effect (every 22-42ms while typing),
-// which is what was actually causing the "jittery, loops every 2s" bug:
-// the shader kept restarting from time zero, not a shader/performance issue.
-const HERO_GRADIENT_CONFIG = {
-  preset: 'custom',
-  color1: '#1F1F1F',
-  color2: '#8C8C8C',
-  color3: '#1F1F1F',
-  rotation: 114,
-  proportion: 100,
-  scale: 0.52,
-  speed: 14,
-  distortion: 4,
-  swirl: 10,
-  swirlIterations: 12,
-  softness: 100,
-  offset: 717,
-  shape: 'Edge',
-  shapeSize: 12,
-};
-const HERO_GRADIENT_NOISE = { opacity: 0.04 };
-const HERO_GRADIENT_STYLE = { zIndex: 0 };
-
-const HERO_PROMPTS = [
-  'Explain the first law of thermodynamics',
-  'Type 1 vs Type 2 Bipolar disorder?',
-  'Walk me through CRISPR gene editing',
-  'Why did the Roman Empire fall?',
-  'Derive the Black-Scholes equation',
-];
-
-// Free credits we promise on the landing (1 message = 1 credit). The
-// backend's anon_lifetime_cap is the safety net (usually larger); this is
-// the smaller display cap that drives the credits bar + register-gate copy.
-const LANDING_FREE_CREDITS = 2;
-
-// Models a free user can pick straight from the composer. Subset of the
-// backend ALLOWED_MODELS (usage/limits.py) — sent as model_override.
-const MODEL_OPTIONS = [
-  { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { id: 'gpt-4.1', label: 'GPT-4.1' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { id: 'deepseek-chat', label: 'Deepseek Chat' },
-];
 
 const UVPS = [
   {
@@ -313,29 +288,15 @@ const SyllabusMockup = () => (
   </>
 );
 
-// Three audience panels for the horizontal accordion. One is expanded at
-// a time; the others collapse to a narrow vertical-label rail. Each
-// expanded panel renders a real testimonial: name, role + university
-// pill, contextual quote, and an autoplay portrait video of the person
-// speaking. Drop a recording at /testimonials/<id>.mp4 (with matching
-// .jpg poster) and it lights up — the dark frame bg keeps an empty
-// video looking intentional until the file lands.
+// Two audience panels, shown side by side (no accordion — the student
+// panel was dropped, and two panels fit on screen at once with room to
+// breathe). Each renders a real testimonial: name, role + university pill,
+// contextual quote, and an autoplay portrait video of the person speaking.
+// Drop a recording at /testimonials/<id>.mp4 (with matching .jpg poster)
+// and it lights up — the dark frame bg keeps an empty video looking
+// intentional until the file lands.
 // Panel bg colors match the bento tile pastels for visual cohesion.
 const TESTIMONIAL_PANELS = [
-  {
-    id: 'students',
-    title: 'Students',
-    name: 'Ekramul Haque Khan',
-    role: 'Chemical Engineering',
-    university: 'HKUST',
-    quote:
-      'ACTRLabs helps me learn more effectively. I move through material at a much faster pace and actually keep up with my coursework, which means I still have a life outside of school.',
-    videoSrc: '/testimonials/students.mp4',
-    posterSrc: '/testimonials/ekramul.jpg',
-    avatarSrc: '/testimonials/ekramul.jpg',
-    bg: '#FDE3D8',
-    accent: '#C8472A',
-  },
   {
     id: 'teachers',
     title: 'Teachers',
@@ -373,25 +334,23 @@ const TESTIMONIAL_PANELS = [
 // the noun word is omitted when its icon is present.
 const PHILOSOPHY_PARAGRAPHS = [
   [
-    { text: 'ACTRlabs makes learning easier and more engaging for teachers and students alike.' },
+    { text: 'ACTRLabs is how educators and researchers build AI simulations and bots, without writing a line of code.' },
   ],
   [
-    { text: 'Our platform is available on' },
-    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPads' },
+    { text: 'Design a' },
+    { src: '/illustrations/survey-clipboard-research.svg', alt: 'research study', label: 'research study' },
+    { text: 'for your lab, or an interactive' },
+    { src: '/illustrations/sprockets-engineering.svg', alt: 'course simulation', label: 'course simulation' },
+    { text: 'for your classroom, on the same platform.' },
+  ],
+  [
+    { text: 'Available on' },
+    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPad' },
     { text: ',' },
-    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptops' },
+    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptop' },
     { text: ', and the' },
     { src: '/illustrations/wifi-internet.svg', alt: 'web', label: 'Web' },
-    { text: '.' },
-  ],
-  [
-    { text: "Our AI bot meets you right where you are, whether you're the" },
-    { src: '/illustrations/sprockets-engineering.svg', alt: 'engineering', label: 'Engineering' },
-    { text: 'student breaking the grade curve, the' },
-    { src: '/illustrations/briefcase-business.svg', alt: 'business', label: 'Business' },
-    { text: 'student building generational wealth, or the' },
-    { src: '/illustrations/survey-clipboard-research.svg', alt: 'humanities surveying', label: 'Humanities' },
-    { text: "student polling peers every day." },
+    { text: '— set it up once, and it runs itself for every student who shows up.' },
   ],
 ];
 
@@ -401,16 +360,9 @@ const reducedMotion = () =>
 const LandingV2 = () => {
   const navigate = useNavigate();
   const rootRef = useRef(null);
-  const navRef = useRef(null);
-  const heroRef = useRef(null);
-  const darkOverlayRef = useRef(null);
-  const heroContentRef = useRef(null);
-  const logoRef = useRef(null);
   const philosophyRef = useRef(null);
   const philosophyTextRef = useRef(null);
   const wordRefs = useRef([]);
-  const scrollCueRef = useRef(null);
-  const skipIntroRef = useRef(null);
   const ctaIconRefs = useRef([]);
   const ctaRef = useRef(null);
   const featureGridRef = useRef(null);
@@ -424,250 +376,50 @@ const LandingV2 = () => {
     return () => { document.title = prev; };
   }, []);
 
-  // Audience accordion state. The 7s interval restarts whenever
-  // `activePanel` changes — clicking a collapsed pane resets the timer
-  // so the user gets the full 7s on their chosen panel before
-  // auto-rotation moves on.
-  const [activePanel, setActivePanel] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setActivePanel((i) => (i + 1) % TESTIMONIAL_PANELS.length);
-    }, 7000);
-    return () => clearInterval(id);
-  }, [activePanel]);
-
-  // Testimonial-video autoplay. Each panel renders a <video> whose ref
-  // lands in this array. We only play the *active* panel's video, and
-  // only when the accordion section is in view — otherwise off-screen
-  // tabs would silently burn bandwidth on page load. Browser autoplay
-  // requires muted + playsInline, both set on the <video> below.
+  // Testimonial videos. Each panel renders a <video> whose ref lands in
+  // this array — both autoplay (not just one) since the two panels are
+  // shown side by side now, not one-at-a-time in an accordion. Gated on
+  // the section being in view so it doesn't burn bandwidth before the
+  // visitor scrolls this far. Browser autoplay requires muted +
+  // playsInline, both set on the <video> below.
   const videoRefs = useRef([]);
-  const accordionSectionRef = useRef(null);
-  const [accordionInView, setAccordionInView] = useState(false);
+  const testimonialsSectionRef = useRef(null);
+  const [testimonialsInView, setTestimonialsInView] = useState(false);
   useEffect(() => {
-    const el = accordionSectionRef.current;
+    const el = testimonialsSectionRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') {
-      setAccordionInView(true);
+      setTestimonialsInView(true);
       return;
     }
     const io = new IntersectionObserver(
-      (entries) => entries.forEach((e) => setAccordionInView(e.isIntersecting)),
+      (entries) => entries.forEach((e) => setTestimonialsInView(e.isIntersecting)),
       { threshold: 0.2 }
     );
     io.observe(el);
     return () => io.disconnect();
   }, []);
   useEffect(() => {
-    videoRefs.current.forEach((v, i) => {
+    videoRefs.current.forEach((v) => {
       if (!v) return;
-      if (accordionInView && i === activePanel) {
-        try { v.currentTime = 0; } catch (_) {}
+      if (testimonialsInView) {
         const p = v.play();
         if (p && typeof p.catch === 'function') p.catch(() => {});
       } else {
         v.pause();
       }
     });
-  }, [activePanel, accordionInView]);
+  }, [testimonialsInView]);
 
-  // Hero composer: PromptInput (components/ui/ai-chat-input) owns its own text/model/
-  // attachment state internally and hands it back at submit time, so this page only needs
-  // to react to that submission. Submit starts a real free chat against the shared
-  // playground bot, carrying the typed prompt + model into ChatPage. Usage caps (warn nudge
-  // + create-account block) are enforced there. The register modal remains only as a
-  // fallback if the bot can't load, and shows back what was typed — captured into
-  // `lastPrompt` here since PromptInput clears its own value once onSubmit returns.
-  const [composerSending, setComposerSending] = useState(false);
-  const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const [lastPrompt, setLastPrompt] = useState('');
-
-  // Real credit count for the credits bar. Fetched once on mount from
-  // /api/usage/me, then clamped to LANDING_FREE_CREDITS. Population other
-  // than "anon" (logged-in) shows the full cap and defers to the in-chat
-  // limiter.
-  const [creditsRemaining, setCreditsRemaining] = useState(LANDING_FREE_CREDITS);
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/usage/me', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        if (data.population !== 'anon' || data.cap == null || data.remaining == null) {
-          setCreditsRemaining(LANDING_FREE_CREDITS);
-          return;
-        }
-        const used = Math.max(0, data.cap - data.remaining);
-        setCreditsRemaining(Math.max(0, LANDING_FREE_CREDITS - used));
-      })
-      .catch(() => { /* keep optimistic default */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  const handleComposerSubmit = async (text, meta) => {
-    const trimmed = text.trim();
-    if (!trimmed || composerSending) return;
-    setLastPrompt(trimmed);
-    if (creditsRemaining <= 0) {
-      setShowRegisterModal(true);
-      return;
-    }
-    // PromptInput only knows the model's display label — map it back to the id the backend
-    // expects (model_override). Falls back to the first real model if something odd came
-    // through (e.g. an empty models list).
-    const modelId = MODEL_OPTIONS.find((m) => m.label === meta?.model)?.id || MODEL_OPTIONS[0].id;
-    setComposerSending(true);
-    try {
-      const res = await fetch('/api/config/playground', { credentials: 'include' });
-      if (!res.ok) throw new Error('playground unavailable');
-      const { config_id } = await res.json();
-      const chatId = `chat_${Date.now()}`;
-      navigate(`/chat/${config_id}/${chatId}`, { state: { firstMessage: trimmed, model: modelId } });
-    } catch (err) {
-      setComposerSending(false);
-      setShowRegisterModal(true);
-    }
-  };
-  useEffect(() => {
-    if (!showRegisterModal) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') setShowRegisterModal(false);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [showRegisterModal]);
-
-  // Typewriter placeholder cycling through HERO_PROMPTS. Type → hold →
-  // erase → brief pause → next. Reduced-motion users see a static
-  // "Ask anything…" string instead. Pure setTimeout chain — no rAF
-  // needed since the cadence is character-scale, not frame-scale.
-  const [typedPrompt, setTypedPrompt] = useState(HERO_PROMPTS[0]);
-  useEffect(() => {
-    if (reducedMotion()) {
-      setTypedPrompt('Ask anything…');
-      return;
-    }
-    let idx = 0;
-    let charIdx = 0;
-    let phase = 'typing';
-    let timeoutId = null;
-    const tick = () => {
-      const full = HERO_PROMPTS[idx];
-      if (phase === 'typing') {
-        charIdx += 1;
-        setTypedPrompt(full.slice(0, charIdx));
-        if (charIdx >= full.length) {
-          phase = 'holding';
-          timeoutId = setTimeout(tick, 1600);
-          return;
-        }
-        timeoutId = setTimeout(tick, 42);
-      } else if (phase === 'holding') {
-        phase = 'erasing';
-        timeoutId = setTimeout(tick, 22);
-      } else if (phase === 'erasing') {
-        charIdx -= 1;
-        setTypedPrompt(full.slice(0, Math.max(0, charIdx)));
-        if (charIdx <= 0) {
-          phase = 'typing';
-          idx = (idx + 1) % HERO_PROMPTS.length;
-          charIdx = 0;
-          timeoutId = setTimeout(tick, 320);
-          return;
-        }
-        timeoutId = setTimeout(tick, 22);
-      }
-    };
-    setTypedPrompt('');
-    timeoutId = setTimeout(tick, 600);
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (reducedMotion()) return;
 
     const ctx = gsap.context(() => {
-      // ---- HERO TRANSITION ----------------------------------------------
-      // The whole screen starts as a dark mass. As the user scrolls, that
-      // mass shrinks via a circular clip-path until it's small enough to
-      // BE the natural dark dot inside the A.
-      //
-      // Phases (all on a 0..1 timeline driven by hero scroll):
-      //   0.05 – 0.22 : headline text fades out FAST — gone well before
-      //                  the dark mass shrinks anywhere near it.
-      //   0    – 0.55 : clip-path circle shrinks 2400px → 14px.
-      //   0.55 – 0.65 : dark overlay opacity 1 → 0 — the logo's natural
-      //                  dot takes over visually with no break.
-      //   0.65 – 1.0  : logo scales down + slides to its nav-aligned
-      //                  position (center of logo box at left:48 top:30).
-      //
-      // Easing is power2.inOut throughout — uniform deceleration, no
-      // expo "spring" feel.
-
-      // Seed the initial logo position via GSAP so the migration tween
-      // can interpolate cleanly. Initial state: dot of logo at viewport
-      // center; logo's natural top-left at (50% - 55.25%×W, 50% - 71.11%×H).
-      gsap.set(logoRef.current, {
-        top: '50%',
-        left: '50%',
-        xPercent: -55.25,
-        yPercent: -71.11,
-        scale: 1,
-      });
-
-      const heroTl = gsap.timeline({
-        scrollTrigger: {
-          trigger: heroRef.current,
-          start: 'top top',
-          end: 'bottom top',
-          scrub: 0.8,
-        },
-      });
-
-      heroTl
-        // The full hero content stack — pill, headline, subhead, chat
-        // input — fades together as one unit. Same timing as the old
-        // headline fade so the dot→A reveal still feels uninterrupted.
-        .to(heroContentRef.current, { opacity: 0, duration: 0.17, ease: 'power2.out' }, 0.05)
-        // Scroll cue + skip-intro lose their reason to exist the moment
-        // the user has scrolled. Fade them along with the hero content.
-        .to(scrollCueRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
-        .to(skipIntroRef.current, { opacity: 0, duration: 0.15, ease: 'power2.out' }, 0.05)
-        .fromTo(
-          darkOverlayRef.current,
-          { '--clip-radius': '2400px' },
-          { '--clip-radius': '14px', duration: 0.55, ease: 'power2.inOut' },
-          0
-        )
-        .to(darkOverlayRef.current, { opacity: 0, duration: 0.1, ease: 'sine.out' }, 0.55)
-        // Different pull-back: instead of migrating the logo into the
-        // top-left corner (where it overlapped the philosophy column),
-        // it gently lifts and fades after the dot→A reveal completes.
-        // Keeps the screen clear for the word-by-word scrub below.
-        .to(
-          logoRef.current,
-          {
-            yPercent: -85,
-            scale: 0.9,
-            opacity: 0,
-            duration: 0.3,
-            ease: 'power2.inOut',
-          },
-          0.65
-        );
-
-      // ---- NAV HIDE-UNTIL-PAST-HERO ------------------------------------
-      // Nav starts invisible and fades in once the bottom of the hero
-      // section has scrolled past the top of the viewport. Reverses on
-      // scroll-up so the nav disappears again when re-entering the hero.
-      gsap.set(navRef.current, { opacity: 0 });
-      ScrollTrigger.create({
-        trigger: heroRef.current,
-        start: 'bottom top',
-        onEnter: () => gsap.to(navRef.current, { opacity: 1, duration: 0.35, ease: 'power2.out' }),
-        onLeaveBack: () => gsap.to(navRef.current, { opacity: 0, duration: 0.35, ease: 'power2.out' }),
-      });
+      // Hero and nav are no longer scroll-driven — the nav is visible
+      // from the first frame (see the "brand needs to read as legit
+      // immediately" note on the nav itself) and the hero is a static
+      // white section, not a scroll-revealed dark mass. What's left here
+      // is the two animations that were never hero-specific.
 
       // (Focal-point word scrub for the philosophy section is handled
       // by a scroll-tied rAF loop in a separate useEffect below — it
@@ -814,15 +566,16 @@ const LandingV2 = () => {
         }}
       />
 
-      {/* === PERSISTENT TOP NAV === */}
+      {/* === PERSISTENT TOP NAV ===
+          Always visible from the first frame now — no GSAP opacity gate.
+          The old hero hid this until the visitor scrolled past a dark
+          intro mass, which meant the one thing that says "you're on the
+          real ACTRLabs site" (the wordmark) didn't render until a scroll
+          gesture. That's the exact "looks like it could be a scam" gap
+          the brand-visibility ask was about; the fix is just not hiding it. */}
       <nav
-        ref={navRef}
         className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between gap-3 px-6 lg:px-12 py-3"
         style={{
-          // Nav text is always dark: the nav sits at z=40 behind the
-          // dark overlay (z=60), so it's only ever visible against the
-          // off-white page bg. The earlier white-on-dark state was dead
-          // code that desynced Sign in's reveal from Get started's.
           '--nav-fg': '#1F1F1F',
           '--nav-fg-soft': '#1F1F1F',
           backgroundColor: '#FFFFFF',
@@ -867,233 +620,82 @@ const LandingV2 = () => {
         </div>
       </nav>
 
-      {/* === LOGO LAYER ===
-          Positioned with the SVG's natural dot (measured at 55.25% /
-          71.11% in logo-A-color.jpg by sampling the orange pixels)
-          sitting at viewport center. When the dark overlay's clip-path
-          shrinks to ~14px at viewport center, it merges seamlessly
-          with the logo's real dark dot.
-
-          Initial transform is set via gsap.set() in useLayoutEffect so
-          the migration tween can interpolate cleanly to its end state
-          (xPercent: -50, yPercent: -50, top: 30px, left: 48px, scale:
-          0.21) without unit mismatches. */}
-      <img
-        ref={logoRef}
-        src="/logo-A.svg"
-        alt="ACTRLabs"
-        className="fixed pointer-events-none select-none"
-        style={{
-          width: '260px',
-          height: 'auto',
-          opacity: 1,
-          zIndex: 50,
-        }}
-      />
-
-      {/* === DARK OVERLAY ===
-          Covers the entire viewport with a dark fill, but is clipped to a
-          circle whose radius shrinks on scroll. As it shrinks, the white
-          page bg + the dark A logo behind become visible — and when the
-          radius is small enough, the dark circle seamlessly *becomes* the
-          dot of the A. The clip-path lives on this outer div, so the
-          scroll-tied reveal (heroTl above) is unchanged — only the fill
-          itself changed, from flat #1F1F1F to a live black/gray shader
-          gradient (HERO_GRADIENT_CONFIG — module-level, see comment there
-          for why that matters). backgroundColor stays as a static fallback
-          in case WebGL2 isn't available (AnimatedGradient just renders
-          nothing). */}
-      <div
-        ref={darkOverlayRef}
-        className="fixed inset-0 pointer-events-none overflow-hidden"
-        style={{
-          backgroundColor: '#1F1F1F',
-          clipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
-          WebkitClipPath: 'circle(var(--clip-radius, 2400px) at 50% 50%)',
-          zIndex: 60,
-          willChange: 'clip-path',
-        }}
-      >
-        <AnimatedGradient
-          config={HERO_GRADIENT_CONFIG}
-          noise={HERO_GRADIENT_NOISE}
-          style={HERO_GRADIENT_STYLE}
-        />
-      </div>
-
-
-      {/* === HERO === */}
-      <section
-        ref={heroRef}
-        className="relative h-screen flex items-center justify-center"
-      >
-        {/* Hero content stack — pill, headline, subhead, chat input —
-            sits in front of the dark overlay (z=70) so it's readable
-            while the dark mass covers the screen. The whole stack
-            fades out at the start of scroll (see heroTl above) so the
-            dot→A reveal can play unobstructed. */}
-        <div
-          ref={heroContentRef}
-          className="absolute inset-0 flex flex-col items-center justify-center text-center px-6"
-          style={{ zIndex: 70 }}
-        >
-          {/* Announcement pill — solid white against the dark hero so it
-              reads as a callout, not chrome. */}
-          <div
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-8"
-            style={{
-              backgroundColor: '#FFFFFF',
-              boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
-            }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#FA6C43' }} />
-            <span
-              className="text-xs font-semibold"
-              style={{ color: '#1F1F1F', fontFamily: FONT_BODY }}
-            >
-              UI System Revamped
-            </span>
-          </div>
-
-          {/* Headline — italic line over a giant solid LEARNING word.
-              Two-line stack with tight leading for drama. */}
-          <h1
-            className="mb-6 max-w-5xl"
-            style={{
-              fontFamily: FONT_DISPLAY,
-              color: '#FFFFFF',
-              lineHeight: 0.92,
-              letterSpacing: '-0.045em',
-            }}
-          >
-            <span
-              className="block"
-              style={{
-                fontWeight: 500,
-                fontStyle: 'italic',
-                fontSize: 'clamp(28px, 4.5vmin, 56px)',
-                letterSpacing: '-0.02em',
-                marginBottom: '0.08em',
-              }}
-            >
-              We&rsquo;re ready to revolutionize
-            </span>
-            <span
-              className="block"
-              style={{
-                fontWeight: 900,
-                color: '#FA6C43',
-                fontSize: 'clamp(88px, 16vmin, 200px)',
-                textTransform: 'uppercase',
-                letterSpacing: '-0.055em',
-                lineHeight: 0.88,
-              }}
-            >
-              Learning
-            </span>
-          </h1>
-
-          {/* Subhead */}
-          <p
-            className="max-w-xl mb-10"
-            style={{
-              color: 'rgba(255,255,255,0.6)',
-              fontFamily: FONT_BODY,
-              fontSize: 'clamp(15px, 1.6vmin, 18px)',
-              lineHeight: 1.55,
-            }}
-          >
-            Upload your syllabus, slides, and notes. Get an AI tutor your students can actually trust, trained on what you actually teach.
-          </p>
-
-          {/* Composer — PromptInput (components/ui/ai-chat-input) drives the actual
-              input/model-picker/attachments/voice; it carries its own white pill/card
-              chrome, so it sits directly on the dark hero rather than inside a shared
-              white card like before. The credits bar has no slot in that component, so
-              it renders above, restyled for the dark background. */}
-          <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-3">
-            {/* Credits counter — driven by /api/usage/me. At 0, the submit
-                handler opens the register modal instead of starting a chat. */}
-            <div className="flex items-center gap-2.5 px-1">
-              <div
-                className="relative h-1.5 rounded-full overflow-hidden"
-                style={{ width: '80px', backgroundColor: 'rgba(255,255,255,0.18)' }}
+      {/* === HERO ===
+          Replaces the old scroll-revealed dark mass (GSAP clip-path timeline
+          + a continuously-running WebGL2 shader canvas + a per-keystroke
+          typewriter effect) with a static white hero modeled on a template
+          the team supplied: a giant word-by-word pull-up of the brand name
+          itself, bottom-anchored beside a short pitch + CTA. This is also
+          the fix for the "overloaded my browser" report — that combination
+          was 3-4 independent animation systems running at once on page
+          load; WordsPullUp is one useInView check that fires once and
+          stops, not a continuous loop. Background is plain white per
+          request — no video, no gradient, nothing competing with the mark. */}
+      <section className="relative h-screen w-full flex flex-col justify-end overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
+        <div className="px-6 lg:px-12 pb-16 lg:pb-24 pt-32 w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
+            <div className="lg:col-span-8">
+              <h1
+                className="leading-[0.85] tracking-[-0.04em]"
+                style={{
+                  fontFamily: FONT_DISPLAY,
+                  color: '#1F1F1F',
+                  fontWeight: 800,
+                  fontSize: 'clamp(64px, 13vw, 200px)',
+                }}
               >
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${(creditsRemaining / LANDING_FREE_CREDITS) * 100}%`,
-                    backgroundColor: '#FA6C43',
-                  }}
-                />
-              </div>
-              <span
-                className="text-[11px] font-semibold"
-                style={{ color: 'rgba(255,255,255,0.6)', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
-              >
-                {creditsRemaining === 0
-                  ? 'Out of credits, sign up'
-                  : `${creditsRemaining} ${creditsRemaining === 1 ? 'credit' : 'credits'} left`}
-              </span>
+                <WordsPullUp text="ACTRLabs" showAsterisk />
+              </h1>
             </div>
 
-            {/* Placeholder cycles through HERO_PROMPTS via a typewriter effect (see
-                useEffect in component body). Submit (Enter or the send button) opens the
-                register-gate modal — anonymous visitors can't actually send. */}
-            <PromptInput
-              placeholder={typedPrompt}
-              models={MODEL_OPTIONS.map((m) => m.label)}
-              onSubmit={handleComposerSubmit}
-            />
+            <div className="lg:col-span-4 flex flex-col gap-6 pb-2">
+              <MotionP
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
+                className="text-base lg:text-lg"
+              >
+                The platform educators and researchers use to build AI simulations and bots for their classroom and studies — no engineering required.
+              </MotionP>
+
+              <MotionDiv
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <Link
+                  to="/register"
+                  className="group inline-flex items-center gap-2 self-start rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
+                  style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
+                >
+                  Get started
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
+                    style={{ backgroundColor: '#1F1F1F' }}
+                  >
+                    <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
+                  </span>
+                </Link>
+              </MotionDiv>
+            </div>
           </div>
         </div>
-
-        <div ref={scrollCueRef} className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none" style={{ zIndex: 70 }}>
-          <span
-            className="text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY }}
-          >
-            scroll
-          </span>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            className="animate-bounce"
-            style={{ color: 'rgba(255,255,255,0.55)' }}
-          >
-            <path
-              d="M3 5l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="2"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-
-        <button
-          ref={skipIntroRef}
-          onClick={() => document.getElementById('cta')?.scrollIntoView({ behavior: 'smooth' })}
-          className="absolute bottom-10 right-6 lg:right-12 text-xs font-medium hover:opacity-90 transition-opacity"
-          style={{ color: 'rgba(255,255,255,0.55)', fontFamily: FONT_BODY, zIndex: 70 }}
-        >
-          Skip intro →
-        </button>
       </section>
 
       {/* === PHILOSOPHY (icons-as-language + word-by-word scrub) ===
-          Sits between the cinematic and the UVPs. Brand illustrations
-          stand in for the audience nouns (iPad, laptop, web,
-          engineering, business, humanities) — the noun word is
+          Sits directly below the hero now — no top margin needed. The old
+          400px margin was scroll runway for the hero's own dark-mass
+          reveal timeline; the new hero is a normal h-screen section with
+          nothing left to reveal, so this section just follows it. Brand
+          illustrations stand in for the audience nouns — the noun word is
           omitted when its icon is present. Every word starts at a
           near-white tone and darkens to #1F1F1F as the user scrolls
           — staggered, so it reads like the user is following along
           with the scroll. */}
       <section
         ref={philosophyRef}
-        className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32 mt-[400px]"
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 lg:px-24 py-32"
         style={{ backgroundColor: '#FAFAF7' }}
       >
         <div
@@ -1356,16 +958,15 @@ const LandingV2 = () => {
         </div>
       </section>
 
-      {/* === AUDIENCE ACCORDION ===
-          Horizontal 3-panel accordion. One panel is expanded
-          (`calc(100% - 212px)` wide); the other two collapse to a 90px
-          rail showing a vertical-text label. Auto-rotates every 7s; the
-          interval restarts on click via the activePanel dep on the
-          useEffect. Width transitions are pure CSS — no layout libs.
-          Section ref drives the IntersectionObserver that gates video
-          autoplay — videos stay paused until this section enters view. */}
+      {/* === TESTIMONIALS ===
+          Two panels, side by side — both always expanded (the student
+          panel was dropped, and two fit at once with room to breathe, so
+          the old accordion/auto-rotate/rail-collapse machinery is gone
+          along with it). Section ref drives the IntersectionObserver that
+          gates video autoplay — both videos stay paused until this
+          section enters view. */}
       <section
-        ref={accordionSectionRef}
+        ref={testimonialsSectionRef}
         className="relative px-6 lg:px-10 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
@@ -1388,190 +989,104 @@ const LandingV2 = () => {
             Built for the people who actually use it.
           </h2>
 
-          <div className="flex gap-4 w-full">
-            {TESTIMONIAL_PANELS.map((p, i) => {
-              const isActive = i === activePanel;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setActivePanel(i)}
-                  aria-expanded={isActive}
-                  aria-label={p.title}
-                  className="relative overflow-hidden rounded-3xl text-left cursor-pointer"
-                  style={{
-                    width: isActive ? 'calc(100% - 212px)' : '90px',
-                    flexShrink: 0,
-                    backgroundColor: isActive ? '#FFFFFF' : p.bg,
-                    border: `1px solid ${isActive ? 'rgba(31,31,31,0.08)' : 'rgba(31,31,31,0.06)'}`,
-                    minHeight: '480px',
-                    transition:
-                      'width 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 300ms ease, background-color 300ms ease',
-                    boxShadow: isActive
-                      ? '0 24px 56px rgba(31,31,31,0.12), inset 0 1px 0 rgba(255,255,255,0.6)'
-                      : '0 12px 32px rgba(31,31,31,0.08), inset 0 1px 0 rgba(255,255,255,0.5)',
-                  }}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {TESTIMONIAL_PANELS.map((p, i) => (
+              <div
+                key={p.id}
+                className="relative overflow-hidden rounded-3xl p-8 lg:p-10 flex flex-col"
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid rgba(31,31,31,0.08)',
+                  boxShadow: '0 24px 56px rgba(31,31,31,0.1), inset 0 1px 0 rgba(255,255,255,0.6)',
+                }}
+              >
+                {/* Portrait testimonial video — autoplays muted once the
+                    section is in view (videoRefs effect above), paused
+                    when it scrolls out. */}
+                <div
+                  className="relative overflow-hidden w-full mb-7"
+                  style={{ aspectRatio: '16 / 9', backgroundColor: '#1F1F1F', borderRadius: '20px' }}
                 >
-                  {/* Collapsed rail label — visible when not active. */}
+                  <video
+                    ref={(el) => { videoRefs.current[i] = el; }}
+                    src={p.videoSrc}
+                    poster={p.posterSrc}
+                    muted
+                    playsInline
+                    loop
+                    preload="metadata"
+                    className="w-full h-full object-cover"
+                  />
+                  <img
+                    src="/logo-A-white.svg"
+                    alt=""
+                    aria-hidden
+                    draggable={false}
+                    className="absolute pointer-events-none select-none"
+                    style={{ top: '14px', right: '14px', width: '28px', height: 'auto', zIndex: 10 }}
+                  />
+                </div>
+
+                {/* Editorial testimonial: ringed avatar, serif quote, a
+                    handwritten signature + sans meta line. */}
+                <div className="flex items-start gap-4 mb-5">
                   <div
-                    className="absolute inset-0 flex items-center justify-center"
+                    className="rounded-full overflow-hidden shrink-0"
                     style={{
-                      opacity: isActive ? 0 : 1,
-                      pointerEvents: isActive ? 'none' : 'auto',
+                      width: '48px',
+                      height: '48px',
+                      backgroundColor: '#1F1F1F',
+                      boxShadow: `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.accent}`,
                     }}
                   >
-                    <span
+                    <img
+                      src={p.avatarSrc || p.posterSrc}
+                      alt=""
+                      aria-hidden
+                      draggable={false}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.currentTarget.style.opacity = '0'; }}
+                    />
+                  </div>
+                  <div>
+                    <div
                       style={{
-                        writingMode: 'vertical-rl',
-                        transform: 'rotate(180deg)',
+                        fontFamily: FONT_SCRIPT,
+                        fontWeight: 600,
                         color: '#1F1F1F',
-                        fontFamily: FONT_DISPLAY,
-                        fontSize: '1.4rem',
-                        fontWeight: 800,
-                        letterSpacing: '0.02em',
+                        fontSize: '2rem',
+                        lineHeight: 1,
+                        letterSpacing: '0.005em',
                       }}
                     >
-                      {p.title}
-                    </span>
-                  </div>
-
-                  {/* Expanded view — visible when active. Two-column
-                      layout: name + pill + divider + quote + metric on the
-                      left, autoplay portrait video on the right, fully-black
-                      A logo pinned above the video in the top-right padding. */}
-                  <div
-                    className="absolute inset-0 p-8 lg:p-10 flex flex-col"
-                    style={{
-                      opacity: isActive ? 1 : 0,
-                      pointerEvents: isActive ? 'auto' : 'none',
-                      transition: isActive
-                        ? 'opacity 0ms 700ms'
-                        : 'opacity 0ms 0ms',
-                    }}
-                  >
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex-1 items-stretch">
-                      {/* Left column: editorial testimonial. Small ringed
-                          avatar at the top, serif quote in the middle, a
-                          handwritten signature + sans meta line at the
-                          bottom. No big bold name, no blue chip — the
-                          script signature carries the identity now. */}
-                      <div className="flex flex-col justify-between py-2">
-                        <div>
-                          <div
-                            className="rounded-full overflow-hidden mb-7"
-                            style={{
-                              width: '56px',
-                              height: '56px',
-                              backgroundColor: '#1F1F1F',
-                              boxShadow: `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.accent}`,
-                            }}
-                          >
-                            <img
-                              src={p.avatarSrc || p.posterSrc}
-                              alt=""
-                              aria-hidden
-                              draggable={false}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { e.currentTarget.style.opacity = '0'; }}
-                            />
-                          </div>
-                          <p
-                            className="leading-snug max-w-xl"
-                            style={{
-                              color: '#1F1F1F',
-                              fontFamily: FONT_SERIF,
-                              fontSize: '1.35rem',
-                              lineHeight: 1.45,
-                              fontWeight: 400,
-                            }}
-                          >
-                            &ldquo;{p.quote}&rdquo;
-                          </p>
-                        </div>
-                        <div className="mt-8">
-                          <div
-                            style={{
-                              fontFamily: FONT_SCRIPT,
-                              fontWeight: 600,
-                              color: '#1F1F1F',
-                              fontSize: '2.4rem',
-                              lineHeight: 1,
-                              letterSpacing: '0.005em',
-                            }}
-                          >
-                            {p.name}
-                          </div>
-                          <div
-                            className="mt-1.5"
-                            style={{
-                              fontFamily: FONT_BODY,
-                              fontWeight: 500,
-                              fontSize: '0.92rem',
-                              color: 'rgba(31,31,31,0.6)',
-                              letterSpacing: '0.005em',
-                            }}
-                          >
-                            {p.role} at <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right column: portrait testimonial video. Autoplays
-                          muted on panel activation (videoRefs effect above);
-                          paused + reset on collapse or when section leaves
-                          viewport. No overlay — the left column carries the
-                          identity, the video just plays. */}
-                      <div className="flex justify-center lg:justify-end">
-                        <div
-                          className="relative overflow-hidden w-full max-w-[340px]"
-                          style={{
-                            aspectRatio: '4 / 5',
-                            backgroundColor: '#1F1F1F',
-                            borderRadius: '24px',
-                          }}
-                        >
-                          <video
-                            ref={(el) => { videoRefs.current[i] = el; }}
-                            src={p.videoSrc}
-                            poster={p.posterSrc}
-                            muted
-                            playsInline
-                            loop
-                            preload="metadata"
-                            className="w-full h-full object-cover"
-                          />
-                          {/* Brand mark — pinned to the top-right of the video pane. */}
-                          <img
-                            src="/logo-A-white.svg"
-                            alt=""
-                            aria-hidden
-                            draggable={false}
-                            className="absolute pointer-events-none select-none"
-                            style={{ top: '14px', right: '14px', width: '28px', height: 'auto', zIndex: 10 }}
-                          />
-                        </div>
-                      </div>
+                      {p.name}
+                    </div>
+                    <div
+                      className="mt-1.5"
+                      style={{
+                        fontFamily: FONT_BODY,
+                        fontWeight: 500,
+                        fontSize: '0.88rem',
+                        color: 'rgba(31,31,31,0.6)',
+                      }}
+                    >
+                      {p.role} at <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
                     </div>
                   </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Progress dots — show + jump to a panel; also visualize the
-              auto-rotate position. */}
-          <div className="flex items-center justify-center gap-2.5 mt-10">
-            {TESTIMONIAL_PANELS.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setActivePanel(i)}
-                aria-label={`Show panel ${i + 1}`}
-                className="h-2.5 rounded-full transition-all duration-500 ease-out"
-                style={{
-                  width: i === activePanel ? 32 : 10,
-                  backgroundColor: i === activePanel ? '#FA6C43' : 'rgba(31,31,31,0.18)',
-                }}
-              />
+                </div>
+                <p
+                  className="leading-snug"
+                  style={{
+                    color: '#1F1F1F',
+                    fontFamily: FONT_SERIF,
+                    fontSize: '1.2rem',
+                    lineHeight: 1.45,
+                    fontWeight: 400,
+                  }}
+                >
+                  &ldquo;{p.quote}&rdquo;
+                </p>
+              </div>
             ))}
           </div>
         </div>
@@ -1690,140 +1205,6 @@ const LandingV2 = () => {
           </div>
         </div>
       </footer>
-
-      {/* Register-gate modal. Opened when an anonymous visitor tries to
-          submit the hero composer. Backdrop click + Escape close it
-          (Escape wired in the component-body useEffect above). */}
-      {showRegisterModal && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center px-6"
-          style={{ backgroundColor: 'rgba(15,15,15,0.55)', backdropFilter: 'blur(6px)' }}
-          onClick={() => setShowRegisterModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="register-gate-title"
-        >
-          <div
-            className="relative w-full max-w-md rounded-[28px] p-7 text-left"
-            style={{
-              backgroundColor: '#FFFFFF',
-              boxShadow: '0 32px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.04)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setShowRegisterModal(false)}
-              aria-label="Close"
-              className="absolute flex items-center justify-center transition-colors hover:bg-gray-100"
-              style={{
-                top: '14px',
-                right: '14px',
-                width: '32px',
-                height: '32px',
-                borderRadius: '9999px',
-                color: '#6B6B6B',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                <path
-                  d="M2 2l10 10M12 2L2 12"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-            <h2
-              id="register-gate-title"
-              className="mb-3"
-              style={{
-                fontFamily: FONT_DISPLAY,
-                fontWeight: 800,
-                fontSize: '26px',
-                lineHeight: 1.1,
-                letterSpacing: '-0.025em',
-                color: '#1F1F1F',
-              }}
-            >
-              Create an account to chat
-            </h2>
-            <p
-              className="mb-6"
-              style={{
-                fontFamily: FONT_BODY,
-                color: '#5A5A5A',
-                fontSize: '15px',
-                lineHeight: 1.5,
-              }}
-            >
-              Sign up free to send your first prompt and start building your AI tutor on Actrlabs.
-            </p>
-            {lastPrompt.trim() && (
-              <div
-                className="mb-6 rounded-2xl p-3"
-                style={{
-                  backgroundColor: '#F5F3EE',
-                  fontFamily: FONT_BODY,
-                  color: '#3A3A3A',
-                  fontSize: '13px',
-                  lineHeight: 1.45,
-                }}
-              >
-                <div
-                  className="mb-1"
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.18em',
-                    textTransform: 'uppercase',
-                    color: '#8B8B8B',
-                    fontWeight: 600,
-                  }}
-                >
-                  Your prompt
-                </div>
-                <div
-                  style={{
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {lastPrompt}
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => navigate('/register')}
-              className="w-full py-3 text-sm font-semibold transition-all hover:opacity-95 active:scale-[0.99]"
-              style={{
-                backgroundColor: '#FA6C43',
-                color: '#FFFFFF',
-                fontFamily: FONT_BODY,
-                borderRadius: '14px',
-                boxShadow: '0 8px 20px rgba(250,108,67,0.35)',
-              }}
-            >
-              Sign up free
-            </button>
-            <div
-              className="mt-4 text-center text-sm"
-              style={{ color: '#6B6B6B', fontFamily: FONT_BODY }}
-            >
-              Already have an account?{' '}
-              <Link
-                to="/login"
-                style={{ color: '#FA6C43', fontWeight: 600 }}
-                className="hover:underline"
-              >
-                Sign in
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Closer-icon idle float + CTA pulse + reduced-motion fallback */}
       <style>{`

@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-09-13  @changed Added the professor-only /studio/:projectId/present route (the Mentimeter-style QR + live-results view for in-class use). Prior: Merge: Studio Phase 1 routes (added /studio/:projectId/responses and the public /s/:projectId respondent form) alongside the professor-only /manager-exercise/:configId/dashboard route (live-class control panel: pairing for the investigation template, the breakout-room monitor for hiring). Prior: Added /studio and /studio/:projectId (Studio, the new faculty research-project builder), professor-only. Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
+/* @language JSX  @updated 2026-09-14  @changed RootRedirect's logged-out fallback now points to /v2 instead of /home — LandingV2 is the real homepage now, per manager feedback on the v2 review. Reuses the same isLoggedIn()-based redirect that already existed, no new auth mechanism. Prior: Added the professor-only /studio/:projectId/present route (the Mentimeter-style QR + live-results view for in-class use). Prior: Merge: Studio Phase 1 routes (added /studio/:projectId/responses and the public /s/:projectId respondent form) alongside the professor-only /manager-exercise/:configId/dashboard route (live-class control panel: pairing for the investigation template, the breakout-room monitor for hiring). Prior: Added /studio and /studio/:projectId (Studio, the new faculty research-project builder), professor-only. Prior: Removed the mobile block gate — the app is not desktop-only anymore, so every route renders regardless of viewport/user-agent. Prior: Added the professor-only /video-boxes/:configId route (visual rubric editor). Prior: added the public /course-plan route (syllabus advisor) and exempted it from the mobile block. */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css'; // Assuming you still have some base CSS or will use Tailwind
@@ -53,8 +53,10 @@ import PageTransition from './components/PageTransition';
 import { isLoggedIn, dashboardPath } from './utils/auth';
 
 // Root: send logged-in users straight to their dashboard, everyone else to the landing page.
+// LandingV2 (/v2) is now that landing page — /home (the old splash) still exists at its own
+// route but is no longer where a logged-out visitor lands.
 function RootRedirect() {
-  return <Navigate to={isLoggedIn() ? dashboardPath() : '/home'} replace />;
+  return <Navigate to={isLoggedIn() ? dashboardPath() : '/v2'} replace />;
 }
 function App() {
   return (
