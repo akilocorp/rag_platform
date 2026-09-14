@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   `investigation`'s flow gains three flags for professor-paired rooms: `prof_paired`
+# @updated   2026-09-14
+# @changed   Lexicon keys for round 2's closing re-ask (`revision_*`): the last minute of the Post
+#            Outcome Discussion now asks the decider what the group would answer having read the
+#            outcome. Added to `_HIRING` only — `lexicon()` merges over it, and `investigation` has
+#            no round 2 to close, so the keys are inherited but never reached there.
+#            Prior: `investigation`'s flow gains three flags for professor-paired rooms: `prof_paired`
 #            (skip the student breakout lobby — the professor pairs the class instead),
 #            `hide_case_after_reading` (blank the confidential material once the timed reading
 #            window closes), and `hide_role_number` (show "Case File" instead of "Case File 2").
@@ -48,7 +52,7 @@ _HIRING: Dict = {
     "label": "Hiring committee",
     "description": (
         "A selection committee picks one candidate. Each member holds a partial view of the "
-        "same shortlist. Six months later the outcome lands and ACTR debriefs the room."
+        "same shortlist. Six months later the outcome lands and ACTR leads a Post Outcome Discussion."
     ),
     "flow": {
         # The kiosk gate + "six months later" outcome document.
@@ -56,9 +60,17 @@ _HIRING: Dict = {
         # Round 2 with the facilitator. Requires `reveal` — the debrief opens on
         # the outcome the room has just read.
         "debrief": True,
-        # Students pick their own breakout room from a live lobby list. False here
-        # means the professor pairs the class instead — see `prof_paired` below.
-        "prof_paired": False,
+        # The professor pairs the class from a headcount; students never pick a
+        # breakout room. Was False — students chose their own room from a live
+        # lobby — which let a class seat itself unevenly and left a group of one
+        # waiting on nobody. Both templates now pair the same way.
+        "prof_paired": True,
+        # Whether pairing opens a room-wide READING window (`reading` phase) before
+        # the private decision. Investigation needs one because its case document is
+        # on a shared clock and then vanishes; hiring paces its own reading per
+        # student (the general-info and card gates), so a paired hiring room goes
+        # straight to round 0.
+        "reading_window": False,
         # Whether the confidential material disappears once the timed reading
         # window closes. Hiring's cards stay up through the whole discussion —
         # that is how a group argues from its packets.
@@ -89,6 +101,26 @@ _HIRING: Dict = {
         "decider_waiting": "{decider} is entering the hire for the group.",
         "done_group_label": "Your group hired",
         "material_line": "Here are their credentials, for your judgement.",
+        # The round-2 re-ask, opened for the last minute of the Post Outcome
+        # Discussion. Only a template with `debrief` on ever reaches these — an
+        # investigation has no round 2 to close — but they live here rather than in
+        # the page for the same reason every other string does.
+        "revision_title": "Knowing what you know now",
+        "revision_help_decider": (
+            "Last call. Enter the hire your group would make today, having read how it turned out. "
+            "Keeping the same name is an answer."
+        ),
+        "revision_help_watcher": "{decider} is entering the hire your group would make today.",
+        "revision_submit_label": "Enter our final answer",
+        "revision_notice": "{decider} is entering the hire your group would make today.",
+        "revision_done_label": "What you'd do now",
+        # Two shapes of the same fact, because the done screen says it in two places:
+        # a bare sentence in the comparison card, and a `{name}` line appended to the
+        # summary paragraph for the student who never submitted a private pick and so
+        # never sees that card.
+        "revision_kept": "Asked again after the outcome, your group stood by its hire.",
+        "revision_changed": "Your group would hire someone else now.",
+        "revision_changed_line": "Asked again after the outcome, your group would hire {name}.",
     },
 }
 
@@ -111,9 +143,11 @@ _INVESTIGATION: Dict = {
         # Structurally off, not prompted off: with no reveal there is no outcome
         # document for a facilitator to debrief against.
         "debrief": False,
-        # The professor pairs the class from a headcount instead of students
-        # picking a breakout room themselves — see `investigation_pool.py`.
+        # The professor pairs the class from a headcount — see `investigation_pool.py`.
         "prof_paired": True,
+        # The case is on one shared clock and then disappears, so pairing opens the
+        # timed `reading` phase rather than dropping the room straight into round 0.
+        "reading_window": True,
         # Once the timed reading window closes, `your_case`/`your_credentials`
         # blank out for good (see `ExerciseState._case_visible`). A suspect is
         # argued from memory, not from a document open in another tab.

@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-11
-# @changed   The group summary reads the WHOLE room transcript, not its tail: sentence one is about what
+# @updated   2026-09-14
+# @changed   `/results` carries round 2's closing re-ask: `revised_choice` + `revised_changed` per room,
+#            and `rooms_revised` / `rooms_changed_mind` in the totals. `rooms_revised` is deliberately
+#            the denominator — a room that let the ballot lapse is not a room that held its position.
+#            Prior: The group summary reads the WHOLE room transcript, not its tail: sentence one is about what
 #            the group argued over in the discussion round, which a tail-only window cut off entirely. A
 #            long room keeps its opening and its ending and drops the middle.
 #            Prior: POST /<config_id>/class-summary + POST /<config_id>/group-summary/<room_id> — the two AI
@@ -88,18 +91,18 @@ def _load_owned_config(config_id):
     return doc, None
 
 
-def _load_owned_investigation_config(config_id):
-    """`_load_owned_config`, plus requiring the `investigation` template.
+def _load_owned_paired_config(config_id):
+    """`_load_owned_config`, plus requiring a template the professor pairs.
 
-    The pairing pool only exists for that template (see `flow.prof_paired` in
-    `exercise_templates.py`) — a hiring config has no pool to poll or pair, its
-    students pick their own breakout room instead.
+    Gated on the `prof_paired` flow flag rather than on a template id: both
+    templates pair now, and a future one that doesn't should be excluded by what it
+    declares, not by being absent from a hardcoded list here.
     """
     config_doc, error = _load_owned_config(config_id)
     if error:
         return None, error
     me = config_doc.get("manager_exercise") or {}
-    if exercise_templates.normalize(me.get("template")) != "investigation":
+    if not exercise_templates.flow(me.get("template")).get("prof_paired"):
         return None, (jsonify({"error": "This exercise does not use professor pairing"}), 400)
     return config_doc, None
 
@@ -182,6 +185,7 @@ def list_test_runs(config_id):
             "room_id": room_id,
             "phase": doc.get("phase") or "waiting",
             "chosen_candidate": doc.get("chosen_candidate"),
+            "revised_candidate": doc.get("revised_candidate"),
             "messages": db["group_chat_messages"].count_documents({"room_id": room_id}),
             "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
         })
@@ -209,7 +213,7 @@ def _tallied(counts, total):
 def get_pool_status(config_id):
     """The professor's live headcount for the pairing panel: who has joined and
     not yet been placed, whether pairing has already run, and any quits."""
-    config_doc, error = _load_owned_investigation_config(config_id)
+    config_doc, error = _load_owned_paired_config(config_id)
     if error:
         return error
     return jsonify(investigation_pool.status(config_id)), 200
@@ -225,7 +229,7 @@ def post_pair(config_id):
     Idempotent: calling this again after pairing has already run for this config
     returns the same groups rather than reshuffling students who may be mid-exercise.
     """
-    config_doc, error = _load_owned_investigation_config(config_id)
+    config_doc, error = _load_owned_paired_config(config_id)
     if error:
         return error
     try:
@@ -272,6 +276,10 @@ def get_results(config_id):
 
     rooms, group_counts, solo_counts = [], {}, {}
     students_total = 0
+    # How many rooms answered round 2's re-ask at all, and how many of those moved.
+    # Counted separately because "didn't answer" and "kept the same name" are
+    # different results and averaging them together would hide both.
+    revised_total = revised_changed = 0
     for doc in ManagerExerciseSession.find_by_config(config_id):
         room_id = doc.get("room_id") or ""
         if room_id.startswith(f"{config_id}{TEST_ROOM_MARKER}"):
@@ -301,6 +309,16 @@ def get_results(config_id):
         if chosen:
             group_counts[chosen] = group_counts.get(chosen, 0) + 1
 
+        # Round 2's closing re-ask: what the group would answer having read the
+        # outcome. Null on a template with no debrief, and null on a room that let
+        # the ballot lapse — which is NOT the same as a room that stood by its
+        # answer, so `revised_changed` is only ever True/False off a real revision.
+        revised = doc.get("revised_candidate")
+        if revised:
+            revised_total += 1
+            if revised != chosen:
+                revised_changed += 1
+
         rooms.append({
             "room_id": room_id,
             # `{config_id}_g{n}` — the lobby's own numbering, so "Group 3" here is
@@ -314,6 +332,10 @@ def get_results(config_id):
             # wrong group as unmarked rather than as wrong.
             "correct": (chosen.strip().casefold() == answer.strip().casefold()
                         if (chosen and answer) else None),
+            "revised_choice": revised,
+            # None when there was no revision to compare, so an unanswered re-ask
+            # renders as blank rather than as a group that held its position.
+            "revised_changed": (revised != chosen) if (revised and chosen) else None,
             "students": students,
             "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
         })
@@ -334,6 +356,11 @@ def get_results(config_id):
             # How many groups landed on the pack's best option. The one number a
             # professor opens this page for.
             "rooms_correct": sum(1 for r in decided if r["correct"]),
+            # Round 2's re-ask. `rooms_revised` is the denominator — only rooms that
+            # actually answered it — so `rooms_changed_mind` is never read against a
+            # class where half the rooms let the ballot lapse.
+            "rooms_revised": revised_total,
+            "rooms_changed_mind": revised_changed,
         },
         "group_tally": _tallied(group_counts, len(decided)),
         "solo_tally": _tallied(solo_counts, students_total),
@@ -513,6 +540,10 @@ def get_run(room_id):
         "phase": state.phase() if state else (doc.get("phase") or "waiting"),
         "roster": doc.get("roster") or [],
         "chosen_candidate": doc.get("chosen_candidate"),
+        # What round 2's closing re-ask returned, if the run got that far. Read
+        # beside `chosen_candidate` rather than instead of it — the pair is the
+        # result, either half alone is not.
+        "revised_candidate": doc.get("revised_candidate"),
         # Which step of the facilitator's own sequence the debrief is on. Surfaced
         # because a session that skips or stalls does it HERE, and until this was
         # visible the only symptom was a transcript that felt wrong.

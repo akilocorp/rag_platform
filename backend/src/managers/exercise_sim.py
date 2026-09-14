@@ -1,6 +1,21 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   Sim students can now run on a different PROVIDER, not just a different Claude model:
+# @updated   2026-09-14
+# @changed   The run answers round 2's closing re-ask. The debrief loop exits on a phase change, but
+#            the revision ballot opens without one (it rides on top of round 2), so a finished run was
+#            landing with the phase still `debrief` and a ballot nobody filled in — leaving every test
+#            with an empty `revised_candidate` and no way to tell a broken re-ask from a quiet one.
+#            Prior: Found the real cause of every sim-student call "returning nothing" on the investigation
+#            template: `flow.hide_case_after_reading` (built for real students, whose own memory
+#            carries them past it) blanks `your_case`/`your_credentials` in the snapshot once the
+#            reading window closes — but SimStudent rebuilds its ENTIRE persona from the live
+#            snapshot on every call, unlike a real student. `_system` now caches the confidential
+#            material the first time it's visible (`self._cached_case`/`_cached_credentials`, set in
+#            `__init__`) and uses that once the live snapshot goes blank, so RECALL_BEHAVIOUR still
+#            has real content to frame as "recalling" instead of nothing to talk from. Also: `_ask`
+#            no longer clears `last_error` to None on a call that succeeds but returns empty text —
+#            that was hiding the failure from both the diagnostic message and the fail-fast bail,
+#            which is why the earlier fix ran the full discuss window instead of bailing in seconds.
+# @changed   Prior: Sim students can now run on a different PROVIDER, not just a different Claude model:
 #            `_ask` dispatches on STUDENT_MODEL's prefix to `_ask_openai` ("gpt*" — LangChain's
 #            ChatOpenAI, the same pattern video/scoring.py already calls successfully) or
 #            `_ask_anthropic` (everything else, the raw Anthropic SDK as before). STUDENT_MODEL
@@ -142,6 +157,13 @@ MAX_DEBRIEF_TURNS = 80
 MAX_DEBRIEF_SPINS = 800
 PHASE_WAIT_SECONDS = 90
 
+# How long to keep waiting for round 2's closing ballot once the debrief loop has
+# spent its turn budget. Generous, because the ballot opens on the DEBRIEF clock
+# (the last `revision_seconds` of it) — a run that talks itself out early has real
+# minutes of silence to sit through before the re-ask appears. ACTR ending the
+# conversation itself opens it immediately, which is the usual case.
+REVISION_WAIT = 180.0
+
 FACILITATOR = "ACTR"
 
 # The sim-student system prompt, per-round tasks, and the misleading seat's
@@ -192,21 +214,47 @@ class SimStudent:
         # swallowed failure and a student with nothing to say look identical in
         # the transcript, and only one of them is a finding.
         self.last_error = None
+        # The confidential material, cached the first time it's visible. A real
+        # student's own memory carries them through the discussion once
+        # `flow.hide_case_after_reading` (investigation template) blanks
+        # `your_case`/`your_credentials` in the snapshot post-reading — but a
+        # SimStudent has no memory at all, it rebuilds its ENTIRE persona from
+        # the live snapshot on every single call. Without this cache it would
+        # have nothing left to argue from the moment the reading window closes,
+        # and — correctly, but uselessly — reply PASS every turn: RECALL_BEHAVIOUR
+        # was written on the assumption the model still gets the real packet and
+        # is only ASKED to talk as if recalling it, not that the packet is gone.
+        self._cached_case = ''
+        self._cached_credentials = None
 
     def _system(self, state, others: str) -> str:
         tpl = tester_templates.get(state.template())
         snapshot = state.snapshot_for(self.uid)
+        if (snapshot.get('your_case') or '').strip():
+            self._cached_case = snapshot['your_case']
+        if snapshot.get('your_credentials'):
+            self._cached_credentials = snapshot['your_credentials']
+        # What this seat actually argues from: the live snapshot's material if
+        # it's still there, else whatever was cached while it was.
+        effective = dict(snapshot)
+        if not (effective.get('your_case') or '').strip() and self._cached_case:
+            effective['your_case'] = self._cached_case
+        if not effective.get('your_credentials') and self._cached_credentials:
+            effective['your_credentials'] = self._cached_credentials
         premise = (snapshot.get("premise") or {}).get("scenario") or ""
         system = tpl["student_system"].format(
             name=self.name, others=others or "your group",
             role=snapshot.get("your_role") or "manager",
             premise=premise[:3000] or "(no shared brief was sent)",
-            packet=_render_packet(snapshot),
+            packet=_render_packet(effective),
         )
         # A document-holding seat recalls; a card-holding seat reads. Applied before
         # the misleading block so a misleading seat still overrides it — that seat's
         # whole game is inventing, and hedging about its own memory would soften it.
-        if snapshot.get("student_view") == "case" and (snapshot.get("your_case") or "").strip():
+        # Checked against `effective`, not the live snapshot, for the same reason
+        # the packet itself is: recall_behaviour is what makes talking from a
+        # blanked-but-cached document read as memory instead of as nothing to say.
+        if snapshot.get("student_view") == "case" and (effective.get("your_case") or "").strip():
             system += tpl["recall_behaviour"]
         return system + tpl["misleading_behaviour"] if self.misleading else system
 
@@ -248,10 +296,23 @@ class SimStudent:
             self.last_error = "%s: %s" % (type(e).__name__, e)
             logger.warning("sim student %s failed: %s", self.name, e, exc_info=True)
             return ""
-        self.last_error = None
         # Models prefix their own name even when told not to; the client already
         # renders the sender, so it reads as a bug in the transcript.
-        return re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text.strip()).strip()
+        cleaned = re.sub(r"^%s\s*:\s*" % re.escape(self.name), "", text.strip()).strip()
+        if not cleaned:
+            # The call succeeded (no exception) but produced nothing usable — a
+            # DIFFERENT failure mode from an outright error, and just as worth
+            # surfacing. Previously this cleared `last_error` to None like a real
+            # success, which hid the failure from both the "no seat could speak"
+            # diagnostic (it only reports a set `last_error`) and the fail-fast
+            # bail below (which only counts a set `last_error` as a failure) — a
+            # room where every call quietly returned blank ran the WHOLE discuss
+            # window before saying anything, instead of bailing in seconds.
+            self.last_error = "model call succeeded but returned an empty response " \
+                               "(check the prompt, not the connection)"
+            return ""
+        self.last_error = None
+        return cleaned
 
     @staticmethod
     def _ask_anthropic(system_text: str, user_text: str, max_tokens: int, temperature: float) -> str:
@@ -508,5 +569,21 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
             # it is the condition ACTR's silence watcher exists for.
             sleep(4.0)
 
-    logger.info("sim room %s finished in phase=%s after %d debrief turns",
-                state.room_id, state.phase(), turns)
+    # ---- round 2's closing re-ask ---------------------------------------
+    # The debrief loop above exits the moment the phase changes, but the revision
+    # ballot opens WITHOUT one — it rides on top of round 2 — so a run that talked
+    # its way to the last minute lands here with the phase still `debrief` and a
+    # ballot waiting. Answer it: letting it lapse would leave every test run with an
+    # empty `revised_candidate` and no way to tell a broken re-ask from a quiet one.
+    waited = 0.0
+    while waited < REVISION_WAIT and state.phase() == "debrief" and not state.revision_open():
+        sleep(1.0)
+        waited += 1.0
+    if state.revision_open():
+        revised = decider.choose(state, _transcript(messages()), "decision_task", names)
+        if revised:
+            state.record_revised_choice(decider.uid, revised)
+        wait_for({"done"}, 20)
+
+    logger.info("sim room %s finished in phase=%s after %d debrief turns (revised=%s)",
+                state.room_id, state.phase(), turns, getattr(state, "revised_candidate", None))

@@ -1,6 +1,33 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   New `reading` phase for professor-paired templates (`flow.prof_paired`): `begin_reading`
+# @updated   2026-09-14
+# @changed   The Post Outcome Discussion now ends on a SECOND ballot, not on the clock alone: the last
+#            `revision_seconds` (default 60) of round 2 open `revision_ballot`, where the decider enters
+#            the answer the group would give now that it has read the outcome. It never overwrites
+#            `chosen_candidate` — the original stands, the revision is recorded beside it as
+#            `revised_candidate`, which is the only way "did this room change its mind" is answerable.
+#            `end_debrief` (ACTR's end marker, the USUAL ending) routes through the ballot too, so the
+#            feature is not left to the timer backstop that rarely fires. No revision entered = none
+#            recorded; there is no fallback, because the group already has an answer to fall back to.
+#            Prior: A room that never enters a decision is now ENDED rather than given one: when the final
+#            call lapses with an empty ballot, `expire_undecided` sets a terminal `expired` flag, keeps
+#            chosen_candidate/forecast_shown_for null, emits `exercise_expired` and goes straight to
+#            done — no reveal, no Post Outcome Discussion, no ACTR wrap-up. The old path invented a
+#            hire via `_fallback_choice` and walked the room through the outcome as if they had decided.
+#            Prior: Round 0 is TIMED. `begin_solo` arms a deadline covering the whole private round
+#            (`round0_seconds` = brief + cards + decision, since one phase spans all of them) and
+#            `_run_solo_window` opens round 1 when it lapses, decided or not. Replaces
+#            SOLO_GRACE_SECONDS, a 15-minute backstop for an absent student, with the round's real
+#            length. New `solo_minutes` (default 2) is the student-facing decision budget.
+#            Prior: `general_info_seconds` / `review_seconds` read off the config and passed out in the
+#            snapshot: the lengths of the two client-local prelude gates (the brief, then the cards).
+#            The countdown runs on the client because each student walks the prelude at their own
+#            desk, but the length is the professor's.
+#            Prior: Round 1's clock arms when the round OPENS, not on the first student message. The lazy clock
+#            meant the countdown a room got depended on when somebody happened to type, so two groups in
+#            the same class ran on different amounts of time and neither could pace against the timer on
+#            screen. `PRELUDE_GRACE_SECONDS` and the grace watch it existed for are gone; `arm_discuss_timer`
+#            survives only to rescue a room persisted under the old behaviour and rehydrated mid-round.
+#            Prior: New `reading` phase for professor-paired templates (`flow.prof_paired`): `begin_reading`
 #            puts a room on a real clock the instant it's paired (no lobby, no manual Start), and
 #            `_run_reading_window` auto-advances it into `solo` when the clock runs out — `begin_solo`
 #            now accepts entry from `waiting` (hiring's Start button) OR `reading`. `flow.hide_case_after_reading`
@@ -185,18 +212,6 @@ _PHASE_ROUND = {
     PHASE_DONE: 2,
 }
 
-# M7: the discuss clock is LAZY — it starts when discussion actually begins (the
-# first student message), NOT when the phase opens, so a room that is still reading
-# doesn't burn deliberation time. If a room stays silent this long the clock arms
-# anyway, so a quiet room still advances to the vote instead of hanging.
-PRELUDE_GRACE_SECONDS = 240
-
-# M9: the solo round normally ends when every student has submitted their private
-# pick — the same all-members gate the kiosk uses. The kiosk can afford no timeout
-# because an instructor is pacing it; nobody is pacing this one, so a student who
-# walks away must not strand the room forever.
-SOLO_GRACE_SECONDS = 900
-
 # --- Turn-taking ------------------------------------------------------------
 # WITHIN the debrief there are no gates. ACTR is invoked on every student message
 # and decides for itself, from the facts `turn_context()` hands it plus the worked
@@ -273,7 +288,11 @@ class ExerciseState:
         self.choose_seconds: float = cfg["choose_seconds"]
         self.final_call_seconds: float = cfg["final_call_seconds"]
         self.debrief_seconds: float = cfg["debrief_seconds"]
+        self.revision_seconds: float = cfg["revision_seconds"]
         self.reading_seconds: float = cfg["reading_seconds"]
+        self.general_info_seconds: float = cfg["general_info_seconds"]
+        self.review_seconds: float = cfg["review_seconds"]
+        self.solo_seconds: float = cfg["solo_seconds"]
 
         if session_doc:
             self._load_from_doc(session_doc)
@@ -288,9 +307,21 @@ class ExerciseState:
             # shape is kept so the persisted document, `_tally` and
             # `resolve_collective` all carry over from the ballot this replaced.
             self.collective_ballot: Dict = {"open": False, "votes": {}, "final_call": False}
+            # The round-2 re-ask, opened for the last `revision_seconds` of the
+            # debrief. Same decider-only shape as `collective_ballot` and kept
+            # separate from it on purpose: the two answers have to be readable
+            # side by side, so neither is allowed to overwrite the other.
+            self.revision_ballot: Dict = {"open": False, "votes": {}}
             self.continue_acks: List[str] = []
             self.chosen_candidate: Optional[str] = None
+            # What the group would answer now, having read the outcome. None means
+            # no revision was entered — NOT "they kept the same answer", which is a
+            # different and separately interesting thing.
+            self.revised_candidate: Optional[str] = None
             self.forecast_shown_for: Optional[str] = None
+            # True once the room was ended for never entering a decision. Terminal:
+            # it suppresses the reveal and the Post Outcome Discussion.
+            self.expired: bool = False
             self.pending_go_around: Optional[Dict] = None
             self.last_facilitator_at: Optional[float] = None
             self.msgs_since_facilitator: int = 0
@@ -326,10 +357,25 @@ class ExerciseState:
             "debrief_seconds": float(
                 c.get("debrief_minutes") or c.get("discuss_minutes") or 20
             ) * 60.0,
+            # How much of the END of round 2 belongs to the revision ballot. Not a
+            # phase of its own and not subtracted from the debrief — it is the last
+            # minute OF the debrief, with the chat still live, because the point is
+            # a decision made while the room is still arguing about the outcome.
+            "revision_seconds": float(c.get("revision_seconds") or 60),
             # Professor-paired templates only. Configurable per config (ConfigPage /
             # EditConfigPage's "Case-reading window"); 30 by default — long enough
             # for a real case document, not just a one-page brief.
             "reading_seconds": float(c.get("reading_minutes") or 30) * 60.0,
+            # The two prelude gates. These pace CLIENT-LOCAL stages (the general-info
+            # brief and the candidate deck), which is why they are only passed out in
+            # the snapshot rather than driving a server phase: each student walks the
+            # prelude at their own desk, so there is no room-wide deadline to keep.
+            "general_info_seconds": float(c.get("general_info_minutes") or 3) * 60.0,
+            "review_seconds": float(c.get("review_minutes") or 3) * 60.0,
+            # Round 0's own window. Covers BOTH client stages the private decision is
+            # split across — the "on your own" notice and the ballot itself — so the
+            # ballot gets whatever the notice didn't spend.
+            "solo_seconds": float(c.get("solo_minutes") or 2) * 60.0,
         }
 
     # ==================================================================
@@ -351,9 +397,16 @@ class ExerciseState:
             "votes": dict(cb.get("votes") or {}),
             "final_call": bool(cb.get("final_call", False)),
         }
+        rb = doc.get("revision_ballot") or {}
+        self.revision_ballot = {
+            "open": bool(rb.get("open", False)),
+            "votes": dict(rb.get("votes") or {}),
+        }
         self.continue_acks = list(doc.get("continue_acks") or [])
         self.chosen_candidate = doc.get("chosen_candidate")
+        self.revised_candidate = doc.get("revised_candidate")
         self.forecast_shown_for = doc.get("forecast_shown_for")
+        self.expired = bool(doc.get("expired"))
         self.pending_go_around = doc.get("pending_go_around") or None
         self.last_facilitator_at = doc.get("last_facilitator_at")
         self.msgs_since_facilitator = int(doc.get("msgs_since_facilitator") or 0)
@@ -607,6 +660,22 @@ class ExerciseState:
                 "your_case": self.case_for(uid) if case_visible else "",
                 # M5: the shared scenario prose for the premise screen (general_info).
                 "premise": self._premise_payload(),
+                # The room ran out of time without entering a decision. The client
+                # renders a terminal notice instead of the done screen, and there is
+                # no outcome to show because none was ever unlocked.
+                "expired": self.expired,
+                # How long the two client-local prelude stages last, in seconds. The
+                # countdown is run by the client because these stages are its own —
+                # each student reads at their own desk — but the LENGTH is the
+                # professor's, so it comes from here rather than a hardcoded default
+                # sitting in the page.
+                "general_info_seconds": self.general_info_seconds,
+                "review_seconds": self.review_seconds,
+                # The private decision's budget (its notice screen plus the ballot).
+                # Paced on the client for the same reason as the gates above — it is
+                # one student's own screen — with `phase_deadline_ts` above as the
+                # room-level ceiling that ends the round regardless.
+                "solo_seconds": self.solo_seconds,
                 "can_start": self.can_start(),
                 # M9 round 0. `your_solo_vote` is this viewer's OWN private pick,
                 # restored so a refresh mid-round-0 doesn't ask them to decide twice.
@@ -631,6 +700,13 @@ class ExerciseState:
                 "kiosk_acked": len(self.continue_acks),
                 "kiosk_total": len(self.roster),
                 "you_continued": uid in self.continue_acks,
+                # The round-2 re-ask. `revision_open` drives the ballot card that
+                # sits over the debrief composer; `revised_candidate` is what was
+                # entered (null until then, and null forever if nobody entered one).
+                # Who may act on it is already answered by `you_decide` above — the
+                # revision belongs to the same decider as the group's first answer.
+                "revision_open": bool(self.revision_ballot.get("open")),
+                "revised_candidate": self.revised_candidate,
                 "chosen_candidate": self.chosen_candidate,
                 "forecast_text": self.forecast_text_for(self.chosen_candidate) if revealed else None,
                 # M2: verdict of the revealed pick, so the client frames the reveal
@@ -753,19 +829,36 @@ class ExerciseState:
                 # the grace watch for the students still to come.
                 if self._all_solo_voted():
                     self._finish_solo()
+                elif self.phase_deadline_ts is None:
+                    # Persisted under the older untimed round — give it a full window
+                    # from now rather than expiring a room that just came back.
+                    with self._lock:
+                        self.phase_deadline_ts = time.time() + self.round0_seconds()
+                        self._persist({"phase_deadline_ts": self.phase_deadline_ts})
+                    self._broadcast_phase()
+                    self._socketio.start_background_task(self._run_solo_window)
                 else:
-                    self._socketio.start_background_task(self._solo_grace_watch)
+                    self._resume_timed(PHASE_SOLO, self._finish_solo)
             elif self._phase == PHASE_DISCUSS:
                 # M3: discuss is the PRE-vote deliberation, so when its timer elapses
                 # the next thing is the ballot, not the done screen.
-                # M7: a room rebuilt while still unarmed (nobody has spoken yet) has no
-                # deadline to resume — restart the grace watch instead of expiring now.
+                # A room persisted under the older lazy clock can rehydrate with no
+                # deadline at all. Give it a full window from now rather than expiring
+                # it on the spot — the alternative is a room that reappears after a
+                # restart already out of time.
                 if self.phase_deadline_ts is None:
-                    self._socketio.start_background_task(self._prelude_grace_watch)
+                    self.arm_discuss_timer()
                 else:
                     self._resume_timed(PHASE_DISCUSS, self.begin_choose)
             elif self._phase == PHASE_DEBRIEF:
-                self._resume_timed(PHASE_DEBRIEF, self._enter_done)
+                # A room rebuilt mid-round-2 must come back to the right stage of it.
+                # With the re-ask already open there is only the tail of the clock
+                # left to run; otherwise the two-stage window still has a ballot to
+                # open, so resuming straight to `_enter_done` would skip it.
+                if self.revision_ballot.get("open"):
+                    self._run_revision_window()
+                else:
+                    self._run_debrief_window()
 
     def _sleep_until(self, deadline_ts: Optional[float]):
         """socketio.sleep in short slices until an absolute epoch deadline."""
@@ -868,25 +961,45 @@ class ExerciseState:
         the structural half of keeping the facilitator out of the group's first
         decision.
 
-        Untimed: the round ends when every student has submitted. `_solo_grace_watch`
-        is the backstop for the student who never does.
+        TIMED. The round ends when every student has submitted OR when the clock runs
+        out, whichever lands first — and the clock is the whole room's, so a student
+        who never decides doesn't hold everyone else on this screen. Whoever has not
+        picked when it lapses simply has nothing recorded for round 0; that is a
+        better trade than a room stuck waiting on one absent person.
+
+        The deadline covers the WHOLE round-0 walk, not just the ballot: this one
+        phase spans the brief, the candidate cards, the notice and the decision, all
+        of them client-local stages. So the room-level ceiling is their sum. The
+        student-facing 2-minute decision budget is paced on the client (it starts when
+        they reach the notice); this is the backstop that guarantees the room moves
+        together even if a client never reports in.
         """
         with self._lock:
             if self._phase not in (PHASE_WAITING, PHASE_READING):
                 return
             self._phase = PHASE_SOLO
-            self.phase_deadline_ts = None
+            self.phase_deadline_ts = time.time() + self.round0_seconds()
             self.solo_ballot = {"open": True, "votes": {}}
             self._persist({
                 "phase": PHASE_SOLO,
-                "phase_deadline_ts": None,
+                "phase_deadline_ts": self.phase_deadline_ts,
                 "solo_ballot": self.solo_ballot,
             })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "solo"})
         if self._socketio:
-            self._socketio.start_background_task(self._solo_grace_watch)
+            self._socketio.start_background_task(self._run_solo_window)
+
+    def round0_seconds(self) -> float:
+        """How long the whole private round may run: brief + cards + the decision.
+
+        The three are separate fields because they pace separate screens, but only
+        their sum can be a phase deadline — `solo` is one phase covering all of them.
+        A student who reads fast simply reaches the ballot with more of the window
+        left; nobody gets less than the decision budget the professor set.
+        """
+        return self.general_info_seconds + self.review_seconds + self.solo_seconds
 
     def _all_solo_voted(self) -> bool:
         """True once every seated student has submitted a private pick (empty room → False)."""
@@ -931,15 +1044,15 @@ class ExerciseState:
             self._persist({"solo_ballot": self.solo_ballot})
         self.begin_discuss()
 
-    def _solo_grace_watch(self):
-        """Backstop: force round 1 open if someone never submits a private pick.
+    def _run_solo_window(self):
+        """The private round's clock: open round 1 when it lapses, decided or not.
 
-        Whoever has not decided by now keeps no vote — they simply have nothing
-        recorded for round 0. Holding the whole room on one absent student is worse
-        than losing one data point.
+        Everyone who has not picked by now keeps no vote. This used to be a 15-minute
+        backstop for an absent student; it is now the round's actual length, because
+        the screen it paces is a single decision and a room should not sit on it.
         """
         with self._app.app_context():
-            self._socketio.sleep(SOLO_GRACE_SECONDS)
+            self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_SOLO:
                 self._finish_solo()
 
@@ -1001,7 +1114,46 @@ class ExerciseState:
             self._enter_final_call()
             self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_CHOOSE and self.collective_ballot.get("open"):
-                self.resolve_collective()
+                # Nothing entered by the time the final call lapses is not a decision
+                # the room made badly — it is no decision at all. A room that never
+                # commits is out; it does not get handed a pick it never chose and
+                # then an outcome to read as though it had.
+                if self._pick_winner(self._tally(self.collective_ballot.get("votes", {}))):
+                    self.resolve_collective()
+                else:
+                    self.expire_undecided()
+
+    def expire_undecided(self):
+        """End the session because the group never entered a decision.
+
+        Deliberately NOT `resolve_collective`'s fallback path. Falling back invented a
+        hire out of an empty ballot and walked the room through the reveal and the
+        Post Outcome Discussion, which reads as though they had done the exercise —
+        the one group that most needs to notice it didn't. They get a terminal screen
+        saying why, no outcome document, and nothing to discuss.
+        """
+        with self._lock:
+            if self._phase == PHASE_DONE:
+                return
+            self.expired = True
+            self.collective_ballot["open"] = False
+            self.collective_ballot["final_call"] = False
+            # No pick, and so nothing revealed — the outcome document stays sealed.
+            self.chosen_candidate = None
+            self.forecast_shown_for = None
+            self._persist({
+                "expired": True,
+                "chosen_candidate": None,
+                "forecast_shown_for": None,
+                "collective_ballot": self.collective_ballot,
+            })
+
+        self._emit("ballot_update", {"room_id": self.room_id, "open": False, "candidates": []})
+        self._emit("exercise_expired", {
+            "room_id": self.room_id,
+            "reason": "no_decision",
+        })
+        self._enter_done()
 
     def _enter_final_call(self):
         """Open the short final-call window: same ballot, a new tight deadline.
@@ -1048,20 +1200,23 @@ class ExerciseState:
             if self._phase != PHASE_SOLO:
                 return
             self._phase = PHASE_DISCUSS
-            # M7: leave the clock UNARMED (deadline None). It starts on the first
-            # student message (arm_discuss_timer), so a group still settling in
-            # doesn't burn deliberation time; the grace watch below arms it anyway if
-            # the room stays silent.
-            self.phase_deadline_ts = None
+            # The clock arms HERE, when the round opens — not on the first student
+            # message. It used to be lazy so a room still settling in didn't burn
+            # deliberation time, but that traded one problem for a worse one: the
+            # countdown a room saw depended on when somebody happened to type, so two
+            # groups in the same class got different amounts of time and neither could
+            # pace itself against the clock on screen. Every other phase arms on entry;
+            # this one now does too.
+            self.phase_deadline_ts = time.time() + self.discuss_seconds
             self._persist({
                 "phase": PHASE_DISCUSS,
-                "phase_deadline_ts": None,
+                "phase_deadline_ts": self.phase_deadline_ts,
             })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": False, "reason": "discuss"})
         if self._socketio:
-            self._socketio.start_background_task(self._prelude_grace_watch)
+            self._socketio.start_background_task(self._run_discuss_window)
 
     def end_discussion(self, uid: str) -> bool:
         """The decider closes round 1 early and goes to the hire (M13).
@@ -1081,20 +1236,13 @@ class ExerciseState:
         self.begin_choose()
         return True
 
-    def _prelude_grace_watch(self):
-        """Fallback: arm the discuss clock after the grace window if it is still
-        unarmed, so a room where nobody types still advances to the vote."""
-        with self._app.app_context():
-            self._socketio.sleep(PRELUDE_GRACE_SECONDS)
-            if self._phase == PHASE_DISCUSS and self.phase_deadline_ts is None:
-                self.arm_discuss_timer()
-
     def arm_discuss_timer(self):
-        """Start the discuss countdown the first time discussion actually begins (M7).
+        """Arm the discuss clock if it somehow isn't armed yet.
 
-        Idempotent: only the first call (a student message, or the grace watch) arms
-        it; every later call no-ops. Broadcasts the phase so clients pick up the
-        countdown, then hands off to the window task that opens the ballot on expiry.
+        `begin_discuss` arms it on entry, so this is now only reached by a room that
+        was persisted under the older lazy clock and rehydrated mid-round. Idempotent:
+        an armed clock is left exactly where it is, so a resumed room never has its
+        remaining time quietly reset by a student typing.
         """
         with self._lock:
             if self._phase != PHASE_DISCUSS or self.phase_deadline_ts is not None:
@@ -1147,28 +1295,168 @@ class ExerciseState:
         if self._socketio:
             self._socketio.start_background_task(self._run_debrief_window)
 
-    def _run_debrief_window(self):
-        """Background timer for the debrief. The BACKSTOP, not the usual ending.
+    def _revision_window(self) -> float:
+        """How long the revision ballot gets, clamped to half the debrief.
 
-        ACTR normally closes the session itself when the conversation has run its
-        course (`end_debrief`, driven by the end marker in its reply). This only
-        catches a room that never converges.
+        A professor who sets a two-minute Post Outcome Discussion should not get a
+        ballot that opens before ACTR has said anything — without the clamp a
+        `debrief_minutes` under one would put the open time in the past, and the
+        room would arrive in round 2 already being asked to answer again.
+        """
+        return max(0.0, min(self.revision_seconds, self.debrief_seconds / 2.0))
+
+    def _run_debrief_window(self):
+        """Background timer for the debrief, in TWO stages: talk, then re-ask.
+
+        Stage 1 sleeps to `deadline - revision window` and opens the ballot; stage 2
+        sleeps out the rest and ends the session with whatever was entered. Still the
+        BACKSTOP rather than the usual ending — ACTR normally closes the conversation
+        itself via `end_debrief`, which opens the same ballot on its own short clock.
+
+        Both stages re-check the phase after sleeping: a room that ACTR ended, or that
+        was reset, must not have a ballot opened on top of it by a timer that was
+        asleep when it happened.
         """
         with self._app.app_context():
+            window = self._revision_window()
+            if window > 0 and self.phase_deadline_ts:
+                if self.phase_deadline_ts - time.time() > window:
+                    self._sleep_until(self.phase_deadline_ts - window)
+                    if self._phase != PHASE_DEBRIEF:
+                        return
+                    self._open_revision()
+                else:
+                    # Rehydrated with less time left than the re-ask needs. Open it on
+                    # a fresh window instead: a ballot that flashes open and shut in
+                    # the same second is worse than a room finishing a minute late.
+                    self._open_revision(from_now=True)
             self._sleep_until(self.phase_deadline_ts)
             if self._phase == PHASE_DEBRIEF:
+                self._close_revision()
                 self._enter_done()
 
     def end_debrief(self):
-        """ACTR has judged the debrief finished → close the session.
+        """ACTR has judged the debrief finished → open the last ballot, then close.
 
-        Called from the sockets layer when a facilitator reply carries the end
-        marker. Guarded to the debrief phase so a late marker can't reopen or
-        re-close a room that has already moved on.
+        Called from the sockets layer when a facilitator reply carries the end marker.
+        This is the USUAL ending, which is why the revision hangs off it and not only
+        off the timer: hooking the re-ask to the backstop alone would mean the room
+        almost never sees it.
+
+        With the ballot already open (the timer got here first) this is a no-op rather
+        than a second open — ACTR saying "we're done" during the re-ask is not a reason
+        to cut the re-ask short. Guarded to the debrief phase so a late marker can't
+        reopen a room that has already moved on.
         """
         if self._phase != PHASE_DEBRIEF:
             return
+        if self.revision_ballot.get("open"):
+            return
+        if self._revision_window() <= 0:
+            self._enter_done()
+            return
+        self._open_revision(from_now=True)
+        if self._socketio:
+            self._socketio.start_background_task(self._run_revision_window)
+
+    # ==================================================================
+    # THE RE-ASK (round 2's closing ballot)
+    # ==================================================================
+    def _open_revision(self, from_now: bool = False):
+        """Open the revision ballot over the live debrief. Chat stays UNLOCKED.
+
+        Deliberately not a phase: `choose` locks the room and replaces the screen,
+        which is right for a decision the group has already made on paper and wrong
+        here. This one is answered while the argument about the outcome is still
+        running, so it rides on top of round 2 as a card over the composer.
+
+        `from_now` re-arms the phase deadline to a fresh window — used when ACTR ends
+        the conversation early, where the remaining debrief time is irrelevant and the
+        room needs a visible clock on the re-ask itself.
+        """
+        with self._lock:
+            if self._phase != PHASE_DEBRIEF or self.revision_ballot.get("open"):
+                return
+            self.revision_ballot = {"open": True, "votes": {}}
+            fields = {"revision_ballot": self.revision_ballot}
+            if from_now:
+                self.phase_deadline_ts = time.time() + self._revision_window()
+                fields["phase_deadline_ts"] = self.phase_deadline_ts
+            self._persist(fields)
+
+        if from_now:
+            self._broadcast_phase()
+        self._emit("revision_update", {
+            "room_id": self.room_id,
+            "open": True,
+            "decider_name": self.decider_name(),
+            "candidates": [{"name": c.get("name", "")} for c in self._ballot_candidates()],
+        })
+        # The ballot appears in the footer of a room that is mid-conversation, so it
+        # gets a line in the transcript too — otherwise students reading the chat see
+        # a control materialise under it with nothing saying why.
+        self._run_hook("on_revision_open")
+
+    def _run_revision_window(self):
+        """Clock for a revision opened by `end_debrief` (ACTR's early close)."""
+        with self._app.app_context():
+            self._sleep_until(self.phase_deadline_ts)
+            if self._phase == PHASE_DEBRIEF:
+                self._close_revision()
+                self._enter_done()
+
+    def _close_revision(self):
+        """Shut the ballot without recording anything. Silence stays silence.
+
+        There is deliberately no `_fallback_choice` counterpart here. Round 1 needed
+        one because a room with no answer has nothing to read an outcome against;
+        this room already has an answer, and inventing a revision it never entered
+        would put a changed mind on the professor's results page that never happened.
+        """
+        with self._lock:
+            if not self.revision_ballot.get("open"):
+                return
+            self.revision_ballot["open"] = False
+            self._persist({"revision_ballot": self.revision_ballot})
+        self._emit("revision_update", {"room_id": self.room_id, "open": False, "candidates": []})
+
+    def record_revised_choice(self, uid: str, candidate: str) -> bool:
+        """The decider enters the answer the group would give now. Ends the session.
+
+        Same authority as round 1 (`record_group_choice`) and the same validation, so
+        a stale or hand-rolled client can neither answer on the decider's behalf nor
+        name someone who was never on the case.
+
+        `chosen_candidate` is NOT touched. The group's original answer is the one the
+        outcome document was written against and the one the class results are counted
+        on; overwriting it would erase the before/after this ballot exists to create.
+        """
+        with self._lock:
+            if self._phase != PHASE_DEBRIEF or not self.revision_ballot.get("open"):
+                return False
+            if not uid or uid != self.decider_uid() or not self._valid_candidate(candidate):
+                return False
+            self.revision_ballot = {"open": False, "votes": {uid: candidate}}
+            self.revised_candidate = candidate
+            self._persist({
+                "revision_ballot": self.revision_ballot,
+                "revised_candidate": self.revised_candidate,
+            })
+
+        self._emit("revision_result", {
+            "room_id": self.room_id,
+            "revised_candidate": candidate,
+            # Whether the room moved. Computed here rather than client-side so the
+            # done screen and the professor's page can never disagree about it.
+            "changed": bool(self.chosen_candidate) and candidate != self.chosen_candidate,
+        })
+        self._emit("revision_update", {"room_id": self.room_id, "open": False, "candidates": []})
         self._enter_done()
+        return True
+
+    def revision_open(self) -> bool:
+        """True while the round-2 re-ask is accepting an answer (read by the simulator)."""
+        return bool(self.revision_ballot.get("open"))
 
     def _enter_done(self):
         """The session is over. No scorecard: this exercise is not graded.
@@ -1182,14 +1470,24 @@ class ExerciseState:
                 return
             self._phase = PHASE_DONE
             self.phase_deadline_ts = None
-            self._persist({"phase": PHASE_DONE, "phase_deadline_ts": None})
+            # Belt and braces: every path that ends round 2 closes the re-ask first,
+            # but a room persisted with `open: True` would rehydrate on the done
+            # screen still offering a ballot nothing is listening for.
+            self.revision_ballot["open"] = False
+            self._persist({
+                "phase": PHASE_DONE,
+                "phase_deadline_ts": None,
+                "revision_ballot": self.revision_ballot,
+            })
 
         self._broadcast_phase()
         self._emit("chat_locked", {"room_id": self.room_id, "locked": True, "reason": "done"})
         # `on_wrapup` is ACTR's closing message, so it belongs only to a template that
         # HAS a facilitator. Firing it on one that doesn't would have ACTR appear for
         # the first and only time on the last screen of an exercise it was kept out of.
-        if self.flow().get("debrief"):
+        # An expired room has nothing to wrap up: ACTR was never in the session,
+        # and a closing reflection on a decision nobody made would be theatre.
+        if self.flow().get("debrief") and not self.expired:
             self._run_hook("on_wrapup")
 
     def _broadcast_phase(self):

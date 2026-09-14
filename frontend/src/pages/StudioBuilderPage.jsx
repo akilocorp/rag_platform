@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
+// @updated   2026-09-13
+// @changed   Added a "Present" button (orange, next to Responses) linking to the new
+//            /studio/:projectId/present route — the Mentimeter-style QR + live-results view.
+// Prior: Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
 //            instruments now registered (11 landing in overflow) the list ran off the bottom of the
 //            viewport with no way to scroll to the rest. Now top-1/2 -translate-y-1/2 anchored
 //            (centers on the rail instead of growing from its top edge) with max-h-[min(70vh,26rem)]
@@ -68,7 +70,7 @@ import {
   FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
   FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
   FaSmile, FaChartLine, FaCommentDots,
-  FaGraduationCap, FaNotEqual, FaQuestionCircle, FaComments, FaSearchPlus,
+  FaGraduationCap, FaNotEqual, FaQuestionCircle, FaComments, FaSearchPlus, FaQrcode,
   FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -601,6 +603,16 @@ const StudioBuilderPage = () => {
               {saveState === 'saved' && 'Saved'}
               {saveState === 'error' && <span className="text-red-500">Couldn&rsquo;t save</span>}
             </span>
+
+            <button
+              onClick={() => navigate(`/studio/${projectId}/present`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all active:scale-95"
+              style={{ backgroundColor: '#FFF1EA', color: '#FA6C43' }}
+              title="Open the live QR + results screen for class"
+            >
+              <FaQrcode size={13} />
+              Present
+            </button>
 
             <button
               onClick={() => navigate(`/studio/${projectId}/responses`)}

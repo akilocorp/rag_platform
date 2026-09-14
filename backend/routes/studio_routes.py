@@ -1,6 +1,13 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
+# @updated   2026-09-13
+# @changed   live-summary gained cross-filter query params (filter_block_id/filter_value) — filters
+#            the raw response list before handing it to build_live_summary, so every aggregation
+#            function stays unchanged. Powers the Present view's click-a-bar-to-filter-everything-else.
+# Prior: Added GET /studio/projects/<id>/live-summary — the data source for the new Present
+#            view (a Mentimeter-style QR + live-results screen for in-class use). Delegates all
+#            aggregation to the new src/studio/summary.py; see that file's header for why it
+#            excludes every AI-native and data-quality/compliance instrument by design, not oversight.
+# Prior: 3 session-level, Qualtrics-inspired features. Embedded Data: submit_response now
 #            accepts+sanitizes a client-supplied `embedded_data` dict (URL params captured at load),
 #            stored on the response doc, surfaced as dynamic CSV columns (same discovery pattern as
 #            instrument metrics). Counterbalanced conditions: projects gain a `conditions` list
@@ -38,6 +45,7 @@ Owner-scoped (faculty, JWT-required):
   DELETE /api/studio/projects/<id>           — delete
   GET    /api/studio/projects/<id>/responses      — raw response list, with computed instrument metrics
   GET    /api/studio/projects/<id>/responses.csv  — flattened CSV export, same metrics as columns
+  GET    /api/studio/projects/<id>/live-summary   — aggregated stats for the Present view (polled)
 
 Public (no auth — the first anonymous-write surface Studio has):
   GET    /api/studio/public/projects/<id>            — a project's pages/blocks, ONLY if published
@@ -55,6 +63,7 @@ by a few older models in this codebase) is a connection-pool leak.
 import csv
 import hashlib
 import io
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -68,6 +77,7 @@ from pymongo.errors import DuplicateKeyError
 
 from models.user import User
 from src.studio.live_ai import call_live_ai_instrument
+from src.studio.summary import build_live_summary
 from src.studio.registry import (
     compute_instrument_metric,
     get_block_specs,
@@ -727,6 +737,47 @@ def list_responses(project_id):
         responses.append(r)
     _augment_responses_with_metrics(doc, responses, db=db)
     return jsonify({"responses": responses}), 200
+
+
+@studio_bp.route('/studio/projects/<project_id>/live-summary', methods=['GET'])
+@jwt_required()
+def live_summary(project_id):
+    """Data source for the Present view — polled every few seconds while a
+    professor has it open on a projector. See src/studio/summary.py for what
+    is (and deliberately isn't) aggregated here.
+
+    Optional `?filter_block_id=<id>&filter_value=<json>` cross-filters: only
+    responses whose answer to `filter_block_id` equals `filter_value` (JSON-
+    decoded, so a rating's int and a choice's string both round-trip
+    correctly) are aggregated. Filtering happens here, on the raw response
+    list, before it ever reaches build_live_summary — every aggregation
+    function in summary.py is unchanged, it just sees fewer responses.
+    """
+    user_id = get_jwt_identity()
+    doc, error = _load_owned_project(project_id, user_id)
+    if error:
+        payload, status = error
+        return jsonify(payload), status
+
+    db = current_app.config['MONGO_DB']
+    responses = list(db['studio_responses'].find({"project_id": project_id}))
+
+    filter_block_id = request.args.get('filter_block_id')
+    filter_value_raw = request.args.get('filter_value')
+    if filter_block_id and filter_value_raw is not None:
+        try:
+            filter_value = json.loads(filter_value_raw)
+        except (TypeError, ValueError):
+            filter_value = filter_value_raw
+        responses = [
+            r for r in responses
+            if any(
+                a.get('block_id') == filter_block_id and a.get('value') == filter_value
+                for a in r.get('answers', [])
+            )
+        ]
+
+    return jsonify(build_live_summary(doc, responses)), 200
 
 
 @studio_bp.route('/studio/projects/<project_id>/responses.csv', methods=['GET'])
