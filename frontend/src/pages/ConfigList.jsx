@@ -1,8 +1,10 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-14
-// @changed   Collaborators: a "Collaborators…" right-click item opens the shared CollaboratorsModal,
-//            cards shared with you carry a "Shared" badge, and Delete is hidden on those — it stays
-//            the owner's, and the server refuses it anyway, so the button would only ever fail.
+// @changed   Collaborators: a person-plus icon sits in the card's own action row, next to Share —
+//            adding a co-teacher is a thing you do TO an assistant, not a setting inside it, so it
+//            shouldn't cost a trip through Customize. The right-click item and the edit-page panel
+//            open the same modal. Cards shared with you carry a "Shared" badge and lose Delete —
+//            that stays the owner's, and the server refuses it anyway, so the button would only fail.
 // @changed   Prior: Merge: added a "Studio" nav button (links to /studio) — the new faculty research-
 //            project builder lives outside the config/bot model entirely, so it needed its own
 //            entry point rather than fitting into the existing bot-type categories — alongside
@@ -414,7 +416,7 @@ const ShareModal = ({ isOpen, onClose, config }) => {
   );
 };
 
-const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onHover, onCardMenu, isSelected }) => {
+const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onCollaborators, onHover, onCardMenu, isSelected }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -436,9 +438,10 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
     }
   };
 
-  // Icon actions (Responses + Delete). In grid view these sit top-right next
-  // to the title; in list view they're relocated into the footer cluster so
-  // they line up with Customize / Chat Now on one vertically-centered row.
+  // Icon actions (Copy, Share, Collaborators, Responses, Delete). In grid view
+  // these sit top-right next to the title; in list view they're relocated into
+  // the footer cluster so they line up with Customize / Chat Now on one
+  // vertically-centered row.
   const actionButtons = (
     <>
       <button
@@ -454,6 +457,18 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
         className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
       >
         <FaShareAlt className="text-sm" />
+      </button>
+      {/* Sits next to Share because it is the other half of the same question —
+          that one hands the assistant to a class, this one hands it to a
+          colleague. On the card rather than only inside Customize: adding a
+          co-teacher is a thing you do TO an assistant, not a setting within it,
+          so it should not cost a round trip through the editor. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onCollaborators(config); }}
+        title={isCollaborator ? 'See who has access' : 'Add a collaborator'}
+        className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
+      >
+        <FaUserPlus className="text-sm" />
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onResponses(config); }}
@@ -1113,6 +1128,7 @@ const ConfigListPage = () => {
                           onEdit={onEdit}
                           onDelete={handleDelete}
                           onCopy={handleCopy}
+                          onCollaborators={setCollabFor}
                           onHover={(c) => { hoveredRef.current = c; }}
                           onCardMenu={handleCardMenu}
                           isSelected={selectedId === (config.config_id || config._id)}
