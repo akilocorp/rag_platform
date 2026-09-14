@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-11
-# @changed   `_launch_pairing` branches on the new `reading_window` flow flag: an investigation room
+# @updated   2026-09-14
+# @changed   Round 2's closing re-ask: new `submit_revised_choice` handler (decider only, validated
+#            server-side like every other ballot event) and an `on_revision_open` hook that posts the
+#            SYSTEM line announcing it — the ballot opens over a live conversation, so the transcript
+#            has to say where the control under it came from.
+#            Prior: `_launch_pairing` branches on the new `reading_window` flow flag: an investigation room
 #            still opens its timed reading phase, a hiring room goes straight to round 0, whose own
 #            per-student gates are its reading.
 #            Prior: The `arm_discuss_timer` calls on a student message are now a safety net, not the thing that
@@ -304,6 +308,19 @@ def register_socket_events(socketio, app):
                     else lex["decider_waiting"].format(decider="Someone"))
             _post(st, SYSTEM_SENDER, f"Time's up. {line}")
 
+        def on_revision_open(st):
+            """Round-2 re-ask opened → a plain announcement, like the round-1 one.
+
+            SYSTEM_SENDER, not ACTR. The ballot card appears in the footer of a room
+            that is still mid-conversation, so without a line in the transcript the
+            students reading the chat get a control materialising under them with
+            nothing saying where it came from. Posting it as the facilitator instead
+            would put words in ACTR's mouth about a decision it does not run."""
+            who = st.decider_name()
+            lex = exercise_templates.lexicon(st.config.get("template"))
+            line = lex["revision_notice"].format(decider=who or "Someone")
+            _post(st, SYSTEM_SENDER, f"Last minute. {line} Keep talking — it isn't entered yet.")
+
         def on_pick_resolved(st):
             """Pick entered → post the outcome document.
 
@@ -333,6 +350,7 @@ def register_socket_events(socketio, app):
         # No round-0 or round-1 hook exists. That absence IS the feature.
         state.hooks = {
             "on_ballot_open": on_ballot_open,
+            "on_revision_open": on_revision_open,
             "on_pick_resolved": on_pick_resolved,
             "on_debrief_start": on_debrief_start,
             "on_wrapup": on_wrapup,
@@ -1225,6 +1243,25 @@ def register_socket_events(socketio, app):
         if state is None:
             return
         state.record_group_choice(uid, candidate)
+
+    @socketio.on('submit_revised_choice')
+    def handle_submit_revised_choice(data):
+        """The decider enters what the group would answer now, closing round 2.
+
+        `record_revised_choice` enforces the debrief phase, an open re-ask, that this
+        uid really is the decider, and a valid candidate — then ends the session. It
+        never touches `chosen_candidate`: the group's original answer is what the
+        outcome was written against and what the class results are counted on.
+        """
+        room_id = (data or {}).get('room_id')
+        uid = (data or {}).get('uid')
+        candidate = (data or {}).get('candidate')
+        if not room_id or not uid or not candidate:
+            return
+        state = ex_state.get_exercise(room_id)
+        if state is None:
+            return
+        state.record_revised_choice(uid, candidate)
 
     @socketio.on('end_discussion')
     def handle_end_discussion(data):
