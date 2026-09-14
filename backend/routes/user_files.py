@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Removed ingest_url() — a dead duplicate handler bound to the same route as
+# @updated   2026-09-14
+# @changed   The two bot-file gates (`_can_read_config`, `_can_write_to_config`) admit config
+#            collaborators, so a co-teacher can manage a shared knowledge base. The faculty-role
+#            requirement on writes is kept ON TOP of that, not replaced by it.
+#            Prior: Removed ingest_url() — a dead duplicate handler bound to the same route as
 #            upload_url() (/files/url), unreachable, and calling a fetch_url() that no
 #            longer exists in src/utils/web/fetch.py. upload_url() was already the live path.
 #            Prior: Add POST /api/files/manager-doc: per-manager doc upload + header role-name parse for the Manager Exercise (text-only, no RAG ingestion).
@@ -35,6 +38,7 @@ from src.utils.s3_client import (
     upload_file as s3_upload,
 )
 from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
+from src.utils.config_access import COLLABORATOR_IDS, can_edit
 from src.utils.vector_stores.store_vector_stores import (
     CLAUDE_BATCH_PAGE_THRESHOLD,
     _extract_pdf_text_via_claude,
@@ -59,13 +63,15 @@ def _can_read_config(user_id: str, config_id: str) -> tuple[bool, str | None]:
     db = current_app.config['MONGO_DB']
     try:
         config_doc = db['config_collections'].find_one(
-            {"_id": ObjectId(config_id)}, {"user_id": 1}
+            {"_id": ObjectId(config_id)}, {"user_id": 1, COLLABORATOR_IDS: 1}
         )
     except (InvalidId, Exception):
         return False, "Invalid config_id"
     if not config_doc:
         return False, "Config not found"
-    if str(config_doc.get("user_id", "")) == user_id:
+    # The professor who owns the bot, or anyone they added as a collaborator —
+    # editing the knowledge base is the core of what a collaborator was given.
+    if can_edit(config_doc, user_id):
         return True, None
     has_session = db['chat_session_metadata'].find_one(
         {"user_id": user_id, "config_id": config_id}, {"_id": 1}
@@ -78,7 +84,11 @@ def _can_read_config(user_id: str, config_id: str) -> tuple[bool, str | None]:
 def _can_write_to_config(user_id: str, config_id: str) -> tuple[bool, str | None]:
     """Gate for any write to a bot-scoped file/folder.
 
-    Allowed only when the caller owns the config AND has a faculty role.
+    Allowed when the caller may edit the config — owner or collaborator — AND
+    holds a faculty role. The faculty check is deliberately kept on top of the
+    access check: a collaborator is a co-teacher, and adding a student account to
+    the list must not turn into a way to write into a class knowledge base.
+
     Returns (ok, error_message_if_not).
     """
     if not config_id:
@@ -86,14 +96,14 @@ def _can_write_to_config(user_id: str, config_id: str) -> tuple[bool, str | None
     db = current_app.config['MONGO_DB']
     try:
         config_doc = db['config_collections'].find_one(
-            {"_id": ObjectId(config_id)}, {"user_id": 1}
+            {"_id": ObjectId(config_id)}, {"user_id": 1, COLLABORATOR_IDS: 1}
         )
     except (InvalidId, Exception):
         return False, "Invalid config_id"
     if not config_doc:
         return False, "Config not found"
-    if str(config_doc.get("user_id", "")) != user_id:
-        return False, "You do not own this bot"
+    if not can_edit(config_doc, user_id):
+        return False, "You do not have access to this bot"
     me = User.find_by_id(user_id)
     if not me or me.get("role") not in FACULTY_ROLES:
         return False, "Only faculty accounts can manage bot files"

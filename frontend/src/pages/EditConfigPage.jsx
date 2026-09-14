@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   The `investigation` template's authoring flow no longer wears hiring's clothes: page/section
+// @updated   2026-09-14
+// @changed   A Collaborators panel above the knowledge base opens the shared CollaboratorsModal. Its
+//            wording flips read-only when `access_role === 'collaborator'` — a co-teacher sees who
+//            else has access but cannot change it, which is the server's rule too.
+// @changed   Prior: The `investigation` template's authoring flow no longer wears hiring's clothes: page/section
 //            headers say "Investigation" not "Manager Exercise", "Candidate" becomes "Suspect"
 //            throughout, and — the real change — "The Analysis" (strengths/concerns extraction, merge
 //            review, tallied "Strongest candidate") is replaced by "The Answer": a plain
@@ -35,7 +38,8 @@ import AvatarSelector from '../components/AvatarSelector';
 // those surfaces — a group chat, a video assignment, a lab and the manager exercise
 // each open on their own framing — so both fields are chat-only.
 const isChatLike = (t) => t === 'chat' || t === 'avatar';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask, FaChevronRight } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask, FaChevronRight, FaUserPlus } from 'react-icons/fa';
+import CollaboratorsModal from '../components/CollaboratorsModal';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
@@ -60,6 +64,10 @@ const EditConfigPage = () => {
   const { advanced } = useConfigMode();
 
   const [config, setConfig] = useState({});
+  const [collabOpen, setCollabOpen] = useState(false);
+  // Someone else's assistant, shared with this professor. Drives the read-only
+  // wording on the collaborators panel; the server is the actual gate.
+  const isCollaborator = config.access_role === 'collaborator';
   const [initialDocuments, setInitialDocuments] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -2141,6 +2149,26 @@ const EditConfigPage = () => {
               </>
             )}
 
+            {/* Who else can work on this. Rendered for every bot type — sharing an
+                assistant has nothing to do with what kind of assistant it is — and
+                for collaborators too, who get the same dialog read-only. */}
+            <div className="border-t border-gray-100 pt-8 mt-8">
+              <label className="block text-[13px] font-semibold text-gray-700 mb-2">Collaborators</label>
+              <p className="text-[12px] text-gray-500 mb-3">
+                {isCollaborator
+                  ? 'This assistant was shared with you. You can edit it and see its results; only its owner can change who has access.'
+                  : 'Give a colleague access by email. They can edit this assistant, share it with a class and see its results — but not delete it.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setCollabOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-[#FA6C43]/40 px-4 py-2.5 text-sm font-bold text-[#C2410C] hover:bg-[#F9D0C4]/20 transition-all active:scale-[0.98]"
+              >
+                <FaUserPlus className="text-xs" />
+                {isCollaborator ? 'See who has access' : 'Manage collaborators'}
+              </button>
+            </div>
+
             <div className={`border-t border-gray-100 pt-8 mt-8 ${config.bot_type === 'video_analysis' ? 'hidden' : ''}`}>
               <label className="block text-[13px] font-semibold text-gray-700 mb-2">Knowledge Base Files</label>
 
@@ -2260,6 +2288,13 @@ const EditConfigPage = () => {
           {notificationMessage}
         </div>
       )}
+
+      <CollaboratorsModal
+        isOpen={collabOpen}
+        configId={config.config_id}
+        botName={config.bot_name}
+        onClose={() => setCollabOpen(false)}
+      />
     </div>
   );
 };

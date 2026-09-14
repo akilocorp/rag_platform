@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-11
-# @changed   `solo_minutes` on manager_exercise (default 2): round 0's decision budget, covering the
+# @updated   2026-09-14
+# @changed   Collaborators. `/config_list` lists what the caller may EDIT (owned + shared) instead of
+#            only what they own, `/config/<id>` reports `owned` off `can_edit` plus a new
+#            `access_role` ("owner"/"collaborator") so the client can hide owner-only controls, and
+#            `/copy` accepts a collaborator — a copy is a new config and takes nothing from the owner.
+#            Prior: `solo_minutes` on manager_exercise (default 2): round 0's decision budget, covering the
 #            "on your own" notice and the ballot.
 #            Prior: `general_info_minutes` + `review_minutes` on manager_exercise (both default 3): the two
 #            prelude gates a student walks before the private decision. Validated and persisted here,
@@ -44,6 +48,7 @@ from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
 from src.managers import exercise_templates
 from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
+from src.utils.config_access import can_edit, editable_filter, role_for
 
 
 def _default_facilitator_raw(raw, model_name):
@@ -669,8 +674,9 @@ def getconfigs():
         if user_id == '':
             return jsonify({"error": "User not authenticated"}), 401
 
-        # 2. Query the database for all configs matching the user_id.
-        user_configs_cursor = Config.find_by_user_id(user_id)
+        # 2. Everything this user may edit: their own, plus anything shared with
+        #    them as a collaborator.
+        user_configs_cursor = Config.find_editable_by(user_id)
 
         # 3. Serialize the documents for the JSON response
         configs_list = []
@@ -678,6 +684,11 @@ def getconfigs():
             config['config_id'] = str(config.pop('_id'))
             # Ensure 'collection_name' is present, defaulting to an empty string if not
             config['collection_name'] = config.get('collection_name', '')
+            # "owner" / "collaborator" — the card renders a "Shared with you" badge
+            # off this and hides Delete, which stays the owner's alone. Sent as a
+            # role rather than a bare boolean because the client needs to tell
+            # "someone else's, but mine to edit" from "not mine at all".
+            config['access_role'] = role_for(config, user_id)
             configs_list.append(config)
         
         # 4. Return the list of configurations
@@ -720,7 +731,8 @@ def get_single_config(config_id):
                 caller_id = get_jwt_identity()
             except Exception:
                 caller_id = None
-            config_document["owned"] = bool(caller_id) and caller_id == config_document.get("user_id")
+            config_document["owned"] = can_edit(config_document, caller_id)
+            config_document["access_role"] = role_for(config_document, caller_id)
             return jsonify({"config": config_document}), 200
 
         # If we're here, the chat is private, so a valid JWT is required
@@ -732,8 +744,11 @@ def get_single_config(config_id):
             logger.warning(f"JWT verification failed for config {config_id}: {e}")
             return jsonify({"message": "Authentication required for this private chat"}), 401
 
-        # Check if the authenticated user is the owner of the config
-        owned = config_document.get("user_id") == user_id
+        # Owner or collaborator — both get the authoring view. `owned` stays the
+        # flag the client gates editing affordances on, so a collaborator gets them;
+        # `access_role` below is what separates the two where it matters (delete,
+        # managing who else has access).
+        owned = can_edit(config_document, user_id)
         if not owned:
             # Not the owner, but a student enrolled in this bot's class is still
             # allowed in — that is the entire point of a class link. Without this
@@ -748,6 +763,7 @@ def get_single_config(config_id):
         config_document["config_id"] = str(config_document.pop("_id"))
         config_document['collection_name'] = config_document.get('collection_name', '')
         config_document["owned"] = owned
+        config_document["access_role"] = role_for(config_document, user_id)
         return jsonify({"config": config_document}), 200
         
     except Exception as e:
@@ -1239,8 +1255,11 @@ def copy_config(config_id):
         if not ObjectId.is_valid(config_id):
             return jsonify({"message": "Invalid configuration ID format"}), 400
 
+        # Sharing is a collaborator power: handing a colleague a copy of the class
+        # you are both teaching is the same act whichever of you does it, and it
+        # takes nothing away from the owner — a copy is a new config of its own.
         source = Config.get_collection().find_one(
-            {"_id": ObjectId(config_id), "user_id": user_id},
+            {"_id": ObjectId(config_id), **editable_filter(user_id)},
             {"bot_name": 1, "bot_type": 1},
         )
         if not source:

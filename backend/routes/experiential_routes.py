@@ -1,6 +1,8 @@
 # @language Python
-# @updated 2026-07-15
-# @changed Raise digest token cap to 4000 (700 truncated the scope-card JSON → zero topics) + cap topics to ~12 per file.
+# @updated 2026-09-14
+# @changed `_owns_config` and the by-config session listing admit config collaborators, so a co-teacher
+#          on an experiential lab can see its sessions.
+#          Prior: Raise digest token cap to 4000 (700 truncated the scope-card JSON → zero topics) + cap topics to ~12 per file.
 """
 Experiential lab — live Claude Sonnet endpoints.
 
@@ -29,6 +31,7 @@ from src.agentic.agent_runner import CHART_GUIDE
 from src.experiential import registry as method_registry
 from models.experiential_session import ExperientialSession
 from models.config import Config
+from src.utils.config_access import can_edit
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -1003,7 +1006,8 @@ def _owns_config(config_id, user_id):
         cfg = Config.find_by_id(config_id)
     except Exception:
         return False
-    return bool(cfg) and str(cfg.get("user_id")) == str(user_id)
+    # Collaborators count: a co-teacher on the lab's config runs the lab.
+    return can_edit(cfg, user_id)
 
 
 @experiential_bp.route('/experiential/sessions', methods=['POST'])
@@ -1071,7 +1075,7 @@ def list_config_experiential_sessions(config_id):
         cfg = None
     if not cfg:
         return jsonify({"error": "Config not found"}), 404
-    if str(cfg.get("user_id")) != str(user_id):
+    if not can_edit(cfg, user_id):
         return jsonify({"error": "Forbidden"}), 403
     docs = ExperientialSession.find_by_config(config_id)
     return jsonify({"sessions": [_session_summary(d) for d in docs]})

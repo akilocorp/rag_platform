@@ -1,3 +1,8 @@
+# @language  Python
+# @updated   2026-09-14
+# @changed   Analysis is readable by config collaborators, not only the owner: the three
+#            `user_id` comparisons here now go through `config_access.can_edit`. Reading how a
+#            shared class went is the co-teaching job, not an ownership privilege.
 import json
 import logging
 import os
@@ -8,6 +13,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bson import ObjectId
+
+from src.utils.config_access import can_edit
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from langchain_anthropic import ChatAnthropic
@@ -291,7 +298,7 @@ def analyze_debug(config_id):
         user_id = get_jwt_identity()
         db = current_app.config['MONGO_DB']
         config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
-        if not config_doc or str(config_doc.get('user_id', '')) != user_id:
+        if not can_edit(config_doc, user_id):
             return jsonify({'error': 'Not found or forbidden'}), 403
         sessions = list(db['chat_session_metadata'].find({'config_id': config_id}))
         result = []
@@ -321,7 +328,9 @@ def analyze_config(config_id):
         config_doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
         if not config_doc:
             return jsonify({'error': 'Config not found'}), 404
-        if str(config_doc.get('user_id', '')) != user_id:
+        # Collaborators run the analysis too — reading how a shared class went is
+        # the co-teaching job, not an ownership privilege.
+        if not can_edit(config_doc, user_id):
             return jsonify({'error': 'Forbidden'}), 403
 
         system_prompt = config_doc.get('instructions', '') or ''
@@ -413,8 +422,12 @@ def analyze_status(config_id, job_id):
 
 
 def _check_config_owner(db, config_id, user_id):
+    """The config if this user may read its analyses, else None.
+
+    Admits collaborators as well as the owner; the name predates them.
+    """
     doc = db['config_collections'].find_one({'_id': ObjectId(config_id)})
-    return doc if (doc and str(doc.get('user_id', '')) == user_id) else None
+    return doc if can_edit(doc, user_id) else None
 
 
 @analysis_bp.route('/config/<string:config_id>/analyses', methods=['GET'])

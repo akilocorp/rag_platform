@@ -1,3 +1,9 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-09-14
+// @changed   Handles `?invite=<token>` from a collaborator invitation email: resolves the token to
+//            name what they were invited to, pins the email field to the invited address (the grant
+//            is bound to it server-side), and points them at sign-in if that address already has an
+//            account. An unknown or expired token degrades to an ordinary registration form.
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -38,6 +44,10 @@ const RegistrationPage = () => {
   const [searchParams] = useSearchParams();
   const classCode = searchParams.get('class') || '';
   const roleParam = searchParams.get('role') || '';
+  // Arriving from a collaborator invitation email. The token is only used to LOOK
+  // UP what to show — the grant itself happens server-side on the address the
+  // account is created with, so nothing here is trusted with access.
+  const inviteToken = searchParams.get('invite') || '';
 
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
@@ -50,7 +60,28 @@ const RegistrationPage = () => {
   const [university, setUniversity] = useState(null);
   const [uniSearch, setUniSearch] = useState('');
   const [uniOpen, setUniOpen] = useState(false);
+  // {email, bot_name, invited_by, has_account} once the invite resolves, null if
+  // the token is unknown or expired — in which case the page is an ordinary
+  // registration form rather than an error, since signing up is still valid.
+  const [invite, setInvite] = useState(null);
   const uniRef = useRef(null);
+
+  /* Resolve the invitation so the page can name what they were invited to and
+     lock the email to the address it was issued for — signing up with a different
+     one would create an account the invite silently never applies to. */
+  useEffect(() => {
+    if (!inviteToken) return;
+    let alive = true;
+    apiClient.get(`/collab-invite/${encodeURIComponent(inviteToken)}`)
+      .then(({ data }) => {
+        if (!alive) return;
+        setInvite(data);
+        if (data.email) setEmail(data.email);
+        setRole('professor');
+      })
+      .catch(() => { if (alive) setInvite(null); });
+    return () => { alive = false; };
+  }, [inviteToken]);
 
   const filteredUnis = HK_UNIVERSITIES.filter(u =>
     u.name.toLowerCase().includes(uniSearch.toLowerCase()) ||
@@ -180,6 +211,22 @@ const RegistrationPage = () => {
                 </div>
               )}
 
+              {/* Invitation context. Shown above the class-code chip because it is
+                  the reason this person is on the page at all. */}
+              {invite && (
+                <div className="mb-4 px-4 py-3 bg-[#FFF5F2] border border-[#FA6C43]/30 rounded-xl">
+                  <p className="text-sm text-[#C2410C] font-semibold">
+                    {invite.invited_by ? `${invite.invited_by} invited you` : "You've been invited"} to collaborate on{' '}
+                    <span className="font-extrabold">{invite.bot_name}</span>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {invite.has_account
+                      ? <>That address already has an account — <Link to="/login" className="font-bold text-[#FA6C43] underline">sign in instead</Link> and it'll be in your dashboard.</>
+                      : "Create your account and it'll be waiting in your dashboard."}
+                  </p>
+                </div>
+              )}
+
               {classCode && (
                 <div className="mb-4 px-4 py-3 bg-[#FFF5F2] border border-[#FA6C43]/30 rounded-xl flex items-center gap-2">
                   <span className="text-[#FA6C43] text-sm">🎓</span>
@@ -227,11 +274,20 @@ const RegistrationPage = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="off"
+                    /* An invited address is fixed: the invitation is bound to it
+                       server-side, so an editable field here would let someone
+                       sign up with a different one and quietly get no access. */
+                    readOnly={!!invite?.email}
                     className={`w-full px-4 py-3 bg-white border ${
                       errors.email ? 'border-red-500' : 'border-gray-200'
-                    } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all`}
+                    } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all ${
+                      invite?.email ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''
+                    }`}
                     placeholder="account@ust.hk"
                   />
+                  {invite?.email && (
+                    <p className="mt-1 text-xs text-gray-400">Your invitation was sent to this address.</p>
+                  )}
                   {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}
                 </div>
 

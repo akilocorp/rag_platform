@@ -1,6 +1,7 @@
 # @language  Python
 # @updated   2026-09-14
-# @changed   Round 2's closing re-ask: new `submit_revised_choice` handler (decider only, validated
+# @changed   `reset_breakout_room` authorizes config collaborators, not just the owner.
+#            Prior: Round 2's closing re-ask: new `submit_revised_choice` handler (decider only, validated
 #            server-side like every other ballot event) and an `on_revision_open` hook that posts the
 #            SYSTEM line announcing it — the ballot opens over a live conversation, so the transcript
 #            has to say where the control under it came from.
@@ -79,6 +80,7 @@ from src.managers.bot_manager import analyze_intent, get_or_create_bot
 # turn-taking counters; ai_manager owns the ACTR calls.
 from src.managers import exercise_state as ex_state
 from src.managers import exercise_templates
+from src.utils.config_access import can_edit
 from src.managers import ai_manager
 from src.managers import exercise_sim
 from src.managers import investigation_pool
@@ -971,8 +973,10 @@ def register_socket_events(socketio, app):
         config_doc = _load_config_doc(config_id)
         if not config_doc or config_doc.get("bot_type") != "manager_exercise":
             return
-        if not identity or config_doc.get("user_id") != identity:
-            logger.warning(f"reset_breakout_room: {identity} is not the owner of {config_id}")
+        # Owner or collaborator: wiping a rehearsal room is part of running the
+        # class, and it destroys nothing but that room's own transient state.
+        if not can_edit(config_doc, identity):
+            logger.warning(f"reset_breakout_room: {identity} cannot administer {config_id}")
             emit('breakout_error', {'reason': 'unauthorized'}, to=request.sid)
             return
 
