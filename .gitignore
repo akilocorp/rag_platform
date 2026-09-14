@@ -16,6 +16,18 @@ lerna-debug.log*
 .env
 *.local
 
+# Copies and spillage of the above. A plain `.env` rule misses every way one
+# actually shows up in a working tree: a second download ("_env (1).crash"), a
+# hand-made backup, or a per-environment variant. These are the same secrets
+# under a name the rule above does not match.
+.env.*
+!.env.example
+*.env
+_env*
+*.crash
+env.backup
+.env.bak
+
 # ===================================================================
 # Backend (Python/Flask)
 # ===================================================================

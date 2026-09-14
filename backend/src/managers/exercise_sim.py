@@ -1,6 +1,11 @@
 # @language  Python
 # @updated   2026-09-14
-# @changed   The run answers round 2's closing re-ask. The debrief loop exits on a phase change, but
+# @changed   Investigation seats get their case file again. `hide_case_after_reading` blanks `your_case`
+#            for every phase after `reading`, and this driver jumps `waiting` -> `begin_solo`, so the
+#            first `_system()` call already saw an empty snapshot — the `_cached_case` fix cached too
+#            late to ever catch anything. New `SimStudent.prime()`, called while the room is still in
+#            `waiting`, reads the packet up front; `_absorb()` holds the shared fill-only caching.
+#            Prior: The run answers round 2's closing re-ask. The debrief loop exits on a phase change, but
 #            the revision ballot opens without one (it rides on top of round 2), so a finished run was
 #            landing with the phase still `debrief` and a ballot nobody filled in — leaving every test
 #            with an empty `revised_candidate` and no way to tell a broken re-ask from a quiet one.
@@ -227,13 +232,39 @@ class SimStudent:
         self._cached_case = ''
         self._cached_credentials = None
 
-    def _system(self, state, others: str) -> str:
-        tpl = tester_templates.get(state.template())
-        snapshot = state.snapshot_for(self.uid)
+    def _absorb(self, snapshot):
+        """Keep the confidential material while the snapshot still carries it.
+
+        Only ever fills the cache, never clears it: the whole point is to survive
+        the snapshot going blank, so a later empty read must not undo an earlier
+        good one.
+        """
         if (snapshot.get('your_case') or '').strip():
             self._cached_case = snapshot['your_case']
         if snapshot.get('your_credentials'):
             self._cached_credentials = snapshot['your_credentials']
+
+    def prime(self, state):
+        """Read the packet up front, while the room is still willing to show it.
+
+        Called once per seat before the room leaves `waiting`, and it is what makes
+        the investigation template work at all. `hide_case_after_reading` blanks
+        `your_case` for every phase after `reading`, and this driver goes straight
+        from `waiting` to `begin_solo` — it never enters `reading`, because that
+        window is `reading_minutes` (30 by default) of a test run sitting still.
+        So the FIRST time a seat was asked to speak, the snapshot was already
+        blank; caching inside `_system` was too late to ever see anything, and
+        every investigation seat argued from an empty packet.
+
+        This is the simulator's stand-in for having read the file: a real student
+        spends the reading window absorbing it, and a SimStudent absorbs it here.
+        """
+        self._absorb(state.snapshot_for(self.uid))
+
+    def _system(self, state, others: str) -> str:
+        tpl = tester_templates.get(state.template())
+        snapshot = state.snapshot_for(self.uid)
+        self._absorb(snapshot)
         # What this seat actually argues from: the live snapshot's material if
         # it's still there, else whatever was cached while it was.
         effective = dict(snapshot)
@@ -440,6 +471,14 @@ def run_test_room(state, post: Callable, sleep: Callable, messages: Callable,
     # driver unsure which bot has to close round 1 and enter the hire.
     for s in students:
         state.note_participant(s.uid, s.name)
+
+    # Every seat reads its packet NOW, while the room still shows it. On a template
+    # with `hide_case_after_reading` the material is gone from the snapshot for good
+    # the moment the phase leaves `waiting`/`reading`, and the line below jumps
+    # straight to `solo` — so this is the last moment any of it is readable. See
+    # SimStudent.prime.
+    for s in students:
+        s.prime(state)
 
     # ---- round 0: the private pick ------------------------------------
     if state.phase() == "waiting":
