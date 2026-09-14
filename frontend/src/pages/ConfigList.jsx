@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Merge: added a "Studio" nav button (links to /studio) — the new faculty research-
+// @updated   2026-09-14
+// @changed   Collaborators: a "Collaborators…" right-click item opens the shared CollaboratorsModal,
+//            cards shared with you carry a "Shared" badge, and Delete is hidden on those — it stays
+//            the owner's, and the server refuses it anyway, so the button would only ever fail.
+// @changed   Prior: Merge: added a "Studio" nav button (links to /studio) — the new faculty research-
 //            project builder lives outside the config/bot model entirely, so it needed its own
 //            entry point rather than fitting into the existing bot-type categories — alongside
 //            Manager Exercise cards getting 3 distinct footer buttons instead of the generic 2:
@@ -22,7 +25,8 @@
 //            Prior: Header gained a "Plan from syllabus" button into /course-plan.
 //            Prior: card body click now selects the card (Ctrl+C copy target) instead of opening
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
-import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste, FaShapes, FaChartBar } from 'react-icons/fa';
+import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste, FaShapes, FaChartBar, FaUserPlus, FaUsers } from 'react-icons/fa';
+import CollaboratorsModal from '../components/CollaboratorsModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -416,6 +420,11 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
   const [shareOpen, setShareOpen] = useState(false);
   const ListIcon = getBotAvatarIconComponent(config.bot_avatar);
   const isList = view === 'list';
+  // Someone else's assistant that this professor was added to. Everything on the
+  // card works the same except deleting it, which stays with the owner. Read off
+  // `access_role` from /config_list rather than inferred, so the client and the
+  // server can't disagree about who this config belongs to.
+  const isCollaborator = config.access_role === 'collaborator';
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -453,13 +462,18 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
       >
         <FaListAlt className="text-sm" />
       </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
-        title="Delete"
-        className="p-1.5 text-gray-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-colors"
-      >
-        <FaTrash className="text-sm" />
-      </button>
+      {/* Delete belongs to the owner. A collaborator's DELETE is refused server-side
+          (edit_config_routes pins it to user_id), so rendering the button for them
+          would only ever produce a confusing failure. */}
+      {!isCollaborator && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+          title="Delete"
+          className="p-1.5 text-gray-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-colors"
+        >
+          <FaTrash className="text-sm" />
+        </button>
+      )}
     </>
   );
 
@@ -487,6 +501,17 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2">
             <h3 className="text-[15px] font-bold text-[#222] truncate flex-1">{config.bot_name}</h3>
+            {/* Says whose it is at a glance. Without this a shared assistant is
+                indistinguishable from your own, and the first surprise is the
+                missing Delete button. */}
+            {isCollaborator && (
+              <span
+                title="Shared with you — you can edit it, but not delete it"
+                className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-2 py-1 rounded-md"
+              >
+                <FaUsers className="text-[9px]" /> Shared
+              </span>
+            )}
             {!isList && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {actionButtons}
@@ -600,6 +625,9 @@ const ConfigListPage = () => {
   const hoveredRef = useRef(null);
   const [selectedId, setSelectedId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);   // {x, y, config|null}
+  // The config whose access list is open, or null. Holds the whole config (not
+  // just the id) so the modal can title itself without another fetch.
+  const [collabFor, setCollabFor] = useState(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteToken, setPasteToken] = useState(null);
   const [pastePreview, setPastePreview] = useState(null);
@@ -610,25 +638,29 @@ const ConfigListPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    const loadPageData = async () => {
-      setLoading(true);
-      try {
-        const response = await apiClient.get('/config_list');
-        setConfigs(response.data.configs);
-      } catch (err) {
-        console.error('Failed to load configurations:', err);
-        setError('Failed to load configurations');
-        if (err.response?.status === 401) {
-          navigate('/login');
-        }
-      } finally {
-        setLoading(false);
+  /* Re-read the list. Lifted out of the mount effect so the collaborators modal
+     can call it on close — sharing an assistant changes nothing on THIS card, but
+     removing your own access makes it disappear, and the list would otherwise
+     keep showing a config the next click 404s on. */
+  const refreshConfigs = useCallback(async ({ spinner = true } = {}) => {
+    if (spinner) setLoading(true);
+    try {
+      const response = await apiClient.get('/config_list');
+      setConfigs(response.data.configs);
+    } catch (err) {
+      console.error('Failed to load configurations:', err);
+      setError('Failed to load configurations');
+      if (err.response?.status === 401) {
+        navigate('/login');
       }
-    };
+    } finally {
+      if (spinner) setLoading(false);
+    }
+  }, [navigate]);
 
-    loadPageData();
-  }, [location.key, navigate]);
+  useEffect(() => {
+    refreshConfigs();
+  }, [location.key, refreshConfigs]);
 
   // Open a config = the existing select/routing behavior, used by the card body
   // and the primary action button.
@@ -806,6 +838,9 @@ const ConfigListPage = () => {
     ? [
         { label: 'Copy', icon: <FaClone className="text-xs" />, onClick: () => handleCopy(contextMenu.config) },
         { label: 'Customize', icon: <FaCog className="text-xs" />, onClick: () => onEdit(contextMenu.config) },
+        // Offered on every card, not just owned ones: a collaborator opens the
+        // same dialog read-only to see who else is working on it.
+        { label: 'Collaborators…', icon: <FaUserPlus className="text-xs" />, onClick: () => setCollabFor(contextMenu.config) },
         { label: 'Paste', icon: <FaPaste className="text-xs" />, onClick: handleMenuPaste },
       ]
     : [
@@ -1101,6 +1136,16 @@ const ConfigListPage = () => {
       <ReportBugModal
         isOpen={isBugModalOpen}
         onClose={() => setIsBugModalOpen(false)}
+      />
+
+      {/* Access list for whichever card was right-clicked. Refreshes the config
+          list on close so a just-shared assistant picks up its badge without a
+          manual reload. */}
+      <CollaboratorsModal
+        isOpen={!!collabFor}
+        configId={collabFor?.config_id}
+        botName={collabFor?.bot_name}
+        onClose={() => { setCollabFor(null); refreshConfigs({ spinner: false }); }}
       />
 
       <PasteConfigModal

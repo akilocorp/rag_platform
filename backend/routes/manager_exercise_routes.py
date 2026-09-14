@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-09-14
-# @changed   `/results` carries round 2's closing re-ask: `revised_choice` + `revised_changed` per room,
+# @changed   `_load_owned_config` admits collaborators (`editable_filter`), so a co-teacher can read
+#            class results, pair the room and drive test runs. Nothing here is destructive enough to
+#            need the owner specifically.
+#            Prior: `/results` carries round 2's closing re-ask: `revised_choice` + `revised_changed` per room,
 #            and `rooms_revised` / `rooms_changed_mind` in the totals. `rooms_revised` is deliberately
 #            the denominator — a room that let the ballot lapse is not a room that held its position.
 #            Prior: The group summary reads the WHOLE room transcript, not its tail: sentence one is about what
@@ -55,6 +58,7 @@ from flask import Blueprint, jsonify, current_app, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models.config import Config
+from src.utils.config_access import editable_filter
 from routes.group_chat_sockets import start_test_run, trigger_pairing
 from src.managers import exercise_state as ex_state
 from src.managers import exercise_templates
@@ -71,19 +75,24 @@ TEST_ROOM_MARKER = "_t"
 
 
 def _load_owned_config(config_id):
-    """The config doc if the caller owns it, else (None, error_response).
+    """The config doc if the caller may run it, else (None, error_response).
 
-    Ownership is the whole authorization story for this blueprint, so it is
-    resolved once here rather than repeated per route where one copy can rot.
+    Access is the whole authorization story for this blueprint, so it is resolved
+    once here rather than repeated per route where one copy can rot. "Owned" in
+    the name is now historical — it admits collaborators too; nothing in this
+    blueprint is destructive enough to need the owner specifically.
     """
     try:
         oid = ObjectId(config_id)
     except Exception:  # noqa: BLE001
         return None, (jsonify({"error": "Invalid config id"}), 400)
 
-    # Ownership is part of the QUERY, not a check after the fetch — the same shape
+    # Access is part of the QUERY, not a check after the fetch — the same shape
     # every other config route uses, and it cannot be forgotten by a later edit.
-    doc = Config.get_collection().find_one({"_id": oid, "user_id": get_jwt_identity()})
+    # `editable_filter` admits collaborators as well as the owner: a co-teacher
+    # reads the class results and pairs the room like anyone else running it.
+    doc = Config.get_collection().find_one(
+        {"_id": oid, **editable_filter(get_jwt_identity())})
     if not doc:
         return None, (jsonify({"error": "Configuration not found or access denied"}), 404)
     if doc.get("bot_type") != "manager_exercise":

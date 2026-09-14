@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-24
-# @changed   _clean_rubric_rows now preserves a `hidden` bool on save instead of stripping it, so a
+# @updated   2026-09-14
+# @changed   The video dashboard and results reads authorize config collaborators, not only the owner
+#            (`_require_config_owner` and `_can_view_results` go through `config_access.can_edit`).
+#            A co-teacher grading the same assignment needs both.
+#            Prior: _clean_rubric_rows now preserves a `hidden` bool on save instead of stripping it, so a
 #            box hidden in the editor stays hidden after the next Save (actual exclusion from
 #            grading happens in src/video/scoring.py:score_submission).
 # @changed   Prior: GET/PUT /video/config/<id>/scoring-spec: the rubric on its own, for the visual box editor.
@@ -25,6 +28,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from bson import ObjectId
+
+from src.utils.config_access import can_edit
 from bson.errors import InvalidId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
@@ -71,14 +76,19 @@ def _get_config(config_id):
 
 
 def _require_config_owner(config_id):
-    """Returns (config, error_response). error_response is None when authorized."""
+    """Returns (config, error_response). error_response is None when authorized.
+
+    Authorizes the owner AND anyone they added as a collaborator — the video
+    dashboard is a teaching tool, and a co-teacher grading the same assignment
+    needs it. The name predates collaborators.
+    """
     user_id = _resolve_user_id()
     if not user_id:
         return None, (jsonify({"error": "Authentication required"}), 401)
     config = _get_config(config_id)
     if not config:
         return None, (jsonify({"error": "Config not found"}), 404)
-    if str(config.get('user_id', '')) != user_id:
+    if not can_edit(config, user_id):
         return None, (jsonify({"error": "Forbidden"}), 403)
     return config, None
 
@@ -431,14 +441,14 @@ def submission_status(sub_id):
 # ---------------------------------------------------------------------------
 
 def _can_view_results(sub, token):
-    """owner OR config-owner (prof) OR same-email account OR valid token."""
+    """submitter OR the assignment's prof/collaborator OR same-email account OR token."""
     db = current_app.config['MONGO_DB']
     user_id = _resolve_user_id()
     if user_id:
         if sub.get("owner_user_id") == user_id:
             return True
-        config = _get_config(sub.get("config_id"))
-        if config and str(config.get("user_id", "")) == user_id:
+        # The professor who set the assignment, or a collaborator on it.
+        if can_edit(_get_config(sub.get("config_id")), user_id):
             return True
         acct_email = _user_email(user_id)
         if acct_email and acct_email.lower() == (sub.get("submitter_email") or ""):

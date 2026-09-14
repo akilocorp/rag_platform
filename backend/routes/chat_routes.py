@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   A broken stream no longer talks to the student. Both LangChain loops now retry a transient
+# @updated   2026-09-14
+# @changed   `get_config_sessions` (the professor's transcript view) admits config collaborators.
+#            Prior: A broken stream no longer talks to the student. Both LangChain loops now retry a transient
 #            upstream drop (3 attempts, backoff, only before the first token), and every failure path emits
 #            the neutral `error` frame from `_stream_error_event` instead of `str(e)` — the exception itself
 #            goes to the log with a traceback. The agentic path's `error` events are forwarded too.
@@ -33,6 +34,8 @@ from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, message_to_dict
 from bson import ObjectId
+
+from src.utils.config_access import can_edit
 from langchain_community.chat_models import ChatTongyi
 from langchain_deepseek import ChatDeepSeek
 from langchain_anthropic import ChatAnthropic
@@ -363,7 +366,12 @@ def get_accessible_configs():
 @chat_bp.route('/config/<string:config_id>/sessions', methods=['GET'])
 @jwt_required()
 def get_config_sessions(config_id):
-    """Returns all chat sessions for a config. Only accessible by the config owner."""
+    """Every chat session for a config — the professor's transcript view.
+
+    Readable by the owner AND by anyone they added as a collaborator: seeing how a
+    shared class actually went is the co-teaching job. Still closed to everyone
+    else, since these are students' conversations.
+    """
     try:
         user_id = get_jwt_identity()
         db = current_app.config['MONGO_DB']
@@ -371,7 +379,7 @@ def get_config_sessions(config_id):
         config_doc = db["config_collections"].find_one({"_id": ObjectId(config_id)})
         if not config_doc:
             return jsonify({"message": "Config not found"}), 404
-        if str(config_doc.get("user_id", "")) != user_id:
+        if not can_edit(config_doc, user_id):
             return jsonify({"message": "Forbidden"}), 403
 
         metadata_collection = db["chat_session_metadata"]
