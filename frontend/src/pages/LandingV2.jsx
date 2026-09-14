@@ -1,6 +1,12 @@
 // @language JavaScript (React)
 // @updated 2026-09-14
-// @changed PromptInput is back, as its own "Try it yourself" section right after the hero instead
+// @changed Bento grid's third cell (was "Built to Be Studied," generic research-logging copy) is
+//          now "Exports Straight to Qualtrics" — resolves the open question from the manager-
+//          feedback pass about where Qualtrics belongs (bento cell, not the course-sync section).
+//          Reuses the survey-clipboard icon, which fits a Qualtrics pitch even better than the
+//          cell it replaced. Mirrors the "chat logs export straight to Qualtrics" phrasing already
+//          in the Teachers testimonial quote, for consistency.
+//          Prior: PromptInput is back, as its own "Try it yourself" section right after the hero instead
 //          of living inside it — same composer/credits/register-modal logic as before, just
 //          re-homed and restyled for a light bg instead of the old dark hero. AnimatedGradient
 //          (components/ui/animated-gradient.jsx) is deleted outright — confirmed nothing else in
@@ -213,12 +219,12 @@ const BENTO_CELLS = [
     linkLabel: 'See a real citation',
   },
   {
-    id: 'sandbox',
+    id: 'qualtrics',
     icon: '/illustrations/survey-clipboard-research.svg',
-    iconAlt: 'Research clipboard icon',
-    title: 'Built to Be Studied',
-    body: 'Every prompt, latency, and citation is logged in one place, so researchers can see how students actually learn with AI, not guess.',
-    linkLabel: 'Open the sandbox',
+    iconAlt: 'Survey clipboard icon',
+    title: 'Exports Straight to Qualtrics',
+    body: 'Every chat log, response, and score syncs directly into Qualtrics — no manual exports, no reformatting, just data your IRB already trusts.',
+    linkLabel: 'See the Qualtrics export',
   },
 ];
 
