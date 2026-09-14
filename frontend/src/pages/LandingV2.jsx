@@ -1,6 +1,12 @@
 // @language JavaScript (React)
 // @updated 2026-09-14
-// @changed Manager-feedback pass. Hero fully replaced: the scroll-revealed dark mass (GSAP
+// @changed PromptInput is back, as its own "Try it yourself" section right after the hero instead
+//          of living inside it — same composer/credits/register-modal logic as before, just
+//          re-homed and restyled for a light bg instead of the old dark hero. AnimatedGradient
+//          (components/ui/animated-gradient.jsx) is deleted outright — confirmed nothing else in
+//          the app imported it, and unlike PromptInput there was no reason to keep a WebGL shader
+//          component around "just in case."
+//          Prior: Manager-feedback pass. Hero fully replaced: the scroll-revealed dark mass (GSAP
 //          clip-path timeline + continuous WebGL2 shader + PromptInput chat composer + a
 //          per-keystroke typewriter effect) is gone, swapped for a static white hero modeled on a
 //          template the team supplied — a giant word-by-word pull-up (new
@@ -66,6 +72,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { motion } from 'framer-motion';
 import { FaArrowRight } from 'react-icons/fa';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
+import { PromptInput } from '../components/ui/ai-chat-input';
 import { WordsPullUp } from '../components/ui/words-pull-up';
 
 // Plain identifiers so the hero's JSX tags aren't member expressions
@@ -81,6 +88,31 @@ const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 const FONT_SERIF = "'Newsreader', Georgia, serif";
 const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
+
+// Placeholder prompts cycled by the "Try it" composer's typewriter effect.
+const HERO_PROMPTS = [
+  'Explain the first law of thermodynamics',
+  'Type 1 vs Type 2 Bipolar disorder?',
+  'Walk me through CRISPR gene editing',
+  'Why did the Roman Empire fall?',
+  'Derive the Black-Scholes equation',
+];
+
+// Free credits we promise on the landing (1 message = 1 credit). The
+// backend's anon_lifetime_cap is the safety net (usually larger); this is
+// the smaller display cap that drives the credits bar + register-gate copy.
+const LANDING_FREE_CREDITS = 2;
+
+// Models a free user can pick straight from the composer. Subset of the
+// backend ALLOWED_MODELS (usage/limits.py) — sent as model_override.
+const MODEL_OPTIONS = [
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { id: 'gpt-4.1', label: 'GPT-4.1' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { id: 'deepseek-chat', label: 'Deepseek Chat' },
+];
 
 const UVPS = [
   {
@@ -410,6 +442,122 @@ const LandingV2 = () => {
     });
   }, [testimonialsInView]);
 
+  // "Try it" composer (components/ui/ai-chat-input's PromptInput) — its own
+  // dedicated section now, right after the hero, rather than living inside
+  // it. Owns its own text/model/attachment state internally and hands it
+  // back at submit time, so this page only needs to react to that
+  // submission. Submit starts a real free chat against the shared
+  // playground bot, carrying the typed prompt + model into ChatPage. Usage
+  // caps (warn nudge + create-account block) are enforced there. The
+  // register modal remains only as a fallback if the bot can't load, and
+  // shows back what was typed — captured into `lastPrompt` here since
+  // PromptInput clears its own value once onSubmit returns.
+  const [composerSending, setComposerSending] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [lastPrompt, setLastPrompt] = useState('');
+
+  // Real credit count for the credits bar. Fetched once on mount from
+  // /api/usage/me, then clamped to LANDING_FREE_CREDITS. Population other
+  // than "anon" (logged-in) shows the full cap and defers to the in-chat
+  // limiter.
+  const [creditsRemaining, setCreditsRemaining] = useState(LANDING_FREE_CREDITS);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usage/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (data.population !== 'anon' || data.cap == null || data.remaining == null) {
+          setCreditsRemaining(LANDING_FREE_CREDITS);
+          return;
+        }
+        const used = Math.max(0, data.cap - data.remaining);
+        setCreditsRemaining(Math.max(0, LANDING_FREE_CREDITS - used));
+      })
+      .catch(() => { /* keep optimistic default */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleComposerSubmit = async (text, meta) => {
+    const trimmed = text.trim();
+    if (!trimmed || composerSending) return;
+    setLastPrompt(trimmed);
+    if (creditsRemaining <= 0) {
+      setShowRegisterModal(true);
+      return;
+    }
+    // PromptInput only knows the model's display label — map it back to the id the backend
+    // expects (model_override). Falls back to the first real model if something odd came
+    // through (e.g. an empty models list).
+    const modelId = MODEL_OPTIONS.find((m) => m.label === meta?.model)?.id || MODEL_OPTIONS[0].id;
+    setComposerSending(true);
+    try {
+      const res = await fetch('/api/config/playground', { credentials: 'include' });
+      if (!res.ok) throw new Error('playground unavailable');
+      const { config_id } = await res.json();
+      const chatId = `chat_${Date.now()}`;
+      navigate(`/chat/${config_id}/${chatId}`, { state: { firstMessage: trimmed, model: modelId } });
+    } catch {
+      setComposerSending(false);
+      setShowRegisterModal(true);
+    }
+  };
+  useEffect(() => {
+    if (!showRegisterModal) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setShowRegisterModal(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showRegisterModal]);
+
+  // Typewriter placeholder cycling through HERO_PROMPTS. Type → hold →
+  // erase → brief pause → next. Reduced-motion users see a static
+  // "Ask anything…" string instead. Pure setTimeout chain — no rAF
+  // needed since the cadence is character-scale, not frame-scale.
+  const [typedPrompt, setTypedPrompt] = useState(HERO_PROMPTS[0]);
+  useEffect(() => {
+    if (reducedMotion()) {
+      setTypedPrompt('Ask anything…');
+      return;
+    }
+    let idx = 0;
+    let charIdx = 0;
+    let phase = 'typing';
+    let timeoutId = null;
+    const tick = () => {
+      const full = HERO_PROMPTS[idx];
+      if (phase === 'typing') {
+        charIdx += 1;
+        setTypedPrompt(full.slice(0, charIdx));
+        if (charIdx >= full.length) {
+          phase = 'holding';
+          timeoutId = setTimeout(tick, 1600);
+          return;
+        }
+        timeoutId = setTimeout(tick, 42);
+      } else if (phase === 'holding') {
+        phase = 'erasing';
+        timeoutId = setTimeout(tick, 22);
+      } else if (phase === 'erasing') {
+        charIdx -= 1;
+        setTypedPrompt(full.slice(0, Math.max(0, charIdx)));
+        if (charIdx <= 0) {
+          phase = 'typing';
+          idx = (idx + 1) % HERO_PROMPTS.length;
+          charIdx = 0;
+          timeoutId = setTimeout(tick, 320);
+          return;
+        }
+        timeoutId = setTimeout(tick, 22);
+      }
+    };
+    setTypedPrompt('');
+    timeoutId = setTimeout(tick, 600);
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (reducedMotion()) return;
@@ -679,6 +827,74 @@ const LandingV2 = () => {
                 </Link>
               </MotionDiv>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* === TRY IT ===
+          PromptInput's own dedicated section — it used to live inside the
+          hero itself, but the hero is now brand + pitch + CTA only (see
+          the HERO comment above for why). Pulling the live composer out to
+          its own beat right after the hero keeps that "just try it"
+          first-time-visitor path intact without adding it back to the
+          hero's own weight. PromptInput carries its own white/bordered
+          card chrome (border + shadow), so it reads fine on either the
+          white hero-adjacent bg or FAFAF7 — this section uses white to
+          keep it visually attached to the hero above. */}
+      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FFFFFF' }}>
+        <div className="max-w-2xl mx-auto flex flex-col items-center text-center">
+          <span
+            className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
+            style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+          >
+            Try it yourself
+          </span>
+          <h2
+            className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-10"
+            style={{
+              color: '#1F1F1F',
+              fontFamily: FONT_DISPLAY,
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Ask it anything.
+          </h2>
+
+          <div className="w-full flex flex-col items-center gap-3">
+            {/* Credits counter — driven by /api/usage/me. At 0, the submit
+                handler opens the register modal instead of starting a chat. */}
+            <div className="flex items-center gap-2.5 px-1">
+              <div
+                className="relative h-1.5 rounded-full overflow-hidden"
+                style={{ width: '80px', backgroundColor: 'rgba(31,31,31,0.1)' }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(creditsRemaining / LANDING_FREE_CREDITS) * 100}%`,
+                    backgroundColor: '#FA6C43',
+                  }}
+                />
+              </div>
+              <span
+                className="text-[11px] font-semibold"
+                style={{ color: 'rgba(31,31,31,0.55)', fontFamily: FONT_BODY, letterSpacing: '0.01em' }}
+              >
+                {creditsRemaining === 0
+                  ? 'Out of credits, sign up'
+                  : `${creditsRemaining} ${creditsRemaining === 1 ? 'credit' : 'credits'} left`}
+              </span>
+            </div>
+
+            {/* Placeholder cycles through HERO_PROMPTS via a typewriter effect (see
+                useEffect in component body). Submit (Enter or the send button) opens the
+                register-gate modal — anonymous visitors can't actually send. */}
+            <PromptInput
+              placeholder={typedPrompt}
+              models={MODEL_OPTIONS.map((m) => m.label)}
+              onSubmit={handleComposerSubmit}
+            />
           </div>
         </div>
       </section>
@@ -1205,6 +1421,140 @@ const LandingV2 = () => {
           </div>
         </div>
       </footer>
+
+      {/* Register-gate modal. Opened when an anonymous visitor tries to
+          submit the "Try it" composer. Backdrop click + Escape close it
+          (Escape wired in the component-body useEffect above). */}
+      {showRegisterModal && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center px-6"
+          style={{ backgroundColor: 'rgba(15,15,15,0.55)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setShowRegisterModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="register-gate-title"
+        >
+          <div
+            className="relative w-full max-w-md rounded-[28px] p-7 text-left"
+            style={{
+              backgroundColor: '#FFFFFF',
+              boxShadow: '0 32px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.04)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShowRegisterModal(false)}
+              aria-label="Close"
+              className="absolute flex items-center justify-center transition-colors hover:bg-gray-100"
+              style={{
+                top: '14px',
+                right: '14px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '9999px',
+                color: '#6B6B6B',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                <path
+                  d="M2 2l10 10M12 2L2 12"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            <h2
+              id="register-gate-title"
+              className="mb-3"
+              style={{
+                fontFamily: FONT_DISPLAY,
+                fontWeight: 800,
+                fontSize: '26px',
+                lineHeight: 1.1,
+                letterSpacing: '-0.025em',
+                color: '#1F1F1F',
+              }}
+            >
+              Create an account to chat
+            </h2>
+            <p
+              className="mb-6"
+              style={{
+                fontFamily: FONT_BODY,
+                color: '#5A5A5A',
+                fontSize: '15px',
+                lineHeight: 1.5,
+              }}
+            >
+              Sign up free to send your first prompt and start building your AI tutor on Actrlabs.
+            </p>
+            {lastPrompt.trim() && (
+              <div
+                className="mb-6 rounded-2xl p-3"
+                style={{
+                  backgroundColor: '#F5F3EE',
+                  fontFamily: FONT_BODY,
+                  color: '#3A3A3A',
+                  fontSize: '13px',
+                  lineHeight: 1.45,
+                }}
+              >
+                <div
+                  className="mb-1"
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.18em',
+                    textTransform: 'uppercase',
+                    color: '#8B8B8B',
+                    fontWeight: 600,
+                  }}
+                >
+                  Your prompt
+                </div>
+                <div
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {lastPrompt}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('/register')}
+              className="w-full py-3 text-sm font-semibold transition-all hover:opacity-95 active:scale-[0.99]"
+              style={{
+                backgroundColor: '#FA6C43',
+                color: '#FFFFFF',
+                fontFamily: FONT_BODY,
+                borderRadius: '14px',
+                boxShadow: '0 8px 20px rgba(250,108,67,0.35)',
+              }}
+            >
+              Sign up free
+            </button>
+            <div
+              className="mt-4 text-center text-sm"
+              style={{ color: '#6B6B6B', fontFamily: FONT_BODY }}
+            >
+              Already have an account?{' '}
+              <Link
+                to="/login"
+                style={{ color: '#FA6C43', fontWeight: 600 }}
+                className="hover:underline"
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Closer-icon idle float + CTA pulse + reduced-motion fallback */}
       <style>{`
