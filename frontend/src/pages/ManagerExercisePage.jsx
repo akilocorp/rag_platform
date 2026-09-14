@@ -1,4 +1,10 @@
-/* @language JSX  @updated 2026-09-11  @changed Students never see the breakout lobby on any template:
+/* @language JSX  @updated 2026-09-14  @changed Round 2 ends on a re-ask, not just the clock: the last
+   minute of the Post Outcome Discussion raises a revision ballot over the live composer (`revision_open`
+   → RevisionBallot), answered by the same decider who entered the group's first hire. The chat stays
+   open the whole time — the decision is meant to be made while the room is still arguing — and the
+   done screen grows a third column comparing the private pick, the group's hire, and what they'd do
+   now. Nothing overwrites `chosenCandidate`.
+   Prior: Students never see the breakout lobby on any template:
    the pool-vs-lobby choice is made on `config.owned` rather than the template id, so a student always
    joins the pairing pool and the lobby survives only for the owner previewing their own exercise.
    Prior: Three fail-safes: the browser-Back guard now covers
@@ -140,6 +146,14 @@ const LEXICON_FALLBACK = {
   decider_waiting: '{decider} is entering the hire for the group.',
   done_group_label: 'Your group hired',
   material_line: 'Here are their credentials, for your judgement.',
+  revision_title: 'Knowing what you know now',
+  revision_help_decider: "Last call. Enter the hire your group would make today, having read how it turned out. Keeping the same name is an answer.",
+  revision_help_watcher: '{decider} is entering the hire your group would make today.',
+  revision_submit_label: 'Enter our final answer',
+  revision_done_label: "What you'd do now",
+  revision_kept: 'Asked again after the outcome, your group stood by its hire.',
+  revision_changed: 'Your group would hire someone else now.',
+  revision_changed_line: 'Asked again after the outcome, your group would hire {name}.',
 };
 
 // Fill `{placeholders}` in a lexicon string. Missing keys are left as written rather
@@ -537,6 +551,14 @@ const ManagerExercisePage = () => {
   const [submitted, setSubmitted] = useState(false);
   const [youDecide, setYouDecide] = useState(false);
   const [deciderName, setDeciderName] = useState('');
+  // Round 2's closing re-ask. Separate from `pick`/`ballotOpen`/`submitted` on
+  // purpose: those belong to the round-1 `choose` screen, which is a different
+  // phase with a different answer, and sharing them would let a stale round-1
+  // selection pre-fill a ballot that is asking a different question.
+  const [revisionOpen, setRevisionOpen] = useState(false);
+  const [revisionPick, setRevisionPick] = useState(null);
+  const [revisionSubmitted, setRevisionSubmitted] = useState(false);
+  const [revisedCandidate, setRevisedCandidate] = useState(null);
   // `finalCall` flags the 30s anxiety window. `ballotWasOpenRef` distinguishes a
   // fresh open (reset the local pick) from a re-broadcast (keep it).
   const [finalCall, setFinalCall] = useState(false);
@@ -893,6 +915,15 @@ const ManagerExercisePage = () => {
     // whether the round-1 close button and the hire dialog belong to it.
     if (typeof s.you_decide === 'boolean') setYouDecide(s.you_decide);
     if (typeof s.decider_name === 'string') setDeciderName(s.decider_name);
+    // Round 2's re-ask, carried on the snapshot so a student who refreshes during
+    // the last minute comes back to the open ballot rather than a chat that has
+    // quietly stopped being the whole screen. `revised_candidate` stays set after
+    // it closes — the done screen reads it.
+    if (typeof s.revision_open === 'boolean') setRevisionOpen(s.revision_open);
+    if (s.revised_candidate !== undefined) {
+      setRevisedCandidate(s.revised_candidate);
+      if (s.revised_candidate) { setRevisionPick(s.revised_candidate); setRevisionSubmitted(true); }
+    }
     // M6: kiosk progress + the outcome text (shown per-student after the time-skip).
     if (typeof s.forecast_text === 'string') setForecastText(s.forecast_text);
     if (typeof s.expired === 'boolean') setExpired(s.expired);
@@ -1099,6 +1130,22 @@ const ManagerExercisePage = () => {
           setFinalCall(false);
         });
 
+        // Round 2's re-ask opening or closing. The candidate list is re-sent with it
+        // because a client that joined after round 1 has had `candidates` overwritten
+        // by the empty list every ballot close emits.
+        socket.on('revision_update', (d) => {
+          setRevisionOpen(Boolean(d.open));
+          if (Array.isArray(d.candidates) && d.candidates.length) setCandidates(d.candidates);
+          if (typeof d.decider_name === 'string') setDeciderName(d.decider_name);
+        });
+
+        // The decider answered. Everyone gets the result — unlike round 0's private
+        // pick, this is the group's answer and the room is entitled to see it.
+        socket.on('revision_result', (d) => {
+          setRevisedCandidate(d.revised_candidate);
+          setRevisionOpen(false);
+        });
+
         // The decision window closed with nothing entered. Ends the session here:
         // no reveal, no Post Outcome Discussion, and the reason said plainly.
         socket.on('exercise_expired', () => {
@@ -1243,6 +1290,18 @@ const ManagerExercisePage = () => {
       room_id: roomId, uid: userIdRef.current, candidate: pick,
     });
     setSubmitted(true);
+  };
+
+  // The decider answers round 2's re-ask, which ends the session. Like the round-1
+  // entry it is one-shot and server-authorized; unlike it, the answer is allowed to
+  // be the same name the group already gave — standing by a hire that went badly is
+  // a result, not a non-answer.
+  const submitRevision = () => {
+    if (!revisionPick || !revisionOpen || !youDecide || !socketRef.current) return;
+    socketRef.current.emit('submit_revised_choice', {
+      room_id: roomId, uid: userIdRef.current, candidate: revisionPick,
+    });
+    setRevisionSubmitted(true);
   };
 
   // M13: the decider closes round 1 before the clock and takes the room to the
@@ -1411,6 +1470,76 @@ const ManagerExercisePage = () => {
         </p>
       )}
     </>
+    );
+  };
+
+  // Round 2's closing re-ask, rendered as a band ABOVE the composer rather than as
+  // its own screen. That placement is the feature: the group is still arguing about
+  // the outcome, and taking the chat away to ask the question would end the argument
+  // the question is supposed to interrupt. Options are pills on one wrapping row for
+  // the same reason — a stacked full-width grid pushes the transcript off screen.
+  const RevisionBallot = () => {
+    const canAct = youDecide && revisionOpen && !revisionSubmitted;
+    return (
+      <div className="mb-3 rounded-2xl border-2 border-[#FA6C43]/40 bg-[#F9D0C4]/15 px-4 py-3.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="flex items-baseline justify-between gap-3 mb-1.5">
+          <h3 className="text-sm font-extrabold text-[#C2410C]">{lexicon.revision_title}</h3>
+          {secsLeft != null && (
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[#C2410C] tabular-nums">
+              {fmtClock(secsLeft)}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-600 mb-3">
+          {youDecide
+            ? lexicon.revision_help_decider
+            : fillText(lexicon.revision_help_watcher, { decider: deciderName || 'One of you' })}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {candidates.map((c) => {
+            const selected = revisionPick === c.name;
+            // The name the group actually hired is flagged, so "keep the same
+            // answer" is a thing the decider can see and choose rather than have
+            // to remember under a clock.
+            const isOriginal = chosenCandidate && c.name === chosenCandidate;
+            return (
+              <button
+                key={c.name}
+                disabled={!canAct}
+                onClick={() => setRevisionPick(c.name)}
+                className={`rounded-xl border-2 px-3.5 py-2 text-sm font-semibold transition-all disabled:cursor-default active:scale-[0.98] ${
+                  selected
+                    ? 'border-[#FA6C43] bg-[#FA6C43] text-white shadow-sm'
+                    : 'border-gray-200 bg-white text-[#222] hover:border-[#FA6C43]/50 disabled:hover:border-gray-200'
+                }`}
+              >
+                {c.name}
+                {isOriginal && (
+                  <span className={`ml-2 text-[10px] font-bold uppercase tracking-wider ${
+                    selected ? 'text-white/75' : 'text-gray-400'
+                  }`}>
+                    your hire
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          {youDecide ? (
+            <button
+              onClick={submitRevision}
+              disabled={!revisionPick || !canAct}
+              className="ml-auto rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white text-sm font-bold px-5 py-2.5 shadow-sm disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              {revisionSubmitted ? 'Entered' : lexicon.revision_submit_label}
+            </button>
+          ) : (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold text-gray-500">
+              <FaRegClock className="text-[10px]" />
+              {deciderName ? `${deciderName} enters it.` : 'Waiting on the group.'}
+            </span>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -1882,10 +2011,19 @@ const ManagerExercisePage = () => {
               <h2 className="text-2xl font-bold text-[#222] mb-2">
                 {flow.prof_paired ? 'Your exercise finished.' : 'Session complete'}
               </h2>
+              {/* The revision is named here as well as in the comparison card below,
+                  because that card only renders for a student who submitted a private
+                  pick — without this, anyone who missed round 0 would never be told
+                  what their group answered at the end. */}
               <p className="text-gray-500 text-sm">
                 {chosenCandidate
-                  ? <>Your group's final choice was <strong className="text-[#222]">{chosenCandidate}</strong>.</>
+                  ? <>Your group's choice was <strong className="text-[#222]">{chosenCandidate}</strong>.</>
                   : 'Thanks for taking part.'}
+                {chosenCandidate && revisedCandidate && (
+                  <>{' '}{revisedCandidate === chosenCandidate
+                    ? lexicon.revision_kept
+                    : fillNodes(lexicon.revision_changed_line, 'name', revisedCandidate)}</>
+                )}
               </p>
               {/* Professor-paired templates never offer a lobby — there isn't one to
                   go back to, and a student is never routed there for this template
@@ -1908,7 +2046,10 @@ const ManagerExercisePage = () => {
             {yourSoloVote && (
               <div className="rounded-3xl bg-white border border-gray-200 shadow-md p-6 sm:p-8 animate-in fade-in slide-in-from-bottom-2 duration-400">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-5">Where you started</h3>
-                <div className="grid sm:grid-cols-2 gap-4">
+                {/* Two columns until the room entered a revision, three after — the
+                    grid widens rather than leaving an empty slot on a run where the
+                    re-ask lapsed unanswered (or the template never had one). */}
+                <div className={`grid gap-4 ${revisedCandidate ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                   <div className="rounded-2xl border border-gray-200 p-4">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Your private pick</p>
                     <p className="text-lg font-bold text-[#222]">{yourSoloVote}</p>
@@ -1917,6 +2058,12 @@ const ManagerExercisePage = () => {
                     <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">{lexicon.done_group_label}</p>
                     <p className="text-lg font-bold text-[#222]">{chosenCandidate || '—'}</p>
                   </div>
+                  {revisedCandidate && (
+                    <div className="rounded-2xl border-2 border-[#FA6C43]/40 bg-[#F9D0C4]/15 p-4">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-[#C2410C] mb-1.5">{lexicon.revision_done_label}</p>
+                      <p className="text-lg font-bold text-[#222]">{revisedCandidate}</p>
+                    </div>
+                  )}
                 </div>
                 {chosenCandidate && (
                   <p className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold border ${
@@ -1927,6 +2074,18 @@ const ManagerExercisePage = () => {
                     {yourSoloVote === chosenCandidate
                       ? 'The group went where you already were.'
                       : 'You came in wanting someone else, and the group went the other way.'}
+                  </p>
+                )}
+                {/* Whether the outcome moved the room. Only rendered off a real
+                    revision — an unanswered re-ask is not the same as a group that
+                    chose to stand by its hire, and must not be shown as one. */}
+                {revisedCandidate && chosenCandidate && (
+                  <p className={`mt-3 rounded-2xl px-4 py-3 text-sm font-semibold border ${
+                    revisedCandidate === chosenCandidate
+                      ? 'bg-gray-50 text-gray-600 border-gray-200'
+                      : 'bg-[#F9D0C4]/25 text-[#C2410C] border-[#FA6C43]/40'
+                  }`}>
+                    {revisedCandidate === chosenCandidate ? lexicon.revision_kept : lexicon.revision_changed}
                   </p>
                 )}
               </div>
@@ -2255,7 +2414,12 @@ const ManagerExercisePage = () => {
         <div className="flex items-center gap-4 shrink-0">
           {/* Clock visible for the whole window; only the last 10s reads as urgent
               (and only then does the beep start — see discussBeepOn). */}
-          {secsLeft != null && CountdownChip({ label: isDebrief ? 'Post Outcome' : 'Discuss', urgent: secsLeft <= 10 })}
+          {/* The re-ask relabels the clock rather than adding a second one: once it
+              opens, the countdown people are watching is the one on the answer. */}
+          {secsLeft != null && CountdownChip({
+            label: isDebrief ? (revisionOpen ? 'Final answer' : 'Post Outcome') : 'Discuss',
+            urgent: (isDebrief && revisionOpen) || secsLeft <= 10,
+          })}
           <UserInfo />
         </div>
       </header>
@@ -2291,6 +2455,10 @@ const ManagerExercisePage = () => {
             decider. Sits above the composer rather than in the header so it reads
             as an action about the discussion, not a piece of room furniture. Round
             1 only — there is no hire to enter after the debrief. */}
+        {/* The last minute of round 2. Rendered above the composer, which stays
+            live: the answer is meant to be entered while the room is still talking,
+            not after the conversation has been taken away. */}
+        {isDebrief && revisionOpen && RevisionBallot()}
         {!isDebrief && !chatLocked && (
           <div className="mb-3 flex flex-wrap items-center justify-center gap-3 animate-in fade-in">
             {youDecide ? (
