@@ -1,6 +1,12 @@
 // @language JavaScript (React)
-// @updated 2026-09-14
-// @changed Bento grid's third cell (was "Built to Be Studied," generic research-logging copy) is
+// @updated 2026-09-15
+// @changed Copy pass across the whole page: dropped every em dash from user-facing text in favor of
+//          periods/commas, and rewrote PHILOSOPHY_PARAGRAPHS as plain full sentences instead of the
+//          "icons as language" inline-image tokens (research-study clipboard, sprockets, iPad,
+//          laptop, wifi) — those read as clutter rather than language, and the paragraphs are now
+//          longer/fuller as a result. Rendering logic for the token array is untouched; it already
+//          no-ops on tokens without a `src`.
+// @changed Prior: Bento grid's third cell (was "Built to Be Studied," generic research-logging copy) is
 //          now "Exports Straight to Qualtrics" — resolves the open question from the manager-
 //          feedback pass about where Qualtrics belongs (bento cell, not the course-sync section).
 //          Reuses the survey-clipboard icon, which fits a Qualtrics pitch even better than the
@@ -215,7 +221,7 @@ const BENTO_CELLS = [
     icon: '/illustrations/magnifying-glass.svg',
     iconAlt: 'Magnifying glass icon',
     title: 'Every Answer, Footnoted',
-    body: 'No more chasing down where a claim came from — each response links straight back to the page or passage it was pulled from.',
+    body: 'No more chasing down where a claim came from. Each response links straight back to the page or passage it was pulled from.',
     linkLabel: 'See a real citation',
   },
   {
@@ -223,7 +229,7 @@ const BENTO_CELLS = [
     icon: '/illustrations/survey-clipboard-research.svg',
     iconAlt: 'Survey clipboard icon',
     title: 'Exports Straight to Qualtrics',
-    body: 'Every chat log, response, and score syncs directly into Qualtrics — no manual exports, no reformatting, just data your IRB already trusts.',
+    body: 'Every chat log, response, and score syncs directly into Qualtrics. No manual exports, no reformatting, just data your IRB already trusts.',
     linkLabel: 'See the Qualtrics export',
   },
 ];
@@ -365,30 +371,22 @@ const TESTIMONIAL_PANELS = [
 ];
 
 // Philosophy paragraph as an ARRAY of paragraphs, each a sequence of
-// tokens (text chunks + inline brand icons). Splitting into separate
+// tokens (currently plain text chunks only). Splitting into separate
 // paragraphs gives breathing room between thoughts and lets the
-// cinematic word-by-word scrub feel less like a wall of text.
-// Icons stand in for the nouns they depict ("icons as language") —
-// the noun word is omitted when its icon is present.
+// cinematic word-by-word scrub feel less like a wall of text. The
+// inline brand-icon tokens ("icons as language") were tried here and
+// dropped in favor of writing the nouns out in full — the icons read
+// as decorative clutter rather than language, especially in a dense
+// sentence like the second paragraph below.
 const PHILOSOPHY_PARAGRAPHS = [
   [
-    { text: 'ACTRLabs is how educators and researchers build AI simulations and bots, without writing a line of code.' },
+    { text: 'ACTRLabs is how educators and researchers build AI simulations and bots, without writing a line of code. What used to take a developer, a survey platform, and weeks of back and forth now takes an afternoon.' },
   ],
   [
-    { text: 'Design a' },
-    { src: '/illustrations/survey-clipboard-research.svg', alt: 'research study', label: 'research study' },
-    { text: 'for your lab, or an interactive' },
-    { src: '/illustrations/sprockets-engineering.svg', alt: 'course simulation', label: 'course simulation' },
-    { text: 'for your classroom, on the same platform.' },
+    { text: 'Design a research study for your lab, or an interactive course simulation for your classroom, on the same platform. Both start from the same builder: set a persona, write the instructions, attach your readings, and publish.' },
   ],
   [
-    { text: 'Available on' },
-    { src: '/illustrations/ipad.png', alt: 'iPad', label: 'iPad' },
-    { text: ',' },
-    { src: '/illustrations/icon-laptop.png', alt: 'laptop', label: 'Laptop' },
-    { text: ', and the' },
-    { src: '/illustrations/wifi-internet.svg', alt: 'web', label: 'Web' },
-    { text: '— set it up once, and it runs itself for every student who shows up.' },
+    { text: 'Available on iPad, laptop, and the web, so students can join from whatever device they already have open. Set it up once, and it runs itself for every student who shows up, with every conversation logged and ready to export.' },
   ],
 ];
 
@@ -410,7 +408,7 @@ const LandingV2 = () => {
   // pulling in a per-route head library.
   useEffect(() => {
     const prev = document.title;
-    document.title = 'ACTRLabs — AI Tutors & Chatbots That Redefine Learning';
+    document.title = 'ACTRLabs: AI Tutors & Chatbots That Redefine Learning';
     return () => { document.title = prev; };
   }, []);
 
@@ -810,7 +808,7 @@ const LandingV2 = () => {
                 style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
                 className="text-base lg:text-lg"
               >
-                The platform educators and researchers use to build AI simulations and bots for their classroom and studies — no engineering required.
+                The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
               </MotionP>
 
               <MotionDiv
@@ -1100,7 +1098,7 @@ const LandingV2 = () => {
                 className="text-[15px] lg:text-base leading-snug max-w-[340px]"
                 style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
-                Connect a course once and every syllabus, slide deck, and reading stays in sync — no re-uploading the same lecture notes every week just to keep the bot from making things up.
+                Connect a course once and every syllabus, slide deck, and reading stays in sync. No re-uploading the same lecture notes every week just to keep the bot from making things up.
               </p>
               <span
                 className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
@@ -1153,7 +1151,7 @@ const LandingV2 = () => {
                   className="text-[15px] leading-snug mb-5 text-white/85"
                   style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
                 >
-                  Tell us what would make this more useful for your course or lab — we read every note.
+                  Tell us what would make this more useful for your course or lab. We read every note.
                 </p>
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
                   Get in touch
