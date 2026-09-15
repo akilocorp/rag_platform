@@ -1,11 +1,14 @@
 /*
  * @language JavaScript (React / JSX)
- * @updated 2026-08-18
- * @changed Fixed past analyses not rendering on re-select (ref -> state); show per-criterion scores
+ * @updated 2026-09-15
+ * @changed Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
+ *          (blob-download pattern mirrored from StudioResponsesPage.jsx). Filename uses the config's
+ *          bot_name, captured into new `botName` state alongside the existing classCode fetch.
+ * @changed Prior: Fixed past analyses not rendering on re-select (ref -> state); show per-criterion scores
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaFilePdf } from 'react-icons/fa';
+import { FaSpinner, FaChevronDown, FaChevronUp, FaCopy, FaCheck, FaArrowLeft, FaRedo, FaFilePdf, FaFileCsv } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 
 const fmt10 = (v) => v != null ? (v / 10).toFixed(1) : '—';
@@ -192,9 +195,11 @@ export default function VideoDashboardPage() {
   const [dash, setDash] = useState(null);
   const [subs, setSubs] = useState([]);
   const [classCode, setClassCode] = useState('');
+  const [botName, setBotName] = useState('');
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Analysis sidebar state. `loaded` caches full analysis docs by id and MUST be state,
   // not a ref — a ref write doesn't re-render, so a past analysis fetched on click would
@@ -210,6 +215,25 @@ export default function VideoDashboardPage() {
   const [jobError, setJobError] = useState('');
   const running = !!jobId;
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await apiClient.get(`/video/config/${configId}/export.csv`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(botName || 'video_results').replace(/\s+/g, '_')}_submissions.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // Best-effort — the table below still shows the same data on screen.
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const loadDash = useCallback(() => {
     Promise.all([
       apiClient.get(`/video/config/${configId}/dashboard`),
@@ -219,6 +243,7 @@ export default function VideoDashboardPage() {
       setDash(d.data);
       setSubs(s.data.submissions || []);
       setClassCode(cfg.data?.config?.class_code || '');
+      setBotName(cfg.data?.config?.bot_name || '');
     }).finally(() => setLoading(false));
   }, [configId]);
 
@@ -316,8 +341,20 @@ export default function VideoDashboardPage() {
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] py-8 px-4">
       <div className="max-w-6xl mx-auto">
         <Link to="/config_list" className="text-sm text-gray-500 hover:text-[#FA6C43] flex items-center gap-2 mb-4"><FaArrowLeft /> Back to configs</Link>
-        <h1 className="text-2xl font-extrabold text-[#222] mb-1">Video Analysis Dashboard</h1>
-        <p className="text-sm text-gray-500 mb-6">{dash?.total_submissions || 0} submission{dash?.total_submissions === 1 ? '' : 's'}</p>
+        <div className="flex items-start justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-extrabold text-[#222] mb-1">Video Analysis Dashboard</h1>
+            <p className="text-sm text-gray-500">{dash?.total_submissions || 0} submission{dash?.total_submissions === 1 ? '' : 's'}</p>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !dash?.total_submissions}
+            className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {exporting ? <FaSpinner className="animate-spin" /> : <FaFileCsv />}
+            Export CSV
+          </button>
+        </div>
 
         <div className="flex gap-5 items-start">
           {/* Sidebar — Delivery View + Past Analyses read as two tab categories */}
