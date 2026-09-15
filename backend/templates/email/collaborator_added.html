@@ -1,0 +1,50 @@
+<!-- @language HTML  @updated 2026-09-14  @changed New template: someone with an existing account was
+     added as a collaborator. No token and no accept button — access is already live, so the only
+     call to action is "go and look at it". -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>You've been added as a collaborator</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #ffffff; color: #222222; -webkit-font-smoothing: antialiased; }
+        .container { max-width: 560px; margin: 0 auto; padding: 48px 24px; }
+        .card { background-color: #ffffff; padding: 32px 40px 40px; border-radius: 20px; border: 1px solid #eaeaea; }
+        .header { text-align: left; margin-bottom: 24px; }
+        .logo { display: inline-block; height: 36px; width: auto; vertical-align: middle; }
+        .hook { color: #222222; font-size: 26px; line-height: 32px; font-weight: 800; letter-spacing: -0.01em; margin: 8px 0 16px; text-align: center; }
+        .hook .accent { color: #FA6C43; }
+        .body-text { color: #555555; font-size: 15px; line-height: 22px; margin: 0 0 28px; text-align: center; }
+        .cta-row { text-align: center; }
+        .btn { display: inline-block; background-color: #FA6C43; color: #ffffff !important; padding: 14px 36px; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 15px; letter-spacing: 0.01em; }
+        .can { color: #555555; font-size: 14px; line-height: 22px; margin: 28px 0 0; padding: 18px 22px; background-color: #fdf4f1; border-radius: 12px; text-align: left; }
+        .ignore { color: #999999; font-size: 12px; line-height: 18px; margin: 32px 0 0; padding-top: 24px; border-top: 1px solid #f0f0f0; text-align: center; }
+        .footer { margin-top: 20px; font-size: 11px; color: #b8b8b8; text-align: center; letter-spacing: 0.04em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <img src="{{ logo_url }}" alt="ACTR Lab" class="logo" />
+            </div>
+            <p class="hook">{{ inviter }} shared<br/><span class="accent">{{ bot_name }}</span> with you</p>
+            <p class="body-text">You&rsquo;re a collaborator on it now &mdash; it&rsquo;s already in your dashboard, nothing to accept.</p>
+
+            <div class="cta-row">
+                <a href="{{ dashboard_url }}" class="btn">Open My Dashboard</a>
+            </div>
+
+            <p class="can">
+                As a collaborator you can edit it, share it with a class and see its results &mdash;
+                the same as {{ inviter }}. Only they can delete it or change who else has access.
+            </p>
+
+            <p class="ignore">Not expecting this? You can ask {{ inviter }} to remove your access at any time.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2026 ACTR Lab</p>
+        </div>
+    </div>
+</body>
+</html>

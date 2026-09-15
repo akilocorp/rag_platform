@@ -1,3 +1,8 @@
+# @language  Python
+# @updated   2026-09-14
+# @changed   Added `find_editable_by`, the dashboard's query: configs this user owns OR is a
+#            collaborator on. `find_by_user_id` is left alone and still means strictly "mine",
+#            because usage counting and ownership checks depend on it meaning that.
 from flask import current_app
 import pymongo
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -42,8 +47,20 @@ class Config:
 
     @staticmethod
     def find_by_user_id(user_id):
-        """Finds a user by their username."""
+        """Every config this user owns."""
         return Config.get_collection().find({"user_id": user_id})
+
+    @staticmethod
+    def find_editable_by(user_id):
+        """Every config this user may edit — owned, plus shared with them.
+
+        What the professor's dashboard lists. Separate from `find_by_user_id`
+        rather than replacing it because the two answer different questions, and
+        the places that genuinely mean "mine" (usage counting, ownership transfer)
+        must not silently start counting other people's classes.
+        """
+        from src.utils.config_access import editable_filter
+        return Config.get_collection().find(editable_filter(user_id))
 
    
 

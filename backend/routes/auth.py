@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   send_verification_email now passes logo_url/illustration_url to the template (the
+# @updated   2026-09-14
+# @changed   `_register_new_user` redeems pending collaborator invitations for the new account's email,
+#            so someone invited to a config before they had an account lands with access already
+#            granted. Matched on the address rather than on a client-supplied token: signing up from
+#            the front page works the same as the emailed link, and a forwarded link grants nothing.
+#            Prior: send_verification_email now passes logo_url/illustration_url to the template (the
 #            reset_password.html pattern) so the verify email is on-brand instead of the old
 #            generic indigo template. ASCII-safety guard on frontend_url copied from
 #            send_password_reset_email for the same reason it exists there.
@@ -150,7 +154,21 @@ def _register_new_user(email, password, username, role, classes, university):
         "classes": classes,
         "university": university,
     }
-    User.create(new_user)
+    new_id = User.create(new_user)
+
+    # Any config this address was invited to collaborate on becomes theirs to edit
+    # the moment the account exists. Keyed on the EMAIL rather than on a token the
+    # client passes up, so an invited colleague who signs up from the front page
+    # instead of the emailed link still lands with their access — and so a token
+    # someone forwarded grants nothing to whoever pasted it.
+    #
+    # Imported here, not at module scope: collaborator_routes imports the User
+    # model, and a top-level import would close the cycle.
+    try:
+        from routes.collaborator_routes import redeem_invites_for
+        redeem_invites_for(email, new_id)
+    except Exception as e:  # noqa: BLE001 — a pending invite must never fail a signup
+        current_app.logger.error(f"Invite redemption for {email} failed: {e}")
 
     # Token contains ONLY email, for security.
     serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])

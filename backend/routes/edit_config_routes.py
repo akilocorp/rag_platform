@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
+# @updated   2026-09-14
+# @changed   PUT accepts collaborators, DELETE deliberately does not. Editing is widened via
+#            `editable_filter`; deletion stays pinned to `user_id` because it is the one act a
+#            co-teacher must not be able to perform on someone else's class.
+#            Prior: ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
 #            copy — same list was byte-identical in config_routes.py and user_files.py.
 #            Prior: Saving a config no longer blanks its prompt_template — rebuild it from `instructions` via the
 #            shared config_routes.build_prompt_template, restoring the persona + grounding line the legacy
@@ -21,6 +24,7 @@ from routes.config_routes import (
 )
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
+from src.utils.config_access import editable_filter
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -35,10 +39,12 @@ def update_existing_config(config_id):
         data = request.form
         files = request.files.getlist('files')
 
-        # Find the config ensuring it belongs to the authenticated user
+        # Find the config ensuring the caller may edit it — the owner, or anyone
+        # they added as a collaborator. Still a QUERY constraint rather than a
+        # fetch-then-compare, so the gate cannot be dropped by a later edit here.
         config_to_update = Config.get_collection().find_one({
             "_id": ObjectId(config_id),
-            "user_id": user_id
+            **editable_filter(user_id),
         })
 
         if not config_to_update:
@@ -226,6 +232,11 @@ def delete_config(config_id):
     """
     Deletes a configuration and its associated vector store collection.
     Only the owner of the config can delete it.
+
+    Deliberately NOT widened to collaborators when they were introduced: everything
+    else about a shared config is recoverable by editing it back, and this is not.
+    A co-teacher losing the class they were helping teach, to someone who only ever
+    had edit access, is the one failure this feature must not be able to cause.
     """
     try:
         user_id = get_jwt_identity()

@@ -1,6 +1,7 @@
 # @language  Python
-# @updated   2026-09-02
-# @changed   Calls are now recorded and exportable. Turns carry a real position in the call
+# @updated   2026-09-14
+# @changed   `_load_owned_config` admits config collaborators, not just the owner.
+#            Prior: Calls are now recorded and exportable. Turns carry a real position in the call
 #            (turn_index + offset_ms + client received_at) instead of only a server receive time;
 #            a new `audio_calls` doc holds per-call metadata and the S3 recording key; and
 #            GET /audio/export/<config_id> serves the whole class as structured JSON or CSV.
@@ -39,6 +40,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required, verify_jwt_in_req
 
 from src.audio.analyzer_registry import run_all as run_all_analyzers
 from src.utils.s3_client import generate_download_url, generate_presigned_put_url
+from src.utils.config_access import editable_filter
 
 logger = logging.getLogger(__name__)
 audio_bp = Blueprint('audio_routes', __name__)
@@ -93,18 +95,21 @@ def _resolve_user_id() -> str:
 
 
 def _load_owned_config(config_id: str):
-    """The config doc if the caller owns it, else (None, error_response).
+    """The config doc if the caller may edit it, else (None, error_response).
 
-    Ownership is part of the query rather than a check after the fetch, matching
-    the other config-scoped blueprints — a later edit cannot forget it.
+    Access is part of the query rather than a check after the fetch, matching the
+    other config-scoped blueprints — a later edit cannot forget it. Admits
+    collaborators as well as the owner.
     """
     try:
         oid = ObjectId(config_id)
     except Exception:  # noqa: BLE001
         return None, (jsonify({"error": "Invalid config id"}), 400)
 
+    # Collaborators included — a co-teacher configuring the voice side of a shared
+    # bot is doing the same job as the owner.
     doc = current_app.config['MONGO_DB']['config_collections'].find_one(
-        {"_id": oid, "user_id": get_jwt_identity()}
+        {"_id": oid, **editable_filter(get_jwt_identity())}
     )
     if not doc:
         return None, (jsonify({"error": "Configuration not found or access denied"}), 404)
