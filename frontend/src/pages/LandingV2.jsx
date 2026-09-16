@@ -1,6 +1,45 @@
 // @language JavaScript (React)
-// @updated 2026-09-15
-// @changed Swapped section order: TRY IT (composer) now sits above HERO instead of below it, so a
+// @updated 2026-09-16
+// @changed HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
+//          single centered top-down column — ACTRLabs, then the pitch text, then "Get started",
+//          all center-aligned. TESTIMONIALS: added 2 placeholder entries to TESTIMONIAL_PANELS
+//          (Students/Administrators, obvious dummy copy, flat-color panel since there's no real
+//          image/video yet) so the carousel renders 4 slides instead of 2 — its column-width math
+//          (SHARES/STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns, and with only 2 it
+//          rendered hero + 1 companion while leaving ~45% of the row as dead empty space. Also dropped
+//          the floating Prev/Next arrow buttons (controls={false} — orphaned with nothing to anchor to
+//          once clicking a column does the same job) and widened the section back to max-w-7xl (was
+//          max-w-5xl) for the now-4-wide row.
+// @changed Prior: Course Sync bento cell's "Fetches Canvas Files" headline: collapsed the two hand-built pill
+//          spans (a forced <br /> plus a separate absolutely-positioned background layer for the
+//          second line) into one span that wraps naturally, using box-decoration-break: clone so each
+//          wrapped line gets identical padding/radius/background. The old version rendered as two
+//          visibly disconnected pills with a gap between them; this reads as one continuous highlighter
+//          stroke. Bumped the heading's lineHeight 1.0 -> 1.4 so the cloned line boxes have breathing
+//          room instead of their padding touching.
+// @changed Prior: TESTIMONIALS section swapped the always-expanded 2-column grid for the new SqueezeCarousel
+//          (components/ui/squeeze-carousel.jsx) — one testimonial open at full 16:9 video, the other
+//          collapsed to a companion column beside it, click to swap. New module-level TESTIMONIAL_SLIDES
+//          reshapes TESTIMONIAL_PANELS into the carousel's slide format (quote as title, name/role/
+//          university as description, poster+video, audience label as the corner overlay badge).
+//          testimonialsSectionRef/testimonialsInView (the existing IntersectionObserver gate) are
+//          unchanged, just now feed the carousel's playVideos prop instead of a manual video-ref
+//          play()/pause() loop, which is gone along with the videoRefs array — the carousel only ever
+//          mounts a <video> for the panel that's actually open, so mounting is the play trigger.
+//          FONT_SERIF/FONT_SCRIPT dropped (only used by the old testimonial markup, now unused).
+// @changed Prior: HERO is now min-h-screen (was auto-height/compact) so it claims the whole first viewport —
+//          ACTRLabs + the orange CTA are the only thing visible on load, and TRY IT is exactly one
+//          scroll below instead of sharing the first screen with the hero. Content stays top-anchored
+//          (unchanged from the prior compact treatment), just with empty FAFAF7 canvas filling out the
+//          rest of the viewport below it now.
+// @changed Prior: Reverted the section order again: HERO is back above TRY IT so "ACTRLabs" is the first
+//          thing visible. HERO dropped its h-screen/justify-end (bottom-anchored, full-viewport)
+//          treatment for a compact top-anchored one — the wordmark now renders immediately below the
+//          nav instead of needing a full scroll's worth of empty space to resolve at the bottom.
+//          HERO and TRY IT both switched from a hard-locked #FFFFFF to the page's default #FAFAF7 (same
+//          as PHILOSOPHY below them), removing the seam/color-disconnect between the hero area and
+//          the scroll-driven philosophy text.
+// @changed Prior: Swapped section order: TRY IT (composer) now sits above HERO instead of below it, so a
 //          visitor can start typing before the wordmark scrolls in. Fixed the "ACTRLabs" heading
 //          overflowing into the pitch-text column beside it — its fontSize clamp was scaled off
 //          100vw (13vw/200px cap) instead of the ~66vw its lg:col-span-8 column actually gets, so it
@@ -92,6 +131,7 @@ import { FaArrowRight } from 'react-icons/fa';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
 import { PromptInput } from '../components/ui/ai-chat-input';
 import { WordsPullUp } from '../components/ui/words-pull-up';
+import { SqueezeCarousel } from '../components/ui/squeeze-carousel';
 
 // Plain identifiers so the hero's JSX tags aren't member expressions
 // (<motion.p>) — this project's eslint config has no react/JSX-aware
@@ -104,8 +144,6 @@ gsap.registerPlugin(ScrollTrigger);
 
 const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
-const FONT_SERIF = "'Newsreader', Georgia, serif";
-const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
 
 // Placeholder prompts cycled by the "Try it" composer's typewriter effect.
 const HERO_PROMPTS = [
@@ -374,7 +412,61 @@ const TESTIMONIAL_PANELS = [
     bg: '#D9E5F2',
     accent: '#3E6493',
   },
+  // Placeholder entries — SqueezeCarousel's column-width math (SHARES/
+  // STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns; with only
+  // 2 slides the row rendered hero + 1 companion and left the remaining
+  // ~45% of its width as dead empty space. Adding 2 more slides fills the
+  // row the way the component is actually built for. No video/poster yet,
+  // so Picture falls through to `bg` as a flat-color panel. Swap the copy
+  // and add a real videoSrc/posterSrc/avatarSrc when these are ready —
+  // nothing else about the shape needs to change.
+  {
+    id: 'dummy-students',
+    title: 'Students',
+    name: 'Your name here',
+    role: 'Role',
+    university: 'Institution',
+    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    bg: '#E5E1D8',
+    accent: '#8C8471',
+  },
+  {
+    id: 'dummy-administrators',
+    title: 'Administrators',
+    name: 'Your name here',
+    role: 'Role',
+    university: 'Institution',
+    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    bg: '#DCE3E0',
+    accent: '#4B7A6F',
+  },
 ];
+
+// TESTIMONIAL_PANELS reshaped into SqueezeCarousel's slide format. Derived
+// once at module scope (static content, no component state involved) rather
+// than recomputed every render.
+const TESTIMONIAL_SLIDES = TESTIMONIAL_PANELS.map((p) => ({
+  id: p.id,
+  title: `“${p.quote}”`,
+  description: (
+    <>
+      {p.name}, {p.role} at{' '}
+      <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
+    </>
+  ),
+  image: p.posterSrc,
+  imageAlt: `${p.name}, ${p.role} at ${p.university}`,
+  video: p.videoSrc,
+  background: p.bg,
+  overlay: (
+    <span
+      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-white"
+      style={{ backgroundColor: 'rgba(255,255,255,0.16)', backdropFilter: 'blur(6px)', fontFamily: FONT_BODY }}
+    >
+      {p.title}
+    </span>
+  ),
+}));
 
 // Philosophy paragraph as an ARRAY of paragraphs, each a sequence of
 // tokens (currently plain text chunks only). Splitting into separate
@@ -418,13 +510,12 @@ const LandingV2 = () => {
     return () => { document.title = prev; };
   }, []);
 
-  // Testimonial videos. Each panel renders a <video> whose ref lands in
-  // this array — both autoplay (not just one) since the two panels are
-  // shown side by side now, not one-at-a-time in an accordion. Gated on
-  // the section being in view so it doesn't burn bandwidth before the
-  // visitor scrolls this far. Browser autoplay requires muted +
-  // playsInline, both set on the <video> below.
-  const videoRefs = useRef([]);
+  // Testimonial video gating. SqueezeCarousel only mounts a <video> for
+  // whichever panel is currently open (its `playing` prop on Picture), so
+  // mounting IS the play trigger — no manual .play()/.pause() calls or a
+  // ref array needed here anymore. This still gates on the section being
+  // in view, same as before, so playback doesn't start until the visitor
+  // scrolls this far — passed through as SqueezeCarousel's `playVideos` prop.
   const testimonialsSectionRef = useRef(null);
   const [testimonialsInView, setTestimonialsInView] = useState(false);
   useEffect(() => {
@@ -440,17 +531,6 @@ const LandingV2 = () => {
     io.observe(el);
     return () => io.disconnect();
   }, []);
-  useEffect(() => {
-    videoRefs.current.forEach((v) => {
-      if (!v) return;
-      if (testimonialsInView) {
-        const p = v.play();
-        if (p && typeof p.catch === 'function') p.catch(() => {});
-      } else {
-        v.pause();
-      }
-    });
-  }, [testimonialsInView]);
 
   // "Try it" composer (components/ui/ai-chat-input's PromptInput) — its own
   // dedicated section now, right after the hero, rather than living inside
@@ -778,14 +858,87 @@ const LandingV2 = () => {
         </div>
       </nav>
 
+      {/* === HERO ===
+          Replaces the old scroll-revealed dark mass (GSAP clip-path timeline
+          + a continuously-running WebGL2 shader canvas + a per-keystroke
+          typewriter effect) with a static hero modeled on a template the
+          team supplied: a giant word-by-word pull-up of the brand name
+          itself, beside a short pitch + CTA. This is also the fix for the
+          "overloaded my browser" report — that combination was 3-4
+          independent animation systems running at once on page load;
+          WordsPullUp is one useInView check that fires once and stops, not
+          a continuous loop. Back to being the first section (above TRY IT)
+          so "ACTRLabs" is the first thing a visitor sees, top-anchored
+          (not the old bottom-anchored/justify-end treatment) so it renders
+          immediately below the nav with no scroll required. min-h-screen
+          so this section claims the whole first viewport — ACTRLabs +
+          the orange CTA are everything visible on load, and TRY IT is
+          exactly one scroll below instead of sharing the first screen with
+          the hero. Background matches the page's default FAFAF7 (was a
+          hard-locked #FFFFFF) so there's no seam against TRY IT or
+          PHILOSOPHY below it — "no gradient/video competing with the
+          mark" from the original request was about motion, not this
+          specific hex. Heading fontSize clamp is scaled to the
+          lg:col-span-8 column's actual width (~66% of viewport, not the
+          full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider than
+          its own column at common desktop widths, so it spilled into the
+          pitch-text column beside it. */}
+      <section className="relative w-full min-h-screen overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full flex flex-col items-center text-center">
+          <h1
+            className="leading-[0.85] tracking-[-0.04em]"
+            style={{
+              fontFamily: FONT_DISPLAY,
+              color: '#1F1F1F',
+              fontWeight: 800,
+              fontSize: 'clamp(56px, 9vw, 150px)',
+            }}
+          >
+            <WordsPullUp text="ACTRLabs" showAsterisk />
+          </h1>
+
+          <div className="mt-8 max-w-xl flex flex-col items-center gap-6">
+            <MotionP
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
+              className="text-base lg:text-lg"
+            >
+              The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
+            </MotionP>
+
+            <MotionDiv
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <Link
+                to="/register"
+                className="group inline-flex items-center gap-2 rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
+                style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
+              >
+                Get started
+                <span
+                  className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
+                  style={{ backgroundColor: '#1F1F1F' }}
+                >
+                  <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
+                </span>
+              </Link>
+            </MotionDiv>
+          </div>
+        </div>
+      </section>
+
       {/* === TRY IT ===
-          PromptInput's own dedicated section, now the first beat after the
-          nav (moved above the HERO below so a visitor can start typing
-          before they even see the wordmark). PromptInput carries its own
-          white/bordered card chrome (border + shadow), so it reads fine on
-          either bg; this section stays white to read as one continuous
-          block with the hero that follows it. */}
-      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FFFFFF' }}>
+          PromptInput's own dedicated section, back below the HERO above
+          (see that comment for why). PromptInput carries its own
+          white/bordered card chrome (border + shadow), so it stays legible
+          against this bg. Uses the same FAFAF7 as HERO and PHILOSOPHY —
+          previously locked to #FFFFFF, which read as a disconnected seam
+          against PHILOSOPHY's FAFAF7 right below it. */}
+      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FAFAF7' }}>
         <div className="max-w-2xl mx-auto flex flex-col items-center text-center">
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
@@ -839,75 +992,6 @@ const LandingV2 = () => {
               models={MODEL_OPTIONS.map((m) => m.label)}
               onSubmit={handleComposerSubmit}
             />
-          </div>
-        </div>
-      </section>
-
-      {/* === HERO ===
-          Replaces the old scroll-revealed dark mass (GSAP clip-path timeline
-          + a continuously-running WebGL2 shader canvas + a per-keystroke
-          typewriter effect) with a static white hero modeled on a template
-          the team supplied: a giant word-by-word pull-up of the brand name
-          itself, bottom-anchored beside a short pitch + CTA. This is also
-          the fix for the "overloaded my browser" report — that combination
-          was 3-4 independent animation systems running at once on page
-          load; WordsPullUp is one useInView check that fires once and
-          stops, not a continuous loop. Background is plain white per
-          request — no video, no gradient, nothing competing with the mark.
-          Now sits below the TRY IT section above. Heading fontSize clamp
-          is scaled to the lg:col-span-8 column's actual width (~66% of
-          viewport, not the full 100vw), not the full viewport — the old
-          13vw/200px cap sized "ACTRLabs" wider than its own column at
-          common desktop widths, so it spilled into the pitch-text column
-          beside it. */}
-      <section className="relative h-screen w-full flex flex-col justify-end overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
-        <div className="px-6 lg:px-12 pb-16 lg:pb-24 pt-32 w-full">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
-            <div className="lg:col-span-8">
-              <h1
-                className="leading-[0.85] tracking-[-0.04em]"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  color: '#1F1F1F',
-                  fontWeight: 800,
-                  fontSize: 'clamp(56px, 9vw, 150px)',
-                }}
-              >
-                <WordsPullUp text="ACTRLabs" showAsterisk />
-              </h1>
-            </div>
-
-            <div className="lg:col-span-4 flex flex-col gap-6 pb-2">
-              <MotionP
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
-                className="text-base lg:text-lg"
-              >
-                The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
-              </MotionP>
-
-              <MotionDiv
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-              >
-                <Link
-                  to="/register"
-                  className="group inline-flex items-center gap-2 self-start rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
-                  style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
-                >
-                  Get started
-                  <span
-                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
-                    style={{ backgroundColor: '#1F1F1F' }}
-                  >
-                    <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
-                  </span>
-                </Link>
-              </MotionDiv>
-            </div>
           </div>
         </div>
       </section>
@@ -1058,49 +1142,25 @@ const LandingV2 = () => {
                   fontFamily: FONT_DISPLAY,
                   fontWeight: 800,
                   letterSpacing: '-0.02em',
-                  lineHeight: 1.0,
+                  lineHeight: 1.4,
                 }}
               >
+                {/* One span, wraps naturally instead of a forced <br />.
+                    box-decoration-break makes each wrapped line clone the
+                    same padding/radius/background, so it reads as one
+                    continuous highlighter stroke instead of two separate
+                    stacked pills with a gap between them. */}
                 <span
                   style={{
                     backgroundColor: '#FA6C43',
                     color: '#FFFFFF',
                     padding: '0.25em 0.4em',
                     borderRadius: '12px',
-                    position: 'relative',
-                    zIndex: 2,
+                    boxDecorationBreak: 'clone',
+                    WebkitBoxDecorationBreak: 'clone',
                   }}
                 >
-                  Fetches Canvas
-                </span>
-                <br />
-                <span
-                  style={{
-                    position: 'relative',
-                    display: 'inline-block',
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      backgroundColor: '#FA6C43',
-                      borderRadius: '12px',
-                      zIndex: 1,
-                    }}
-                  />
-                  <span
-                    style={{
-                      position: 'relative',
-                      zIndex: 3,
-                      padding: '0.25em 0.4em',
-                      color: '#FFFFFF',
-                      display: 'inline-block',
-                    }}
-                  >
-                    Files
-                  </span>
+                  Fetches Canvas Files
                 </span>
               </h2>
               <p
@@ -1188,12 +1248,20 @@ const LandingV2 = () => {
       </section>
 
       {/* === TESTIMONIALS ===
-          Two panels, side by side — both always expanded (the student
-          panel was dropped, and two fit at once with room to breathe, so
-          the old accordion/auto-rotate/rail-collapse machinery is gone
-          along with it). Section ref drives the IntersectionObserver that
-          gates video autoplay — both videos stay paused until this
-          section enters view. */}
+          SqueezeCarousel (components/ui/squeeze-carousel.jsx, a faithful port
+          of a supplied template) replaces the old always-expanded 2-column
+          grid: one testimonial open at full 16:9 video, the rest collapsed
+          into narrower columns beside it — click one to swap. Section ref
+          still drives the same IntersectionObserver as before; its
+          `testimonialsInView` state now gates the carousel's `playVideos`
+          prop instead of manually calling .play()/.pause() on a video ref
+          array, since the carousel only ever mounts a <video> for the
+          panel that's actually open. controls={false} drops the floating
+          Prev/Next arrows — with exactly 4 slides filling the row (see
+          TESTIMONIAL_PANELS above for why 4, not 2), clicking a column
+          directly is enough; the separate arrow buttons read as an
+          orphaned floating element with nothing to visually anchor to.
+          max-w-7xl (was max-w-5xl) gives the now-4-wide row more room. */}
       <section
         ref={testimonialsSectionRef}
         className="relative px-6 lg:px-10 py-24 z-10"
@@ -1218,106 +1286,14 @@ const LandingV2 = () => {
             Built for the people who actually use it.
           </h2>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {TESTIMONIAL_PANELS.map((p, i) => (
-              <div
-                key={p.id}
-                className="relative overflow-hidden rounded-3xl p-8 lg:p-10 flex flex-col"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid rgba(31,31,31,0.08)',
-                  boxShadow: '0 24px 56px rgba(31,31,31,0.1), inset 0 1px 0 rgba(255,255,255,0.6)',
-                }}
-              >
-                {/* Portrait testimonial video — autoplays muted once the
-                    section is in view (videoRefs effect above), paused
-                    when it scrolls out. */}
-                <div
-                  className="relative overflow-hidden w-full mb-7"
-                  style={{ aspectRatio: '16 / 9', backgroundColor: '#1F1F1F', borderRadius: '20px' }}
-                >
-                  <video
-                    ref={(el) => { videoRefs.current[i] = el; }}
-                    src={p.videoSrc}
-                    poster={p.posterSrc}
-                    muted
-                    playsInline
-                    loop
-                    preload="metadata"
-                    className="w-full h-full object-cover"
-                  />
-                  <img
-                    src="/logo-A-white.svg"
-                    alt=""
-                    aria-hidden
-                    draggable={false}
-                    className="absolute pointer-events-none select-none"
-                    style={{ top: '14px', right: '14px', width: '28px', height: 'auto', zIndex: 10 }}
-                  />
-                </div>
-
-                {/* Editorial testimonial: ringed avatar, serif quote, a
-                    handwritten signature + sans meta line. */}
-                <div className="flex items-start gap-4 mb-5">
-                  <div
-                    className="rounded-full overflow-hidden shrink-0"
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      backgroundColor: '#1F1F1F',
-                      boxShadow: `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.accent}`,
-                    }}
-                  >
-                    <img
-                      src={p.avatarSrc || p.posterSrc}
-                      alt=""
-                      aria-hidden
-                      draggable={false}
-                      className="w-full h-full object-cover"
-                      onError={(e) => { e.currentTarget.style.opacity = '0'; }}
-                    />
-                  </div>
-                  <div>
-                    <div
-                      style={{
-                        fontFamily: FONT_SCRIPT,
-                        fontWeight: 600,
-                        color: '#1F1F1F',
-                        fontSize: '2rem',
-                        lineHeight: 1,
-                        letterSpacing: '0.005em',
-                      }}
-                    >
-                      {p.name}
-                    </div>
-                    <div
-                      className="mt-1.5"
-                      style={{
-                        fontFamily: FONT_BODY,
-                        fontWeight: 500,
-                        fontSize: '0.88rem',
-                        color: 'rgba(31,31,31,0.6)',
-                      }}
-                    >
-                      {p.role} at <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
-                    </div>
-                  </div>
-                </div>
-                <p
-                  className="leading-snug"
-                  style={{
-                    color: '#1F1F1F',
-                    fontFamily: FONT_SERIF,
-                    fontSize: '1.2rem',
-                    lineHeight: 1.45,
-                    fontWeight: 400,
-                  }}
-                >
-                  &ldquo;{p.quote}&rdquo;
-                </p>
-              </div>
-            ))}
-          </div>
+          <SqueezeCarousel
+            slides={TESTIMONIAL_SLIDES}
+            playVideos={testimonialsInView}
+            accent="#FA6C43"
+            accentForeground="#FFFFFF"
+            label="Testimonials"
+            controls={false}
+          />
         </div>
       </section>
 
