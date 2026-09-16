@@ -1,6 +1,11 @@
 // @language JavaScript (React)
 // @updated 2026-09-16
-// @changed Reverted the section order again: HERO is back above TRY IT so "ACTRLabs" is the first
+// @changed HERO is now min-h-screen (was auto-height/compact) so it claims the whole first viewport —
+//          ACTRLabs + the orange CTA are the only thing visible on load, and TRY IT is exactly one
+//          scroll below instead of sharing the first screen with the hero. Content stays top-anchored
+//          (unchanged from the prior compact treatment), just with empty FAFAF7 canvas filling out the
+//          rest of the viewport below it now.
+// @changed Prior: Reverted the section order again: HERO is back above TRY IT so "ACTRLabs" is the first
 //          thing visible. HERO dropped its h-screen/justify-end (bottom-anchored, full-viewport)
 //          treatment for a compact top-anchored one — the wordmark now renders immediately below the
 //          nav instead of needing a full scroll's worth of empty space to resolve at the bottom.
@@ -795,20 +800,22 @@ const LandingV2 = () => {
           independent animation systems running at once on page load;
           WordsPullUp is one useInView check that fires once and stops, not
           a continuous loop. Back to being the first section (above TRY IT)
-          so "ACTRLabs" is the first thing a visitor sees. Top-anchored
-          instead of the old h-screen/justify-end (bottom-anchored,
-          full-viewport) treatment — that pushed the wordmark down near the
-          fold on shorter viewports; this renders it immediately below the
-          nav with no scroll required. Background matches the page's
-          default FAFAF7 (was a hard-locked #FFFFFF) so there's no seam
-          against TRY IT or PHILOSOPHY below it — "no gradient/video
-          competing with the mark" from the original request was about
-          motion, not this specific hex. Heading fontSize clamp is scaled
-          to the lg:col-span-8 column's actual width (~66% of viewport, not
-          the full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider
-          than its own column at common desktop widths, so it spilled into
-          the pitch-text column beside it. */}
-      <section className="relative w-full overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
+          so "ACTRLabs" is the first thing a visitor sees, top-anchored
+          (not the old bottom-anchored/justify-end treatment) so it renders
+          immediately below the nav with no scroll required. min-h-screen
+          so this section claims the whole first viewport — ACTRLabs +
+          the orange CTA are everything visible on load, and TRY IT is
+          exactly one scroll below instead of sharing the first screen with
+          the hero. Background matches the page's default FAFAF7 (was a
+          hard-locked #FFFFFF) so there's no seam against TRY IT or
+          PHILOSOPHY below it — "no gradient/video competing with the
+          mark" from the original request was about motion, not this
+          specific hex. Heading fontSize clamp is scaled to the
+          lg:col-span-8 column's actual width (~66% of viewport, not the
+          full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider than
+          its own column at common desktop widths, so it spilled into the
+          pitch-text column beside it. */}
+      <section className="relative w-full min-h-screen overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
         <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
             <div className="lg:col-span-8">
