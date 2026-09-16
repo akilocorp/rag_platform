@@ -1,4 +1,11 @@
-/* @language JSX  @updated 2026-09-14  @changed Round 2 ends on a re-ask, not just the clock: the last
+/* @language JSX  @updated 2026-09-16  @changed The "waiting for your instructor" screen gets a way out.
+   It is the one screen in the exercise a student may leave — waiting is not a stage anyone else's
+   clock depends on, and their place is held server-side against their uid. So the button just
+   navigates: it does NOT emit `leave_investigation_pool`, and `pool` stays out of the back-nav
+   guard's phase list. Coming back to the link re-runs `join_investigation_pool`, which returns them
+   to their own room if pairing has run, or seats them in the emptiest group as a latecomer. The copy
+   says so, instead of the old "keep this tab open".
+   Prior: Round 2 ends on a re-ask, not just the clock: the last
    minute of the Post Outcome Discussion raises a revision ballot over the live composer (`revision_open`
    → RevisionBallot), answered by the same decider who entered the group's first hire. The chat stays
    open the whole time — the decision is meant to be made while the room is still arguing — and the
@@ -1682,7 +1689,29 @@ const ManagerExercisePage = () => {
         icon={<RiUser3Line />}
         eyebrow="Hang tight"
         title="Waiting for your instructor to start."
-        body="You're in. Keep this tab open — the exercise begins automatically as soon as your instructor starts it, with no action needed from you."
+        body="You're in the queue. Leave this open and the exercise begins on its own the moment your instructor starts it — nothing for you to do."
+        footer={
+          /* The one screen in the exercise you may walk away from. Waiting is not a
+             stage anyone else's clock depends on, and your place is held server-side
+             against your uid — `join_investigation_pool` puts a returning student
+             back in their own room if pairing has run, or seats them in the
+             emptiest group as a latecomer. So this deliberately does NOT emit
+             `leave_investigation_pool`, and `pool` is deliberately absent from the
+             back-nav guard's phase list: leaving here costs nothing, and telling a
+             student otherwise would strand them on a screen they cannot escape. */
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <button
+              onClick={() => navigate(dashboardPath())}
+              className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
+            >
+              <FaArrowLeft className="text-xs" /> {homeLabel()}
+            </button>
+            <p className="mt-2 text-xs text-gray-400 leading-relaxed">
+              You keep your place — come back to this link any time and you'll be put
+              straight into your group.
+            </p>
+          </div>
+        }
       />
     );
   }
