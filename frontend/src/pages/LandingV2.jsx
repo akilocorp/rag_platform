@@ -1,6 +1,16 @@
 // @language JavaScript (React)
 // @updated 2026-09-16
-// @changed Course Sync bento cell's "Fetches Canvas Files" headline: collapsed the two hand-built pill
+// @changed HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
+//          single centered top-down column — ACTRLabs, then the pitch text, then "Get started",
+//          all center-aligned. TESTIMONIALS: added 2 placeholder entries to TESTIMONIAL_PANELS
+//          (Students/Administrators, obvious dummy copy, flat-color panel since there's no real
+//          image/video yet) so the carousel renders 4 slides instead of 2 — its column-width math
+//          (SHARES/STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns, and with only 2 it
+//          rendered hero + 1 companion while leaving ~45% of the row as dead empty space. Also dropped
+//          the floating Prev/Next arrow buttons (controls={false} — orphaned with nothing to anchor to
+//          once clicking a column does the same job) and widened the section back to max-w-7xl (was
+//          max-w-5xl) for the now-4-wide row.
+// @changed Prior: Course Sync bento cell's "Fetches Canvas Files" headline: collapsed the two hand-built pill
 //          spans (a forced <br /> plus a separate absolutely-positioned background layer for the
 //          second line) into one span that wraps naturally, using box-decoration-break: clone so each
 //          wrapped line gets identical padding/radius/background. The old version rendered as two
@@ -402,6 +412,34 @@ const TESTIMONIAL_PANELS = [
     bg: '#D9E5F2',
     accent: '#3E6493',
   },
+  // Placeholder entries — SqueezeCarousel's column-width math (SHARES/
+  // STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns; with only
+  // 2 slides the row rendered hero + 1 companion and left the remaining
+  // ~45% of its width as dead empty space. Adding 2 more slides fills the
+  // row the way the component is actually built for. No video/poster yet,
+  // so Picture falls through to `bg` as a flat-color panel. Swap the copy
+  // and add a real videoSrc/posterSrc/avatarSrc when these are ready —
+  // nothing else about the shape needs to change.
+  {
+    id: 'dummy-students',
+    title: 'Students',
+    name: 'Your name here',
+    role: 'Role',
+    university: 'Institution',
+    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    bg: '#E5E1D8',
+    accent: '#8C8471',
+  },
+  {
+    id: 'dummy-administrators',
+    title: 'Administrators',
+    name: 'Your name here',
+    role: 'Role',
+    university: 'Institution',
+    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    bg: '#DCE3E0',
+    accent: '#4B7A6F',
+  },
 ];
 
 // TESTIMONIAL_PANELS reshaped into SqueezeCarousel's slide format. Derived
@@ -419,6 +457,7 @@ const TESTIMONIAL_SLIDES = TESTIMONIAL_PANELS.map((p) => ({
   image: p.posterSrc,
   imageAlt: `${p.name}, ${p.role} at ${p.university}`,
   video: p.videoSrc,
+  background: p.bg,
   overlay: (
     <span
       className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-white"
@@ -845,53 +884,49 @@ const LandingV2 = () => {
           its own column at common desktop widths, so it spilled into the
           pitch-text column beside it. */}
       <section className="relative w-full min-h-screen overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
-            <div className="lg:col-span-8">
-              <h1
-                className="leading-[0.85] tracking-[-0.04em]"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  color: '#1F1F1F',
-                  fontWeight: 800,
-                  fontSize: 'clamp(56px, 9vw, 150px)',
-                }}
-              >
-                <WordsPullUp text="ACTRLabs" showAsterisk />
-              </h1>
-            </div>
+        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full flex flex-col items-center text-center">
+          <h1
+            className="leading-[0.85] tracking-[-0.04em]"
+            style={{
+              fontFamily: FONT_DISPLAY,
+              color: '#1F1F1F',
+              fontWeight: 800,
+              fontSize: 'clamp(56px, 9vw, 150px)',
+            }}
+          >
+            <WordsPullUp text="ACTRLabs" showAsterisk />
+          </h1>
 
-            <div className="lg:col-span-4 flex flex-col gap-6 pb-2">
-              <MotionP
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
-                className="text-base lg:text-lg"
-              >
-                The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
-              </MotionP>
+          <div className="mt-8 max-w-xl flex flex-col items-center gap-6">
+            <MotionP
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
+              className="text-base lg:text-lg"
+            >
+              The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
+            </MotionP>
 
-              <MotionDiv
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            <MotionDiv
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <Link
+                to="/register"
+                className="group inline-flex items-center gap-2 rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
+                style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
               >
-                <Link
-                  to="/register"
-                  className="group inline-flex items-center gap-2 self-start rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
-                  style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
+                Get started
+                <span
+                  className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
+                  style={{ backgroundColor: '#1F1F1F' }}
                 >
-                  Get started
-                  <span
-                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
-                    style={{ backgroundColor: '#1F1F1F' }}
-                  >
-                    <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
-                  </span>
-                </Link>
-              </MotionDiv>
-            </div>
+                  <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
+                </span>
+              </Link>
+            </MotionDiv>
           </div>
         </div>
       </section>
@@ -1215,19 +1250,24 @@ const LandingV2 = () => {
       {/* === TESTIMONIALS ===
           SqueezeCarousel (components/ui/squeeze-carousel.jsx, a faithful port
           of a supplied template) replaces the old always-expanded 2-column
-          grid: one testimonial open at full 16:9 video, the other collapsed
-          to a companion column beside it — click it to swap. Section ref
+          grid: one testimonial open at full 16:9 video, the rest collapsed
+          into narrower columns beside it — click one to swap. Section ref
           still drives the same IntersectionObserver as before; its
           `testimonialsInView` state now gates the carousel's `playVideos`
           prop instead of manually calling .play()/.pause() on a video ref
           array, since the carousel only ever mounts a <video> for the
-          panel that's actually open. */}
+          panel that's actually open. controls={false} drops the floating
+          Prev/Next arrows — with exactly 4 slides filling the row (see
+          TESTIMONIAL_PANELS above for why 4, not 2), clicking a column
+          directly is enough; the separate arrow buttons read as an
+          orphaned floating element with nothing to visually anchor to.
+          max-w-7xl (was max-w-5xl) gives the now-4-wide row more room. */}
       <section
         ref={testimonialsSectionRef}
         className="relative px-6 lg:px-10 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
             style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
@@ -1252,6 +1292,7 @@ const LandingV2 = () => {
             accent="#FA6C43"
             accentForeground="#FFFFFF"
             label="Testimonials"
+            controls={false}
           />
         </div>
       </section>
