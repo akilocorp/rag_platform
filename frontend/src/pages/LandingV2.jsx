@@ -1,6 +1,16 @@
 // @language JavaScript (React)
 // @updated 2026-09-16
-// @changed HERO is now min-h-screen (was auto-height/compact) so it claims the whole first viewport —
+// @changed TESTIMONIALS section swapped the always-expanded 2-column grid for the new SqueezeCarousel
+//          (components/ui/squeeze-carousel.jsx) — one testimonial open at full 16:9 video, the other
+//          collapsed to a companion column beside it, click to swap. New module-level TESTIMONIAL_SLIDES
+//          reshapes TESTIMONIAL_PANELS into the carousel's slide format (quote as title, name/role/
+//          university as description, poster+video, audience label as the corner overlay badge).
+//          testimonialsSectionRef/testimonialsInView (the existing IntersectionObserver gate) are
+//          unchanged, just now feed the carousel's playVideos prop instead of a manual video-ref
+//          play()/pause() loop, which is gone along with the videoRefs array — the carousel only ever
+//          mounts a <video> for the panel that's actually open, so mounting is the play trigger.
+//          FONT_SERIF/FONT_SCRIPT dropped (only used by the old testimonial markup, now unused).
+// @changed Prior: HERO is now min-h-screen (was auto-height/compact) so it claims the whole first viewport —
 //          ACTRLabs + the orange CTA are the only thing visible on load, and TRY IT is exactly one
 //          scroll below instead of sharing the first screen with the hero. Content stays top-anchored
 //          (unchanged from the prior compact treatment), just with empty FAFAF7 canvas filling out the
@@ -104,6 +114,7 @@ import { FaArrowRight } from 'react-icons/fa';
 import { ContainerScroll } from '../components/ui/container-scroll-animation';
 import { PromptInput } from '../components/ui/ai-chat-input';
 import { WordsPullUp } from '../components/ui/words-pull-up';
+import { SqueezeCarousel } from '../components/ui/squeeze-carousel';
 
 // Plain identifiers so the hero's JSX tags aren't member expressions
 // (<motion.p>) — this project's eslint config has no react/JSX-aware
@@ -116,8 +127,6 @@ gsap.registerPlugin(ScrollTrigger);
 
 const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
-const FONT_SERIF = "'Newsreader', Georgia, serif";
-const FONT_SCRIPT = "'Caveat', 'Segoe Script', cursive";
 
 // Placeholder prompts cycled by the "Try it" composer's typewriter effect.
 const HERO_PROMPTS = [
@@ -388,6 +397,31 @@ const TESTIMONIAL_PANELS = [
   },
 ];
 
+// TESTIMONIAL_PANELS reshaped into SqueezeCarousel's slide format. Derived
+// once at module scope (static content, no component state involved) rather
+// than recomputed every render.
+const TESTIMONIAL_SLIDES = TESTIMONIAL_PANELS.map((p) => ({
+  id: p.id,
+  title: `“${p.quote}”`,
+  description: (
+    <>
+      {p.name}, {p.role} at{' '}
+      <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
+    </>
+  ),
+  image: p.posterSrc,
+  imageAlt: `${p.name}, ${p.role} at ${p.university}`,
+  video: p.videoSrc,
+  overlay: (
+    <span
+      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-white"
+      style={{ backgroundColor: 'rgba(255,255,255,0.16)', backdropFilter: 'blur(6px)', fontFamily: FONT_BODY }}
+    >
+      {p.title}
+    </span>
+  ),
+}));
+
 // Philosophy paragraph as an ARRAY of paragraphs, each a sequence of
 // tokens (currently plain text chunks only). Splitting into separate
 // paragraphs gives breathing room between thoughts and lets the
@@ -430,13 +464,12 @@ const LandingV2 = () => {
     return () => { document.title = prev; };
   }, []);
 
-  // Testimonial videos. Each panel renders a <video> whose ref lands in
-  // this array — both autoplay (not just one) since the two panels are
-  // shown side by side now, not one-at-a-time in an accordion. Gated on
-  // the section being in view so it doesn't burn bandwidth before the
-  // visitor scrolls this far. Browser autoplay requires muted +
-  // playsInline, both set on the <video> below.
-  const videoRefs = useRef([]);
+  // Testimonial video gating. SqueezeCarousel only mounts a <video> for
+  // whichever panel is currently open (its `playing` prop on Picture), so
+  // mounting IS the play trigger — no manual .play()/.pause() calls or a
+  // ref array needed here anymore. This still gates on the section being
+  // in view, same as before, so playback doesn't start until the visitor
+  // scrolls this far — passed through as SqueezeCarousel's `playVideos` prop.
   const testimonialsSectionRef = useRef(null);
   const [testimonialsInView, setTestimonialsInView] = useState(false);
   useEffect(() => {
@@ -452,17 +485,6 @@ const LandingV2 = () => {
     io.observe(el);
     return () => io.disconnect();
   }, []);
-  useEffect(() => {
-    videoRefs.current.forEach((v) => {
-      if (!v) return;
-      if (testimonialsInView) {
-        const p = v.play();
-        if (p && typeof p.catch === 'function') p.catch(() => {});
-      } else {
-        v.pause();
-      }
-    });
-  }, [testimonialsInView]);
 
   // "Try it" composer (components/ui/ai-chat-input's PromptInput) — its own
   // dedicated section now, right after the hero, rather than living inside
@@ -1208,18 +1230,21 @@ const LandingV2 = () => {
       </section>
 
       {/* === TESTIMONIALS ===
-          Two panels, side by side — both always expanded (the student
-          panel was dropped, and two fit at once with room to breathe, so
-          the old accordion/auto-rotate/rail-collapse machinery is gone
-          along with it). Section ref drives the IntersectionObserver that
-          gates video autoplay — both videos stay paused until this
-          section enters view. */}
+          SqueezeCarousel (components/ui/squeeze-carousel.jsx, a faithful port
+          of a supplied template) replaces the old always-expanded 2-column
+          grid: one testimonial open at full 16:9 video, the other collapsed
+          to a companion column beside it — click it to swap. Section ref
+          still drives the same IntersectionObserver as before; its
+          `testimonialsInView` state now gates the carousel's `playVideos`
+          prop instead of manually calling .play()/.pause() on a video ref
+          array, since the carousel only ever mounts a <video> for the
+          panel that's actually open. */}
       <section
         ref={testimonialsSectionRef}
         className="relative px-6 lg:px-10 py-24 z-10"
         style={{ backgroundColor: '#FAFAF7' }}
       >
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
             style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
@@ -1238,106 +1263,13 @@ const LandingV2 = () => {
             Built for the people who actually use it.
           </h2>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {TESTIMONIAL_PANELS.map((p, i) => (
-              <div
-                key={p.id}
-                className="relative overflow-hidden rounded-3xl p-8 lg:p-10 flex flex-col"
-                style={{
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid rgba(31,31,31,0.08)',
-                  boxShadow: '0 24px 56px rgba(31,31,31,0.1), inset 0 1px 0 rgba(255,255,255,0.6)',
-                }}
-              >
-                {/* Portrait testimonial video — autoplays muted once the
-                    section is in view (videoRefs effect above), paused
-                    when it scrolls out. */}
-                <div
-                  className="relative overflow-hidden w-full mb-7"
-                  style={{ aspectRatio: '16 / 9', backgroundColor: '#1F1F1F', borderRadius: '20px' }}
-                >
-                  <video
-                    ref={(el) => { videoRefs.current[i] = el; }}
-                    src={p.videoSrc}
-                    poster={p.posterSrc}
-                    muted
-                    playsInline
-                    loop
-                    preload="metadata"
-                    className="w-full h-full object-cover"
-                  />
-                  <img
-                    src="/logo-A-white.svg"
-                    alt=""
-                    aria-hidden
-                    draggable={false}
-                    className="absolute pointer-events-none select-none"
-                    style={{ top: '14px', right: '14px', width: '28px', height: 'auto', zIndex: 10 }}
-                  />
-                </div>
-
-                {/* Editorial testimonial: ringed avatar, serif quote, a
-                    handwritten signature + sans meta line. */}
-                <div className="flex items-start gap-4 mb-5">
-                  <div
-                    className="rounded-full overflow-hidden shrink-0"
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      backgroundColor: '#1F1F1F',
-                      boxShadow: `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.accent}`,
-                    }}
-                  >
-                    <img
-                      src={p.avatarSrc || p.posterSrc}
-                      alt=""
-                      aria-hidden
-                      draggable={false}
-                      className="w-full h-full object-cover"
-                      onError={(e) => { e.currentTarget.style.opacity = '0'; }}
-                    />
-                  </div>
-                  <div>
-                    <div
-                      style={{
-                        fontFamily: FONT_SCRIPT,
-                        fontWeight: 600,
-                        color: '#1F1F1F',
-                        fontSize: '2rem',
-                        lineHeight: 1,
-                        letterSpacing: '0.005em',
-                      }}
-                    >
-                      {p.name}
-                    </div>
-                    <div
-                      className="mt-1.5"
-                      style={{
-                        fontFamily: FONT_BODY,
-                        fontWeight: 500,
-                        fontSize: '0.88rem',
-                        color: 'rgba(31,31,31,0.6)',
-                      }}
-                    >
-                      {p.role} at <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
-                    </div>
-                  </div>
-                </div>
-                <p
-                  className="leading-snug"
-                  style={{
-                    color: '#1F1F1F',
-                    fontFamily: FONT_SERIF,
-                    fontSize: '1.2rem',
-                    lineHeight: 1.45,
-                    fontWeight: 400,
-                  }}
-                >
-                  &ldquo;{p.quote}&rdquo;
-                </p>
-              </div>
-            ))}
-          </div>
+          <SqueezeCarousel
+            slides={TESTIMONIAL_SLIDES}
+            playVideos={testimonialsInView}
+            accent="#FA6C43"
+            accentForeground="#FFFFFF"
+            label="Testimonials"
+          />
         </div>
       </section>
 
