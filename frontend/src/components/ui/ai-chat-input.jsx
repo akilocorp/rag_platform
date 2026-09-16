@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-03
-// @changed   Widened the collapsed/expanded max-width (320/480 -> 400/640) — the original demo sizing
+// @updated   2026-09-16
+// @changed   Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
+//            made the focus border fully opaque (border-[#FA6C43] instead of /50). Stacking a
+//            translucent border with a same-ish-colored ring just outside it read as a faint double
+//            border instead of one clean line.
+// @changed   Prior: Widened the collapsed/expanded max-width (320/480 -> 400/640) — the original demo sizing
 //            read as cramped next to the rest of the hero.
 //            Prior: new file: ported from the Aceternity/21st.dev ai-chat-input.tsx demo to this project's
 //            plain-JS/Vite convention. Shadcn CSS-variable tokens (bg-card, text-foreground, bg-primary,
@@ -722,7 +726,7 @@ export const PromptInput = React.forwardRef(
               overflow: expanded ? 'visible' : 'hidden',
             }}
             className={cn(
-              'relative w-full border border-gray-200 bg-white shadow-sm focus-within:border-[#FA6C43]/50 focus-within:ring-1 focus-within:ring-[#F9D0C4] hover:border-gray-300 z-10',
+              'relative w-full border border-gray-200 bg-white shadow-sm focus-within:border-[#FA6C43] hover:border-gray-300 z-10',
               expanded ? 'cursor-text' : 'cursor-default'
             )}
           >
