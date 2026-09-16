@@ -1,6 +1,13 @@
 // @language JavaScript (React)
 // @updated 2026-09-16
-// @changed TESTIMONIALS section swapped the always-expanded 2-column grid for the new SqueezeCarousel
+// @changed Course Sync bento cell's "Fetches Canvas Files" headline: collapsed the two hand-built pill
+//          spans (a forced <br /> plus a separate absolutely-positioned background layer for the
+//          second line) into one span that wraps naturally, using box-decoration-break: clone so each
+//          wrapped line gets identical padding/radius/background. The old version rendered as two
+//          visibly disconnected pills with a gap between them; this reads as one continuous highlighter
+//          stroke. Bumped the heading's lineHeight 1.0 -> 1.4 so the cloned line boxes have breathing
+//          room instead of their padding touching.
+// @changed Prior: TESTIMONIALS section swapped the always-expanded 2-column grid for the new SqueezeCarousel
 //          (components/ui/squeeze-carousel.jsx) — one testimonial open at full 16:9 video, the other
 //          collapsed to a companion column beside it, click to swap. New module-level TESTIMONIAL_SLIDES
 //          reshapes TESTIMONIAL_PANELS into the carousel's slide format (quote as title, name/role/
@@ -1100,49 +1107,25 @@ const LandingV2 = () => {
                   fontFamily: FONT_DISPLAY,
                   fontWeight: 800,
                   letterSpacing: '-0.02em',
-                  lineHeight: 1.0,
+                  lineHeight: 1.4,
                 }}
               >
+                {/* One span, wraps naturally instead of a forced <br />.
+                    box-decoration-break makes each wrapped line clone the
+                    same padding/radius/background, so it reads as one
+                    continuous highlighter stroke instead of two separate
+                    stacked pills with a gap between them. */}
                 <span
                   style={{
                     backgroundColor: '#FA6C43',
                     color: '#FFFFFF',
                     padding: '0.25em 0.4em',
                     borderRadius: '12px',
-                    position: 'relative',
-                    zIndex: 2,
+                    boxDecorationBreak: 'clone',
+                    WebkitBoxDecorationBreak: 'clone',
                   }}
                 >
-                  Fetches Canvas
-                </span>
-                <br />
-                <span
-                  style={{
-                    position: 'relative',
-                    display: 'inline-block',
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      backgroundColor: '#FA6C43',
-                      borderRadius: '12px',
-                      zIndex: 1,
-                    }}
-                  />
-                  <span
-                    style={{
-                      position: 'relative',
-                      zIndex: 3,
-                      padding: '0.25em 0.4em',
-                      color: '#FFFFFF',
-                      display: 'inline-block',
-                    }}
-                  >
-                    Files
-                  </span>
+                  Fetches Canvas Files
                 </span>
               </h2>
               <p
