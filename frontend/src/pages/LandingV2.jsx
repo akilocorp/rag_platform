@@ -1,6 +1,13 @@
 // @language JavaScript (React)
-// @updated 2026-09-15
-// @changed Swapped section order: TRY IT (composer) now sits above HERO instead of below it, so a
+// @updated 2026-09-16
+// @changed Reverted the section order again: HERO is back above TRY IT so "ACTRLabs" is the first
+//          thing visible. HERO dropped its h-screen/justify-end (bottom-anchored, full-viewport)
+//          treatment for a compact top-anchored one — the wordmark now renders immediately below the
+//          nav instead of needing a full scroll's worth of empty space to resolve at the bottom.
+//          HERO and TRY IT both switched from a hard-locked #FFFFFF to the page's default #FAFAF7 (same
+//          as PHILOSOPHY below them), removing the seam/color-disconnect between the hero area and
+//          the scroll-driven philosophy text.
+// @changed Prior: Swapped section order: TRY IT (composer) now sits above HERO instead of below it, so a
 //          visitor can start typing before the wordmark scrolls in. Fixed the "ACTRLabs" heading
 //          overflowing into the pitch-text column beside it — its fontSize clamp was scaled off
 //          100vw (13vw/200px cap) instead of the ~66vw its lg:col-span-8 column actually gets, so it
@@ -778,14 +785,89 @@ const LandingV2 = () => {
         </div>
       </nav>
 
+      {/* === HERO ===
+          Replaces the old scroll-revealed dark mass (GSAP clip-path timeline
+          + a continuously-running WebGL2 shader canvas + a per-keystroke
+          typewriter effect) with a static hero modeled on a template the
+          team supplied: a giant word-by-word pull-up of the brand name
+          itself, beside a short pitch + CTA. This is also the fix for the
+          "overloaded my browser" report — that combination was 3-4
+          independent animation systems running at once on page load;
+          WordsPullUp is one useInView check that fires once and stops, not
+          a continuous loop. Back to being the first section (above TRY IT)
+          so "ACTRLabs" is the first thing a visitor sees. Top-anchored
+          instead of the old h-screen/justify-end (bottom-anchored,
+          full-viewport) treatment — that pushed the wordmark down near the
+          fold on shorter viewports; this renders it immediately below the
+          nav with no scroll required. Background matches the page's
+          default FAFAF7 (was a hard-locked #FFFFFF) so there's no seam
+          against TRY IT or PHILOSOPHY below it — "no gradient/video
+          competing with the mark" from the original request was about
+          motion, not this specific hex. Heading fontSize clamp is scaled
+          to the lg:col-span-8 column's actual width (~66% of viewport, not
+          the full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider
+          than its own column at common desktop widths, so it spilled into
+          the pitch-text column beside it. */}
+      <section className="relative w-full overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
+            <div className="lg:col-span-8">
+              <h1
+                className="leading-[0.85] tracking-[-0.04em]"
+                style={{
+                  fontFamily: FONT_DISPLAY,
+                  color: '#1F1F1F',
+                  fontWeight: 800,
+                  fontSize: 'clamp(56px, 9vw, 150px)',
+                }}
+              >
+                <WordsPullUp text="ACTRLabs" showAsterisk />
+              </h1>
+            </div>
+
+            <div className="lg:col-span-4 flex flex-col gap-6 pb-2">
+              <MotionP
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
+                className="text-base lg:text-lg"
+              >
+                The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
+              </MotionP>
+
+              <MotionDiv
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <Link
+                  to="/register"
+                  className="group inline-flex items-center gap-2 self-start rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
+                  style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
+                >
+                  Get started
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
+                    style={{ backgroundColor: '#1F1F1F' }}
+                  >
+                    <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
+                  </span>
+                </Link>
+              </MotionDiv>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* === TRY IT ===
-          PromptInput's own dedicated section, now the first beat after the
-          nav (moved above the HERO below so a visitor can start typing
-          before they even see the wordmark). PromptInput carries its own
-          white/bordered card chrome (border + shadow), so it reads fine on
-          either bg; this section stays white to read as one continuous
-          block with the hero that follows it. */}
-      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FFFFFF' }}>
+          PromptInput's own dedicated section, back below the HERO above
+          (see that comment for why). PromptInput carries its own
+          white/bordered card chrome (border + shadow), so it stays legible
+          against this bg. Uses the same FAFAF7 as HERO and PHILOSOPHY —
+          previously locked to #FFFFFF, which read as a disconnected seam
+          against PHILOSOPHY's FAFAF7 right below it. */}
+      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FAFAF7' }}>
         <div className="max-w-2xl mx-auto flex flex-col items-center text-center">
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
@@ -839,75 +921,6 @@ const LandingV2 = () => {
               models={MODEL_OPTIONS.map((m) => m.label)}
               onSubmit={handleComposerSubmit}
             />
-          </div>
-        </div>
-      </section>
-
-      {/* === HERO ===
-          Replaces the old scroll-revealed dark mass (GSAP clip-path timeline
-          + a continuously-running WebGL2 shader canvas + a per-keystroke
-          typewriter effect) with a static white hero modeled on a template
-          the team supplied: a giant word-by-word pull-up of the brand name
-          itself, bottom-anchored beside a short pitch + CTA. This is also
-          the fix for the "overloaded my browser" report — that combination
-          was 3-4 independent animation systems running at once on page
-          load; WordsPullUp is one useInView check that fires once and
-          stops, not a continuous loop. Background is plain white per
-          request — no video, no gradient, nothing competing with the mark.
-          Now sits below the TRY IT section above. Heading fontSize clamp
-          is scaled to the lg:col-span-8 column's actual width (~66% of
-          viewport, not the full 100vw), not the full viewport — the old
-          13vw/200px cap sized "ACTRLabs" wider than its own column at
-          common desktop widths, so it spilled into the pitch-text column
-          beside it. */}
-      <section className="relative h-screen w-full flex flex-col justify-end overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
-        <div className="px-6 lg:px-12 pb-16 lg:pb-24 pt-32 w-full">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-end">
-            <div className="lg:col-span-8">
-              <h1
-                className="leading-[0.85] tracking-[-0.04em]"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  color: '#1F1F1F',
-                  fontWeight: 800,
-                  fontSize: 'clamp(56px, 9vw, 150px)',
-                }}
-              >
-                <WordsPullUp text="ACTRLabs" showAsterisk />
-              </h1>
-            </div>
-
-            <div className="lg:col-span-4 flex flex-col gap-6 pb-2">
-              <MotionP
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500, lineHeight: 1.5 }}
-                className="text-base lg:text-lg"
-              >
-                The platform educators and researchers use to build AI simulations and bots for their classroom and studies, no engineering required.
-              </MotionP>
-
-              <MotionDiv
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-              >
-                <Link
-                  to="/register"
-                  className="group inline-flex items-center gap-2 self-start rounded-full py-1.5 pl-6 pr-1.5 text-base font-semibold transition-all hover:gap-3"
-                  style={{ backgroundColor: '#FA6C43', color: '#FFFFFF', fontFamily: FONT_BODY }}
-                >
-                  Get started
-                  <span
-                    className="flex h-10 w-10 items-center justify-center rounded-full transition-transform group-hover:scale-110"
-                    style={{ backgroundColor: '#1F1F1F' }}
-                  >
-                    <FaArrowRight className="h-4 w-4" style={{ color: '#FFFFFF' }} />
-                  </span>
-                </Link>
-              </MotionDiv>
-            </div>
           </div>
         </div>
       </section>
