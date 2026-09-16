@@ -1,4 +1,8 @@
-/* @language JSX  @updated 2026-09-11  @changed Every group row now carries an explicit "See summary"
+/* @language JSX  @updated 2026-09-17  @changed The professor's last TEST run renders as one more team
+   at the bottom of "Group by group", pilled "AI test" instead of "Group N". Rows flagged `is_test` are
+   held out of the class-summary request and out of the still-live poll check, since an abandoned test
+   room keeps its last phase forever and would otherwise poll the page until it was closed.
+   Prior: Every group row now carries an explicit "See summary"
    button — the previous version only made the group LABEL clickable, and a bad replace meant even that
    landed solely on the empty-group row, so the roster had no way in at all.
    Prior: Two AI reads added to the page: a "Class summary" card
@@ -65,6 +69,24 @@ const Avatar = ({ name }) => (
   <span className="shrink-0 w-7 h-7 rounded-full bg-[#F9D0C4]/50 text-[#C2410C] text-[11px] font-bold flex items-center justify-center">
     {initials(name)}
   </span>
+);
+
+// A row-block's identity pill. A real group gets the neutral gray chip; the
+// professor's simulated run gets the page's orange and a "simulated" caption, so
+// a row that is not part of the class can never be read as one at a glance.
+const RoomLabel = ({ room }) => (
+  room.is_test ? (
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <span className="inline-flex px-2.5 py-1 rounded-lg bg-[#F9D0C4]/50 text-[#C2410C] text-xs font-bold whitespace-nowrap">
+        {room.label}
+      </span>
+      <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">simulated</span>
+    </span>
+  ) : (
+    <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
+      {room.label}
+    </span>
+  )
 );
 
 // The one thing a group ends on, styled as a single badge rather than a bare
@@ -175,7 +197,9 @@ export default function ManagerExerciseResultsPage() {
     const tick = async () => {
       const d = await load();
       if (cancelled) return;
-      const live = (d?.rooms || []).some((r) => r.phase !== 'done');
+      // Only real groups can still be playing. A test run that was killed mid-phase
+      // never reaches `done`, and counting it here polls the page forever.
+      const live = (d?.rooms || []).some((r) => !r.is_test && r.phase !== 'done');
       if (!d || live) timer = setTimeout(tick, POLL_MS);
     };
     tick();
@@ -183,12 +207,17 @@ export default function ManagerExerciseResultsPage() {
   }, [load]);
 
   const loadClassSummary = useCallback(async (d) => {
-    if (!d || !(d.rooms || []).some((r) => r.group_choice)) return;
+    // Nothing to summarize until a REAL group has decided something — a page
+    // holding only the professor's rehearsal has no class to describe.
+    if (!d || !(d.rooms || []).some((r) => !r.is_test && r.group_choice)) return;
     setClassLoading(true);
     setClassError('');
     try {
       const res = await apiClient.post(`/manager-exercise/${configId}/class-summary`, {
-        rooms: d.rooms, answer: d.answer, template: d.template,
+        // The simulated team is not part of the class and must not be described as
+        // though it were — it is on the page for comparison, not for the average.
+        rooms: (d.rooms || []).filter((r) => !r.is_test),
+        answer: d.answer, template: d.template,
       });
       setClassSummary(res.data.summary || '');
     } catch (e) {
@@ -342,7 +371,9 @@ export default function ManagerExerciseResultsPage() {
             <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 px-6 pt-6 pb-1">Group by group</h2>
             <p className="px-6 pb-4 text-xs text-gray-400">
               Hit <span className="font-bold text-[#C2410C]">See summary</span> on any group to read what they
-              actually discussed and what came out of their debrief.
+              actually discussed and what came out of their debrief. A row pilled
+              <span className="font-bold text-[#C2410C]"> AI test</span> is your last simulated run — shown for
+              comparison, and left out of every number above.
             </p>
             {rooms.length === 0 && <p className="px-6 pb-6 text-sm text-gray-400">No group has started this exercise yet.</p>}
             {rooms.length > 0 && (
@@ -372,9 +403,7 @@ export default function ManagerExerciseResultsPage() {
                           {room.students.length === 0 ? (
                             <tr className={tint}>
                               <td className="px-4 py-3 rounded-l-xl">
-                                <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
-                                  {room.label}
-                                </span>
+                                <RoomLabel room={room} />
                               </td>
                               <td colSpan={3} className="px-4 py-3 text-gray-400 italic">Nobody sat in this group.</td>
                               <td className="px-4 py-3 text-center rounded-r-xl">
@@ -388,9 +417,7 @@ export default function ManagerExerciseResultsPage() {
                               {i === 0 && (
                                 <td rowSpan={rowCount} className="px-4 py-3 align-middle rounded-l-xl">
                                   <div className="flex flex-col items-start gap-2">
-                                    <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
-                                      {room.label}
-                                    </span>
+                                    <RoomLabel room={room} />
                                     {/* The read-what-happened-in-here affordance. A real button
                                         rather than a clickable label: nothing else in this table
                                         is pressable, so it has to say so. */}
