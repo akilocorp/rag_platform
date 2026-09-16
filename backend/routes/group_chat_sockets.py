@@ -1,6 +1,12 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   `reset_breakout_room` authorizes config collaborators, not just the owner.
+# @updated   2026-09-16
+# @changed   Fixed hiring students hanging forever on "Setting up your exercise…".
+#            `join_investigation_pool` still required template == "investigation", but d069d2e moved
+#            the client to `usePool = !config.owned` — so every hiring student emitted into a handler
+#            that returned without emitting anything back, and the page never left phase 'loading'.
+#            Now gated on the `prof_paired` flow flag, which is the thing that actually decides
+#            whether the professor pairs the class.
+#            Prior: `reset_breakout_room` authorizes config collaborators, not just the owner.
 #            Prior: Round 2's closing re-ask: new `submit_revised_choice` handler (decider only, validated
 #            server-side like every other ballot event) and an `on_revision_open` hook that posts the
 #            SYSTEM line announcing it — the ballot opens over a live conversation, so the transcript
@@ -1050,7 +1056,14 @@ def register_socket_events(socketio, app):
         if not config_doc or config_doc.get("bot_type") != "manager_exercise":
             return
         me_config = _manager_exercise_config(config_doc)
-        if exercise_templates.normalize(me_config.get("template")) != "investigation":
+        # Gated on the `prof_paired` flow flag, NOT on the template id. Both
+        # templates are paired by the professor now, and the client sends every
+        # non-owner here on either one (`usePool = !config.owned`) — so an id check
+        # left hiring students emitting into a handler that returned without
+        # emitting anything back, which the page renders as "Setting up your
+        # exercise…" forever. A template that does not use pairing should exclude
+        # itself by what it declares, the same way `_load_owned_paired_config` does.
+        if not exercise_templates.flow(me_config.get("template")).get("prof_paired"):
             return
 
         # Reconnect (or a first-time late arrival): a durable mapping, not socket

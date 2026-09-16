@@ -1,9 +1,13 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   The video dashboard and results reads authorize config collaborators, not only the owner
+# @updated   2026-09-15
+# @changed   Added GET /video/config/<id>/export.csv — the per-student results table (name, email,
+#            status, submitted date, overall, one column per rubric dimension) as a CSV download,
+#            mirroring studio_routes.py's export_responses_csv but through this file's
+#            _require_config_owner ownership check instead of Studio's @jwt_required() pattern.
+# @changed   Prior: The video dashboard and results reads authorize config collaborators, not only the owner
 #            (`_require_config_owner` and `_can_view_results` go through `config_access.can_edit`).
 #            A co-teacher grading the same assignment needs both.
-#            Prior: _clean_rubric_rows now preserves a `hidden` bool on save instead of stripping it, so a
+# @changed   Prior: _clean_rubric_rows now preserves a `hidden` bool on save instead of stripping it, so a
 #            box hidden in the editor stays hidden after the next Save (actual exclusion from
 #            grading happens in src/video/scoring.py:score_submission).
 # @changed   Prior: GET/PUT /video/config/<id>/scoring-spec: the rubric on its own, for the visual box editor.
@@ -18,6 +22,8 @@ S3 helpers (s3_client.py), Mongo job store (user_files upload_jobs), and the
 two-view dashboard shape (analysis_routes.py). The heavy lifting lives in
 src/video/pipeline.py (collection) and src/video/scoring.py (scoring).
 """
+import csv
+import io
 import json
 import logging
 import os
@@ -31,7 +37,7 @@ from bson import ObjectId
 
 from src.utils.config_access import can_edit
 from bson.errors import InvalidId
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
@@ -681,6 +687,63 @@ def list_submissions(config_id):
             "dimensions": dims,
         })
     return jsonify({"submissions": out})
+
+
+@video_bp.route('/video/config/<config_id>/export.csv', methods=['GET'])
+def export_submissions_csv(config_id):
+    """The dashboard's per-student table as a CSV download — same query as
+    list_submissions above (kept independent rather than shared, same as
+    studio_routes.py's export_responses_csv re-querying instead of calling
+    into its own JSON endpoint). Dimension columns are discovered from the
+    actual submissions rather than a static rubric list, so a submission
+    scored under an older rubric version still lands in the right column.
+    """
+    config, err = _require_config_owner(config_id)
+    if err:
+        return err
+
+    db = current_app.config['MONGO_DB']
+    subs = list(db['video_submissions'].find({
+        "config_id": config_id,
+        "status": {"$nin": ["failed"]},
+        "upload_status": {"$nin": ["upload_failed", "awaiting_upload"]},
+    }).sort("created_at", -1))
+
+    rows = []
+    dimension_names = []
+    seen_dimensions = set()
+    for s in subs:
+        score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
+                                            {"_id": 0, "dimensions": 1, "overall": 1})
+        dims = {d.get("name"): d.get("score") for d in ((score or {}).get("dimensions") or []) if d.get("name")}
+        for name in dims:
+            if name not in seen_dimensions:
+                seen_dimensions.add(name)
+                dimension_names.append(name)
+        rows.append({
+            "name": s.get("submitter_name") or "",
+            "email": s.get("submitter_email") or "",
+            "status": s.get("status") or "",
+            "created_at": s.get("created_at") or "",
+            "overall": (score or {}).get("overall"),
+            "dimensions": dims,
+        })
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Name", "Email", "Status", "Submitted", "Overall"] + dimension_names)
+    for r in rows:
+        writer.writerow([
+            r["name"], r["email"], r["status"], r["created_at"],
+            r["overall"] if r["overall"] is not None else "",
+        ] + [r["dimensions"].get(name, "") for name in dimension_names])
+
+    filename = f"{(config.get('bot_name') or 'video_results').replace(' ', '_')}_submissions.csv"
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @video_bp.route('/video/config/<config_id>/dashboard', methods=['GET'])
