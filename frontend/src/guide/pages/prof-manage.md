@@ -1,4 +1,4 @@
-<!-- @language Markdown  @updated 2026-08-03  @changed Humanizer copy pass: trimmed em dashes and AI-isms. -->
+<!-- @language Markdown  @updated 2026-09-17  @changed Added "Starting from a template" and "Offering your class as a template" for the new New Assistant gallery. -->
 
 # Manage your assistants
 
@@ -17,6 +17,41 @@ Remember the **Simple / Advanced** toggle applies here too. If a field this guid
 isn't on screen, switch to Advanced.
 
 Changes save when you click **Save Changes**.
+
+## Starting from a template
+
+Clicking **New Assistant** no longer drops you straight into the wizard. It opens a gallery
+of ready-made classes:
+
+- **Ready-made classes** are the ones ACTR ships. **Elevator Pitch (Video)** is set up for a
+  60 to 90 second pitch, already scored on the opening gambit, the 13 fundamentals and
+  delivery (competence, confidence, passion).
+- **Published by professors** are classes your colleagues have offered as templates.
+- **Start from scratch** is still there at the top, and opens the same wizard as before.
+
+Pick a template, confirm the **Class name**, optionally set a **Class code**, and click
+**Create class**. You get your own copy to change however you like. The template's knowledge
+base comes with it; nothing of the original's student work does.
+
+## Offering your class as a template
+
+Once you have a class set up the way you want it, you can let other professors start from it.
+
+1. Open **Customize** on the card.
+2. Scroll to **Offer this class as a template** (below Collaborators) and switch it on.
+3. Write a one-line description. It's what colleagues read on the template card.
+4. Click **Save Changes**.
+
+Your class now appears in every professor's New Assistant gallery. Picking it gives them
+their own separate copy, exactly like a paste: your uploaded files travel with it, and your
+students' chats, responses, submissions and usage counters never do. Your class itself is
+untouched, and your students see no difference.
+
+Switch the toggle back off any time and it stops being listed. Copies already made stay with
+whoever made them.
+
+> Only the **owner** of a class can publish it. If a class was shared with you as a
+> collaborator, you can edit it but the toggle is not shown.
 
 ## Copying an assistant to another professor
 

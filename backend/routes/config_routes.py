@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   Collaborators. `/config_list` lists what the caller may EDIT (owned + shared) instead of
+# @updated   2026-09-17
+# @changed   Class templates. New `GET /config/templates` (built-ins from src/managers/config_templates.py
+#            + every config flagged `is_template`) and `POST /config/from-template`, which clones a
+#            published class through the paste path or assembles a built-in. `is_template` /
+#            `template_description` are accepted on create and never survive a clone. The paste
+#            clone body was extracted into `_clone_config_into_account` so both entry points share it.
+#            Prior: Collaborators. `/config_list` lists what the caller may EDIT (owned + shared) instead of
 #            only what they own, `/config/<id>` reports `owned` off `can_edit` plus a new
 #            `access_role` ("owner"/"collaborator") so the client can hide owner-only controls, and
 #            `/copy` accepts a collaborator — a copy is a new config and takes nothing from the owner.
@@ -47,6 +52,7 @@ from src.usage import limits as usage_limits
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.managers import case_pack
 from src.managers import exercise_templates
+from src.managers import config_templates
 from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
 from src.utils.config_access import can_edit, editable_filter, role_for
 
@@ -920,6 +926,12 @@ def configure_model():
             "group_duration": group_duration,
             "bots": bots_list,
             "web_access": bool(config_data.get('web_access', True)),
+            # Opt-in publishing: listed in every professor's "start from a template"
+            # gallery, where picking it CLONES the class (knowledge base included)
+            # into their own account. Nothing about the original moves, and no
+            # student-facing route reads either field.
+            "is_template": bool(config_data.get('is_template', False)),
+            "template_description": (config_data.get('template_description') or '').strip(),
             "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
             "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
@@ -1145,6 +1157,11 @@ CONFIG_TRANSFER_TTL_DAYS = 7
 _COPY_EXCLUDED_FIELDS = (
     '_id', 'class_code', 'usage_tier', 'student_count', 'usage_pool',
     'is_playground', 'is_personal', 'upload_locked_until',
+    # Publishing is the owner's decision about the class they built, not a
+    # property of the class itself. A clone opens as an ordinary private class;
+    # inheriting the flag would republish someone else's work under a new name
+    # and fill the gallery with near-duplicates of the same template.
+    'is_template', 'template_description',
 )
 
 _transfer_indexes_ready = False
@@ -1246,6 +1263,51 @@ def _clone_knowledge_base(db, old_config_id, new_config_id, new_user_id, new_col
     return len(file_id_map), chunks_copied
 
 
+def _clone_config_into_account(source, source_config_id, user_id, bot_name, class_code):
+    """Deep-copy one config document into `user_id`'s account as a brand-new class.
+
+    Shared by the clipboard paste (Ctrl+V) and by starting a class from a
+    professor-published template: they are the same act, and they turn on the same
+    invariant — a clone is a NEW CLASS. Every student-generated record is keyed on
+    the config's `_id` (transcripts, group rooms, video submissions, sessions,
+    usage counters) or on `class_code` (enrollment), and the clone gets a fresh
+    value for both, so nothing a student ever did can follow it.
+
+    Returns `(error_response, None)` when the class code fails validation — hand
+    that straight back to the client — else `(None, (new_config, files_copied))`.
+    """
+    new_config = {k: copy_module.deepcopy(v) for k, v in source.items()
+                  if k not in _COPY_EXCLUDED_FIELDS}
+    new_config['user_id'] = user_id
+    new_config['bot_name'] = bot_name
+
+    # Same regex, same 409 message, same uniqueness check as create/edit.
+    err = validate_class_usage({'class_code': class_code}, new_config)
+    if err:
+        return err, None
+
+    new_id = Config.get_collection().insert_one(new_config).inserted_id
+    collection_name = f"config_{new_id}"
+    Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
+    new_config['collection_name'] = collection_name
+
+    files_copied, chunks_copied = _clone_knowledge_base(
+        current_app.config['MONGO_DB'],
+        source_config_id, str(new_id), user_id, collection_name,
+    )
+    current_app.logger.info(
+        "Config cloned | source=%s new=%s user=%s files=%d chunks=%d",
+        source_config_id, new_id, user_id, files_copied, chunks_copied,
+    )
+
+    # Same shape as a /config_list item, so the list can prepend it directly.
+    # insert_one stamps the raw ObjectId back onto the dict, which jsonify
+    # cannot serialize — swap it for the string id the frontend expects.
+    new_config.pop('_id', None)
+    new_config['config_id'] = str(new_id)
+    return None, (new_config, files_copied)
+
+
 @config_bp.route('/config/<string:config_id>/copy', methods=['POST'])
 @jwt_required()
 def copy_config(config_id):
@@ -1344,35 +1406,12 @@ def paste_config(token):
         if not bot_name:
             return jsonify({"error": "Give the copy a name."}), 400
 
-        new_config = {k: copy_module.deepcopy(v) for k, v in source.items()
-                      if k not in _COPY_EXCLUDED_FIELDS}
-        new_config['user_id'] = user_id
-        new_config['bot_name'] = bot_name
-
-        # Same regex, same 409 message, same uniqueness check as create/edit.
-        err = validate_class_usage({'class_code': payload.get('class_code')}, new_config)
+        err, cloned = _clone_config_into_account(
+            source, transfer['config_id'], user_id, bot_name, payload.get('class_code'))
         if err:
             return err
+        new_config, files_copied = cloned
 
-        new_id = Config.get_collection().insert_one(new_config).inserted_id
-        collection_name = f"config_{new_id}"
-        Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
-        new_config['collection_name'] = collection_name
-
-        files_copied, chunks_copied = _clone_knowledge_base(
-            current_app.config['MONGO_DB'],
-            transfer['config_id'], str(new_id), user_id, collection_name,
-        )
-        current_app.logger.info(
-            "Config pasted | source=%s new=%s user=%s files=%d chunks=%d",
-            transfer['config_id'], new_id, user_id, files_copied, chunks_copied,
-        )
-
-        # Same shape as a /config_list item, so the list can prepend it directly.
-        # insert_one stamps the raw ObjectId back onto the dict, which jsonify
-        # cannot serialize — swap it for the string id the frontend expects.
-        new_config.pop('_id', None)
-        new_config['config_id'] = str(new_id)
         return jsonify({
             "message": "Assistant copied.",
             "config": new_config,
@@ -1381,4 +1420,175 @@ def paste_config(token):
 
     except Exception as e:
         current_app.logger.error(f"Error pasting config: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+# --- Class templates ----------------------------------------------------------
+# The gallery behind "New Assistant": rather than opening on a blank wizard, a
+# professor picks a ready-made class and gets a working copy in their account.
+#
+# Two kinds of template share the grid and the instantiate route:
+#   * BUILT-IN  (`builtin:<key>`)  — shipped in src/managers/config_templates.py.
+#     Instantiating one builds a fresh config document; there is no knowledge base.
+#   * PUBLISHED (`config:<oid>`)   — any professor's own class flagged `is_template`
+#     in its settings. Instantiating one runs the SAME clone path as a clipboard
+#     paste, knowledge base included, so a published template carries its case
+#     materials with it.
+#
+# Publishing is opt-in and reversible: it flips one boolean on the professor's own
+# config and never moves the config itself. Students are unaffected either way —
+# `is_template` is not read by any student-facing route.
+
+def _template_card_for_config(db, doc, caller_id):
+    """One published class rendered as a gallery card.
+
+    `default_name` is the class's own name rather than "<name> (copy)" as paste
+    uses: starting from a template is not duplicating someone's class, it is
+    teaching the same thing, and the professor renames it if they want to.
+    """
+    config_id = str(doc['_id'])
+    owner = User.find_by_id(doc.get('user_id')) or {}
+    return {
+        "template_id": f"config:{config_id}",
+        "source": "config",
+        "title": doc.get("bot_name", "Assistant"),
+        "description": (doc.get("template_description") or "").strip(),
+        "icon": None,
+        "bot_type": doc.get("bot_type", "chat"),
+        "default_name": doc.get("bot_name", "Assistant"),
+        "file_count": _count_kb_files(db, config_id, doc),
+        "author": owner.get("username") or "A professor",
+        "is_own": str(doc.get("user_id")) == str(caller_id),
+    }
+
+
+@config_bp.route('/config/templates', methods=['GET'])
+@jwt_required()
+def list_templates():
+    """The template gallery: built-ins first, then every published class.
+
+    Published templates are visible platform-wide, which matches what copy/paste
+    already allows between professor accounts — the difference is only that a
+    template advertises itself instead of needing a pasted token.
+    """
+    try:
+        user_id = get_jwt_identity()
+        db = current_app.config['MONGO_DB']
+
+        published = Config.get_collection().find(
+            {"is_template": True},
+            {"bot_name": 1, "bot_type": 1, "user_id": 1, "template_description": 1, "documents": 1},
+        )
+        cards = config_templates.list_templates()
+        cards += [_template_card_for_config(db, doc, user_id) for doc in published]
+
+        return jsonify({"templates": cards}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error listing class templates: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+@config_bp.route('/config/from-template', methods=['POST'])
+@jwt_required()
+def create_config_from_template():
+    """Create a new class in the caller's account from a gallery template.
+
+    Body: `{template_id, bot_name, class_code?}`. Returns the same
+    `{config: {...}}` shape as paste, so the list page can prepend the result
+    without a refetch.
+    """
+    try:
+        user_id = get_jwt_identity()
+        payload = request.get_json(silent=True) or {}
+
+        template_id = (payload.get('template_id') or '').strip()
+        bot_name = (payload.get('bot_name') or '').strip()
+        if not bot_name:
+            return jsonify({"error": "Give your class a name."}), 400
+        if ':' not in template_id:
+            return jsonify({"error": "Unknown template."}), 400
+
+        kind, key = template_id.split(':', 1)
+
+        # A published class: identical to a paste, minus the clipboard token. The
+        # `is_template` re-check is the authorization — it is what its owner
+        # opted in to, and it is read fresh so an unpublished class stops cloning
+        # the moment the toggle goes off, even from a stale gallery.
+        if kind == 'config':
+            if not ObjectId.is_valid(key):
+                return jsonify({"error": "Unknown template."}), 400
+            source = Config.get_collection().find_one({"_id": ObjectId(key), "is_template": True})
+            if not source:
+                return jsonify({"error": "This template is no longer published."}), 404
+
+            err, cloned = _clone_config_into_account(
+                source, key, user_id, bot_name, payload.get('class_code'))
+            if err:
+                return err
+            new_config, files_copied = cloned
+            return jsonify({
+                "message": "Class created from template.",
+                "config": new_config,
+                "files_copied": files_copied,
+            }), 201
+
+        if kind != 'builtin':
+            return jsonify({"error": "Unknown template."}), 400
+
+        # A built-in: assemble the document the same way `POST /config` does — the
+        # shared defaults below, then the template's own fields over the top — so a
+        # field added to the create route cannot silently go missing here.
+        fragment = config_templates.build_fragment(key)
+        if fragment is None:
+            return jsonify({"error": "Unknown template."}), 400
+
+        model_name = fragment.get('model_name', 'claude-sonnet-4-6')
+        instructions = fragment.pop('instructions', '') or f"Class from template: {key}"
+        config_document = {
+            "user_id": user_id,
+            "bot_name": bot_name,
+            "bot_type": "chat",
+            "bot_avatar": "robot",
+            "heygen_avatar_id": "",
+            "introduction": "",
+            "collection_name": None,
+            "model_name": model_name,
+            "prompt_template": build_prompt_template(bot_name, instructions),
+            "temperature": 0.7,
+            "response_timeout": 3,
+            "is_public": False,
+            "public_purpose": "learning",
+            "config_type": "normal",
+            "documents": [],
+            "group_size": 2,
+            "group_duration": 10,
+            "bots": [],
+            "web_access": True,
+            "qualtrics_enabled": False,
+            "audio_enabled": False,
+            "hume_config_id": "",
+            "facilitator": normalize_facilitator(_default_facilitator_raw(None, model_name)),
+        }
+        config_document.update(fragment)
+
+        err = validate_class_usage({'class_code': payload.get('class_code')}, config_document)
+        if err:
+            return err
+
+        new_id = Config.get_collection().insert_one(config_document).inserted_id
+        collection_name = f"config_{new_id}"
+        Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
+
+        config_document.pop('_id', None)
+        config_document['collection_name'] = collection_name
+        config_document['config_id'] = str(new_id)
+        current_app.logger.info("Config created from built-in template | key=%s new=%s user=%s",
+                                key, new_id, user_id)
+        return jsonify({
+            "message": "Class created from template.",
+            "config": config_document,
+            "files_copied": 0,
+        }), 201
+
+    except Exception as e:
+        current_app.logger.error(f"Error creating config from template: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500

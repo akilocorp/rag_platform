@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-14
-// @changed   A Collaborators panel above the knowledge base opens the shared CollaboratorsModal. Its
+// @updated   2026-09-17
+// @changed   "Offer this class as a template" toggle (+ a one-line description shown on the template
+//            card) below Collaborators, owner-only to match the server rule. Publishing lists the
+//            class in every professor's "New Assistant" gallery, where picking it clones it — the
+//            knowledge base comes along, student work never does.
+//            Prior: A Collaborators panel above the knowledge base opens the shared CollaboratorsModal. Its
 //            wording flips read-only when `access_role === 'collaborator'` — a co-teacher sees who
 //            else has access but cannot change it, which is the server's rule too.
 // @changed   Prior: The `investigation` template's authoring flow no longer wears hiring's clothes: page/section
@@ -254,6 +258,8 @@ const EditConfigPage = () => {
         group_duration: configFromState.group_duration || 10,
         web_access: configFromState.web_access !== undefined ? configFromState.web_access : true,
         qualtrics_enabled: !!configFromState.qualtrics_enabled,
+        is_template: !!configFromState.is_template,
+        template_description: configFromState.template_description || '',
         audio_enabled: !!configFromState.audio_enabled,
         hume_config_id: configFromState.hume_config_id || '',
         // maxAttempts postdates most saved configs, so the spread order matters:
@@ -2168,6 +2174,47 @@ const EditConfigPage = () => {
                 {isCollaborator ? 'See who has access' : 'Manage collaborators'}
               </button>
             </div>
+
+            {/* Publish as a template. Owner-only: listing this class in the gallery
+                lets any professor clone it (knowledge base included), which is a call
+                about the owner's own material — the backend ignores the field from a
+                collaborator, so the control isn't rendered for one either. */}
+            {!isCollaborator && (
+              <div className="border-t border-gray-100 pt-8 mt-8">
+                <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <label className="block text-[13px] font-bold text-gray-800 mb-0.5">Offer this class as a template</label>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Other professors will see it under “New Assistant” and can start their own
+                        copy from it — your uploaded files come along, your students' work never does.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input type="checkbox" name="is_template" className="sr-only peer" checked={!!config.is_template} onChange={handleChange} />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></div>
+                    </label>
+                  </div>
+
+                  {config.is_template && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
+                        What it's for <span className="font-normal text-gray-400">(shown on the template card)</span>
+                      </label>
+                      <textarea
+                        name="template_description"
+                        value={config.template_description || ''}
+                        onChange={handleChange}
+                        rows="2"
+                        maxLength={240}
+                        placeholder="e.g. A 60-90 second elevator pitch assignment scored on delivery and the 13 fundamentals."
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#FA6C43] resize-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className={`border-t border-gray-100 pt-8 mt-8 ${config.bot_type === 'video_analysis' ? 'hidden' : ''}`}>
               <label className="block text-[13px] font-semibold text-gray-700 mb-2">Knowledge Base Files</label>

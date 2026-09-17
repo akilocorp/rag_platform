@@ -43,13 +43,56 @@ Configurable chatbot research platform. Professors set persona, system prompt, a
 
 ---
 
-## Config Reuse: simulation templates and copy/paste
+## Config Reuse: class templates, simulation templates, and copy/paste
 
-Two separate features that both exist so a professor doesn't start from a blank config.
-Neither is documented elsewhere in this file; both are covered end-to-end in the user
+Three separate features that all exist so a professor doesn't start from a blank config.
+None is documented elsewhere in this file; all are covered end-to-end in the user
 guide (`prof-chat-bot.md` and `prof-manage.md`).
 
-### Simulation templates — wizard step 4, "Customize AI Behavior"
+### Class templates — the "New Assistant" gallery
+
+**"New Assistant" opens a gallery, not the wizard.** `ConfigList.handleCreateNew` opens
+`components/NewClassModal.jsx`; "Start from scratch" is a card inside it that opens the
+old `ConfigModal` wizard. Two kinds of card share the grid and one instantiate route:
+
+| Card | `template_id` | What instantiating it does |
+|---|---|---|
+| Built-in | `builtin:<key>` | Assembles a fresh config doc. No knowledge base. |
+| Published class | `config:<oid>` | Runs the **same clone path as a clipboard paste**, KB included. |
+
+**Built-ins** live in `backend/src/managers/config_templates.py` — one `register(...)` call
+each, no other file changes. The only one shipped is **`pitch_video`** ("Elevator Pitch
+(Video)"): `bot_type: video_analysis`, `assignment_type: elevator_pitch`. Its fragment is
+built by a **callable**, not a literal, so `scoring_spec` is read out of the live
+`src/video/rubrics` registry at call time — a frozen copy would quietly hand every new
+class last term's rubric. A template returns only a *fragment*; the route merges it over
+the same base document `POST /config` builds, so a field added to create can't go missing.
+
+**Publishing** — `is_template: bool` + `template_description: str` on the config doc.
+Toggle sits below Collaborators in `EditConfigPage.jsx`, **owner-only on both ends**: the
+PUT route applies the field only when `config_to_update.user_id == caller`, so a
+collaborator may edit the class but not list the owner's material platform-wide. Visible
+to every professor, matching what copy/paste already allows between accounts — the
+difference is only that a template advertises itself instead of needing a pasted token.
+`GET /config/templates` re-reads `is_template` on every instantiate, so unpublishing stops
+clones immediately even from a stale gallery.
+
+Both `is_template` and `template_description` are in `_COPY_EXCLUDED_FIELDS`: publishing is
+a decision about the class you built, so a clone opens private. Inheriting the flag would
+republish someone else's work under a new name and fill the gallery with near-duplicates.
+
+`_clone_config_into_account(source, source_config_id, user_id, bot_name, class_code)` was
+extracted out of `paste_config` so paste and template-instantiate share one body. The
+invariant both turn on: **a clone is a NEW CLASS** — every student record keys on the
+config `_id` or on `class_code`, and the clone gets a fresh value for both.
+
+Routes: `GET /config/templates`, `POST /config/from-template` (`config_routes.py`, bottom).
+Both are static paths sitting alongside `GET /config/<config_id>`; Werkzeug matches static
+segments before converters, the same way `/config/playground` already does.
+
+### Simulation templates and copy/paste
+
+#### Simulation templates — wizard step 4, "Customize AI Behavior"
 
 Defined in `frontend/src/data/simulationTemplates.js`. Rendered as a card grid under the
 heading **"Start from a template"** `(optional)`, above the Instructions textarea.
@@ -72,7 +115,7 @@ Not to be confused with the **quick templates** on `/responses/:id` (HR Intervie
 Participation, Critical Thinking, Sales & Negotiation, Presentation Skills, Socratic
 Dialogue) — those steer a grading analysis, not a bot's persona.
 
-### Copy/paste an assistant between professor accounts
+#### Copy/paste an assistant between professor accounts
 
 Transfers a whole assistant, including its knowledge base, to another professor — or
 duplicates one of your own. Implemented in `ConfigList.jsx` + `config_routes.py`.
