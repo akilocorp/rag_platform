@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   PUT accepts collaborators, DELETE deliberately does not. Editing is widened via
+# @updated   2026-09-17
+# @changed   PUT accepts `is_template` / `template_description` (the "publish as a template" toggle),
+#            applied only when the caller OWNS the config — a collaborator may edit the class but not
+#            list the owner's material in the platform-wide gallery.
+#            Prior: PUT accepts collaborators, DELETE deliberately does not. Editing is widened via
 #            `editable_filter`; deletion stays pinned to `user_id` because it is the one act a
 #            co-teacher must not be able to perform on someone else's class.
 #            Prior: ALLOWED_EXTENSIONS/allowed_file() now imported from src.utils.uploads instead of a local
@@ -155,6 +158,15 @@ def update_existing_config(config_id):
             "group_duration": int(group_duration) if group_duration else 10,
             "bots": bots_list
         }
+
+        # --- TEMPLATE PUBLISHING (owner only) ---
+        # Listing a class in the platform-wide template gallery lets any professor
+        # clone it, knowledge base and all. That is a decision about the owner's own
+        # material, so a collaborator — who may otherwise edit everything here — does
+        # not get to make it, and the field is simply ignored when they send it.
+        if data.get('is_template') is not None and str(config_to_update.get('user_id')) == str(user_id):
+            update_data['is_template'] = str(data.get('is_template')).lower() in ['true', '1']
+            update_data['template_description'] = (data.get('template_description') or '').strip()
 
         # --- VIDEO-ANALYSIS FIELDS (assignment type + editable scoring spec + class code) ---
         assignment_type = data.get('assignment_type')

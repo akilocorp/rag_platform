@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-14
-// @changed   Collaborators: a person-plus icon sits in the card's own action row, next to Share —
+// @updated   2026-09-17
+// @changed   The create dialog gained a "Start from a template" tab, so ConfigModal takes an
+//            onCreated callback: a class made from a template lands in the list through the same
+//            insert path as a paste (addCreatedConfig), with its own toast.
+//            Prior: Collaborators: a person-plus icon sits in the card's own action row, next to Share —
 //            adding a co-teacher is a thing you do TO an assistant, not a setting inside it, so it
 //            shouldn't cost a trip through Customize. The right-click item and the edit-page panel
 //            open the same modal. Cards shared with you carry a "Shared" badge and lose Delete —
@@ -795,17 +798,31 @@ const ConfigListPage = () => {
     }
   }, [openPasteDialog, showToast]);
 
-  // A pasted copy is a new assistant in this account — prepend it so it is
-  // visible without a refetch, and clear any filter that would hide it.
-  const handlePasted = useCallback((config, filesCopied) => {
+  // Shared landing for both ways a config appears without a page load (a paste, a
+  // template): prepend it so it is visible without a refetch, and clear any filter
+  // that would hide it. The caller supplies the toast — it is the only difference.
+  const addCreatedConfig = useCallback((config, message) => {
     setPasteOpen(false);
+    setIsConfigModalOpen(false);
     setConfigs(prev => [config, ...prev]);
     setVisibility(config.is_public ? 'shared' : 'private');
     setCategory('all');
-    showToast(filesCopied > 0
+    showToast(message);
+  }, [showToast]);
+
+  const handlePasted = useCallback((config, filesCopied) => {
+    addCreatedConfig(config, filesCopied > 0
       ? `“${config.bot_name}” created with ${filesCopied} file${filesCopied === 1 ? '' : 's'}. No student data was copied.`
       : `“${config.bot_name}” created. No student data was copied.`);
-  }, [showToast]);
+  }, [addCreatedConfig]);
+
+  // A class started from a template. Same insert, different sentence: there was no
+  // original class of the professor's to reassure them about, only a new one to open.
+  const handleTemplateCreated = useCallback((config, filesCopied) => {
+    addCreatedConfig(config, filesCopied > 0
+      ? `“${config.bot_name}” created from a template with ${filesCopied} file${filesCopied === 1 ? '' : 's'}. Open it to adjust anything.`
+      : `“${config.bot_name}” created. Open it to adjust anything.`);
+  }, [addCreatedConfig]);
 
   // Keyboard copy. The target is the right-clicked card, else the hovered one.
   useEffect(() => {
@@ -1147,6 +1164,7 @@ const ConfigListPage = () => {
       <ConfigModal
         isOpen={isConfigModalOpen}
         onClose={() => setIsConfigModalOpen(false)}
+        onCreated={handleTemplateCreated}
       />
 
       <ReportBugModal

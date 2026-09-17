@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   `_load_owned_config` admits collaborators (`editable_filter`), so a co-teacher can read
+# @updated   2026-09-17
+# @changed   `/results` carries the professor's most recent TEST run as one more row, labelled
+#            "AI test" and flagged `is_test`. The class loop still skips `_t` rooms; the row is
+#            appended after the sort and after every denominator is taken, so no percentage,
+#            tally or count on the page moves. Row construction moved into `_room_row` so the
+#            simulated team renders through exactly the same columns as a real group.
+#            Prior: `_load_owned_config` admits collaborators (`editable_filter`), so a co-teacher can read
 #            class results, pair the room and drive test runs. Nothing here is destructive enough to
 #            need the owner specifically.
 #            Prior: `/results` carries round 2's closing re-ask: `revised_choice` + `revised_changed` per room,
@@ -252,6 +257,65 @@ def post_pair(config_id):
     return jsonify(result), 200
 
 
+def _class_label(room_id):
+    """A room's display name. `{config_id}_g{n}` is the lobby's own numbering, so
+    "Group 3" here is the Group 3 the students sat in."""
+    return f"Group {room_id.rsplit('_g', 1)[-1]}" if "_g" in room_id else room_id
+
+
+def _room_row(doc, answer, label, is_test=False):
+    """One room as the results table reads it: its roster, each private pick, and
+    the name the group committed to.
+
+    Shared by the class rooms and the AI test row so both render through exactly
+    the same columns. It deliberately computes NO class totals — the caller does
+    that, which is what keeps a simulated run out of every percentage on the page.
+    """
+    solo_votes = ((doc.get("solo_ballot") or {}).get("votes")) or {}
+    chosen = doc.get("chosen_candidate")
+    students = []
+    for entry in (doc.get("roster") or []):
+        pick = solo_votes.get(entry.get("uid"))
+        students.append({
+            "name": entry.get("name") or "",
+            # Which slice of the case they were reading — the column that makes
+            # a wrong individual answer legible rather than just wrong.
+            "role": entry.get("role") or "",
+            "solo_pick": pick,
+            # A student who never submitted has no pick, and that is a real
+            # (and interesting) state — not the same as picking nobody.
+            "changed": bool(pick) and bool(chosen) and pick != chosen,
+        })
+
+    # Round 2's closing re-ask: what the group would answer having read the
+    # outcome. Null on a template with no debrief, and null on a room that let
+    # the ballot lapse — which is NOT the same as a room that stood by its
+    # answer, so `revised_changed` is only ever True/False off a real revision.
+    revised = doc.get("revised_candidate")
+    return {
+        "room_id": doc.get("room_id") or "",
+        "label": label,
+        # Marks the professor's own rehearsal. The page reads it to keep this row
+        # out of the class summary and out of the "is anyone still playing" poll —
+        # an abandoned test room sits at its last phase forever.
+        "is_test": is_test,
+        "phase": doc.get("phase") or "waiting",
+        "group_choice": chosen,
+        # True/False against the pack's answer key, or None when there is nothing
+        # to compare — no answer entered, or a case with no key recorded. Not a
+        # plain boolean expression: `False or None` is None, which would render a
+        # wrong group as unmarked rather than as wrong.
+        "correct": (chosen.strip().casefold() == answer.strip().casefold()
+                    if (chosen and answer) else None),
+        "revised_choice": revised,
+        # None when there was no revision to compare, so an unanswered re-ask
+        # renders as blank rather than as a group that held its position.
+        "revised_changed": (revised != chosen) if (revised and chosen) else None,
+        "students": students,
+        "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+    }
+
+
 @manager_exercise_bp.route('/manager-exercise/<config_id>/results', methods=['GET'])
 @jwt_required()
 def get_results(config_id):
@@ -294,22 +358,14 @@ def get_results(config_id):
         if room_id.startswith(f"{config_id}{TEST_ROOM_MARKER}"):
             continue
 
-        solo_votes = ((doc.get("solo_ballot") or {}).get("votes")) or {}
-        students = []
-        for entry in (doc.get("roster") or []):
-            uid = entry.get("uid")
-            pick = solo_votes.get(uid)
-            students.append({
-                "name": entry.get("name") or "",
-                # Which slice of the case they were reading — the column that makes
-                # a wrong individual answer legible rather than just wrong.
-                "role": entry.get("role") or "",
-                "solo_pick": pick,
-                # A student who never submitted has no pick, and that is a real
-                # (and interesting) state — not the same as picking nobody.
-                "changed": bool(pick) and bool(doc.get("chosen_candidate"))
-                           and pick != doc.get("chosen_candidate"),
-            })
+        row = _room_row(doc, answer, _class_label(room_id))
+        rooms.append(row)
+
+        # The class tallies, read off the room that was just built. They live out
+        # here rather than inside `_room_row` because the AI test row calls the
+        # same helper and must not move a single one of these counters.
+        for student in row["students"]:
+            pick = student["solo_pick"]
             if pick:
                 solo_counts[pick] = solo_counts.get(pick, 0) + 1
                 students_total += 1
@@ -318,39 +374,25 @@ def get_results(config_id):
         if chosen:
             group_counts[chosen] = group_counts.get(chosen, 0) + 1
 
-        # Round 2's closing re-ask: what the group would answer having read the
-        # outcome. Null on a template with no debrief, and null on a room that let
-        # the ballot lapse — which is NOT the same as a room that stood by its
-        # answer, so `revised_changed` is only ever True/False off a real revision.
         revised = doc.get("revised_candidate")
         if revised:
             revised_total += 1
             if revised != chosen:
                 revised_changed += 1
 
-        rooms.append({
-            "room_id": room_id,
-            # `{config_id}_g{n}` — the lobby's own numbering, so "Group 3" here is
-            # the Group 3 the students sat in.
-            "label": f"Group {room_id.rsplit('_g', 1)[-1]}" if "_g" in room_id else room_id,
-            "phase": doc.get("phase") or "waiting",
-            "group_choice": chosen,
-            # True/False against the pack's answer key, or None when there is nothing
-            # to compare — no answer entered, or a case with no key recorded. Not a
-            # plain boolean expression: `False or None` is None, which would render a
-            # wrong group as unmarked rather than as wrong.
-            "correct": (chosen.strip().casefold() == answer.strip().casefold()
-                        if (chosen and answer) else None),
-            "revised_choice": revised,
-            # None when there was no revision to compare, so an unanswered re-ask
-            # renders as blank rather than as a group that held its position.
-            "revised_changed": (revised != chosen) if (revised and chosen) else None,
-            "students": students,
-            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
-        })
-
     rooms.sort(key=lambda r: r["label"])
+    # Every denominator below describes the CLASS, so both are taken before the
+    # simulated row is appended.
     decided = [r for r in rooms if r["group_choice"]]
+    class_room_count = len(rooms)
+
+    # The professor's most recent rehearsal, shown as one more team so the AI's
+    # three private picks and its final answer can go on a slide. Appended after
+    # the sort on purpose — "AI test" would otherwise sort above Group 1 — and
+    # counted into nothing above.
+    test_docs = _test_session_docs(config_id)
+    if test_docs:
+        rooms.append(_room_row(test_docs[0], answer, "AI test", is_test=True))
     return jsonify({
         "config_id": config_id,
         "bot_name": config_doc.get("bot_name") or "",
@@ -359,7 +401,7 @@ def get_results(config_id):
         "answer": answer,
         "rooms": rooms,
         "totals": {
-            "rooms": len(rooms),
+            "rooms": class_room_count,
             "rooms_decided": len(decided),
             "students_voted": students_total,
             # How many groups landed on the pack's best option. The one number a
