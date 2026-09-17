@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-16
-// @changed   Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
+// @updated   2026-09-17
+// @changed   Collapsed/expanded max-width bumped again (400/640 -> 480/760) for LandingV2's "Try it"
+//            section, which wanted a bigger composer. Only call site is LandingV2, so no other page is
+//            affected.
+// @changed   Prior: Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
 //            made the focus border fully opaque (border-[#FA6C43] instead of /50). Stacking a
 //            translucent border with a same-ish-colored ring just outside it read as a faint double
 //            border instead of one clean line.
@@ -656,7 +659,7 @@ export const PromptInput = React.forwardRef(
           onBlur={handleBlur}
           className={cn('relative flex flex-col w-full', className)}
           style={{
-            maxWidth: expanded ? 640 : 400,
+            maxWidth: expanded ? 760 : 480,
             transition: isSmoothResize ? 'max-width 0.15s ease-out' : 'max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
           }}
         >

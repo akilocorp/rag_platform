@@ -1,6 +1,11 @@
 // @language JavaScript (React)
-// @updated 2026-09-16
-// @changed HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
+// @updated 2026-09-17
+// @changed TRY IT section scaled up (heading text-3xl/5xl -> 4xl/6xl, section py-20/28 -> py-24/32,
+//          composer's own max-width bumped in ai-chat-input.jsx) and now fades/slides up via
+//          framer-motion's whileInView instead of rendering static on mount — once-only entrance
+//          (viewport={{ once: true, amount: 0.4 }}), matching the once-fired pattern already used by
+//          WordsPullUp and the testimonial IntersectionObserver elsewhere on this page.
+// @changed Prior: HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
 //          single centered top-down column — ACTRLabs, then the pitch text, then "Get started",
 //          all center-aligned. TESTIMONIALS: added 2 placeholder entries to TESTIMONIAL_PANELS
 //          (Students/Administrators, obvious dummy copy, flat-color panel since there's no real
@@ -937,9 +942,22 @@ const LandingV2 = () => {
           white/bordered card chrome (border + shadow), so it stays legible
           against this bg. Uses the same FAFAF7 as HERO and PHILOSOPHY —
           previously locked to #FFFFFF, which read as a disconnected seam
-          against PHILOSOPHY's FAFAF7 right below it. */}
-      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="max-w-2xl mx-auto flex flex-col items-center text-center">
+          against PHILOSOPHY's FAFAF7 right below it. Scaled up (heading
+          text-3xl/5xl -> 4xl/6xl, composer's own max-width bumped in
+          ai-chat-input.jsx) and now fades/slides up via whileInView instead
+          of rendering static — `viewport={{ once: true, amount: 0.4 }}`
+          fires the first time the section is 40% in view and never again,
+          matching the once-only entrance used elsewhere on this page
+          (WordsPullUp, the testimonial IntersectionObserver) rather than
+          re-triggering every scroll pass. */}
+      <section className="relative px-6 py-24 lg:py-32" style={{ backgroundColor: '#FAFAF7' }}>
+        <MotionDiv
+          className="max-w-2xl mx-auto flex flex-col items-center text-center"
+          initial={{ opacity: 0, y: 32 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        >
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
             style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
@@ -947,7 +965,7 @@ const LandingV2 = () => {
             Try it yourself
           </span>
           <h2
-            className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-10"
+            className="text-4xl lg:text-6xl tracking-tight leading-[1.08] mb-10"
             style={{
               color: '#1F1F1F',
               fontFamily: FONT_DISPLAY,
@@ -993,7 +1011,7 @@ const LandingV2 = () => {
               onSubmit={handleComposerSubmit}
             />
           </div>
-        </div>
+        </MotionDiv>
       </section>
 
       {/* === PHILOSOPHY (icons-as-language + word-by-word scrub) ===
