@@ -51,9 +51,11 @@ guide (`prof-chat-bot.md` and `prof-manage.md`).
 
 ### Class templates — the "New Assistant" gallery
 
-**"New Assistant" opens a gallery, not the wizard.** `ConfigList.handleCreateNew` opens
-`components/NewClassModal.jsx`; "Start from scratch" is a card inside it that opens the
-old `ConfigModal` wizard. Two kinds of card share the grid and one instantiate route:
+**The create dialog has two tabs**, `Start from a template` | `Build from scratch`, held by
+`mode` state in `ConfigModal` (`ConfigPage.jsx`). The template tab renders
+`components/TemplatePicker.jsx`; the scratch tab is the original wizard, with its progress
+bar and Back/Next footer both gated on `mode === 'scratch'`. Two kinds of card share the
+template grid and one instantiate route:
 
 | Card | `template_id` | What instantiating it does |
 |---|---|---|
@@ -89,6 +91,14 @@ config `_id` or on `class_code`, and the clone gets a fresh value for both.
 Routes: `GET /config/templates`, `POST /config/from-template` (`config_routes.py`, bottom).
 Both are static paths sitting alongside `GET /config/<config_id>`; Werkzeug matches static
 segments before converters, the same way `/config/playground` already does.
+
+**The crash this shipped with once** (fixed in `TemplatePicker`, worth not repeating): the
+first version built its name form as `const nameForm = (<>…{picked.title}…</>)` and chose
+between it and the grid with `{picked ? nameForm : gallery}`. JSX assigned to a const is
+evaluated **eagerly**, so `picked.title` ran on every render — including the first, where
+`picked` is `null` — and the whole React tree came down the instant the dialog opened
+(white screen, `Cannot read properties of null (reading 'title')`). `TemplatePicker` now
+guards with an early `return` inside `if (picked)`. Keep that guard structural.
 
 ### Simulation templates and copy/paste
 

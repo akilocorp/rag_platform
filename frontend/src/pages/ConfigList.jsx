@@ -1,10 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-17
-// @changed   "New Assistant" opens the template gallery (NewClassModal) instead of the wizard —
-//            ready-made classes first, "Start from scratch" still one click away. A class created
-//            from a template lands in the list through the same insert path as a paste
-//            (addCreatedConfig), with its own toast, and the gallery joins the modal guard on the
-//            global Ctrl+C / Ctrl+V shortcuts.
+// @changed   The create dialog gained a "Start from a template" tab, so ConfigModal takes an
+//            onCreated callback: a class made from a template lands in the list through the same
+//            insert path as a paste (addCreatedConfig), with its own toast.
 //            Prior: Collaborators: a person-plus icon sits in the card's own action row, next to Share —
 //            adding a co-teacher is a thing you do TO an assistant, not a setting inside it, so it
 //            shouldn't cost a trip through Customize. The right-click item and the edit-page panel
@@ -34,7 +32,6 @@
 //            the bot; the bot opens only via the primary button (Chat Now / Open Dashboard / etc.).
 import { FaCog, FaPlus, FaRobot, FaSpinner, FaBug, FaListAlt, FaTrash, FaThLarge, FaList, FaExternalLinkAlt, FaShareAlt, FaCopy, FaCheck, FaTimes, FaClone, FaPaste, FaShapes, FaChartBar, FaUserPlus, FaUsers } from 'react-icons/fa';
 import CollaboratorsModal from '../components/CollaboratorsModal';
-import NewClassModal from '../components/NewClassModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -638,7 +635,6 @@ const ConfigListPage = () => {
 
   // State to manage modal visibilities
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [isNewClassOpen, setIsNewClassOpen] = useState(false);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 
   // Copy/paste state. `hoveredRef` is a ref, not state, because the Ctrl+C
@@ -737,17 +733,9 @@ const ConfigListPage = () => {
     }
   };
 
-  // "New Assistant" opens the template gallery rather than the wizard. The wizard
-  // is still one click away ("Start from scratch") — it just stopped being the only
-  // way in, so a professor can pick a working class instead of configuring one.
   const handleCreateNew = () => {
-    setIsNewClassOpen(true);
-  };
-
-  const handleStartBlank = useCallback(() => {
-    setIsNewClassOpen(false);
     setIsConfigModalOpen(true);
-  }, []);
+  };
 
   // --- Copy / paste ----------------------------------------------------------
 
@@ -815,7 +803,7 @@ const ConfigListPage = () => {
   // that would hide it. The caller supplies the toast — it is the only difference.
   const addCreatedConfig = useCallback((config, message) => {
     setPasteOpen(false);
-    setIsNewClassOpen(false);
+    setIsConfigModalOpen(false);
     setConfigs(prev => [config, ...prev]);
     setVisibility(config.is_public ? 'shared' : 'private');
     setCategory('all');
@@ -840,7 +828,7 @@ const ConfigListPage = () => {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (!(e.ctrlKey || e.metaKey) || (e.key || '').toLowerCase() !== 'c') return;
-      if (pasteOpen || isNewClassOpen || isConfigModalOpen || isBugModalOpen || isTypingContext()) return;
+      if (pasteOpen || isConfigModalOpen || isBugModalOpen || isTypingContext()) return;
       const target = configs.find(c => (c.config_id || c._id) === selectedId) || hoveredRef.current;
       if (!target) return;
       e.preventDefault();
@@ -848,14 +836,14 @@ const ConfigListPage = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [configs, selectedId, pasteOpen, isNewClassOpen, isConfigModalOpen, isBugModalOpen, handleCopy]);
+  }, [configs, selectedId, pasteOpen, isConfigModalOpen, isBugModalOpen, handleCopy]);
 
   // Ctrl+V anywhere on the list. The paste event hands us the clipboard text
   // directly, so this needs no permission prompt. Clipboard content that isn't
   // a copied assistant is ignored.
   useEffect(() => {
     const onPaste = (e) => {
-      if (pasteOpen || isNewClassOpen || isConfigModalOpen || isBugModalOpen) return;
+      if (pasteOpen || isConfigModalOpen || isBugModalOpen) return;
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       const token = parseConfigToken(e.clipboardData?.getData('text'));
@@ -865,7 +853,7 @@ const ConfigListPage = () => {
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [pasteOpen, isNewClassOpen, isConfigModalOpen, isBugModalOpen, openPasteDialog]);
+  }, [pasteOpen, isConfigModalOpen, isBugModalOpen, openPasteDialog]);
 
   const handleCardMenu = (e, config) => {
     setSelectedId(config.config_id || config._id);
@@ -1173,16 +1161,10 @@ const ConfigListPage = () => {
       </div>
 
       {/* Mount Modals */}
-      <NewClassModal
-        isOpen={isNewClassOpen}
-        onClose={() => setIsNewClassOpen(false)}
-        onStartBlank={handleStartBlank}
-        onCreated={handleTemplateCreated}
-      />
-
       <ConfigModal
         isOpen={isConfigModalOpen}
         onClose={() => setIsConfigModalOpen(false)}
+        onCreated={handleTemplateCreated}
       />
 
       <ReportBugModal

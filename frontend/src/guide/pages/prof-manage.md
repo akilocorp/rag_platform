@@ -20,14 +20,14 @@ Changes save when you click **Save Changes**.
 
 ## Starting from a template
 
-Clicking **New Assistant** no longer drops you straight into the wizard. It opens a gallery
-of ready-made classes:
+Clicking **New Assistant** opens the create dialog on a **Start from a template** tab
+(**Build from scratch** is the other tab, and is the same wizard as before). The template
+tab lists:
 
 - **Ready-made classes** are the ones ACTR ships. **Elevator Pitch (Video)** is set up for a
   60 to 90 second pitch, already scored on the opening gambit, the 13 fundamentals and
   delivery (competence, confidence, passion).
 - **Published by professors** are classes your colleagues have offered as templates.
-- **Start from scratch** is still there at the top, and opens the same wizard as before.
 
 Pick a template, confirm the **Class name**, optionally set a **Class code**, and click
 **Create class**. You get your own copy to change however you like. The template's knowledge

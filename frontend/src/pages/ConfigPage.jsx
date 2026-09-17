@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt, FaShareAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
+import TemplatePicker from '../components/TemplatePicker';
 
 // The bot avatar and the introduction message dress a 1:1 conversation: an icon that
 // sits beside the bot's replies and a line it opens with. Nothing else has either of
@@ -154,7 +155,11 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
   );
 };
 
-const ConfigModal = ({ isOpen, onClose }) => {
+const ConfigModal = ({ isOpen, onClose, onCreated }) => {
+  // Which tab the dialog is on. Templates lead because picking a working class is a
+  // decision a professor can make; "which of six Space types?" — the wizard's first
+  // question — is the one they are least equipped to answer cold.
+  const [mode, setMode] = useState('template');
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   // Simple vs Advanced faculty mode — gates the extra config fields below.
@@ -874,14 +879,36 @@ const ConfigModal = ({ isOpen, onClose }) => {
         </button>
 
         <div className="p-8 sm:p-10 flex-1 flex flex-col pt-16 min-h-0 min-w-0">
-          {/* Progress Bar — group chat skips step 2 (model picker), so its
-              progress bar has 4 segments instead of 5. A segment lights up
+          {/* Template vs scratch. One dialog, two ways in — the tab bar replaces what
+              was briefly a second modal stacked in front of this one. */}
+          <div className="flex p-1 bg-gray-100 rounded-xl mb-6 mr-10 flex-shrink-0">
+            {[
+              { key: 'template', label: 'Start from a template' },
+              { key: 'scratch', label: 'Build from scratch' },
+            ].map(t => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setMode(t.key)}
+                className={`flex-1 py-2 text-[13px] font-bold rounded-lg transition-all ${
+                  mode === t.key ? 'bg-white text-[#FA6C43] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Progress Bar — wizard tab only. Group chat skips step 2 (model picker),
+              so its progress bar has 4 segments instead of 5. A segment lights up
               when its step number is <= current step. */}
+          {mode === 'scratch' && (
           <div className="flex justify-between space-x-2 mb-6 pl-4 pr-14 flex-shrink-0">
             {stepsFor(config.bot_type).map(i => (
               <div key={i} className={`h-2 flex-1 rounded-full transition-colors duration-300 ${i <= step ? 'bg-[#FA6C43]' : 'bg-gray-200'}`} />
             ))}
           </div>
+          )}
 
           {errors.form && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start space-x-3 flex-shrink-0">
@@ -891,7 +918,18 @@ const ConfigModal = ({ isOpen, onClose }) => {
           )}
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pl-2 pr-2 custom-scrollbar">
-            
+
+            {mode === 'template' ? (
+              <TemplatePicker
+                onCreated={(cfg, filesCopied) => {
+                  if (onCreated) onCreated(cfg, filesCopied);
+                  if (onClose) onClose();
+                }}
+                onBuildFromScratch={() => setMode('scratch')}
+              />
+            ) : (
+            <>
+
             {/* STEP 1: Basic Info */}
             {step === 1 && (
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
@@ -1881,8 +1919,12 @@ const ConfigModal = ({ isOpen, onClose }) => {
                 </div>
               </div>
             )}
+
+            </>
+            )}
           </div>
 
+          {mode === 'scratch' && (
           <div className="relative flex justify-between items-center mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
             {/* Faculty Simple/Advanced switch, centered at the modal's bottom
                 edge. Overlay is click-through so it never blocks the Back/Next
@@ -1897,6 +1939,7 @@ const ConfigModal = ({ isOpen, onClose }) => {
               {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === 5 ? 'Publish' : 'Next')}
             </button>
           </div>
+          )}
         </div>
       </div>
     </div>
