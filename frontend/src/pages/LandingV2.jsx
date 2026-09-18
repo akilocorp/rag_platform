@@ -1,6 +1,10 @@
 // @language JavaScript (React)
 // @updated 2026-09-18
-// @changed AUDIENCE GATE polish: "Educator"/"Researcher" options sized up (text-3xl/5xl -> 6xl/8xl,
+// @changed AUDIENCE GATE section padding trimmed (px-6 -> px-3, lg:px-6 added) — at text-6xl on
+//          viewports below the lg breakpoint (no responsive step down for this text), "Educator /
+//          Researcher" was just wide enough to wrap onto two lines. The extra reclaimed width keeps it
+//          on one line without touching the font size.
+// @changed Prior: AUDIENCE GATE polish: "Educator"/"Researcher" options sized up (text-3xl/5xl -> 6xl/8xl,
 //          wrapper max-w-2xl -> max-w-4xl) — too small relative to the side whitespace at the old size.
 //          Unselected option now renders at text-[#1F1F1F]/30 instead of solid black, so it reads as
 //          "not picked" rather than two equally-weighted headings; hover/selected still go full-opacity
@@ -1205,8 +1209,11 @@ const LandingV2 = () => {
           living elsewhere on the page. Sized text-6xl/8xl and the wrapper
           widened to max-w-4xl — at the old text-3xl/5xl + max-w-2xl this
           read as a small, timid line of text lost in a lot of side
-          whitespace. */}
-      <section className="relative px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
+          whitespace. Section padding trimmed to px-3 (was px-6) so
+          "Educator / Researcher" still fits on one line at text-6xl
+          instead of wrapping to two — the flex row has no responsive
+          text-size step below lg, so it's purely a width problem. */}
+      <section className="relative px-3 lg:px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
         <div className="max-w-4xl mx-auto">
           <h2
             className="text-2xl lg:text-4xl tracking-tight mb-10"
