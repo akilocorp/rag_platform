@@ -1,6 +1,25 @@
 // @language JavaScript (React)
 // @updated 2026-09-18
-// @changed HERO content is now vertically centered in the viewport (flex items-center on the section)
+// @changed Added an AUDIENCE GATE section right before FEATURES: text-only hard stop, brand-black
+//          copy, "Educator"/"Researcher" as two clickable words (hover orange/light-blue via new
+//          TRACK_ACCENT map, #FA6C43/#0EA5E9). Not persisted — new `audienceTrack` state
+//          (null|'educator'|'researcher') resets every load; scrolling back up to the gate re-picks it,
+//          no separate toggle elsewhere. FEATURES is now entirely driven by that state: before a
+//          choice, the panel shows a prompt instead of content (the "hard stop"); after, the featured
+//          row + 4-cell row swap per track. Educator's big callout is now "Custom Exercises" (was
+//          Canvas sync) with a <video> panel beside the copy, pointed at a placeholder path
+//          (/exercises/custom-exercise-demo.mp4 + poster) to drop the real recording into later, no
+//          code changes needed — same convention as /testimonials/*.mp4. Researcher's big callout is
+//          new: Qualtrics data framed as "already there once you link your account," not "we have your
+//          data," with a new QualtricsMockup visual (replaces the old always-shown SyllabusMockup,
+//          which is now dead code and removed along with SyllabusFileRow). "Fetches Canvas Files"
+//          reworded to "Link Your Canvas Account" and demoted from the big callout to an educator-only
+//          secondary cell (new EDUCATOR_SECONDARY_CELLS). BentoCell gained optional `tag`/`accent` props
+//          — "Any Model" gets a "Popular" tag on both tracks as its emphasis treatment (color-coded
+//          pill, not a grid-span change, so the 4-cell row stays even). Researcher's 4th secondary cell
+//          is an explicit placeholder (RESEARCHER_SECONDARY_CELLS) with obvious TODO copy, per request
+//          to leave it templated until there's a real feature to put there.
+// @changed Prior: HERO content is now vertically centered in the viewport (flex items-center on the section)
 //          instead of top-padded into place — the old pt-28/lg:pt-36 pushed the ACTRLabs block up near
 //          the nav, reading as sitting above the screen's true midpoint instead of centered in it.
 // @changed Prior: TRY IT section scaled up (heading text-3xl/5xl -> 4xl/6xl, section py-20/28 -> py-24/32,
@@ -211,8 +230,11 @@ const UVPS = [
 // Feature cell for the redesigned "case study" style bento — a hairline-
 // bordered grid cell (illustration + headline + body + arrow link) instead
 // of a solid pastel tile. `borderRight` is dropped on the last cell in a row
-// so the outer container's own border closes off the edge.
-const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }) => (
+// so the outer container's own border closes off the edge. `tag` + `accent`
+// are optional: a small uppercase pill above the title, in the track's
+// accent color, for the one cell in a row that should read as emphasized
+// without changing the grid's column layout.
+const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true, tag, accent = '#FA6C43' }) => (
   <div
     className={`group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 first:border-t-0 transition-colors duration-300 hover:bg-[#FAFAF7] ${
       borderRight ? 'lg:border-r' : ''
@@ -221,6 +243,14 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
   >
     <img src={icon} alt={iconAlt} className="w-10 h-10" draggable={false} />
     <div>
+      {tag && (
+        <span
+          className="inline-block text-[10px] font-bold uppercase tracking-[0.14em] mb-2 px-2 py-0.5 rounded-full"
+          style={{ color: accent, backgroundColor: `${accent}1a`, fontFamily: FONT_BODY }}
+        >
+          {tag}
+        </span>
+      )}
       <h3
         className="text-xl tracking-tight mb-2.5"
         style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
@@ -235,7 +265,7 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
       </p>
       <span
         className="inline-flex items-center gap-1.5 text-sm font-semibold"
-        style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+        style={{ color: accent, fontFamily: FONT_BODY }}
       >
         {linkLabel}
         <svg
@@ -259,7 +289,18 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
   </div>
 );
 
-const BENTO_CELLS = [
+// Track accent colors, driven by the AUDIENCE GATE choice below. Orange for
+// educator matches the brand default used everywhere else on this page;
+// light blue for researcher is a new addition for this track split.
+const TRACK_ACCENT = {
+  educator: '#FA6C43',
+  researcher: '#0EA5E9',
+};
+
+// Shared secondary cells — not track-specific, so both rows reuse the same
+// two entries. Each track adds one more cell of its own (Canvas account for
+// educator, a placeholder for researcher) to fill out the 4-column row.
+const SHARED_BENTO_CELLS = [
   {
     id: 'models',
     icon: '/illustrations/wifi-internet.svg',
@@ -276,109 +317,118 @@ const BENTO_CELLS = [
     body: 'No more chasing down where a claim came from. Each response links straight back to the page or passage it was pulled from.',
     linkLabel: 'See a real citation',
   },
+];
+
+// Per-track secondary cell rows (3 BentoCells + the mailto CTA card = 4
+// columns). "Any Model" carries the `tag` emphasis on both tracks — it's the
+// one shared cell singled out as a highlight rather than getting a wider
+// grid span, which would've broken the even 4-up row.
+const EDUCATOR_SECONDARY_CELLS = [
   {
-    id: 'qualtrics',
-    icon: '/illustrations/survey-clipboard-research.svg',
-    iconAlt: 'Survey clipboard icon',
-    title: 'Exports Straight to Qualtrics',
-    body: 'Every chat log, response, and score syncs directly into Qualtrics. No manual exports, no reformatting, just data your IRB already trusts.',
-    linkLabel: 'See the Qualtrics export',
+    id: 'canvas-account',
+    icon: '/illustrations/book.svg',
+    iconAlt: 'Canvas account icon',
+    title: 'Link Your Canvas Account',
+    body: 'Connect your whole Canvas account once, not just a folder of files. Every course, syllabus, and reading stays in sync automatically.',
+    linkLabel: 'See how the sync works',
+  },
+  { ...SHARED_BENTO_CELLS[0], tag: 'Popular' },
+  SHARED_BENTO_CELLS[1],
+];
+
+const RESEARCHER_SECONDARY_CELLS = [
+  SHARED_BENTO_CELLS[0],
+  SHARED_BENTO_CELLS[1],
+  {
+    id: 'researcher-placeholder',
+    icon: '/illustrations/icon-glasses.png',
+    iconAlt: 'Placeholder icon',
+    title: '[Placeholder] More For Researchers',
+    body: 'Template copy. Swap this cell out once we lock in the next researcher-facing feature to highlight here.',
+    linkLabel: 'TBD',
   },
 ];
 
-// SyllabusMockup lives in the right half of the Canvas hero tile and
-// positions its Canvas cards absolutely. Negative right offsets bleed
-// past the tile's outer edge and get clipped by the tile's
-// overflow:hidden — that's the "tilted card peeking off the corner"
-// effect.
-const SyllabusFileRow = ({ type, name, status }) => {
-  const typeColors = {
-    PDF: '#C8472A',
-    DOCX: '#3E6493',
-    PPT: '#A8832D',
-  };
-  return (
-    <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-gray-50">
+// QualtricsRow/QualtricsMockup are the researcher track's featured-row
+// visual: a "tilted card behind a branded panel" mockup of a linked
+// Qualtrics account with survey responses syncing in. QualtricsRow is one
+// row in that panel's response list (badge + label + response count +
+// sync status).
+const QualtricsRow = ({ label, count, status }) => (
+  <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-gray-50">
+    <span
+      className="text-[8px] font-bold px-1.5 py-0.5 rounded text-white"
+      style={{ backgroundColor: '#0EA5E9' }}
+    >
+      SRV
+    </span>
+    <span className="text-[10px] text-gray-800 flex-1 truncate">{label}</span>
+    <span className="text-[9px] text-gray-400 shrink-0">{count}</span>
+    {status === 'syncing' ? (
       <span
-        className="text-[8px] font-bold px-1.5 py-0.5 rounded text-white"
-        style={{ backgroundColor: typeColors[type] || '#888' }}
-      >
-        {type}
-      </span>
-      <span className="text-[10px] text-gray-800 flex-1 truncate">{name}</span>
-      {status === 'syncing' ? (
-        <span
-          className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-[#FA6C43]"
-          style={{ animation: 'landing-spin 1s linear infinite' }}
-          aria-hidden
-        />
-      ) : (
-        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-          <circle cx="6" cy="6" r="6" fill="#10A37F" />
-          <path d="M3.5 6.2l1.7 1.6 3.3-3.4" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
-    </div>
-  );
-};
+        className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-[#0EA5E9]"
+        style={{ animation: 'landing-spin 1s linear infinite' }}
+        aria-hidden
+      />
+    ) : (
+      <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
+        <circle cx="6" cy="6" r="6" fill="#10A37F" />
+        <path d="M3.5 6.2l1.7 1.6 3.3-3.4" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )}
+  </div>
+);
 
-const SyllabusMockup = () => (
+const QualtricsMockup = () => (
   <>
-    {/* Tilted secondary course card peeking behind */}
     <div
       className="absolute bottom-[200px] right-[-30px] w-[240px] bg-white rounded-xl shadow-lg border border-gray-200 p-3 pointer-events-none"
       style={{ transform: 'rotate(6deg)', fontFamily: FONT_BODY }}
       aria-hidden
     >
       <div className="flex items-center gap-2 mb-2">
-        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#A8832D' }} />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">HIST 204</span>
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#0EA5E9' }} />
+        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">Survey A</span>
       </div>
       <div className="h-1.5 bg-gray-200 rounded mb-1.5"></div>
       <div className="h-1.5 bg-gray-100 rounded w-3/4"></div>
     </div>
 
-    {/* Main Canvas-styled course panel */}
     <div
       className="absolute bottom-[20px] right-[-10px] w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden pointer-events-none"
       style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
       aria-hidden
     >
-      {/* Canvas-styled header */}
       <div
         className="px-3.5 py-2.5 flex items-center justify-between"
-        style={{ backgroundColor: '#C8472A' }}
+        style={{ backgroundColor: '#0EA5E9' }}
       >
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-md bg-white/95 flex items-center justify-center">
-            <span className="text-[10px] font-black" style={{ color: '#C8472A' }}>C</span>
+            <span className="text-[10px] font-black" style={{ color: '#0EA5E9' }}>Q</span>
           </div>
-          <span className="text-[11px] font-bold text-white tracking-wide">Canvas</span>
+          <span className="text-[11px] font-bold text-white tracking-wide">Qualtrics</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-white/95" style={{ animation: 'landing-pulse-dot 1.8s ease-in-out infinite' }} />
-          <span className="text-[9px] font-semibold text-white/95 uppercase tracking-wider">Live</span>
+          <span className="text-[9px] font-semibold text-white/95 uppercase tracking-wider">Linked</span>
         </div>
       </div>
 
-      {/* Course title row */}
       <div className="px-3.5 pt-3 pb-2 border-b border-gray-100">
         <div className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">PSYC 301</div>
-        <div className="text-[12px] font-bold text-gray-800">Research Methods · Fall</div>
+        <div className="text-[12px] font-bold text-gray-800">Account connected</div>
       </div>
 
-      {/* File list */}
       <div className="px-2 py-2 space-y-0.5">
-        <SyllabusFileRow type="PDF"  name="lecture-3-hypothesis.pdf" status="synced" />
-        <SyllabusFileRow type="DOCX" name="syllabus-v2.docx"          status="synced" />
-        <SyllabusFileRow type="PPT"  name="week-4-anova.pptx"         status="syncing" />
-        <SyllabusFileRow type="PDF"  name="reading-list.pdf"          status="synced" />
+        <QualtricsRow label="Survey A (Pilot)"      count="214" status="synced" />
+        <QualtricsRow label="Survey B (Follow-up)"  count="98"  status="synced" />
+        <QualtricsRow label="Survey C (Debrief)"    count="41"  status="syncing" />
       </div>
 
-      {/* Footer */}
       <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
         <span className="text-[9px] text-gray-500">Auto-sync every 5 min</span>
-        <span className="text-[9px] font-semibold" style={{ color: '#10A37F' }}>4 files ready</span>
+        <span className="text-[9px] font-semibold" style={{ color: '#10A37F' }}>353 responses ready</span>
       </div>
     </div>
   </>
@@ -517,6 +567,12 @@ const LandingV2 = () => {
     document.title = 'ACTRLabs: AI Tutors & Chatbots That Redefine Learning';
     return () => { document.title = prev; };
   }, []);
+
+  // AUDIENCE GATE choice — null | 'educator' | 'researcher'. Drives which
+  // FEATURES content renders below the gate. Deliberately NOT persisted
+  // (no localStorage) — resets every visit, and the visitor can always
+  // scroll back up to the gate section to pick the other track.
+  const [audienceTrack, setAudienceTrack] = useState(null);
 
   // Testimonial video gating. SqueezeCarousel only mounts a <video> for
   // whichever panel is currently open (its `playing` prop on Picture), so
@@ -1131,14 +1187,75 @@ const LandingV2 = () => {
         </div>
       </section>
 
+      {/* === AUDIENCE GATE ===
+          Text-only hard stop before FEATURES: brand-black copy, two
+          clickable words ("Educator" / "Researcher"). Hover previews each
+          track's accent color; clicking commits it and the FEATURES
+          section below switches content. Not persisted (no localStorage) —
+          resets on reload, and the visitor can scroll back up here anytime
+          to flip their choice; there's no separate toggle living elsewhere
+          on the page. */}
+      <section className="relative px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="max-w-2xl mx-auto">
+          <h2
+            className="text-2xl lg:text-4xl tracking-tight mb-10"
+            style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+          >
+            Are you faculty, or a researcher?
+          </h2>
+          <div className="flex items-center justify-center gap-5 lg:gap-8 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setAudienceTrack('educator')}
+              className={`text-3xl lg:text-5xl tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
+                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]'
+              }`}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+            >
+              Educator
+            </button>
+            <span
+              className="text-3xl lg:text-5xl"
+              style={{ color: 'rgba(31,31,31,0.3)', fontFamily: FONT_DISPLAY, fontWeight: 800 }}
+              aria-hidden
+            >
+              /
+            </span>
+            <button
+              type="button"
+              onClick={() => setAudienceTrack('researcher')}
+              className={`text-3xl lg:text-5xl tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
+                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]'
+              }`}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+            >
+              Researcher
+            </button>
+          </div>
+          {audienceTrack && (
+            <p
+              className="mt-6 text-sm"
+              style={{ color: 'rgba(31,31,31,0.5)', fontFamily: FONT_BODY, fontWeight: 500 }}
+            >
+              Showing what&rsquo;s built for {audienceTrack === 'educator' ? 'educators' : 'researchers'}.
+              Scroll back up here anytime to switch.
+            </p>
+          )}
+        </div>
+      </section>
+
       {/* === FEATURES (BENTO) ===
-          Redesigned as a single bordered "case study" panel (inspired by a
-          shadcn case-study block): a featured row up top (Canvas-sync copy
-          left, SyllabusMockup framed on a peach panel right), then a
-          hairline-divided 4-cell row below (Any Model / Cites Sources /
-          Observable Sandbox / mailto CTA). featureGridRef stays on the
-          single outer container so the existing GSAP fade-up still
-          animates it as one block. */}
+          Single bordered "case study" panel (inspired by a shadcn
+          case-study block): a featured row up top, then a hairline-divided
+          4-cell row below. Content is entirely driven by the AUDIENCE GATE
+          choice above — educator gets Custom Exercises (copy + a video
+          panel, src left as a placeholder path until the real recording is
+          ready) as the big callout, researcher gets the Qualtrics-linked-
+          account callout. Before a choice is made, the panel shows a
+          prompt instead of content, matching the "hard stop" ask — nothing
+          audience-specific renders until the visitor picks one.
+          featureGridRef stays on the single outer container so the
+          existing GSAP fade-up still animates it as one block. */}
       <section
         id="features"
         className="relative z-10 px-6 lg:px-10 py-12 lg:py-16"
@@ -1149,126 +1266,159 @@ const LandingV2 = () => {
           className="max-w-7xl mx-auto overflow-hidden shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
           style={{ backgroundColor: '#FFFFFF', borderRadius: '40px', border: '1px solid rgba(31,31,31,0.08)' }}
         >
-          {/* Featured row */}
-          <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
-            <div
-              className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
-              style={{ borderColor: 'rgba(31,31,31,0.08)' }}
-            >
-              <span
-                className="text-xs font-bold uppercase tracking-[0.22em]"
-                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-              >
-                Course sync
-              </span>
-              <h2
-                className="text-2xl lg:text-[1.85rem] tracking-tight"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                  lineHeight: 1.4,
-                }}
-              >
-                {/* One span, wraps naturally instead of a forced <br />.
-                    box-decoration-break makes each wrapped line clone the
-                    same padding/radius/background, so it reads as one
-                    continuous highlighter stroke instead of two separate
-                    stacked pills with a gap between them. */}
-                <span
-                  style={{
-                    backgroundColor: '#FA6C43',
-                    color: '#FFFFFF',
-                    padding: '0.25em 0.4em',
-                    borderRadius: '12px',
-                    boxDecorationBreak: 'clone',
-                    WebkitBoxDecorationBreak: 'clone',
-                  }}
-                >
-                  Fetches Canvas Files
-                </span>
-              </h2>
+          {!audienceTrack ? (
+            <div className="flex items-center justify-center text-center px-8" style={{ minHeight: '380px' }}>
               <p
-                className="text-[15px] lg:text-base leading-snug max-w-[340px]"
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+                className="max-w-sm"
+                style={{ color: 'rgba(31,31,31,0.45)', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
-                Connect a course once and every syllabus, slide deck, and reading stays in sync. No re-uploading the same lecture notes every week just to keep the bot from making things up.
+                Pick &ldquo;Educator&rdquo; or &ldquo;Researcher&rdquo; above to see what&rsquo;s built for you.
               </p>
-              <span
-                className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
-                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-              >
-                See how the sync works
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  aria-hidden
-                  className="transition-transform duration-300 group-hover:translate-x-1"
-                >
-                  <path
-                    d="M3 7h8M7 3l4 4-4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
             </div>
-            <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
-              <SyllabusMockup />
-            </div>
-          </div>
-
-          {/* Cell row — 3 data-driven feature cells + the mailto CTA */}
-          <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
-            {BENTO_CELLS.map((cell) => (
-              <BentoCell key={cell.id} {...cell} />
-            ))}
-
-            <a
-              href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-              className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
-              style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
-            >
-              <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
-              <div>
-                <h3
-                  className="text-xl tracking-tight mb-2.5 text-white"
-                  style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+          ) : (
+            <>
+              {/* Featured row */}
+              <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
+                <div
+                  className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
+                  style={{ borderColor: 'rgba(31,31,31,0.08)' }}
                 >
-                  Missing something?
-                </h3>
-                <p
-                  className="text-[15px] leading-snug mb-5 text-white/85"
-                  style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
-                >
-                  Tell us what would make this more useful for your course or lab. We read every note.
-                </p>
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
-                  Get in touch
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 14 14"
-                    fill="none"
-                    aria-hidden
-                    className="transition-transform duration-300 group-hover:translate-x-1"
+                  <span
+                    className="text-xs font-bold uppercase tracking-[0.22em]"
+                    style={{ color: TRACK_ACCENT[audienceTrack], fontFamily: FONT_BODY }}
                   >
-                    <path
-                      d="M3 7h8M7 3l4 4-4 4"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
+                    {audienceTrack === 'educator' ? 'Custom exercises' : 'Qualtrics sync'}
+                  </span>
+                  <h2
+                    className="text-2xl lg:text-[1.85rem] tracking-tight"
+                    style={{
+                      fontFamily: FONT_DISPLAY,
+                      fontWeight: 800,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {/* One span, wraps naturally instead of a forced <br />.
+                        box-decoration-break makes each wrapped line clone the
+                        same padding/radius/background, so it reads as one
+                        continuous highlighter stroke instead of two separate
+                        stacked pills with a gap between them. */}
+                    <span
+                      style={{
+                        backgroundColor: TRACK_ACCENT[audienceTrack],
+                        color: '#FFFFFF',
+                        padding: '0.25em 0.4em',
+                        borderRadius: '12px',
+                        boxDecorationBreak: 'clone',
+                        WebkitBoxDecorationBreak: 'clone',
+                      }}
+                    >
+                      {audienceTrack === 'educator'
+                        ? 'Build Exercises Students Actually Play'
+                        : 'Your Qualtrics Data, Already There'}
+                    </span>
+                  </h2>
+                  <p
+                    className="text-[15px] lg:text-base leading-snug max-w-[340px]"
+                    style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+                  >
+                    {audienceTrack === 'educator'
+                      ? 'Design branching role-play and hidden-profile group exercises your students actually run, not just read about. Watch a real run below.'
+                      : 'Link your Qualtrics account once and every response, score, and chat log is already there when you need it. No re-importing, no reformatting, just your own data whenever you want it.'}
+                  </p>
+                  <span
+                    className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
+                    style={{ color: TRACK_ACCENT[audienceTrack], fontFamily: FONT_BODY }}
+                  >
+                    {audienceTrack === 'educator' ? 'Watch an exercise run' : 'See how the sync works'}
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      aria-hidden
+                      className="transition-transform duration-300 group-hover:translate-x-1"
+                    >
+                      <path
+                        d="M3 7h8M7 3l4 4-4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+                <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
+                  {audienceTrack === 'educator' ? (
+                    <div className="absolute inset-4 lg:inset-6 rounded-2xl overflow-hidden bg-[#1F1F1F] flex items-center justify-center">
+                      {/* Placeholder path — drop the recorded exercise walkthrough in at
+                          this path (with a matching poster) and it plays with zero code
+                          changes, same convention as the /testimonials/*.mp4 files. */}
+                      <video
+                        controls
+                        preload="none"
+                        poster="/exercises/custom-exercise-poster.jpg"
+                        className="w-full h-full object-cover"
+                      >
+                        <source src="/exercises/custom-exercise-demo.mp4" type="video/mp4" />
+                      </video>
+                    </div>
+                  ) : (
+                    <QualtricsMockup />
+                  )}
+                </div>
               </div>
-            </a>
-          </div>
+
+              {/* Cell row — 3 track-specific feature cells + the mailto CTA */}
+              <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
+                {(audienceTrack === 'educator' ? EDUCATOR_SECONDARY_CELLS : RESEARCHER_SECONDARY_CELLS).map((cell) => (
+                  <BentoCell key={cell.id} {...cell} accent={TRACK_ACCENT[audienceTrack]} />
+                ))}
+
+                <a
+                  href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
+                  className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
+                  style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
+                >
+                  <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
+                  <div>
+                    <h3
+                      className="text-xl tracking-tight mb-2.5 text-white"
+                      style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+                    >
+                      Missing something?
+                    </h3>
+                    <p
+                      className="text-[15px] leading-snug mb-5 text-white/85"
+                      style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
+                    >
+                      Tell us what would make this more useful for your course or lab. We read every note.
+                    </p>
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+                      Get in touch
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        aria-hidden
+                        className="transition-transform duration-300 group-hover:translate-x-1"
+                      >
+                        <path
+                          d="M3 7h8M7 3l4 4-4 4"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </a>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
