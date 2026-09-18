@@ -1,6 +1,11 @@
 // @language JavaScript (React)
 // @updated 2026-09-18
-// @changed Added an AUDIENCE GATE section right before FEATURES: text-only hard stop, brand-black
+// @changed AUDIENCE GATE polish: "Educator"/"Researcher" options sized up (text-3xl/5xl -> 6xl/8xl,
+//          wrapper max-w-2xl -> max-w-4xl) — too small relative to the side whitespace at the old size.
+//          Unselected option now renders at text-[#1F1F1F]/30 instead of solid black, so it reads as
+//          "not picked" rather than two equally-weighted headings; hover/selected still go full-opacity
+//          accent color.
+// @changed Prior: Added an AUDIENCE GATE section right before FEATURES: text-only hard stop, brand-black
 //          copy, "Educator"/"Researcher" as two clickable words (hover orange/light-blue via new
 //          TRACK_ACCENT map, #FA6C43/#0EA5E9). Not persisted — new `audienceTrack` state
 //          (null|'educator'|'researcher') resets every load; scrolling back up to the gate re-picks it,
@@ -1189,34 +1194,40 @@ const LandingV2 = () => {
 
       {/* === AUDIENCE GATE ===
           Text-only hard stop before FEATURES: brand-black copy, two
-          clickable words ("Educator" / "Researcher"). Hover previews each
-          track's accent color; clicking commits it and the FEATURES
-          section below switches content. Not persisted (no localStorage) —
-          resets on reload, and the visitor can scroll back up here anytime
-          to flip their choice; there's no separate toggle living elsewhere
-          on the page. */}
+          clickable words ("Educator" / "Researcher"). Unselected state
+          renders at 30% opacity (text-[#1F1F1F]/30) rather than solid
+          black — full solid black on both reads as "two equally-weighted
+          headings," not "pick one." Hover (or being the selected track)
+          brings it to full-opacity accent color. Clicking commits it and
+          the FEATURES section below switches content. Not persisted (no
+          localStorage) — resets on reload, and the visitor can scroll back
+          up here anytime to flip their choice; there's no separate toggle
+          living elsewhere on the page. Sized text-6xl/8xl and the wrapper
+          widened to max-w-4xl — at the old text-3xl/5xl + max-w-2xl this
+          read as a small, timid line of text lost in a lot of side
+          whitespace. */}
       <section className="relative px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <h2
             className="text-2xl lg:text-4xl tracking-tight mb-10"
             style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
           >
             Are you faculty, or a researcher?
           </h2>
-          <div className="flex items-center justify-center gap-5 lg:gap-8 flex-wrap">
+          <div className="flex items-center justify-center gap-6 lg:gap-10 flex-wrap">
             <button
               type="button"
               onClick={() => setAudienceTrack('educator')}
-              className={`text-3xl lg:text-5xl tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
-                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]'
+              className={`text-6xl lg:text-8xl tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
+                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]/30'
               }`}
               style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
             >
               Educator
             </button>
             <span
-              className="text-3xl lg:text-5xl"
-              style={{ color: 'rgba(31,31,31,0.3)', fontFamily: FONT_DISPLAY, fontWeight: 800 }}
+              className="text-6xl lg:text-8xl"
+              style={{ color: 'rgba(31,31,31,0.2)', fontFamily: FONT_DISPLAY, fontWeight: 800 }}
               aria-hidden
             >
               /
@@ -1224,8 +1235,8 @@ const LandingV2 = () => {
             <button
               type="button"
               onClick={() => setAudienceTrack('researcher')}
-              className={`text-3xl lg:text-5xl tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
-                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]'
+              className={`text-6xl lg:text-8xl tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
+                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]/30'
               }`}
               style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
             >
