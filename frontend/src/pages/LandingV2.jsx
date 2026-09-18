@@ -1,6 +1,9 @@
 // @language JavaScript (React)
-// @updated 2026-09-17
-// @changed TRY IT section scaled up (heading text-3xl/5xl -> 4xl/6xl, section py-20/28 -> py-24/32,
+// @updated 2026-09-18
+// @changed HERO content is now vertically centered in the viewport (flex items-center on the section)
+//          instead of top-padded into place — the old pt-28/lg:pt-36 pushed the ACTRLabs block up near
+//          the nav, reading as sitting above the screen's true midpoint instead of centered in it.
+// @changed Prior: TRY IT section scaled up (heading text-3xl/5xl -> 4xl/6xl, section py-20/28 -> py-24/32,
 //          composer's own max-width bumped in ai-chat-input.jsx) and now fades/slides up via
 //          framer-motion's whileInView instead of rendering static on mount — once-only entrance
 //          (viewport={{ once: true, amount: 0.4 }}), matching the once-fired pattern already used by
@@ -887,9 +890,13 @@ const LandingV2 = () => {
           lg:col-span-8 column's actual width (~66% of viewport, not the
           full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider than
           its own column at common desktop widths, so it spilled into the
-          pitch-text column beside it. */}
-      <section className="relative w-full min-h-screen overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full flex flex-col items-center text-center">
+          pitch-text column beside it. Content is vertically centered in
+          the viewport (flex items-center on the section) rather than
+          top-padded into place — the old pt-28/lg:pt-36 pushed the block
+          up near the nav, reading as sitting above the screen's true
+          midpoint instead of centered in it. */}
+      <section className="relative w-full min-h-screen overflow-hidden flex items-center" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="px-6 lg:px-12 py-16 w-full flex flex-col items-center text-center">
           <h1
             className="leading-[0.85] tracking-[-0.04em]"
             style={{
