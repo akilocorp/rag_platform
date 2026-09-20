@@ -1,6 +1,10 @@
 // @language JavaScript (React)
 // @updated 2026-09-20
-// @changed AUDIENCE GATE "Educator / Researcher": replaced fixed text-6xl/lg:text-8xl with a
+// @changed TESTIMONIALS: replaced the unlabeled invented "Dr. Priya Patel" quote and the two
+//          "Your name here" placeholders with clearly-labeled illustrative examples tied to real
+//          UVPs (Qualtrics sync + matching, cited answers, no-code Canvas rollout) — no fake name,
+//          no real institution attached to a fictional person, no photo.
+// @changed Prior: AUDIENCE GATE "Educator / Researcher": replaced fixed text-6xl/lg:text-8xl with a
 //          vw-based clamp() for font-size and gap, so the row scales continuously with viewport
 //          width and never wraps, instead of only fitting at the exact widths the two Tailwind
 //          breakpoints covered.
@@ -473,44 +477,43 @@ const TESTIMONIAL_PANELS = [
     bg: '#F4ECD8',
     accent: '#A8832D',
   },
+  // Illustrative entries (researchers/students/administrators below) are
+  // written to match this page's actual UVPs (Qualtrics sync + group-chat
+  // matching, grounded/cited answers, no-code Canvas rollout) but are not
+  // real quotes from real people — no invented name, no real institution
+  // attached to a fictional person, and no photo. A stock photo here would
+  // both misrepresent the card as a genuine testimonial and violate most
+  // stock licenses' no-endorsement-implication terms. `illustrative`/`note`
+  // drive the disclosure text in TESTIMONIAL_SLIDES below; Picture still
+  // falls through to `bg` as a flat-color panel since there's no image/video
+  // src.
   {
     id: 'researchers',
     title: 'Researchers',
-    name: 'Dr. Priya Patel',
-    role: 'Learning Sciences',
-    university: 'Stanford University',
+    illustrative: true,
+    note: 'reflects what researchers ask us for, not an actual endorsement.',
     quote:
-      'For the first time, I can watch students actually reason with AI, not in a focus group, but inside the coursework itself. That kind of visibility didn’t exist before.',
-    videoSrc: '/testimonials/researchers.mp4',
-    posterSrc: '/testimonials/researchers.jpg',
+      'Running a between-subjects study used to mean weeks with a developer and a survey platform. Now I set up the conditions, ACTRLabs matches participants into rooms on its own, and the transcripts are already sitting in Qualtrics before I start coding data.',
     bg: '#D9E5F2',
     accent: '#3E6493',
   },
-  // Placeholder entries — SqueezeCarousel's column-width math (SHARES/
-  // STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns; with only
-  // 2 slides the row rendered hero + 1 companion and left the remaining
-  // ~45% of its width as dead empty space. Adding 2 more slides fills the
-  // row the way the component is actually built for. No video/poster yet,
-  // so Picture falls through to `bg` as a flat-color panel. Swap the copy
-  // and add a real videoSrc/posterSrc/avatarSrc when these are ready —
-  // nothing else about the shape needs to change.
   {
     id: 'dummy-students',
     title: 'Students',
-    name: 'Your name here',
-    role: 'Role',
-    university: 'Institution',
-    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    illustrative: true,
+    note: 'reflects what students notice about grounded answers, not an actual endorsement.',
+    quote:
+      "When I ask it something, it doesn't just answer from somewhere online — it points me straight back to the actual reading, so I know I've got the right source before I cite it in my paper.",
     bg: '#E5E1D8',
     accent: '#8C8471',
   },
   {
     id: 'dummy-administrators',
     title: 'Administrators',
-    name: 'Your name here',
-    role: 'Role',
-    university: 'Institution',
-    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    illustrative: true,
+    note: 'reflects what department admins ask us for, not an actual endorsement.',
+    quote:
+      "We didn't need a developer or a new platform. Instructors connect the Canvas account they already have, and it was live across three departments before IT even finished the review.",
     bg: '#DCE3E0',
     accent: '#4B7A6F',
   },
@@ -522,14 +525,25 @@ const TESTIMONIAL_PANELS = [
 const TESTIMONIAL_SLIDES = TESTIMONIAL_PANELS.map((p) => ({
   id: p.id,
   title: `“${p.quote}”`,
-  description: (
+  description: p.illustrative ? (
+    <span className="inline-flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+        style={{ backgroundColor: p.accent }}
+      >
+        {p.title.charAt(0)}
+      </span>
+      <span style={{ fontStyle: 'italic' }}>Illustrative example — {p.note}</span>
+    </span>
+  ) : (
     <>
       {p.name}, {p.role} at{' '}
       <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
     </>
   ),
   image: p.posterSrc,
-  imageAlt: `${p.name}, ${p.role} at ${p.university}`,
+  imageAlt: p.illustrative ? undefined : `${p.name}, ${p.role} at ${p.university}`,
   video: p.videoSrc,
   background: p.bg,
   overlay: (
