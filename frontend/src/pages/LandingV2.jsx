@@ -1,5 +1,9 @@
 // @language JavaScript (React)
 // @updated 2026-09-20
+// @changed FEATURES researcher panel: swapped the peach background + illustrated QualtricsMockup
+//          for a light-blue tint (matches TRACK_ACCENT.researcher) and a real <video> player, same
+//          convention as the educator panel's video (drop a file at the placeholder path, no code
+//          changes). QualtricsMockup/QualtricsRow removed as dead code now that nothing renders them.
 // @changed TESTIMONIALS: replaced the unlabeled invented "Dr. Priya Patel" quote and the two
 //          "Your name here" placeholders with clearly-labeled illustrative examples tied to real
 //          UVPs (Qualtrics sync + matching, cited answers, no-code Canvas rollout) — no fake name,
@@ -368,91 +372,6 @@ const RESEARCHER_SECONDARY_CELLS = [
     linkLabel: 'TBD',
   },
 ];
-
-// QualtricsRow/QualtricsMockup are the researcher track's featured-row
-// visual: a "tilted card behind a branded panel" mockup of a linked
-// Qualtrics account with survey responses syncing in. QualtricsRow is one
-// row in that panel's response list (badge + label + response count +
-// sync status).
-const QualtricsRow = ({ label, count, status }) => (
-  <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-gray-50">
-    <span
-      className="text-[8px] font-bold px-1.5 py-0.5 rounded text-white"
-      style={{ backgroundColor: '#0EA5E9' }}
-    >
-      SRV
-    </span>
-    <span className="text-[10px] text-gray-800 flex-1 truncate">{label}</span>
-    <span className="text-[9px] text-gray-400 shrink-0">{count}</span>
-    {status === 'syncing' ? (
-      <span
-        className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-[#0EA5E9]"
-        style={{ animation: 'landing-spin 1s linear infinite' }}
-        aria-hidden
-      />
-    ) : (
-      <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-        <circle cx="6" cy="6" r="6" fill="#10A37F" />
-        <path d="M3.5 6.2l1.7 1.6 3.3-3.4" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )}
-  </div>
-);
-
-const QualtricsMockup = () => (
-  <>
-    <div
-      className="absolute bottom-[200px] right-[-30px] w-[240px] bg-white rounded-xl shadow-lg border border-gray-200 p-3 pointer-events-none"
-      style={{ transform: 'rotate(6deg)', fontFamily: FONT_BODY }}
-      aria-hidden
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#0EA5E9' }} />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">Survey A</span>
-      </div>
-      <div className="h-1.5 bg-gray-200 rounded mb-1.5"></div>
-      <div className="h-1.5 bg-gray-100 rounded w-3/4"></div>
-    </div>
-
-    <div
-      className="absolute bottom-[20px] right-[-10px] w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden pointer-events-none"
-      style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
-      aria-hidden
-    >
-      <div
-        className="px-3.5 py-2.5 flex items-center justify-between"
-        style={{ backgroundColor: '#0EA5E9' }}
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-white/95 flex items-center justify-center">
-            <span className="text-[10px] font-black" style={{ color: '#0EA5E9' }}>Q</span>
-          </div>
-          <span className="text-[11px] font-bold text-white tracking-wide">Qualtrics</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-white/95" style={{ animation: 'landing-pulse-dot 1.8s ease-in-out infinite' }} />
-          <span className="text-[9px] font-semibold text-white/95 uppercase tracking-wider">Linked</span>
-        </div>
-      </div>
-
-      <div className="px-3.5 pt-3 pb-2 border-b border-gray-100">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">PSYC 301</div>
-        <div className="text-[12px] font-bold text-gray-800">Account connected</div>
-      </div>
-
-      <div className="px-2 py-2 space-y-0.5">
-        <QualtricsRow label="Survey A (Pilot)"      count="214" status="synced" />
-        <QualtricsRow label="Survey B (Follow-up)"  count="98"  status="synced" />
-        <QualtricsRow label="Survey C (Debrief)"    count="41"  status="syncing" />
-      </div>
-
-      <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-        <span className="text-[9px] text-gray-500">Auto-sync every 5 min</span>
-        <span className="text-[9px] font-semibold" style={{ color: '#10A37F' }}>353 responses ready</span>
-      </div>
-    </div>
-  </>
-);
 
 // Two audience panels, shown side by side (no accordion — the student
 // panel was dropped, and two panels fit on screen at once with room to
@@ -1345,26 +1264,50 @@ const LandingV2 = () => {
                       lineHeight: 1.4,
                     }}
                   >
-                    {/* One span, wraps naturally instead of a forced <br />.
-                        Default box-decoration-break ('slice') treats the wrapped
-                        lines as one shape cut by the line break, so the highlight
-                        reads as a continuous stroke. 'clone' was tried here but
-                        gives each wrapped line its own full padding + radius on
-                        all 4 corners, which — stacked against this line-height —
-                        pushed the lines apart into two separate pills with a
-                        visible gap between them. */}
-                    <span
-                      style={{
-                        backgroundColor: TRACK_ACCENT[audienceTrack],
-                        color: '#FFFFFF',
-                        padding: '0.25em 0.4em',
-                        borderRadius: '12px',
-                      }}
-                    >
-                      {audienceTrack === 'educator'
-                        ? 'Build Exercises Students Actually Play'
-                        : 'Your Qualtrics Data, Already There'}
-                    </span>
+                    {audienceTrack === 'educator' ? (
+                      // Explicit line spans instead of one auto-wrapping span.
+                      // Default box-decoration-break ('slice') draws the
+                      // highlight as a single shape sliced at the line break,
+                      // so only the true outer corners (first line's top,
+                      // last line's bottom) get the radius — the wrap point
+                      // and the inner step where "Play" is narrower than the
+                      // line above it render sharp/square (confirmed in a
+                      // screenshot at the lg breakpoint). 'clone' rounds every
+                      // corner on every line but leaves a visible gap between
+                      // lines. Rendering each line as its own inline-block
+                      // pill gets full, even rounding on all 4 corners AND a
+                      // tight, consistent gap — the fix for both. This exact
+                      // two-line split is hardcoded to the known-broken wrap
+                      // point; the researcher headline below still wraps
+                      // naturally since it wasn't reported broken and forcing
+                      // a break there is unverified at other breakpoints.
+                      ['Build Exercises Students Actually', 'Play'].map((line, i) => (
+                        <span
+                          key={line}
+                          style={{
+                            display: 'inline-block',
+                            backgroundColor: TRACK_ACCENT[audienceTrack],
+                            color: '#FFFFFF',
+                            padding: '0.25em 0.4em',
+                            borderRadius: '12px',
+                            marginTop: i > 0 ? '0.2em' : 0,
+                          }}
+                        >
+                          {line}
+                        </span>
+                      )).reduce((acc, el, i) => (i === 0 ? [el] : [...acc, <br key={`br-${i}`} />, el]), [])
+                    ) : (
+                      <span
+                        style={{
+                          backgroundColor: TRACK_ACCENT[audienceTrack],
+                          color: '#FFFFFF',
+                          padding: '0.25em 0.4em',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        Your Qualtrics Data, Already There
+                      </span>
+                    )}
                   </h2>
                   <p
                     className="text-[15px] lg:text-base leading-snug max-w-[340px]"
@@ -1397,24 +1340,37 @@ const LandingV2 = () => {
                     </svg>
                   </span>
                 </div>
-                <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
-                  {audienceTrack === 'educator' ? (
-                    <div className="absolute inset-4 lg:inset-6 rounded-2xl overflow-hidden bg-[#1F1F1F] flex items-center justify-center">
-                      {/* Placeholder path — drop the recorded exercise walkthrough in at
-                          this path (with a matching poster) and it plays with zero code
-                          changes, same convention as the /testimonials/*.mp4 files. */}
-                      <video
-                        controls
-                        preload="none"
-                        poster="/exercises/custom-exercise-poster.jpg"
-                        className="w-full h-full object-cover"
-                      >
-                        <source src="/exercises/custom-exercise-demo.mp4" type="video/mp4" />
-                      </video>
-                    </div>
-                  ) : (
-                    <QualtricsMockup />
-                  )}
+                <div
+                  className="relative overflow-hidden"
+                  style={{
+                    backgroundColor: audienceTrack === 'educator' ? '#FDE3D8' : '#E0F2FE',
+                    minHeight: '320px',
+                  }}
+                >
+                  <div className="absolute inset-4 lg:inset-6 rounded-2xl overflow-hidden bg-[#1F1F1F] flex items-center justify-center">
+                    {/* Placeholder path — drop the recorded walkthrough in at this path
+                        (with a matching poster) and it plays with zero code changes,
+                        same convention as the /testimonials/*.mp4 files. */}
+                    <video
+                      controls
+                      preload="none"
+                      poster={
+                        audienceTrack === 'educator'
+                          ? '/exercises/custom-exercise-poster.jpg'
+                          : '/exercises/qualtrics-sync-poster.jpg'
+                      }
+                      className="w-full h-full object-cover"
+                    >
+                      <source
+                        src={
+                          audienceTrack === 'educator'
+                            ? '/exercises/custom-exercise-demo.mp4'
+                            : '/exercises/qualtrics-sync-demo.mp4'
+                        }
+                        type="video/mp4"
+                      />
+                    </video>
+                  </div>
                 </div>
               </div>
 
