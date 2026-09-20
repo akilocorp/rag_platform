@@ -1,6 +1,13 @@
 // @language JavaScript (React)
-// @updated 2026-09-18
-// @changed AUDIENCE GATE section padding trimmed (px-6 -> px-3, lg:px-6 added) — at text-6xl on
+// @updated 2026-09-20
+// @changed AUDIENCE GATE "Educator / Researcher": replaced fixed text-6xl/lg:text-8xl with a
+//          vw-based clamp() for font-size and gap, so the row scales continuously with viewport
+//          width and never wraps, instead of only fitting at the exact widths the two Tailwind
+//          breakpoints covered.
+// @changed Prior: FEATURES headline pill: dropped boxDecorationBreak: 'clone', which was splitting the
+//          wrapped "Build Exercises Students Actually Play" text into two visibly gapped pills
+//          instead of one continuous highlight.
+// @changed Prior: AUDIENCE GATE section padding trimmed (px-6 -> px-3, lg:px-6 added) — at text-6xl on
 //          viewports below the lg breakpoint (no responsive step down for this text), "Educator /
 //          Researcher" was just wide enough to wrap onto two lines. The extra reclaimed width keeps it
 //          on one line without touching the font size.
@@ -1221,20 +1228,28 @@ const LandingV2 = () => {
           >
             Are you faculty, or a researcher?
           </h2>
-          <div className="flex items-center justify-center gap-6 lg:gap-10 flex-wrap">
+          {/* Font-size and gap are fluid (vw-based clamp), not Tailwind breakpoint
+              jumps — text-6xl was a fixed 60px below lg with no smaller step, so on
+              phone-width viewports "Educator / Researcher" was simply too wide and
+              wrapped. Scaling both continuously with viewport width keeps the row's
+              proportions (and its fit) the same at every size instead of just at the
+              two sizes Tailwind's classes covered. */}
+          <div
+            className="flex items-center justify-center flex-nowrap"
+            style={{ gap: 'clamp(0.5rem, 2.6vw, 2.5rem)' }}
+          >
             <button
               type="button"
               onClick={() => setAudienceTrack('educator')}
-              className={`text-6xl lg:text-8xl tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
+              className={`tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
                 audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]/30'
               }`}
-              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
             >
               Educator
             </button>
             <span
-              className="text-6xl lg:text-8xl"
-              style={{ color: 'rgba(31,31,31,0.2)', fontFamily: FONT_DISPLAY, fontWeight: 800 }}
+              style={{ color: 'rgba(31,31,31,0.2)', fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
               aria-hidden
             >
               /
@@ -1242,10 +1257,10 @@ const LandingV2 = () => {
             <button
               type="button"
               onClick={() => setAudienceTrack('researcher')}
-              className={`text-6xl lg:text-8xl tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
+              className={`tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
                 audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]/30'
               }`}
-              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
             >
               Researcher
             </button>
@@ -1317,18 +1332,19 @@ const LandingV2 = () => {
                     }}
                   >
                     {/* One span, wraps naturally instead of a forced <br />.
-                        box-decoration-break makes each wrapped line clone the
-                        same padding/radius/background, so it reads as one
-                        continuous highlighter stroke instead of two separate
-                        stacked pills with a gap between them. */}
+                        Default box-decoration-break ('slice') treats the wrapped
+                        lines as one shape cut by the line break, so the highlight
+                        reads as a continuous stroke. 'clone' was tried here but
+                        gives each wrapped line its own full padding + radius on
+                        all 4 corners, which — stacked against this line-height —
+                        pushed the lines apart into two separate pills with a
+                        visible gap between them. */}
                     <span
                       style={{
                         backgroundColor: TRACK_ACCENT[audienceTrack],
                         color: '#FFFFFF',
                         padding: '0.25em 0.4em',
                         borderRadius: '12px',
-                        boxDecorationBreak: 'clone',
-                        WebkitBoxDecorationBreak: 'clone',
                       }}
                     >
                       {audienceTrack === 'educator'

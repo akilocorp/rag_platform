@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-17
-// @changed   Collapsed/expanded max-width bumped again (400/640 -> 480/760) for LandingV2's "Try it"
+// @updated   2026-09-20
+// @changed   Main Input Card: moved overflow-clip onto its own inset layer, separate from the
+//            bordered card, so the clip mask and the border curve no longer anti-alias into a
+//            visible double border.
+// @changed   Prior: Collapsed/expanded max-width bumped again (400/640 -> 480/760) for LandingV2's "Try it"
 //            section, which wanted a bigger composer. Only call site is LandingV2, so no other page is
 //            affected.
 // @changed   Prior: Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
@@ -726,13 +729,20 @@ export const PromptInput = React.forwardRef(
               borderRadius: 24,
               height: expanded ? containerHeight : 48,
               transition: isSmoothResize ? SMOOTH_HEIGHT_TRANSITION : SPRING_TRANSITION,
-              overflow: expanded ? 'visible' : 'hidden',
             }}
             className={cn(
               'relative w-full border border-gray-200 bg-white shadow-sm focus-within:border-[#FA6C43] hover:border-gray-300 z-10',
               expanded ? 'cursor-text' : 'cursor-default'
             )}
           >
+            {/* Clipping lives on its own inset layer, not the bordered card above —
+                a border and an overflow clip on the same box anti-alias their curves
+                slightly differently, which showed up as a faint second border just
+                inside the real one. */}
+            <div
+              className="absolute inset-0"
+              style={{ borderRadius: 23, overflow: expanded ? 'visible' : 'hidden' }}
+            >
             <style dangerouslySetInnerHTML={{ __html: `
               .prompt-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
               .prompt-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -922,6 +932,7 @@ export const PromptInput = React.forwardRef(
                 </span>
               </span>
             </button>
+            </div>
           </div>
         </div>
 
