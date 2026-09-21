@@ -1,7 +1,12 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-08
- * @changed   Drag-and-drop overlay's dashed border now breathes via animate-dropzone-pulse instead of
+ * @updated   2026-09-21
+ * @changed   Posts an ACTR_SESSION message to the Qualtrics parent as soon as the session id exists, so the
+ *            survey can store it as `actr_session_id` and join its row to the ACTR transcript export.
+ * Prior: Text turns now post the launch URL's survey variables as `session_variables`, so a Qualtrics
+ *            condition or prior answer reaches the text bot's prompt the way it already reached the voice
+ *            persona. `voiceSession` renamed `launchVars` — it is no longer voice-only.
+ * Prior: Drag-and-drop overlay's dashed border now breathes via animate-dropzone-pulse instead of
  *            sitting static while a file is dragged over the page.
  * Prior: isCallMode recolored again: #1F1F1F was a dark bg meant for white text — swapped for #F8FAFC,
  *            the same off-white the rest of this page already uses outside call mode, and flipped the hero/
@@ -779,13 +784,15 @@ const ChatPage = () => {
   const _savedGuest = (() => { try { return JSON.parse(localStorage.getItem('guestInfo') || 'null'); } catch { return null; } })();
   const studentLabelRef = useRef(_urlStudentLabel || _savedGuest?.name || null);
   // Everything the launch URL carried (participant code, assigned topic, assigned
-  // stance — whatever a study sends from Qualtrics) becomes session variables for
-  // the voice persona. Encoded as urlsafe-base64 JSON so it survives as the fourth
-  // segment of the colon-delimited CLM session id.
-  // `vars` is kept alongside the encoded form because the call record stores them
-  // readable (that is what the export's per-variable columns are built from),
-  // while the CLM session id needs them packed.
-  const voiceSession = useMemo(() => {
+  // stance — whatever a study pipes in from Qualtrics) becomes this session's
+  // variables. Both chat modes use them: text turns post `vars` with every
+  // message, and voice calls need `encoded` because the only channel into a CLM
+  // turn is the session id, so the values ride in a fourth urlsafe-base64 segment
+  // of it. The call record also stores `vars` readable — that is what the export's
+  // per-variable columns are built from.
+  // The backend drops the plumbing keys (qualtricsId, studentEmail, …) before any
+  // of this reaches a prompt, so everything is sent as-is.
+  const launchVars = useMemo(() => {
     const vars = {};
     for (const [k, v] of _qp.entries()) { if (v) vars[k] = v; }
     if (Object.keys(vars).length === 0) return { vars, encoded: '' };
@@ -1489,6 +1496,7 @@ const ChatPage = () => {
           images: snapshotImages.map(({ dataUrl, mimeType }) => ({ dataUrl, mimeType })),
           ...(facilitatorAnswer ? { facilitator_answer: facilitatorAnswer } : {}),
           ...(sessionModel ? { model_override: sessionModel } : {}),
+          ...(Object.keys(launchVars.vars).length ? { session_variables: launchVars.vars } : {}),
           ...(qualtricsIdRef.current ? { qualtrics_id: qualtricsIdRef.current } : {}),
           ...(studentLabelRef.current ? { student_label: studentLabelRef.current } : {}),
           ...(guestInfo?.email ? { student_email: guestInfo.email } : {}),
@@ -1824,6 +1832,22 @@ const ChatPage = () => {
     if (config?.bot_type !== 'audio_call') return;
     setCallSessionId(getCallSessionId());
   }, [config, getCallSessionId]);
+
+  // --- Tell the Qualtrics parent which ACTR session this is ---
+  // Posted as soon as the id exists rather than with the first message, because
+  // a call the student abandons before anyone speaks still needs to be joinable
+  // to their survey row. The parent snippet writes it to `actr_session_id`.
+  // It is the same key the per-turn audio export files under `session_id`.
+  useEffect(() => {
+    const sessionId = callSessionId || currentChatIdRef.current;
+    if (!sessionId || window.parent === window) return;
+    try {
+      window.parent.postMessage({
+        type: 'ACTR_SESSION',
+        payload: { configId, sessionId },
+      }, '*');
+    } catch { /* not in an iframe */ }
+  }, [callSessionId, chatId, configId]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -2177,10 +2201,10 @@ const ChatPage = () => {
                     </p>
                     <EVIAudioControls
                       embedded
-                      sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${voiceSession.encoded ? `:${voiceSession.encoded}` : ''}`}
+                      sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${launchVars.encoded ? `:${launchVars.encoded}` : ''}`}
                       configId={configId}
                       callSessionId={callSessionId}
-                      variables={voiceSession.vars}
+                      variables={launchVars.vars}
                       onTurn={handleEVITurn}
                       onError={handleEVIError}
                     />

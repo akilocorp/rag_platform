@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   `get_config_sessions` (the professor's transcript view) admits config collaborators.
+# @updated   2026-09-18
+# @changed   Survey values piped in from a Qualtrics launch URL now reach the text chat: `session_variables`
+#            is read off the request, sanitised, stored on the session metadata doc, and injected into the
+#            system prompt on all three paths (agentic, LangChain template, LangChain vision).
+#            Prior: `get_config_sessions` (the professor's transcript view) admits config collaborators.
 #            Prior: A broken stream no longer talks to the student. Both LangChain loops now retry a transient
 #            upstream drop (3 attempts, backoff, only before the first token), and every failure path emits
 #            the neutral `error` frame from `_stream_error_event` instead of `str(e)` — the exception itself
@@ -53,6 +56,9 @@ from src.facilitator import registry as facilitator_registry
 from src.facilitator.runner import run_facilitator
 from src.usage import limits as usage_limits
 from src.utils.models import accepts_temperature
+from src.utils.session_variables import (
+    clean_session_variables, apply_variables, session_variables_block,
+)
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -439,7 +445,8 @@ def get_config_sessions(config_id):
                     "message_count": {"$ifNull": [{"$arrayElemAt": ["$msg_count.n", 0]}, 0]},
                     "qualtrics_id": 1,
                     "student_label": 1,
-                    "student_email": 1
+                    "student_email": 1,
+                    "session_variables": 1
                 }
             },
             {"$sort": {"timestamp": -1}}
@@ -604,7 +611,8 @@ def _generate_chat_title(text: str) -> str:
 
 def get_session_history(session_id: str, user_id: str, config_id: str, user_input: str = None,
                         qualtrics_id: str = None, student_label: str = None,
-                        student_email: str = None, marketing_opt_in: bool = None) -> _AttachedFilesMongoHistory:
+                        student_email: str = None, marketing_opt_in: bool = None,
+                        session_variables: dict = None) -> _AttachedFilesMongoHistory:
     db = current_app.config['MONGO_DB']
     metadata_collection = db["chat_session_metadata"]
 
@@ -626,6 +634,11 @@ def get_session_history(session_id: str, user_id: str, config_id: str, user_inpu
             doc["student_email"] = student_email
         if marketing_opt_in is not None:
             doc["marketing_opt_in"] = marketing_opt_in
+        # The survey values this session was launched with. Stored alongside the
+        # identity fields because they are what the professor joins the transcript
+        # against — the export turns each key into its own column.
+        if session_variables:
+            doc["session_variables"] = session_variables
         metadata_collection.insert_one(doc)
         if student_email:
             db["potential_users"].update_one(
@@ -638,9 +651,11 @@ def get_session_history(session_id: str, user_id: str, config_id: str, user_inpu
                 }, "$setOnInsert": {"first_seen": time.time()}},
                 upsert=True,
             )
-    elif qualtrics_id or student_label or student_email:
+    elif qualtrics_id or student_label or student_email or session_variables:
         # Update existing session if we now have identity info we didn't before
         update = {}
+        if session_variables:
+            update["session_variables"] = session_variables
         if qualtrics_id:
             update["qualtrics_id"] = qualtrics_id
         if student_label:
@@ -889,7 +904,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
                      user_id_for_history, file_variant, selected_file_ids,
                      attached_files, images=None, qualtrics_id=None, student_label=None,
                      student_email=None, marketing_opt_in=None, identity=None,
-                     facilitator_answer=None):
+                     facilitator_answer=None, session_variables=None):
     """NDJSON generator for the agentic path.
 
     Forwards token / tool_use / tool_result events from the runner to the
@@ -906,6 +921,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             student_label=student_label,
             student_email=student_email,
             marketing_opt_in=marketing_opt_in,
+            session_variables=session_variables,
         )
         history_messages = _load_anthropic_history(history_obj)
 
@@ -950,6 +966,7 @@ def _generate_agentic(*, config_doc, user_input, chat_id, config_id,
             history_messages=history_messages,
             ctx=ctx,
             images=image_blocks,
+            variables=session_variables,
         ):
             etype = event.get("type")
             if etype == "token":
@@ -1067,6 +1084,10 @@ def chat(config_id, chat_id):
     # {widget, question, selected, correct?}. Used to build a model-only note and
     # to steer retrieval at the question rather than the bare option text.
     facilitator_answer = data.get('facilitator_answer') or None
+    # Every query param the chat was launched with, minus the plumbing ones.
+    # A survey pipes its own fields into the iframe src, so these are the
+    # participant's earlier answers / assigned condition.
+    session_variables = clean_session_variables(data.get('session_variables'))
     qualtrics_id = data.get('qualtrics_id') or None
     student_label = data.get('student_label') or None
     student_email = data.get('student_email') or None
@@ -1166,6 +1187,7 @@ def chat(config_id, chat_id):
                 marketing_opt_in=marketing_opt_in,
                 identity=identity,
                 facilitator_answer=facilitator_answer,
+                session_variables=session_variables,
             )),
             mimetype='application/x-ndjson',
         )
@@ -1236,6 +1258,11 @@ def chat(config_id, chat_id):
             # string here, and a present-but-empty key silently stripped the
             # persona and the grounding line instead of falling back.
             base_instruction = config_doc.get("prompt_template") or "Answer based on context."
+            # Survey values are substituted into `{{var}}` placeholders BEFORE escaping:
+            # a substituted value is plain text by then, so a brace inside a free-text
+            # answer gets escaped like any other. Doing it after would leave the escaper
+            # mangling its own `{{ }}` output.
+            base_instruction = apply_variables(base_instruction, session_variables)
             # Escape any {var} in user prompt that isn't our template vars (context, history, question)
             base_instruction = _escape_prompt_variables(base_instruction)
 
@@ -1256,6 +1283,13 @@ def chat(config_id, chat_id):
             fac_note = _facilitator_answer_note(facilitator_answer)
             if fac_note:
                 system_message += "\n\n" + _escape_prompt_variables(fac_note.strip())
+
+            # This session's survey values, listed verbatim so a study can pass a
+            # condition the persona was never written to expect. Escaped — the values
+            # are participant-reachable and may contain braces.
+            session_block = session_variables_block(session_variables)
+            if session_block:
+                system_message += "\n\n" + _escape_prompt_variables(session_block)
 
             # Image attached but this model can't see it: tell the model so it
             # answers honestly instead of erroring or pretending. (No braces in
@@ -1376,12 +1410,14 @@ def chat(config_id, chat_id):
                     student_label=student_label,
                     student_email=student_email,
                     marketing_opt_in=marketing_opt_in,
+                    session_variables=session_variables,
                 )
 
                 # Rebuild the system text from the RAW prompt template — the
                 # {{ }}-escaped `system_message` above is only correct once a
                 # ChatPromptTemplate unescapes it, which we don't use here.
                 raw_instruction = config_doc.get("prompt_template") or "Answer based on context."
+                raw_instruction = apply_variables(raw_instruction, session_variables)
                 system_text = (
                     f"{raw_instruction}\n\n"
                     "Use the provided Context (retrieved documents) and the "
@@ -1392,6 +1428,8 @@ def chat(config_id, chat_id):
                 # Raw text here (no ChatPromptTemplate), so no brace escaping.
                 if fac_note:
                     system_text += "\n\n" + fac_note.strip()
+                if session_block:
+                    system_text += "\n\n" + session_block
 
                 messages = [SystemMessage(content=system_text)]
                 messages.extend(history_obj.messages)  # prior turns (text only)
@@ -1464,6 +1502,7 @@ def chat(config_id, chat_id):
                     student_label=student_label,
                     student_email=student_email,
                     marketing_opt_in=marketing_opt_in,
+                    session_variables=session_variables,
                 )
                 if attached_files:
                     h.pending_attached_files = attached_files

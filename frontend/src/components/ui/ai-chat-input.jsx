@@ -1,6 +1,18 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-16
-// @changed   Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
+// @updated   2026-09-20
+// @changed   .prompt-scrollbar (the textarea) now overrides the global `textarea, textarea:focus`
+//            rule in index.css (gray border always-on + blue focus box-shadow, meant for plain
+//            legacy form inputs) with border: none / box-shadow: none. That global rule was drawing
+//            a sharp-cornered rectangle around the textarea, poking out past the rounded card's own
+//            border — visible mainly on focus. The prior overflow-clip fix below didn't touch this;
+//            different cause, same symptom ("double border").
+// @changed   Prior: Main Input Card: moved overflow-clip onto its own inset layer, separate from the
+//            bordered card, so the clip mask and the border curve no longer anti-alias into a
+//            visible double border.
+// @changed   Prior: Collapsed/expanded max-width bumped again (400/640 -> 480/760) for LandingV2's "Try it"
+//            section, which wanted a bigger composer. Only call site is LandingV2, so no other page is
+//            affected.
+// @changed   Prior: Main input card's focus state dropped the separate focus-within:ring-1 ring-[#F9D0C4] and
 //            made the focus border fully opaque (border-[#FA6C43] instead of /50). Stacking a
 //            translucent border with a same-ish-colored ring just outside it read as a faint double
 //            border instead of one clean line.
@@ -656,7 +668,7 @@ export const PromptInput = React.forwardRef(
           onBlur={handleBlur}
           className={cn('relative flex flex-col w-full', className)}
           style={{
-            maxWidth: expanded ? 640 : 400,
+            maxWidth: expanded ? 760 : 480,
             transition: isSmoothResize ? 'max-width 0.15s ease-out' : 'max-width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
           }}
         >
@@ -723,18 +735,26 @@ export const PromptInput = React.forwardRef(
               borderRadius: 24,
               height: expanded ? containerHeight : 48,
               transition: isSmoothResize ? SMOOTH_HEIGHT_TRANSITION : SPRING_TRANSITION,
-              overflow: expanded ? 'visible' : 'hidden',
             }}
             className={cn(
               'relative w-full border border-gray-200 bg-white shadow-sm focus-within:border-[#FA6C43] hover:border-gray-300 z-10',
               expanded ? 'cursor-text' : 'cursor-default'
             )}
           >
+            {/* Clipping lives on its own inset layer, not the bordered card above —
+                a border and an overflow clip on the same box anti-alias their curves
+                slightly differently, which showed up as a faint second border just
+                inside the real one. */}
+            <div
+              className="absolute inset-0"
+              style={{ borderRadius: 23, overflow: expanded ? 'visible' : 'hidden' }}
+            >
             <style dangerouslySetInnerHTML={{ __html: `
               .prompt-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; background: transparent; }
               .prompt-scrollbar::-webkit-scrollbar-track { background: transparent; }
               .prompt-scrollbar::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
               .prompt-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(31,31,31,0.25); }
+              .prompt-scrollbar, .prompt-scrollbar:focus { border: none; box-shadow: none; }
             `}} />
 
             <textarea
@@ -919,6 +939,7 @@ export const PromptInput = React.forwardRef(
                 </span>
               </span>
             </button>
+            </div>
           </div>
         </div>
 

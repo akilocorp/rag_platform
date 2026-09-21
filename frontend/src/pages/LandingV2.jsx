@@ -1,6 +1,57 @@
 // @language JavaScript (React)
-// @updated 2026-09-16
-// @changed HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
+// @updated 2026-09-20
+// @changed FEATURES researcher panel: swapped the peach background + illustrated QualtricsMockup
+//          for a light-blue tint (matches TRACK_ACCENT.researcher) and a real <video> player, same
+//          convention as the educator panel's video (drop a file at the placeholder path, no code
+//          changes). QualtricsMockup/QualtricsRow removed as dead code now that nothing renders them.
+// @changed TESTIMONIALS: replaced the unlabeled invented "Dr. Priya Patel" quote and the two
+//          "Your name here" placeholders with clearly-labeled illustrative examples tied to real
+//          UVPs (Qualtrics sync + matching, cited answers, no-code Canvas rollout) — no fake name,
+//          no real institution attached to a fictional person, no photo.
+// @changed Prior: AUDIENCE GATE "Educator / Researcher": replaced fixed text-6xl/lg:text-8xl with a
+//          vw-based clamp() for font-size and gap, so the row scales continuously with viewport
+//          width and never wraps, instead of only fitting at the exact widths the two Tailwind
+//          breakpoints covered.
+// @changed Prior: FEATURES headline pill: dropped boxDecorationBreak: 'clone', which was splitting the
+//          wrapped "Build Exercises Students Actually Play" text into two visibly gapped pills
+//          instead of one continuous highlight.
+// @changed Prior: AUDIENCE GATE section padding trimmed (px-6 -> px-3, lg:px-6 added) — at text-6xl on
+//          viewports below the lg breakpoint (no responsive step down for this text), "Educator /
+//          Researcher" was just wide enough to wrap onto two lines. The extra reclaimed width keeps it
+//          on one line without touching the font size.
+// @changed Prior: AUDIENCE GATE polish: "Educator"/"Researcher" options sized up (text-3xl/5xl -> 6xl/8xl,
+//          wrapper max-w-2xl -> max-w-4xl) — too small relative to the side whitespace at the old size.
+//          Unselected option now renders at text-[#1F1F1F]/30 instead of solid black, so it reads as
+//          "not picked" rather than two equally-weighted headings; hover/selected still go full-opacity
+//          accent color.
+// @changed Prior: Added an AUDIENCE GATE section right before FEATURES: text-only hard stop, brand-black
+//          copy, "Educator"/"Researcher" as two clickable words (hover orange/light-blue via new
+//          TRACK_ACCENT map, #FA6C43/#0EA5E9). Not persisted — new `audienceTrack` state
+//          (null|'educator'|'researcher') resets every load; scrolling back up to the gate re-picks it,
+//          no separate toggle elsewhere. FEATURES is now entirely driven by that state: before a
+//          choice, the panel shows a prompt instead of content (the "hard stop"); after, the featured
+//          row + 4-cell row swap per track. Educator's big callout is now "Custom Exercises" (was
+//          Canvas sync) with a <video> panel beside the copy, pointed at a placeholder path
+//          (/exercises/custom-exercise-demo.mp4 + poster) to drop the real recording into later, no
+//          code changes needed — same convention as /testimonials/*.mp4. Researcher's big callout is
+//          new: Qualtrics data framed as "already there once you link your account," not "we have your
+//          data," with a new QualtricsMockup visual (replaces the old always-shown SyllabusMockup,
+//          which is now dead code and removed along with SyllabusFileRow). "Fetches Canvas Files"
+//          reworded to "Link Your Canvas Account" and demoted from the big callout to an educator-only
+//          secondary cell (new EDUCATOR_SECONDARY_CELLS). BentoCell gained optional `tag`/`accent` props
+//          — "Any Model" gets a "Popular" tag on both tracks as its emphasis treatment (color-coded
+//          pill, not a grid-span change, so the 4-cell row stays even). Researcher's 4th secondary cell
+//          is an explicit placeholder (RESEARCHER_SECONDARY_CELLS) with obvious TODO copy, per request
+//          to leave it templated until there's a real feature to put there.
+// @changed Prior: HERO content is now vertically centered in the viewport (flex items-center on the section)
+//          instead of top-padded into place — the old pt-28/lg:pt-36 pushed the ACTRLabs block up near
+//          the nav, reading as sitting above the screen's true midpoint instead of centered in it.
+// @changed Prior: TRY IT section scaled up (heading text-3xl/5xl -> 4xl/6xl, section py-20/28 -> py-24/32,
+//          composer's own max-width bumped in ai-chat-input.jsx) and now fades/slides up via
+//          framer-motion's whileInView instead of rendering static on mount — once-only entrance
+//          (viewport={{ once: true, amount: 0.4 }}), matching the once-fired pattern already used by
+//          WordsPullUp and the testimonial IntersectionObserver elsewhere on this page.
+// @changed Prior: HERO's lg:grid-cols-12 side-by-side layout (ACTRLabs left, pitch+CTA right) replaced with a
 //          single centered top-down column — ACTRLabs, then the pitch text, then "Get started",
 //          all center-aligned. TESTIMONIALS: added 2 placeholder entries to TESTIMONIAL_PANELS
 //          (Students/Administrators, obvious dummy copy, flat-color panel since there's no real
@@ -203,8 +254,11 @@ const UVPS = [
 // Feature cell for the redesigned "case study" style bento — a hairline-
 // bordered grid cell (illustration + headline + body + arrow link) instead
 // of a solid pastel tile. `borderRight` is dropped on the last cell in a row
-// so the outer container's own border closes off the edge.
-const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }) => (
+// so the outer container's own border closes off the edge. `tag` + `accent`
+// are optional: a small uppercase pill above the title, in the track's
+// accent color, for the one cell in a row that should read as emphasized
+// without changing the grid's column layout.
+const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true, tag, accent = '#FA6C43' }) => (
   <div
     className={`group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 first:border-t-0 transition-colors duration-300 hover:bg-[#FAFAF7] ${
       borderRight ? 'lg:border-r' : ''
@@ -213,6 +267,14 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
   >
     <img src={icon} alt={iconAlt} className="w-10 h-10" draggable={false} />
     <div>
+      {tag && (
+        <span
+          className="inline-block text-[10px] font-bold uppercase tracking-[0.14em] mb-2 px-2 py-0.5 rounded-full"
+          style={{ color: accent, backgroundColor: `${accent}1a`, fontFamily: FONT_BODY }}
+        >
+          {tag}
+        </span>
+      )}
       <h3
         className="text-xl tracking-tight mb-2.5"
         style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
@@ -227,7 +289,7 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
       </p>
       <span
         className="inline-flex items-center gap-1.5 text-sm font-semibold"
-        style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+        style={{ color: accent, fontFamily: FONT_BODY }}
       >
         {linkLabel}
         <svg
@@ -251,7 +313,18 @@ const BentoCell = ({ icon, iconAlt, title, body, linkLabel, borderRight = true }
   </div>
 );
 
-const BENTO_CELLS = [
+// Track accent colors, driven by the AUDIENCE GATE choice below. Orange for
+// educator matches the brand default used everywhere else on this page;
+// light blue for researcher is a new addition for this track split.
+const TRACK_ACCENT = {
+  educator: '#FA6C43',
+  researcher: '#0EA5E9',
+};
+
+// Shared secondary cells — not track-specific, so both rows reuse the same
+// two entries. Each track adds one more cell of its own (Canvas account for
+// educator, a placeholder for researcher) to fill out the 4-column row.
+const SHARED_BENTO_CELLS = [
   {
     id: 'models',
     icon: '/illustrations/wifi-internet.svg',
@@ -268,113 +341,37 @@ const BENTO_CELLS = [
     body: 'No more chasing down where a claim came from. Each response links straight back to the page or passage it was pulled from.',
     linkLabel: 'See a real citation',
   },
-  {
-    id: 'qualtrics',
-    icon: '/illustrations/survey-clipboard-research.svg',
-    iconAlt: 'Survey clipboard icon',
-    title: 'Exports Straight to Qualtrics',
-    body: 'Every chat log, response, and score syncs directly into Qualtrics. No manual exports, no reformatting, just data your IRB already trusts.',
-    linkLabel: 'See the Qualtrics export',
-  },
 ];
 
-// SyllabusMockup lives in the right half of the Canvas hero tile and
-// positions its Canvas cards absolutely. Negative right offsets bleed
-// past the tile's outer edge and get clipped by the tile's
-// overflow:hidden — that's the "tilted card peeking off the corner"
-// effect.
-const SyllabusFileRow = ({ type, name, status }) => {
-  const typeColors = {
-    PDF: '#C8472A',
-    DOCX: '#3E6493',
-    PPT: '#A8832D',
-  };
-  return (
-    <div className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-gray-50">
-      <span
-        className="text-[8px] font-bold px-1.5 py-0.5 rounded text-white"
-        style={{ backgroundColor: typeColors[type] || '#888' }}
-      >
-        {type}
-      </span>
-      <span className="text-[10px] text-gray-800 flex-1 truncate">{name}</span>
-      {status === 'syncing' ? (
-        <span
-          className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-[#FA6C43]"
-          style={{ animation: 'landing-spin 1s linear infinite' }}
-          aria-hidden
-        />
-      ) : (
-        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-          <circle cx="6" cy="6" r="6" fill="#10A37F" />
-          <path d="M3.5 6.2l1.7 1.6 3.3-3.4" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
-    </div>
-  );
-};
+// Per-track secondary cell rows (3 BentoCells + the mailto CTA card = 4
+// columns). "Any Model" carries the `tag` emphasis on both tracks — it's the
+// one shared cell singled out as a highlight rather than getting a wider
+// grid span, which would've broken the even 4-up row.
+const EDUCATOR_SECONDARY_CELLS = [
+  {
+    id: 'canvas-account',
+    icon: '/illustrations/book.svg',
+    iconAlt: 'Canvas account icon',
+    title: 'Link Your Canvas Account',
+    body: 'Connect your whole Canvas account once, not just a folder of files. Every course, syllabus, and reading stays in sync automatically.',
+    linkLabel: 'See how the sync works',
+  },
+  { ...SHARED_BENTO_CELLS[0], tag: 'Popular' },
+  SHARED_BENTO_CELLS[1],
+];
 
-const SyllabusMockup = () => (
-  <>
-    {/* Tilted secondary course card peeking behind */}
-    <div
-      className="absolute bottom-[200px] right-[-30px] w-[240px] bg-white rounded-xl shadow-lg border border-gray-200 p-3 pointer-events-none"
-      style={{ transform: 'rotate(6deg)', fontFamily: FONT_BODY }}
-      aria-hidden
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#A8832D' }} />
-        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">HIST 204</span>
-      </div>
-      <div className="h-1.5 bg-gray-200 rounded mb-1.5"></div>
-      <div className="h-1.5 bg-gray-100 rounded w-3/4"></div>
-    </div>
-
-    {/* Main Canvas-styled course panel */}
-    <div
-      className="absolute bottom-[20px] right-[-10px] w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden pointer-events-none"
-      style={{ transform: 'rotate(-3deg)', fontFamily: FONT_BODY }}
-      aria-hidden
-    >
-      {/* Canvas-styled header */}
-      <div
-        className="px-3.5 py-2.5 flex items-center justify-between"
-        style={{ backgroundColor: '#C8472A' }}
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-white/95 flex items-center justify-center">
-            <span className="text-[10px] font-black" style={{ color: '#C8472A' }}>C</span>
-          </div>
-          <span className="text-[11px] font-bold text-white tracking-wide">Canvas</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-white/95" style={{ animation: 'landing-pulse-dot 1.8s ease-in-out infinite' }} />
-          <span className="text-[9px] font-semibold text-white/95 uppercase tracking-wider">Live</span>
-        </div>
-      </div>
-
-      {/* Course title row */}
-      <div className="px-3.5 pt-3 pb-2 border-b border-gray-100">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">PSYC 301</div>
-        <div className="text-[12px] font-bold text-gray-800">Research Methods · Fall</div>
-      </div>
-
-      {/* File list */}
-      <div className="px-2 py-2 space-y-0.5">
-        <SyllabusFileRow type="PDF"  name="lecture-3-hypothesis.pdf" status="synced" />
-        <SyllabusFileRow type="DOCX" name="syllabus-v2.docx"          status="synced" />
-        <SyllabusFileRow type="PPT"  name="week-4-anova.pptx"         status="syncing" />
-        <SyllabusFileRow type="PDF"  name="reading-list.pdf"          status="synced" />
-      </div>
-
-      {/* Footer */}
-      <div className="px-3.5 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-        <span className="text-[9px] text-gray-500">Auto-sync every 5 min</span>
-        <span className="text-[9px] font-semibold" style={{ color: '#10A37F' }}>4 files ready</span>
-      </div>
-    </div>
-  </>
-);
+const RESEARCHER_SECONDARY_CELLS = [
+  SHARED_BENTO_CELLS[0],
+  SHARED_BENTO_CELLS[1],
+  {
+    id: 'researcher-placeholder',
+    icon: '/illustrations/icon-glasses.png',
+    iconAlt: 'Placeholder icon',
+    title: '[Placeholder] More For Researchers',
+    body: 'Template copy. Swap this cell out once we lock in the next researcher-facing feature to highlight here.',
+    linkLabel: 'TBD',
+  },
+];
 
 // Two audience panels, shown side by side (no accordion — the student
 // panel was dropped, and two panels fit on screen at once with room to
@@ -399,44 +396,43 @@ const TESTIMONIAL_PANELS = [
     bg: '#F4ECD8',
     accent: '#A8832D',
   },
+  // Illustrative entries (researchers/students/administrators below) are
+  // written to match this page's actual UVPs (Qualtrics sync + group-chat
+  // matching, grounded/cited answers, no-code Canvas rollout) but are not
+  // real quotes from real people — no invented name, no real institution
+  // attached to a fictional person, and no photo. A stock photo here would
+  // both misrepresent the card as a genuine testimonial and violate most
+  // stock licenses' no-endorsement-implication terms. `illustrative`/`note`
+  // drive the disclosure text in TESTIMONIAL_SLIDES below; Picture still
+  // falls through to `bg` as a flat-color panel since there's no image/video
+  // src.
   {
     id: 'researchers',
     title: 'Researchers',
-    name: 'Dr. Priya Patel',
-    role: 'Learning Sciences',
-    university: 'Stanford University',
+    illustrative: true,
+    note: 'reflects what researchers ask us for, not an actual endorsement.',
     quote:
-      'For the first time, I can watch students actually reason with AI, not in a focus group, but inside the coursework itself. That kind of visibility didn’t exist before.',
-    videoSrc: '/testimonials/researchers.mp4',
-    posterSrc: '/testimonials/researchers.jpg',
+      'Running a between-subjects study used to mean weeks with a developer and a survey platform. Now I set up the conditions, ACTRLabs matches participants into rooms on its own, and the transcripts are already sitting in Qualtrics before I start coding data.',
     bg: '#D9E5F2',
     accent: '#3E6493',
   },
-  // Placeholder entries — SqueezeCarousel's column-width math (SHARES/
-  // STRETCHED/SQUEEZED, all indexed 0-3) assumes 4 real columns; with only
-  // 2 slides the row rendered hero + 1 companion and left the remaining
-  // ~45% of its width as dead empty space. Adding 2 more slides fills the
-  // row the way the component is actually built for. No video/poster yet,
-  // so Picture falls through to `bg` as a flat-color panel. Swap the copy
-  // and add a real videoSrc/posterSrc/avatarSrc when these are ready —
-  // nothing else about the shape needs to change.
   {
     id: 'dummy-students',
     title: 'Students',
-    name: 'Your name here',
-    role: 'Role',
-    university: 'Institution',
-    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    illustrative: true,
+    note: 'reflects what students notice about grounded answers, not an actual endorsement.',
+    quote:
+      "When I ask it something, it doesn't just answer from somewhere online — it points me straight back to the actual reading, so I know I've got the right source before I cite it in my paper.",
     bg: '#E5E1D8',
     accent: '#8C8471',
   },
   {
     id: 'dummy-administrators',
     title: 'Administrators',
-    name: 'Your name here',
-    role: 'Role',
-    university: 'Institution',
-    quote: 'Placeholder testimonial text goes here. Swap in a real quote once we have one.',
+    illustrative: true,
+    note: 'reflects what department admins ask us for, not an actual endorsement.',
+    quote:
+      "We didn't need a developer or a new platform. Instructors connect the Canvas account they already have, and it was live across three departments before IT even finished the review.",
     bg: '#DCE3E0',
     accent: '#4B7A6F',
   },
@@ -448,14 +444,25 @@ const TESTIMONIAL_PANELS = [
 const TESTIMONIAL_SLIDES = TESTIMONIAL_PANELS.map((p) => ({
   id: p.id,
   title: `“${p.quote}”`,
-  description: (
+  description: p.illustrative ? (
+    <span className="inline-flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+        style={{ backgroundColor: p.accent }}
+      >
+        {p.title.charAt(0)}
+      </span>
+      <span style={{ fontStyle: 'italic' }}>Illustrative example — {p.note}</span>
+    </span>
+  ) : (
     <>
       {p.name}, {p.role} at{' '}
       <span style={{ color: p.accent, fontWeight: 700 }}>{p.university}</span>
     </>
   ),
   image: p.posterSrc,
-  imageAlt: `${p.name}, ${p.role} at ${p.university}`,
+  imageAlt: p.illustrative ? undefined : `${p.name}, ${p.role} at ${p.university}`,
   video: p.videoSrc,
   background: p.bg,
   overlay: (
@@ -509,6 +516,12 @@ const LandingV2 = () => {
     document.title = 'ACTRLabs: AI Tutors & Chatbots That Redefine Learning';
     return () => { document.title = prev; };
   }, []);
+
+  // AUDIENCE GATE choice — null | 'educator' | 'researcher'. Drives which
+  // FEATURES content renders below the gate. Deliberately NOT persisted
+  // (no localStorage) — resets every visit, and the visitor can always
+  // scroll back up to the gate section to pick the other track.
+  const [audienceTrack, setAudienceTrack] = useState(null);
 
   // Testimonial video gating. SqueezeCarousel only mounts a <video> for
   // whichever panel is currently open (its `playing` prop on Picture), so
@@ -882,9 +895,13 @@ const LandingV2 = () => {
           lg:col-span-8 column's actual width (~66% of viewport, not the
           full 100vw) — the old 13vw/200px cap sized "ACTRLabs" wider than
           its own column at common desktop widths, so it spilled into the
-          pitch-text column beside it. */}
-      <section className="relative w-full min-h-screen overflow-hidden" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="px-6 lg:px-12 pt-28 lg:pt-36 pb-16 lg:pb-20 w-full flex flex-col items-center text-center">
+          pitch-text column beside it. Content is vertically centered in
+          the viewport (flex items-center on the section) rather than
+          top-padded into place — the old pt-28/lg:pt-36 pushed the block
+          up near the nav, reading as sitting above the screen's true
+          midpoint instead of centered in it. */}
+      <section className="relative w-full min-h-screen overflow-hidden flex items-center" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="px-6 lg:px-12 py-16 w-full flex flex-col items-center text-center">
           <h1
             className="leading-[0.85] tracking-[-0.04em]"
             style={{
@@ -937,9 +954,22 @@ const LandingV2 = () => {
           white/bordered card chrome (border + shadow), so it stays legible
           against this bg. Uses the same FAFAF7 as HERO and PHILOSOPHY —
           previously locked to #FFFFFF, which read as a disconnected seam
-          against PHILOSOPHY's FAFAF7 right below it. */}
-      <section className="relative px-6 py-20 lg:py-28" style={{ backgroundColor: '#FAFAF7' }}>
-        <div className="max-w-2xl mx-auto flex flex-col items-center text-center">
+          against PHILOSOPHY's FAFAF7 right below it. Scaled up (heading
+          text-3xl/5xl -> 4xl/6xl, composer's own max-width bumped in
+          ai-chat-input.jsx) and now fades/slides up via whileInView instead
+          of rendering static — `viewport={{ once: true, amount: 0.4 }}`
+          fires the first time the section is 40% in view and never again,
+          matching the once-only entrance used elsewhere on this page
+          (WordsPullUp, the testimonial IntersectionObserver) rather than
+          re-triggering every scroll pass. */}
+      <section className="relative px-6 py-24 lg:py-32" style={{ backgroundColor: '#FAFAF7' }}>
+        <MotionDiv
+          className="max-w-2xl mx-auto flex flex-col items-center text-center"
+          initial={{ opacity: 0, y: 32 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        >
           <span
             className="block text-xs font-bold uppercase tracking-[0.22em] mb-4"
             style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
@@ -947,7 +977,7 @@ const LandingV2 = () => {
             Try it yourself
           </span>
           <h2
-            className="text-3xl lg:text-5xl tracking-tight leading-[1.08] mb-10"
+            className="text-4xl lg:text-6xl tracking-tight leading-[1.08] mb-10"
             style={{
               color: '#1F1F1F',
               fontFamily: FONT_DISPLAY,
@@ -993,7 +1023,7 @@ const LandingV2 = () => {
               onSubmit={handleComposerSubmit}
             />
           </div>
-        </div>
+        </MotionDiv>
       </section>
 
       {/* === PHILOSOPHY (icons-as-language + word-by-word scrub) ===
@@ -1106,14 +1136,92 @@ const LandingV2 = () => {
         </div>
       </section>
 
+      {/* === AUDIENCE GATE ===
+          Text-only hard stop before FEATURES: brand-black copy, two
+          clickable words ("Educator" / "Researcher"). Unselected state
+          renders at 30% opacity (text-[#1F1F1F]/30) rather than solid
+          black — full solid black on both reads as "two equally-weighted
+          headings," not "pick one." Hover (or being the selected track)
+          brings it to full-opacity accent color. Clicking commits it and
+          the FEATURES section below switches content. Not persisted (no
+          localStorage) — resets on reload, and the visitor can scroll back
+          up here anytime to flip their choice; there's no separate toggle
+          living elsewhere on the page. Sized text-6xl/8xl and the wrapper
+          widened to max-w-4xl — at the old text-3xl/5xl + max-w-2xl this
+          read as a small, timid line of text lost in a lot of side
+          whitespace. Section padding trimmed to px-3 (was px-6) so
+          "Educator / Researcher" still fits on one line at text-6xl
+          instead of wrapping to two — the flex row has no responsive
+          text-size step below lg, so it's purely a width problem. */}
+      <section className="relative px-3 lg:px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
+        <div className="max-w-4xl mx-auto">
+          <h2
+            className="text-2xl lg:text-4xl tracking-tight mb-10"
+            style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+          >
+            Are you faculty, or a researcher?
+          </h2>
+          {/* Font-size and gap are fluid (vw-based clamp), not Tailwind breakpoint
+              jumps — text-6xl was a fixed 60px below lg with no smaller step, so on
+              phone-width viewports "Educator / Researcher" was simply too wide and
+              wrapped. Scaling both continuously with viewport width keeps the row's
+              proportions (and its fit) the same at every size instead of just at the
+              two sizes Tailwind's classes covered. */}
+          <div
+            className="flex items-center justify-center flex-nowrap"
+            style={{ gap: 'clamp(0.5rem, 2.6vw, 2.5rem)' }}
+          >
+            <button
+              type="button"
+              onClick={() => setAudienceTrack('educator')}
+              className={`tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
+                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]/30'
+              }`}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
+            >
+              Educator
+            </button>
+            <span
+              style={{ color: 'rgba(31,31,31,0.2)', fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
+              aria-hidden
+            >
+              /
+            </span>
+            <button
+              type="button"
+              onClick={() => setAudienceTrack('researcher')}
+              className={`tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
+                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]/30'
+              }`}
+              style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
+            >
+              Researcher
+            </button>
+          </div>
+          {audienceTrack && (
+            <p
+              className="mt-6 text-sm"
+              style={{ color: 'rgba(31,31,31,0.5)', fontFamily: FONT_BODY, fontWeight: 500 }}
+            >
+              Showing what&rsquo;s built for {audienceTrack === 'educator' ? 'educators' : 'researchers'}.
+              Scroll back up here anytime to switch.
+            </p>
+          )}
+        </div>
+      </section>
+
       {/* === FEATURES (BENTO) ===
-          Redesigned as a single bordered "case study" panel (inspired by a
-          shadcn case-study block): a featured row up top (Canvas-sync copy
-          left, SyllabusMockup framed on a peach panel right), then a
-          hairline-divided 4-cell row below (Any Model / Cites Sources /
-          Observable Sandbox / mailto CTA). featureGridRef stays on the
-          single outer container so the existing GSAP fade-up still
-          animates it as one block. */}
+          Single bordered "case study" panel (inspired by a shadcn
+          case-study block): a featured row up top, then a hairline-divided
+          4-cell row below. Content is entirely driven by the AUDIENCE GATE
+          choice above — educator gets Custom Exercises (copy + a video
+          panel, src left as a placeholder path until the real recording is
+          ready) as the big callout, researcher gets the Qualtrics-linked-
+          account callout. Before a choice is made, the panel shows a
+          prompt instead of content, matching the "hard stop" ask — nothing
+          audience-specific renders until the visitor picks one.
+          featureGridRef stays on the single outer container so the
+          existing GSAP fade-up still animates it as one block. */}
       <section
         id="features"
         className="relative z-10 px-6 lg:px-10 py-12 lg:py-16"
@@ -1124,126 +1232,197 @@ const LandingV2 = () => {
           className="max-w-7xl mx-auto overflow-hidden shadow-[0_18px_48px_rgba(31,31,31,0.10)]"
           style={{ backgroundColor: '#FFFFFF', borderRadius: '40px', border: '1px solid rgba(31,31,31,0.08)' }}
         >
-          {/* Featured row */}
-          <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
-            <div
-              className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
-              style={{ borderColor: 'rgba(31,31,31,0.08)' }}
-            >
-              <span
-                className="text-xs font-bold uppercase tracking-[0.22em]"
-                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
+          {!audienceTrack ? (
+            <div className="flex items-center justify-center text-center px-8" style={{ minHeight: '380px' }}>
+              <p
+                className="max-w-sm"
+                style={{ color: 'rgba(31,31,31,0.45)', fontFamily: FONT_BODY, fontWeight: 500 }}
               >
-                Course sync
-              </span>
-              <h2
-                className="text-2xl lg:text-[1.85rem] tracking-tight"
-                style={{
-                  fontFamily: FONT_DISPLAY,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                  lineHeight: 1.4,
-                }}
-              >
-                {/* One span, wraps naturally instead of a forced <br />.
-                    box-decoration-break makes each wrapped line clone the
-                    same padding/radius/background, so it reads as one
-                    continuous highlighter stroke instead of two separate
-                    stacked pills with a gap between them. */}
-                <span
+                Pick &ldquo;Educator&rdquo; or &ldquo;Researcher&rdquo; above to see what&rsquo;s built for you.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Featured row */}
+              <div className="relative grid lg:grid-cols-2" style={{ minHeight: '380px' }}>
+                <div
+                  className="relative z-10 p-8 lg:p-12 flex flex-col justify-center gap-5 border-b lg:border-b-0 lg:border-r"
+                  style={{ borderColor: 'rgba(31,31,31,0.08)' }}
+                >
+                  <span
+                    className="text-xs font-bold uppercase tracking-[0.22em]"
+                    style={{ color: TRACK_ACCENT[audienceTrack], fontFamily: FONT_BODY }}
+                  >
+                    {audienceTrack === 'educator' ? 'Custom exercises' : 'Qualtrics sync'}
+                  </span>
+                  <h2
+                    className="text-2xl lg:text-[1.85rem] tracking-tight"
+                    style={{
+                      fontFamily: FONT_DISPLAY,
+                      fontWeight: 800,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {audienceTrack === 'educator' ? (
+                      // Explicit line spans instead of one auto-wrapping span.
+                      // Default box-decoration-break ('slice') draws the
+                      // highlight as a single shape sliced at the line break,
+                      // so only the true outer corners (first line's top,
+                      // last line's bottom) get the radius — the wrap point
+                      // and the inner step where "Play" is narrower than the
+                      // line above it render sharp/square (confirmed in a
+                      // screenshot at the lg breakpoint). 'clone' rounds every
+                      // corner on every line but leaves a visible gap between
+                      // lines. Rendering each line as its own inline-block
+                      // pill gets full, even rounding on all 4 corners AND a
+                      // tight, consistent gap — the fix for both. This exact
+                      // two-line split is hardcoded to the known-broken wrap
+                      // point; the researcher headline below still wraps
+                      // naturally since it wasn't reported broken and forcing
+                      // a break there is unverified at other breakpoints.
+                      ['Build Exercises Students Actually', 'Play'].map((line, i) => (
+                        <span
+                          key={line}
+                          style={{
+                            display: 'inline-block',
+                            backgroundColor: TRACK_ACCENT[audienceTrack],
+                            color: '#FFFFFF',
+                            padding: '0.25em 0.4em',
+                            borderRadius: '12px',
+                            marginTop: i > 0 ? '0.2em' : 0,
+                          }}
+                        >
+                          {line}
+                        </span>
+                      )).reduce((acc, el, i) => (i === 0 ? [el] : [...acc, <br key={`br-${i}`} />, el]), [])
+                    ) : (
+                      <span
+                        style={{
+                          backgroundColor: TRACK_ACCENT[audienceTrack],
+                          color: '#FFFFFF',
+                          padding: '0.25em 0.4em',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        Your Qualtrics Data, Already There
+                      </span>
+                    )}
+                  </h2>
+                  <p
+                    className="text-[15px] lg:text-base leading-snug max-w-[340px]"
+                    style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
+                  >
+                    {audienceTrack === 'educator'
+                      ? 'Design branching role-play and hidden-profile group exercises your students actually run, not just read about. Watch a real run below.'
+                      : 'Link your Qualtrics account once and every response, score, and chat log is already there when you need it. No re-importing, no reformatting, just your own data whenever you want it.'}
+                  </p>
+                  <span
+                    className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
+                    style={{ color: TRACK_ACCENT[audienceTrack], fontFamily: FONT_BODY }}
+                  >
+                    {audienceTrack === 'educator' ? 'Watch an exercise run' : 'See how the sync works'}
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      aria-hidden
+                      className="transition-transform duration-300 group-hover:translate-x-1"
+                    >
+                      <path
+                        d="M3 7h8M7 3l4 4-4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+                <div
+                  className="relative overflow-hidden"
                   style={{
-                    backgroundColor: '#FA6C43',
-                    color: '#FFFFFF',
-                    padding: '0.25em 0.4em',
-                    borderRadius: '12px',
-                    boxDecorationBreak: 'clone',
-                    WebkitBoxDecorationBreak: 'clone',
+                    backgroundColor: audienceTrack === 'educator' ? '#FDE3D8' : '#E0F2FE',
+                    minHeight: '320px',
                   }}
                 >
-                  Fetches Canvas Files
-                </span>
-              </h2>
-              <p
-                className="text-[15px] lg:text-base leading-snug max-w-[340px]"
-                style={{ color: '#1F1F1F', fontFamily: FONT_BODY, fontWeight: 500 }}
-              >
-                Connect a course once and every syllabus, slide deck, and reading stays in sync. No re-uploading the same lecture notes every week just to keep the bot from making things up.
-              </p>
-              <span
-                className="group inline-flex items-center gap-1.5 text-sm font-semibold cursor-default"
-                style={{ color: '#FA6C43', fontFamily: FONT_BODY }}
-              >
-                See how the sync works
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  aria-hidden
-                  className="transition-transform duration-300 group-hover:translate-x-1"
-                >
-                  <path
-                    d="M3 7h8M7 3l4 4-4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-            </div>
-            <div className="relative overflow-hidden" style={{ backgroundColor: '#FDE3D8', minHeight: '320px' }}>
-              <SyllabusMockup />
-            </div>
-          </div>
-
-          {/* Cell row — 3 data-driven feature cells + the mailto CTA */}
-          <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
-            {BENTO_CELLS.map((cell) => (
-              <BentoCell key={cell.id} {...cell} />
-            ))}
-
-            <a
-              href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
-              className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
-              style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
-            >
-              <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
-              <div>
-                <h3
-                  className="text-xl tracking-tight mb-2.5 text-white"
-                  style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
-                >
-                  Missing something?
-                </h3>
-                <p
-                  className="text-[15px] leading-snug mb-5 text-white/85"
-                  style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
-                >
-                  Tell us what would make this more useful for your course or lab. We read every note.
-                </p>
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
-                  Get in touch
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 14 14"
-                    fill="none"
-                    aria-hidden
-                    className="transition-transform duration-300 group-hover:translate-x-1"
-                  >
-                    <path
-                      d="M3 7h8M7 3l4 4-4 4"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
+                  <div className="absolute inset-4 lg:inset-6 rounded-2xl overflow-hidden bg-[#1F1F1F] flex items-center justify-center">
+                    {/* Placeholder path — drop the recorded walkthrough in at this path
+                        (with a matching poster) and it plays with zero code changes,
+                        same convention as the /testimonials/*.mp4 files. */}
+                    <video
+                      controls
+                      preload="none"
+                      poster={
+                        audienceTrack === 'educator'
+                          ? '/exercises/custom-exercise-poster.jpg'
+                          : '/exercises/qualtrics-sync-poster.jpg'
+                      }
+                      className="w-full h-full object-cover"
+                    >
+                      <source
+                        src={
+                          audienceTrack === 'educator'
+                            ? '/exercises/custom-exercise-demo.mp4'
+                            : '/exercises/qualtrics-sync-demo.mp4'
+                        }
+                        type="video/mp4"
+                      />
+                    </video>
+                  </div>
+                </div>
               </div>
-            </a>
-          </div>
+
+              {/* Cell row — 3 track-specific feature cells + the mailto CTA */}
+              <div className="grid lg:grid-cols-4" style={{ borderTop: '1px solid rgba(31,31,31,0.08)' }}>
+                {(audienceTrack === 'educator' ? EDUCATOR_SECONDARY_CELLS : RESEARCHER_SECONDARY_CELLS).map((cell) => (
+                  <BentoCell key={cell.id} {...cell} accent={TRACK_ACCENT[audienceTrack]} />
+                ))}
+
+                <a
+                  href="mailto:hello@actrlab.com?subject=Feature%20suggestion%20for%20ACTRLabs"
+                  className="group relative flex flex-col justify-between gap-8 p-8 lg:p-9 border-t lg:border-t-0 lg:border-l transition-transform"
+                  style={{ backgroundColor: '#FA6C43', borderColor: 'rgba(255,255,255,0.25)' }}
+                >
+                  <img src="/logo-A-white.svg" alt="" aria-hidden="true" className="w-10 h-10" draggable={false} />
+                  <div>
+                    <h3
+                      className="text-xl tracking-tight mb-2.5 text-white"
+                      style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
+                    >
+                      Missing something?
+                    </h3>
+                    <p
+                      className="text-[15px] leading-snug mb-5 text-white/85"
+                      style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
+                    >
+                      Tell us what would make this more useful for your course or lab. We read every note.
+                    </p>
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+                      Get in touch
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        aria-hidden
+                        className="transition-transform duration-300 group-hover:translate-x-1"
+                      >
+                        <path
+                          d="M3 7h8M7 3l4 4-4 4"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </a>
+              </div>
+            </>
+          )}
         </div>
       </section>
 

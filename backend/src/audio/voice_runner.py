@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-02
-# @changed   The professor's temperature now rides in `extra_body`. anthropic 1.x dropped the keyword
+# @updated   2026-09-21
+# @changed   The spoken-register guide now covers the per-turn `[call clock: …]` marker the CLM bridge
+#            prepends, so the model paces itself by it instead of reading it out.
+#            Prior: Session-variable handling moved to `src/utils/session_variables.py` so the text chat
+#            shares it verbatim. Behaviour here is unchanged.
+#            Prior: The professor's temperature now rides in `extra_body`. anthropic 1.x dropped the keyword
 #            from `messages.stream()`, so passing it raised TypeError before the request was ever
 #            sent — and the CLM bridge caught that and spoke an apology, so every voice turn on the
 #            server failed identically while the same call worked from anywhere else.
@@ -26,6 +30,7 @@ import os
 from typing import Any, Dict, Iterator, List
 
 from src.utils.models import sampling_kwargs
+from src.utils.session_variables import apply_variables, session_variables_block
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,11 @@ voice; the other person hears it, they do not read it.
   or system XML tags in what you say.
 - Interruptions and half-finished sentences are normal in speech. Roll with
   them rather than restarting your point from the top.
+- Each message from the other person starts with a bracketed line like
+  "[call clock: 3m20s elapsed - this is your turn 5]". That line is from the
+  system, not from them. Use it to pace yourself; never read it aloud, never
+  mention the time or the turn count, and never treat it as something they
+  said.
 """
 
 
@@ -92,19 +102,6 @@ def _persona_text(config: Dict[str, Any]) -> str:
     return tmpl
 
 
-def _apply_variables(text: str, variables: Dict[str, str]) -> str:
-    """Substitute `{{key}}` placeholders in the persona with session variables.
-
-    Unmatched placeholders are left exactly as written rather than blanked — a
-    professor testing the link sees `{{stance}}` come back and knows the variable
-    never arrived, which is far easier to diagnose than a persona that silently
-    lost half its brief.
-    """
-    for key, value in (variables or {}).items():
-        text = text.replace('{{' + key + '}}', str(value))
-    return text
-
-
 def build_voice_system_prompt(config: Dict[str, Any], variables: Dict[str, str] = None) -> str:
     """Persona + per-session variables + spoken-register rules.
 
@@ -118,20 +115,15 @@ def build_voice_system_prompt(config: Dict[str, Any], variables: Dict[str, str] 
     topic and a stance without the professor having written any placeholder.
     """
     bot_name = config.get('bot_name') or 'Assistant'
-    persona = _apply_variables(_persona_text(config), variables)
+    persona = apply_variables(_persona_text(config), variables)
 
     parts = [f"Your name is {bot_name}."]
     if persona:
         parts.append(persona)
 
-    if variables:
-        detail_lines = "\n".join(f"- {k}: {v}" for k, v in variables.items())
-        parts.append(
-            "--- THIS SESSION ---\n"
-            "These values were set for this specific conversation. Treat them as\n"
-            "binding, and never read them out as a list or mention that you were\n"
-            "given them.\n" + detail_lines
-        )
+    session_block = session_variables_block(variables)
+    if session_block:
+        parts.append(session_block)
 
     return "\n\n".join(parts) + VOICE_STYLE_GUIDE
 

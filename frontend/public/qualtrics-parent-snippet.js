@@ -13,8 +13,15 @@
  * What it does:
  *  - Listens for postMessage events from the chat iframe (CHAT_MESSAGE / SAVE_RAG_CHAT).
  *  - Writes the running transcript + status to Qualtrics Embedded Data fields:
- *      transcript   — formatted chat transcript, updated after every message
- *      chat_status  — "started" -> "in_progress" -> "completed"
+ *      transcript       — formatted chat transcript, updated after every message
+ *      chat_status      — "started" -> "in_progress" -> "completed"
+ *      actr_session_id  — the ACTR session key, written as soon as the chat
+ *                         reports it. Declare it in Survey Flow only if you
+ *                         want it; an undeclared field is simply dropped by
+ *                         Qualtrics. It is the join key to ACTR's own export
+ *                         (the `session_id` column of the transcript CSV), which
+ *                         is what makes a survey row and a conversation the same
+ *                         record.
  *  - "condition" is intentionally NOT written here. If your survey uses
  *    conditions/branching, declare "condition" in Survey Flow yourself
  *    (randomizer, branch logic, etc.) — this widget just needs it to exist
@@ -74,6 +81,22 @@
 
     if (data.type === "SAVE_RAG_CHAT") {
       saveProgress();
+    }
+
+    // The chat announces its session id once, before any message — a call the
+    // participant abandons without speaking still leaves a joinable row.
+    // INIT_RAG_CONFIG is the older message carrying the same id; both are
+    // accepted so an already-embedded survey keeps working.
+    if (data.type === "ACTR_SESSION" || data.type === "INIT_RAG_CONFIG") {
+      var payload = data.payload || {};
+      var sid = payload.sessionId || payload.chatId;
+      if (sid) {
+        try {
+          Qualtrics.SurveyEngine.setEmbeddedData("actr_session_id", String(sid));
+        } catch (err) {
+          console.error("[RAG] Failed to write actr_session_id:", err);
+        }
+      }
     }
   });
 
