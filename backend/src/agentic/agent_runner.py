@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-08-18
-# @changed   Failures no longer speak to the student. Every failure path (missing key, missing SDK, dead
+# @updated   2026-09-18
+# @changed   The system prompt now carries this session's survey variables: `{{var}}` placeholders in the
+#            professor's instructions are substituted, and the values are listed in a THIS SESSION block
+#            so a study can pass a condition the persona was never written to expect.
+#            Prior: Failures no longer speak to the student. Every failure path (missing key, missing SDK, dead
 #            stream, tool-round ceiling) now logs the real cause server-side and emits a structured `error`
 #            event carrying one neutral line — instead of writing "something went wrong" into the reply as if
 #            the bot had said it.
@@ -35,6 +38,7 @@ from src.agentic.constants import (
 from src.agentic.registry import execute, get_tool_specs
 from src.agentic.tools.base import ToolContext
 from src.utils.models import sampling_kwargs
+from src.utils.session_variables import apply_variables, session_variables_block
 
 logger = logging.getLogger(__name__)
 
@@ -204,12 +208,18 @@ FACILITATOR_TOOL_GUIDE = (
 )
 
 
-def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
+def _build_system_prompt(config: Dict[str, Any], tool_names: set,
+                         variables: Dict[str, str] = None) -> str:
     """Compose system prompt: bot identity + user instructions + tool guidance.
 
     Falls back gracefully for legacy configs that only have `prompt_template`
     (the full wrapped string from `config_routes.py`) by stripping the
     `Context:` / `Question:` scaffolding.
+
+    `variables` are this session's survey values (see
+    `src/utils/session_variables.py`). They are both substituted into the
+    professor's instructions and listed underneath them — the listing is what
+    lets a study pass a condition the persona was never written to expect.
     """
     bot_name = config.get('bot_name') or 'Assistant'
     instructions = (config.get('instructions') or '').strip()
@@ -226,6 +236,12 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
             instructions = tmpl.split(marker, 1)[1].strip()
         else:
             instructions = tmpl
+
+    # Substituted after the legacy fallback so a `{{var}}` works whether the
+    # persona lives in `instructions` or in an old wrapped `prompt_template`.
+    instructions = apply_variables(instructions, variables)
+    session_block = session_variables_block(variables)
+    session_block = f"\n\n{session_block}" if session_block else ""
 
     tool_lines = []
     if 'search_knowledge_base' in tool_names:
@@ -274,7 +290,8 @@ def _build_system_prompt(config: Dict[str, Any], tool_names: set) -> str:
 
     return (
         f"You are {bot_name}, an AI assistant.\n\n"
-        f"{instructions}{tool_block}{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}{facilitator_guide}"
+        f"{instructions}{session_block}{tool_block}"
+        f"{GROUNDING_GUIDE}{FORMATTING_GUIDE}{chart_guide}{facilitator_guide}"
     )
 
 
@@ -301,6 +318,7 @@ def stream_agentic_response(
     history_messages: List[Dict[str, Any]],
     ctx: ToolContext,
     images: List[Dict[str, Any]] = None,
+    variables: Dict[str, str] = None,
 ) -> Iterator[Dict[str, Any]]:
     """
     Run a single agentic turn.
@@ -312,6 +330,7 @@ def stream_agentic_response(
       history_messages: prior turns in Anthropic format
                        ([{role, content}, ...]). Step 5 builds these.
       ctx: per-request context handed to tools.
+      variables: this session's survey values, piped in from the launch URL.
 
     Yields event dicts:
       {"type": "token", "data": "<text>"}
@@ -348,7 +367,7 @@ def stream_agentic_response(
 
     tool_specs = get_tool_specs(config)
     tool_names = {s['name'] for s in tool_specs}
-    system_prompt = _build_system_prompt(config, tool_names)
+    system_prompt = _build_system_prompt(config, tool_names, variables)
 
     # Cache the system prompt + tool specs across turns in the same chat.
     system_param = [{

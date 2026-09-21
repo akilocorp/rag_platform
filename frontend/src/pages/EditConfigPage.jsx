@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-17
-// @changed   "Offer this class as a template" toggle (+ a one-line description shown on the template
+// @updated   2026-09-18
+// @changed   The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
+//            `&name=${e://Field/name}` (or a pasted question pipe) to the iframe src, and the generated
+//            HTML re-derives as that list is edited instead of being frozen at modal-open.
+//            Prior: "Offer this class as a template" toggle (+ a one-line description shown on the template
 //            card) below Collaborators, owner-only to match the server rule. Publishing lists the
 //            class in every professor's "New Assistant" gallery, where picking it clones it — the
 //            knowledge base comes along, student work never does.
@@ -32,7 +35,7 @@
 //            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
 //            carries the category, per-row field tag dropped).
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import AvatarSelector from '../components/AvatarSelector';
@@ -84,7 +87,11 @@ const EditConfigPage = () => {
 
   // Qualtrics embed code generator
   const [showQualtricsModal, setShowQualtricsModal] = useState(false);
-  const [qualtricsHtml, setQualtricsHtml] = useState('');
+  const [qualtricsSnippet, setQualtricsSnippet] = useState('');
+  // Survey fields the professor wants piped into the chat, one per line. Either a
+  // bare embedded-data name ("condition") or an explicit "name=<pipe>" for a
+  // question answer, which Qualtrics' own piped-text menu generates.
+  const [qualtricsFields, setQualtricsFields] = useState('');
   const [qualtricsLoading, setQualtricsLoading] = useState(false);
   const [qualtricsError, setQualtricsError] = useState('');
   const [qualtricsCopied, setQualtricsCopied] = useState(false);
@@ -331,28 +338,48 @@ const EditConfigPage = () => {
       const res = await fetch('/qualtrics-parent-snippet.js');
       if (!res.ok) throw new Error('Could not load snippet template');
       const origin = window.location.origin;
-      const snippet = (await res.text())
+      setQualtricsSnippet((await res.text())
         .replaceAll('__CONFIG_ID__', id)
-        .replaceAll('__EMBED_ORIGIN__', origin);
-
-      const html = [
-        '<script>',
-        snippet,
-        '</script>',
-        '<iframe',
-        `  src="${origin}/chat/${id}?qualtricsId=\${e://Field/ResponseID}"`,
-        '  width="100%" height="650" style="border:none" frameborder="0"',
-        '  allow="clipboard-read; clipboard-write; microphone">',
-        '</iframe>'
-      ].join('\n');
-
-      setQualtricsHtml(html);
+        .replaceAll('__EMBED_ORIGIN__', origin));
     } catch (err) {
       setQualtricsError('Failed to generate embed code. Please try again.');
     } finally {
       setQualtricsLoading(false);
     }
   };
+
+  // Turns the field list into query params on the iframe src. Qualtrics resolves
+  // `${...}` piped text server-side, so a field listed here simply arrives as a
+  // query param the chat reads as a session variable. A bare name is assumed to be
+  // embedded data; anything containing '=' is passed through verbatim so a question
+  // pipe (`gun=${q://QID1/ChoiceGroup/SelectedAnswerRecode/1}`) works unchanged.
+  // Values are NOT encoded — Qualtrics substitutes after this string is written, so
+  // encoding here would only mangle the pipe expression itself.
+  const qualtricsFieldParams = useMemo(() => (
+    qualtricsFields
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => (line.includes('=') ? line : `${line}=\${e://Field/${line}}`))
+      .map(pair => `&${pair}`)
+      .join('')
+  ), [qualtricsFields]);
+
+  const qualtricsHtml = useMemo(() => {
+    if (!qualtricsSnippet) return '';
+    const id = config.config_id || config._id;
+    const origin = window.location.origin;
+    return [
+      '<script>',
+      qualtricsSnippet,
+      '</script>',
+      '<iframe',
+      `  src="${origin}/chat/${id}?qualtricsId=\${e://Field/ResponseID}${qualtricsFieldParams}"`,
+      '  width="100%" height="650" style="border:none" frameborder="0"',
+      '  allow="clipboard-read; clipboard-write; microphone">',
+      '</iframe>'
+    ].join('\n');
+  }, [qualtricsSnippet, qualtricsFieldParams, config.config_id, config._id]);
 
   const copyQualtricsHtml = async () => {
     try {
@@ -2298,6 +2325,29 @@ const EditConfigPage = () => {
               <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">chat_status</code>
               {' '}(and <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">condition</code> if you use conditions). Then add a Text/Graphic question and paste this HTML into its HTML view.
             </p>
+
+            {/* Opt-in list of survey fields to pipe into the chat. Whatever is listed
+                here becomes a session variable the assistant can use — the professor
+                references it as {{name}} in the instructions, and it lands in the
+                responses export as its own column. */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                Send survey answers to the assistant <span className="font-medium normal-case tracking-normal text-gray-400">(optional)</span>
+              </label>
+              <textarea
+                value={qualtricsFields}
+                onChange={(e) => { setQualtricsFields(e.target.value); setQualtricsCopied(false); }}
+                rows={3}
+                placeholder={'condition\ntop_issue=${q://QID2/ChoiceGroup/SelectedChoices}'}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono text-gray-700 resize-y focus:outline-none focus:border-[#FA6C43]"
+              />
+              <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+                One per line. A bare name is read as an Embedded Data field; for a question answer, paste the
+                pipe from Qualtrics as <code className="bg-gray-100 px-1 rounded">name=&#36;&#123;q://…&#125;</code>.
+                The question must be on an <strong>earlier page</strong> than the chat, and the participant can
+                see these values in the URL. Use them in your instructions as <code className="bg-gray-100 px-1 rounded">&#123;&#123;name&#125;&#125;</code>.
+              </p>
+            </div>
 
             {qualtricsLoading ? (
               <div className="flex items-center justify-center py-16 text-gray-400">

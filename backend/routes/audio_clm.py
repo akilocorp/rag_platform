@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-02
-# @changed   A failed turn now says WHY. Speaking one neutral line kept the student out of the traceback
+# @updated   2026-09-21
+# @changed   Each turn now carries a `[call clock: …]` marker on the user message, so a persona phased by
+#            wall-clock time (press window, close) can actually follow it — a model has no clock. Start
+#            times are cached per process; the marker stays off the cached system block on purpose.
+#            Prior: A failed turn now says WHY. Speaking one neutral line kept the student out of the traceback
 #            but also left the reason only in the container log, which is unreachable while a live call
 #            is failing — and unreachable from the browser too, since Hume calls this endpoint from its
 #            own servers and nothing about it ever appears in the page's network tab. The reason is now
@@ -49,6 +52,7 @@ import os
 import time
 import traceback
 import uuid
+from datetime import datetime
 from typing import Dict, Any, Iterator, List, Optional, Tuple
 
 from bson import ObjectId
@@ -198,6 +202,95 @@ def _openai_chunk(chunk_id: str, model: str, delta: Dict[str, Any], finish_reaso
     }
 
 
+# --- Call clock -------------------------------------------------------------
+# A persona can be phased by wall-clock time ("the press window is roughly
+# minutes 3 to 6", "begin the close around 8 minutes"), and a language model has
+# no clock — it sees the transcript and nothing else. Every turn therefore
+# carries a bracketed marker telling it how far into the call it is and which of
+# its own turns this is.
+#
+# Start times are cached per process because the voice path spends its whole
+# budget on time-to-first-token: a Mongo read per turn would be paid on the
+# critical path, a read per session per worker is not. A restart or a second
+# worker just re-reads the call record.
+_CALL_STARTS: Dict[str, float] = {}
+_CALL_STARTS_MAX = 500
+
+
+def _call_started_at(session_id: str) -> Optional[float]:
+    """Unix timestamp this call began, cached per process.
+
+    Prefers the `started_at` the client wrote at connect. Falls back to the
+    first turn this worker sees, which is within a few seconds of it — a clock
+    that is a little late still beats a persona that cannot find its own press
+    window at all.
+
+    Returns None for a session id that isn't a real one (`new`, or a malformed
+    custom_session_id). Those would all collide on a single cache entry and hand
+    one student another student's elapsed time, so the turn goes out with no
+    clock rather than a wrong one.
+    """
+    if not session_id or session_id == "new":
+        return None
+
+    cached = _CALL_STARTS.get(session_id)
+    if cached is not None:
+        return cached
+
+    started = None
+    try:
+        doc = current_app.config['MONGO_DB']["audio_calls"].find_one(
+            {"session_id": session_id}, {"started_at": 1}
+        )
+        raw = (doc or {}).get("started_at")
+        if raw:
+            started = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        # A missing or malformed start time is not worth failing a live call over.
+        logger.warning("CLM: could not read started_at for %s; clocking from now.", session_id)
+
+    if started is None:
+        started = time.time()
+
+    # Bounded, in insertion order — the oldest call is the one least likely to
+    # still be speaking.
+    if len(_CALL_STARTS) >= _CALL_STARTS_MAX:
+        _CALL_STARTS.pop(next(iter(_CALL_STARTS)))
+    _CALL_STARTS[session_id] = started
+    return started
+
+
+def _clock_note(elapsed_seconds: Optional[float], bot_turn: int) -> str:
+    """The bracketed timing line prepended to the student's utterance.
+
+    It rides on the USER message, never the system block. The persona is cached
+    with `cache_control` for the length of the call, so a value that changed
+    every turn would invalidate that cache on every turn — paying back exactly
+    the latency this path exists to protect.
+
+    With no trustworthy start time the elapsed clause is dropped rather than
+    faked: the turn count alone still lets a phased persona pace itself, while a
+    clock stuck at 0m00s next to "your turn 7" is just a contradiction for the
+    model to resolve.
+    """
+    if elapsed_seconds is None:
+        return f"[call clock: this is your turn {bot_turn}]\n"
+    minutes, seconds = divmod(max(0, int(elapsed_seconds)), 60)
+    return f"[call clock: {minutes}m{seconds:02d}s elapsed - this is your turn {bot_turn}]\n"
+
+
+def _bot_turn_number(history_messages: List[Dict[str, Any]]) -> int:
+    """Which of the bot's own turns the one being generated is. 1-based.
+
+    Counts what reached the model, which is the number a phased persona should
+    pace against. Note that an EVI-configured greeting is stripped upstream by
+    `_split_history_and_input` (Anthropic rejects a history opening on an
+    assistant turn), so a bot whose opener comes from Hume rather than from its
+    own persona is counted one turn lower.
+    """
+    return sum(1 for m in history_messages if m.get("role") == "assistant") + 1
+
+
 @audio_clm_bp.route('/audio/clm/last-error/<config_id>', methods=['GET'])
 def clm_last_error(config_id):
     """The reason this bot's last voice turn failed, or nothing if it hasn't.
@@ -246,6 +339,13 @@ def clm_chat_completions():
     history_messages, user_input = _split_history_and_input(messages)
     if not user_input:
         return jsonify({"error": "No user message in request"}), 400
+
+    # Hand the model the one thing the transcript cannot tell it: where in the
+    # call it is. Model-only — never persisted, and the spoken-register guide
+    # tells the model not to read it out.
+    started_at = _call_started_at(parsed.get("chat_id") or "")
+    elapsed = (time.time() - started_at) if started_at is not None else None
+    user_input = _clock_note(elapsed, _bot_turn_number(history_messages)) + user_input
 
     model_name = (config_doc.get("model_name") or "").lower()
     chunk_id = f"chatcmpl-{uuid.uuid4().hex}"

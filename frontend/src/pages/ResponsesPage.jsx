@@ -1,3 +1,9 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-09-18
+ * @changed   Surfaced per-session survey variables (the values a Qualtrics launch URL piped in): a chip
+ *            row on each session card, and one CSV column per variable key.
+ */
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -680,6 +686,18 @@ const SessionsTab = ({ sessions }) => {
               {expandedId === s.session_id ? <FaChevronUp className="text-xs" /> : <FaChevronDown className="text-xs" />}
             </span>
           </button>
+          {/* The survey values this session was launched with. Shown on the row rather
+              than only in the export because a mistyped Qualtrics pipe fails silently —
+              the param simply arrives empty — and this is where a professor notices. */}
+          {Object.keys(s.session_variables || {}).length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-6 pb-3 -mt-1">
+              {Object.entries(s.session_variables).map(([k, v]) => (
+                <span key={k} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 max-w-[240px] truncate">
+                  <span className="text-gray-400">{k}:</span> {v}
+                </span>
+              ))}
+            </div>
+          )}
           {expandedId === s.session_id && (
             <div className="px-6 pb-4 border-t border-gray-100 bg-gray-50/50">
               <TranscriptView sessionId={s.session_id} />
@@ -717,6 +735,11 @@ const ResponsesPage = () => {
 
   const handleExportCsv = async () => {
     const labeled = (() => { let c = 1; return sessions.map(s => ({ ...s, displayName: s.student_label || s.user_email || (s.qualtrics_id ? `Q:${s.qualtrics_id}` : null) || `Session ${s.session_id?.slice(0,8)}` })); })();
+    // Union of every variable key seen across sessions, so the sheet has a stable
+    // column set even when a survey added a field partway through data collection.
+    // Sorted for a deterministic header; transcript stays last so it reads as the
+    // rightmost column.
+    const varKeys = [...new Set(labeled.flatMap(s => Object.keys(s.session_variables || {})))].sort();
     setCsvLoading(true); setCsvProgress('Fetching transcripts…');
     try {
       const chunks = chunkArray(labeled, 10);
@@ -730,13 +753,17 @@ const ResponsesPage = () => {
             const clean = extractRole(m) === 'AI' ? stripMarkdown(t) : t;
             return `[${extractRole(m)}]: ${clean}`;
           }).filter(Boolean).join('\n');
-          allRows.push([s.session_id, s.displayName, s.timestamp, s.message_count, s.title || '', transcript]);
+          allRows.push([
+            s.session_id, s.displayName, s.timestamp, s.message_count, s.title || '',
+            ...varKeys.map(k => (s.session_variables || {})[k] ?? ''),
+            transcript,
+          ]);
         });
         done += chunk.length;
         setCsvProgress(`Fetching transcripts… ${done}/${labeled.length}`);
       }
       const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const csv = [['Session ID', 'Student', 'Date', 'Messages', 'Title', 'Transcript'], ...allRows].map(row => row.map(escape).join(',')).join('\n');
+      const csv = [['Session ID', 'Student', 'Date', 'Messages', 'Title', ...varKeys, 'Transcript'], ...allRows].map(row => row.map(escape).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `${(config?.bot_name || 'responses').replace(/\s+/g, '_')}_responses.csv`; a.click();
