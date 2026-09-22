@@ -1,18 +1,27 @@
 # @language  YAML (GitHub Actions workflow)
 # @updated   2026-09-22
-# @changed   Two things. (1) Repointed the dev host: instance i-0129c741b63f4572f was stopped and restarted
-#            without an Elastic IP, so AWS reclaimed 18.224.2.163 and handed it 3.131.36.50 -- every dev
-#            deploy since had been timing out at the scp step against an address that now belongs to someone
-#            else. Prod (3.149.253.54) was unaffected. This recurs on every stop/start until an EIP is
-#            attached. (2) dev-deploy now uses the SAME blue/green script as main-deploy: build against the
-#            live containers, pre-flight the new images, swap with `up -d --wait`, roll back to `:previous`
-#            if the health gate fails. It previously did `compose down` first and accepted a downtime
-#            window; docker-compose.remote.dev.yml had already carried the pieces for this since August
-#            (explicit image: names, the profile-gated backend-preflight service, healthchecks) -- only the
-#            workflow had never been switched over. The jobs now differ in exactly three places: dev's
-#            compose wrapper keeps `sudo -E` (it passes FRONTEND_API_URL into the frontend build arg, which
-#            plain sudo drops), dev's FRONTEND_API_URL is the relative "/api" behind the nginx proxy, and
-#            each points at its own compose file.
+# @changed   Disk hygiene, after the dev box hit 90% of a 15GB root with 2.9GB free -- under the
+#            NEED_MB=4000 gate below, so the next deploy would have aborted to protect the live site.
+#            Three changes, applied identically to both jobs. (1) `rm -rf .git` after the scp: the
+#            upload ships the checkout's .git and `overwrite: true` never removes, so a differently
+#            named pack per deploy had piled up to 3.1GB against a 19MB working tree -- by far the
+#            biggest thing on the disk, and nothing here runs git. (2) `docker builder prune -af`
+#            after a held swap: build cache is no longer carried between deploys (it was 1.2GB), so
+#            every build is cold by design. (3) The `:previous` rollback tag is no longer gated on
+#            KEEP_PREVIOUS_MB, which is now gone -- tagging costs nothing at the moment it runs, so
+#            the gate bought no space while dropping the rollback on the tightest deploys and
+#            stranding a stale `:previous` that nothing reclaimed. Blue/green now holds exactly one
+#            rollback image and replaces it each run.
+#
+# @warning   The dev host has NO Elastic IP. Instance i-0129c741b63f4572f was stopped and restarted,
+#            AWS reclaimed 18.224.2.163 and handed it 3.131.36.50 -- every dev deploy in between
+#            timed out at the scp step against an address that now belongs to someone else. This
+#            recurs on every stop/start until an EIP is attached. Prod (3.149.253.54) is unaffected.
+#
+#            The jobs differ in exactly three places: dev's compose wrapper keeps `sudo -E` (it
+#            passes FRONTEND_API_URL into the frontend build arg, which plain sudo drops), dev's
+#            FRONTEND_API_URL is the relative "/api" behind the nginx proxy, and each points at its
+#            own compose file.
 
 name: Deploy to EC2
 
@@ -88,6 +97,13 @@ jobs:
 
           cd ~/rag_platform
 
+          # scp ships the checkout's .git and `overwrite: true` only overwrites --
+          # it never removes. Each deploy's pack file carries a different name, so
+          # they accumulated forever: the dev box reached 3.1GB of .git against a
+          # 19MB working tree (~240 deploys x 13MB), the single largest thing on a
+          # 15GB root. Nothing in this script runs git, so it is pure ballast.
+          rm -rf .git
+
           # backend/.env is managed manually on the server — do NOT regenerate
           # it from CI secrets. The SCP upload above never ships a .env (it's
           # gitignored), so the existing server env file is left untouched.
@@ -109,8 +125,7 @@ jobs:
 
           IMAGE_BACKEND="rag-platform-backend"
           IMAGE_FRONTEND="rag-platform-frontend"
-          NEED_MB=4000          # rough headroom for a cold build of both images
-          KEEP_PREVIOUS_MB=5500 # above this we can also afford to retain a rollback copy
+          NEED_MB=4000 # rough headroom for a cold build of both images
 
           free_mb() { df --output=avail -m / | tail -1 | tr -d ' '; }
 
@@ -151,20 +166,27 @@ jobs:
             echo "WARNING: only ${AVAIL}MB free, but nothing is currently serving - building anyway."
           fi
 
-          # Snapshot the running pair so a failed swap can be undone. Skipped when disk is
-          # tight: a rollback copy is insurance, and insurance never outranks the build.
-          # Must come AFTER the prunes above, which would otherwise reap the untagged copy.
+          # Snapshot the running pair so a failed swap can be undone. Must come AFTER the
+          # prunes above, which would otherwise reap the untagged copy.
+          #
+          # This is NO LONGER gated on free disk. Tagging is free -- `:previous` is just a
+          # second name on layers that already exist, and it costs nothing until the build
+          # below moves `:latest` off them. The old disk gate therefore bought no space at
+          # the moment it ran, while dropping the rollback on exactly the deploys most
+          # likely to need one -- and worse, it left whatever STALE `:previous` an earlier
+          # run had tagged still pinning a full image set that nothing would ever reclaim.
+          # Re-tagging unconditionally orphans the prior generation every time, and the
+          # prune after the swap reaps it, so the box holds exactly one image to roll back
+          # to and replaces it each deploy.
           HAVE_PREVIOUS=0
-          if [ "$AVAIL" -gt "$KEEP_PREVIOUS_MB" ]; then
-            for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
-              if sudo docker image inspect "$img:latest" >/dev/null 2>&1; then
-                sudo docker tag "$img:latest" "$img:previous"
-                HAVE_PREVIOUS=1
-              fi
-            done
-          fi
+          for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
+            if sudo docker image inspect "$img:latest" >/dev/null 2>&1; then
+              sudo docker tag "$img:latest" "$img:previous"
+              HAVE_PREVIOUS=1
+            fi
+          done
           if [ "$HAVE_PREVIOUS" != "1" ]; then
-            echo "Rollback copy not retained this run (no prior image, or disk below ${KEEP_PREVIOUS_MB}MB)."
+            echo "No prior image to snapshot - first deploy on this box, so no rollback copy."
           fi
 
           # The old containers serve throughout this.
@@ -207,8 +229,17 @@ jobs:
             exit 1
           fi
 
-          # Safe now that the swap held: reaps only untagged layers, never `:previous`.
+          # Safe now that the swap held. `image prune -f` reaps only UNTAGGED layers --
+          # which is precisely the rollback generation the re-tag above just orphaned --
+          # and never touches `:latest` or `:previous`. Net state at rest: two tagged
+          # generations, the live one and one step back.
           sudo docker image prune -f || true
+
+          # Build cache is never carried between deploys. It was worth 1.2GB on a 15GB
+          # root here, and it is why this box kept drifting toward the NEED_MB abort
+          # above. The trade is explicit and already made everywhere else in this
+          # script: a cold build costs minutes, running out of disk costs the deploy.
+          sudo docker builder prune -af || true
 
           compose -f $COMPOSE_FILE ps
 
@@ -273,6 +304,13 @@ jobs:
 
                   cd ~/rag_platform
 
+                  # scp ships the checkout's .git and `overwrite: true` only overwrites --
+                  # it never removes. Each deploy's pack file carries a different name, so
+                  # they accumulated forever: the dev box reached 3.1GB of .git against a
+                  # 19MB working tree (~240 deploys x 13MB), the single largest thing on a
+                  # 15GB root. Nothing in this script runs git, so it is pure ballast.
+                  rm -rf .git
+
                   # backend/.env is managed manually on the server — do NOT regenerate
                   # it from CI secrets. The SCP upload above never ships a .env (it's
                   # gitignored), so the existing server env file is left untouched.
@@ -291,8 +329,7 @@ jobs:
 
                   IMAGE_BACKEND="rag-platform-backend"
                   IMAGE_FRONTEND="rag-platform-frontend"
-                  NEED_MB=4000          # rough headroom for a cold build of both images
-                  KEEP_PREVIOUS_MB=5500 # above this we can also afford to retain a rollback copy
+                  NEED_MB=4000 # rough headroom for a cold build of both images
 
                   free_mb() { df --output=avail -m / | tail -1 | tr -d ' '; }
 
@@ -333,20 +370,27 @@ jobs:
                     echo "WARNING: only ${AVAIL}MB free, but nothing is currently serving - building anyway."
                   fi
 
-                  # Snapshot the running pair so a failed swap can be undone. Skipped when disk is
-                  # tight: a rollback copy is insurance, and insurance never outranks the build.
-                  # Must come AFTER the prunes above, which would otherwise reap the untagged copy.
+                  # Snapshot the running pair so a failed swap can be undone. Must come AFTER the
+                  # prunes above, which would otherwise reap the untagged copy.
+                  #
+                  # This is NO LONGER gated on free disk. Tagging is free -- `:previous` is just a
+                  # second name on layers that already exist, and it costs nothing until the build
+                  # below moves `:latest` off them. The old disk gate therefore bought no space at
+                  # the moment it ran, while dropping the rollback on exactly the deploys most
+                  # likely to need one -- and worse, it left whatever STALE `:previous` an earlier
+                  # run had tagged still pinning a full image set that nothing would ever reclaim.
+                  # Re-tagging unconditionally orphans the prior generation every time, and the
+                  # prune after the swap reaps it, so the box holds exactly one image to roll back
+                  # to and replaces it each deploy.
                   HAVE_PREVIOUS=0
-                  if [ "$AVAIL" -gt "$KEEP_PREVIOUS_MB" ]; then
-                    for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
-                      if sudo docker image inspect "$img:latest" >/dev/null 2>&1; then
-                        sudo docker tag "$img:latest" "$img:previous"
-                        HAVE_PREVIOUS=1
-                      fi
-                    done
-                  fi
+                  for img in "$IMAGE_BACKEND" "$IMAGE_FRONTEND"; do
+                    if sudo docker image inspect "$img:latest" >/dev/null 2>&1; then
+                      sudo docker tag "$img:latest" "$img:previous"
+                      HAVE_PREVIOUS=1
+                    fi
+                  done
                   if [ "$HAVE_PREVIOUS" != "1" ]; then
-                    echo "Rollback copy not retained this run (no prior image, or disk below ${KEEP_PREVIOUS_MB}MB)."
+                    echo "No prior image to snapshot - first deploy on this box, so no rollback copy."
                   fi
 
                   # The old containers serve throughout this.
@@ -389,7 +433,16 @@ jobs:
                     exit 1
                   fi
 
-                  # Safe now that the swap held: reaps only untagged layers, never `:previous`.
+                  # Safe now that the swap held. `image prune -f` reaps only UNTAGGED layers --
+                  # which is precisely the rollback generation the re-tag above just orphaned --
+                  # and never touches `:latest` or `:previous`. Net state at rest: two tagged
+                  # generations, the live one and one step back.
                   sudo docker image prune -f || true
+
+                  # Build cache is never carried between deploys. It was worth 1.2GB on a 15GB
+                  # root here, and it is why this box kept drifting toward the NEED_MB abort
+                  # above. The trade is explicit and already made everywhere else in this
+                  # script: a cold build costs minutes, running out of disk costs the deploy.
+                  sudo docker builder prune -af || true
 
                   compose -f $COMPOSE_FILE ps
