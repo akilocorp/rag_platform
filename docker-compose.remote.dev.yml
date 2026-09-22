@@ -74,6 +74,29 @@ services:
     entrypoint: ["python", "scripts/loadtest/runner.py"]
     restart: "no"
 
+  # Login concurrency ramp. Same image and profile as `loadtest`, different
+  # entrypoint: it seeds its own throwaway accounts and fires N simultaneous
+  # POSTs at /auth/login. Separate service rather than a flag on the one above
+  # because they measure different servers -- that one is Socket.IO and the
+  # exercise state machine, this one is bcrypt on the request thread.
+  #
+  #   compose -f docker-compose.remote.dev.yml --profile loadtest run --rm loadtest-login
+  loadtest-login:
+    profiles: ["loadtest"]
+    image: rag-platform-backend:latest
+    env_file:
+      - ./backend/.env
+    environment:
+      LOADTEST_TARGET: "http://backend:5000"
+      LOADTEST_SIZES: "10,25,50"
+    networks:
+      - rag_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    entrypoint: ["python", "scripts/loadtest/login.py"]
+    restart: "no"
+
   frontend:
     build:
       context: ./frontend
