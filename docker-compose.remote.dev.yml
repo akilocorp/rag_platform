@@ -115,7 +115,13 @@ services:
     restart: unless-stopped
     # busybox wget, not curl — the nginx:stable-alpine base has no curl.
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      # 127.0.0.1, NOT localhost. frontend/nginx.conf declares only `listen 80;`
+      # (IPv4), and nginx's 10-listen-on-ipv6-by-default.sh skips a customised
+      # default.conf -- it logs "differs from the packaged version" and adds no
+      # `listen [::]:80`. In Alpine, `localhost` also resolves to ::1, so busybox
+      # wget could hit a port nothing listens on and report a healthy site as
+      # unhealthy. Prod has always used the literal address; dev now matches.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
