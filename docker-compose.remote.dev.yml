@@ -47,6 +47,56 @@ services:
       retries: 12
       start_period: 15s
 
+  # One-shot manager-exercise load sweep. Profile-gated AND never referenced by
+  # the deploy workflow, so `up` and every push ignore it completely — it exists
+  # to be run by hand when you want numbers:
+  #
+  #   compose -f docker-compose.remote.dev.yml --profile loadtest run --rm loadtest
+  #
+  # Same image as the backend (it needs pymongo, flask-jwt-extended and the
+  # socket.io client, all already installed there) but a different entrypoint. It
+  # reaches the server over the compose network as `backend`, which is also why
+  # the generator and the server share a CPU — see the runner's docstring on why
+  # the numbers are a floor rather than a ceiling.
+  loadtest:
+    profiles: ["loadtest"]
+    image: rag-platform-backend:latest
+    env_file:
+      - ./backend/.env
+    environment:
+      LOADTEST_TARGET: "http://backend:5000"
+      LOADTEST_SIZES: "10,20,30,40,50"
+    networks:
+      - rag_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    entrypoint: ["python", "scripts/loadtest/runner.py"]
+    restart: "no"
+
+  # Login concurrency ramp. Same image and profile as `loadtest`, different
+  # entrypoint: it seeds its own throwaway accounts and fires N simultaneous
+  # POSTs at /auth/login. Separate service rather than a flag on the one above
+  # because they measure different servers -- that one is Socket.IO and the
+  # exercise state machine, this one is bcrypt on the request thread.
+  #
+  #   compose -f docker-compose.remote.dev.yml --profile loadtest run --rm loadtest-login
+  loadtest-login:
+    profiles: ["loadtest"]
+    image: rag-platform-backend:latest
+    env_file:
+      - ./backend/.env
+    environment:
+      LOADTEST_TARGET: "http://backend:5000"
+      LOADTEST_SIZES: "10,25,50"
+    networks:
+      - rag_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    entrypoint: ["python", "scripts/loadtest/login.py"]
+    restart: "no"
+
   frontend:
     build:
       context: ./frontend
@@ -65,7 +115,13 @@ services:
     restart: unless-stopped
     # busybox wget, not curl — the nginx:stable-alpine base has no curl.
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      # 127.0.0.1, NOT localhost. frontend/nginx.conf declares only `listen 80;`
+      # (IPv4), and nginx's 10-listen-on-ipv6-by-default.sh skips a customised
+      # default.conf -- it logs "differs from the packaged version" and adds no
+      # `listen [::]:80`. In Alpine, `localhost` also resolves to ::1, so busybox
+      # wget could hit a port nothing listens on and report a healthy site as
+      # unhealthy. Prod has always used the literal address; dev now matches.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3

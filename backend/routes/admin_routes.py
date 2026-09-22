@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-06
-# @changed   Admin-created accounts now carry the person's school and school ID, and list_users
+# @updated   2026-09-22
+# @changed   GET /admin/loadtest-runs: the recorded manager-exercise load sweeps, for the admin
+#            panel. Read-only — a run is started by hand on the box, never by a button.
+#            Prior: Admin-created accounts now carry the person's school and school ID, and list_users
 #            returns both so they're visible (and searchable) in the panel.
 import os
 import re
@@ -307,3 +309,31 @@ def bootstrap_admin():
 
     User.update_role(email, "admin")
     return jsonify({"message": f"'{email}' promoted to admin"}), 200
+
+
+@admin_bp.route('/loadtest-runs', methods=['GET'])
+@jwt_required()
+def list_loadtest_runs():
+    """The recorded manager-exercise load sweeps, newest first.
+
+    Read-only and admin-gated. Nothing here can START a run — the sweep is a
+    profile-gated compose service invoked by hand on the box
+    (`--profile loadtest run --rm loadtest`), deliberately not something a button
+    can fire at a server that may be mid-class.
+
+    Written by `backend/scripts/loadtest/runner.py`. Capped at the last 20 because
+    the panel is for reading a trend, not an archive.
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+
+    db = current_app.config['MONGO_DB']
+    runs = []
+    for d in db['loadtest_runs'].find().sort('started_at', -1).limit(20):
+        d['_id'] = str(d['_id'])
+        for k in ('started_at', 'finished_at'):
+            if hasattr(d.get(k), 'isoformat'):
+                d[k] = d[k].isoformat()
+        runs.append(d)
+    return jsonify({"runs": runs}), 200
