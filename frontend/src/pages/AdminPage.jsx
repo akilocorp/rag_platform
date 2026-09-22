@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-06
-// @changed   Create-an-account now takes the person's school and school ID; the list shows both
+// @updated   2026-09-22
+// @changed   A "Manager exercise — load" panel reads /admin/loadtest-runs: percentiles per cohort
+//            size from the last recorded sweep. Read-only; the sweep is a compose service started
+//            by hand, so no button here can fire load at a server that may be mid-class.
+//            Prior: Create-an-account now takes the person's school and school ID; the list shows both
 //            under the username and the search box matches on them.
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -71,6 +74,101 @@ const ROLE_COLORS = {
   student: 'bg-green-100 text-green-700',
   admin: 'bg-purple-100 text-purple-700',
 };
+
+
+/* One recorded load sweep: a row per cohort size with the percentiles that decide
+   whether a class of that size works. Read-only by design — the sweep is a compose
+   service started by hand on the box, so there is no button here that could fire
+   load at a server which may be mid-class. */
+const LoadTestPanel = () => {
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient.get('/admin/loadtest-runs')
+      .then(({ data }) => setRuns(data.runs || []))
+      .catch(() => setRuns([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+
+  const latest = runs[0];
+  return (
+    <div className="mt-8 bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6">
+      <h2 className="text-lg font-bold text-[#222] mb-1">Manager exercise — load</h2>
+      <p className="text-xs text-gray-400 font-medium mb-5">
+        Percentiles per cohort. Run it on the dev box with{' '}
+        <code className="px-1 py-0.5 rounded bg-gray-100 text-[11px]">
+          compose --profile loadtest run --rm loadtest
+        </code>
+      </p>
+
+      {!latest ? (
+        <p className="text-sm text-gray-400">
+          No runs recorded yet.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+            <span>{new Date(latest.started_at).toLocaleString()}</span>
+            <span>·</span>
+            <span>through <strong className="text-gray-600">{latest.through}</strong></span>
+            {/* The server shape is recorded with the numbers because it is what they
+                mean: a reading under threading/werkzeug is not comparable to one
+                taken after a move to eventlet. */}
+            {latest.server && (
+              <>
+                <span>·</span>
+                <span>{latest.server.server} · {latest.server.async_mode} · {latest.server.workers}w</span>
+              </>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-100">
+                  <th className="text-left font-bold py-2 pr-4">Students</th>
+                  <th className="text-right font-bold py-2 px-3">Pair p95</th>
+                  <th className="text-right font-bold py-2 px-3">Snapshot p95</th>
+                  <th className="text-right font-bold py-2 px-3">Msg p95</th>
+                  <th className="text-right font-bold py-2 px-3">Msg max</th>
+                  <th className="text-right font-bold py-2 pl-3">Failed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(latest.cohorts || []).map((c) => {
+                  const g = (k, f) => c.stages?.[k]?.[f];
+                  const bad = c.failure_count > 0;
+                  return (
+                    <tr key={c.students} className="border-b border-gray-50 last:border-0">
+                      <td className="py-2.5 pr-4 font-bold text-[#222]">{c.students}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-gray-600">{fmtS(g('match_found','p95'))}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-gray-600">{fmtS(g('first_snapshot','p95'))}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-gray-600">{fmtS(g('msg_rtt','p95'))}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-gray-600">{fmtS(g('msg_rtt','max'))}</td>
+                      <td className={`py-2.5 pl-3 text-right tabular-nums font-bold ${bad ? 'text-red-600' : 'text-gray-300'}`}>
+                        {c.failure_count || 0}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {(latest.cohorts || []).some((c) => c.failure_count > 0) && (
+            <p className="mt-4 text-xs text-red-600 font-semibold">
+              A cohort had failures — that size is past what this deployment serves.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// Seconds to one decimal, or an em dash when a stage never reported.
+const fmtS = (v) => (typeof v === 'number' ? `${v.toFixed(1)}s` : '—');
 
 const AdminPage = () => {
   const navigate = useNavigate();
@@ -503,6 +601,8 @@ const AdminPage = () => {
                 </div>
               </div>
             )}
+
+            <LoadTestPanel />
           </>
         )}
       </div>

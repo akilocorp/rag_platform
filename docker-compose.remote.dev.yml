@@ -47,6 +47,33 @@ services:
       retries: 12
       start_period: 15s
 
+  # One-shot manager-exercise load sweep. Profile-gated AND never referenced by
+  # the deploy workflow, so `up` and every push ignore it completely — it exists
+  # to be run by hand when you want numbers:
+  #
+  #   compose -f docker-compose.remote.dev.yml --profile loadtest run --rm loadtest
+  #
+  # Same image as the backend (it needs pymongo, flask-jwt-extended and the
+  # socket.io client, all already installed there) but a different entrypoint. It
+  # reaches the server over the compose network as `backend`, which is also why
+  # the generator and the server share a CPU — see the runner's docstring on why
+  # the numbers are a floor rather than a ceiling.
+  loadtest:
+    profiles: ["loadtest"]
+    image: rag-platform-backend:latest
+    env_file:
+      - ./backend/.env
+    environment:
+      LOADTEST_TARGET: "http://backend:5000"
+      LOADTEST_SIZES: "10,20,30,40,50"
+    networks:
+      - rag_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    entrypoint: ["python", "scripts/loadtest/runner.py"]
+    restart: "no"
+
   frontend:
     build:
       context: ./frontend
