@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # @language  Python
 # @updated   2026-09-22
-# @changed   New file: the login concurrency ramp. Seeds its own throwaway accounts, fires N
-#            simultaneous POSTs at /auth/login, reports p50/p95/max per cohort, deletes what it made.
+# @changed   Fixed the endpoint: auth_bp is mounted at /api/auth, so the first run 404'd every
+#            request and reported a meaningless 0.02s. Added a preflight that proves the route
+#            exists before seeding, and a --path flag.
 """Measure how long login takes when a class logs in at once.
 
 WHY THIS IS A SEPARATE HARNESS FROM `runner.py`
@@ -72,6 +73,13 @@ MARKER = "is_loadtest"
 # `check_password_hash` faster than production and understate the whole problem.
 BCRYPT_ROUNDS = 12
 
+# `auth_bp` is registered with url_prefix='/api/auth' (app.py), and the route
+# inside it is '/login'. Spelled out here because the first run of this script
+# used '/auth/login', got a 404 on every request, and reported a very fast and
+# entirely meaningless 0.02s -- Flask answers an unrouted path without touching
+# Mongo or bcrypt.
+LOGIN_PATH = "/api/auth/login"
+
 
 def db():
     """Same connection shape as runner.py: env only, no Flask app."""
@@ -130,7 +138,7 @@ def cleanup(database, collection_name):
     return database[collection_name].delete_many({MARKER: True}).deleted_count
 
 
-def fire(target, identifier, password, barrier, out, lock):
+def fire(target, path, identifier, password, barrier, out, lock):
     """One login attempt, released in lockstep with the rest of its cohort.
 
     The barrier is what makes this a concurrency measurement. Without it the
@@ -146,7 +154,7 @@ def fire(target, identifier, password, barrier, out, lock):
     status, err = None, None
     try:
         resp = requests.post(
-            f"{target}/auth/login",
+            f"{target}{path}",
             json={"username": identifier, "password": password},
             timeout=120,
         )
@@ -158,7 +166,7 @@ def fire(target, identifier, password, barrier, out, lock):
         out.append({"seconds": elapsed, "status": status, "error": err})
 
 
-def run_arm(target, identifiers, password, expect):
+def run_arm(target, path, identifiers, password, expect):
     """Fire one simultaneous burst and summarise it.
 
     `expect` is the status a correct server returns for this arm. Anything else is
@@ -170,7 +178,8 @@ def run_arm(target, identifiers, password, expect):
     results, lock = [], threading.Lock()
     threads = [
         threading.Thread(
-            target=fire, args=(target, ident, password, barrier, results, lock), daemon=True
+            target=fire, args=(target, path, ident, password, barrier, results, lock),
+            daemon=True
         )
         for ident in identifiers
     ]
@@ -196,6 +205,30 @@ def run_arm(target, identifiers, password, expect):
         "failures": len(bad),
         "detail": [f"status={r['status']} {r['error'] or ''}".strip() for r in bad[:8]],
     }
+
+
+def preflight(target, path):
+    """Prove the endpoint exists before seeding anything.
+
+    One request, before the accounts are created. A wrong prefix otherwise costs
+    a full sweep: Flask answers an unrouted path in microseconds without reaching
+    Mongo or bcrypt, so every cohort comes back fast, both arms agree, and the
+    bcrypt delta reads 0.00s -- which looks like a finding rather than a mistake.
+    """
+    try:
+        resp = requests.post(f"{target}{path}",
+                             json={"username": "preflight@loadtest.invalid", "password": "x"},
+                             timeout=30)
+    except Exception as e:                                  # noqa: BLE001
+        raise SystemExit(f"  cannot reach {target}{path}: {type(e).__name__}: {e}")
+    if resp.status_code == 404:
+        raise SystemExit(
+            f"  {target}{path} returned 404 - nothing is routed there.\n"
+            "  Check the blueprint prefix in app.py and pass --path."
+        )
+    # Anything else means the route exists: 401 for an unknown user, 400 if the
+    # handler ever starts rejecting this shape. Both reach the real code.
+    print(f"  preflight {path} -> {resp.status_code} (route exists)")
 
 
 def report(size, valid, unknown):
@@ -230,6 +263,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--target", default=os.environ.get("LOADTEST_TARGET", "http://backend:5000"))
     ap.add_argument("--sizes", default=os.environ.get("LOADTEST_SIZES", "10,25,50"))
+    ap.add_argument("--path", default=os.environ.get("LOADTEST_LOGIN_PATH", LOGIN_PATH))
     ap.add_argument("--users-collection", default=None)
     ap.add_argument("--keep", action="store_true", help="skip cleanup (for debugging a run)")
     args = ap.parse_args()
@@ -245,6 +279,8 @@ def main():
     print(f"  sizes {sizes} · users collection '{collection}'")
     print(f"  swept leftovers: {cleanup(database, collection)}")
 
+    preflight(args.target, args.path)
+
     # Seeded once at the largest cohort and reused. Login is stateless, so unlike
     # the exercise sweep there is nothing one-way to invalidate a later size.
     emails = seed_accounts(database, collection, run_id, max(sizes), password)
@@ -253,10 +289,10 @@ def main():
     cohorts = []
     try:
         for size in sizes:
-            valid = run_arm(args.target, emails[:size], password, expect=200)
+            valid = run_arm(args.target, args.path, emails[:size], password, expect=200)
             time.sleep(2)
             unknown = run_arm(
-                args.target,
+                args.target, args.path,
                 [f"nobody_{run_id}_{i}@loadtest.invalid" for i in range(size)],
                 password, expect=401,
             )
@@ -272,6 +308,7 @@ def main():
             "started_at": started,
             "finished_at": datetime.now(timezone.utc),
             "target": args.target,
+            "path": args.path,
             "sizes": sizes,
             "cohorts": cohorts,
             "bcrypt_rounds": BCRYPT_ROUNDS,

@@ -1,6 +1,11 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   `_register_new_user` redeems pending collaborator invitations for the new account's email,
+# @updated   2026-09-22
+# @changed   `login` hashes the submitted password ONCE. It ran check_password_hash twice -- once to
+#            log the result, once for the `if` -- doubling the only expensive operation in the
+#            request. Measured before the change: 50 simultaneous logins took ~40s each, with the
+#            no-bcrypt control arm under 0.2s. Branching and log output are unchanged.
+#
+# @previous  `_register_new_user` redeems pending collaborator invitations for the new account's email,
 #            so someone invited to a config before they had an account lands with access already
 #            granted. Matched on the address rather than on a client-supplied token: signing up from
 #            the front page works the same as the emailed link, and a forwarded link grants nothing.
@@ -349,14 +354,21 @@ def login():
             f"[Login] identifier={_mask(identifier)} has_at={('@' in identifier)}, "
             f"user_found={user is not None}"
         )
+        # Hashed ONCE and reused by both the log line and the branch below. These
+        # were two identical check_password_hash calls -- one so the log could
+        # print the result, one for the `if` -- which ran bcrypt, far the most
+        # expensive thing in this request, twice on every single login. Measured
+        # at 50 simultaneous logins that was ~40s per student; see
+        # scripts/loadtest/login.py, whose control arm puts the non-bcrypt cost
+        # of the same request at under 0.2s.
+        pw_ok = bool(user) and bcrypt.check_password_hash(user['password'], password)
         if user:
-            pw_ok = bcrypt.check_password_hash(user['password'], password)
             current_app.logger.info(
                 f"[Login] user={user.get('username')} password_ok={pw_ok} is_verified={user.get('is_verified')}"
             )
 
         # 1. Verify Credentials
-        if user and bcrypt.check_password_hash(user['password'], password):
+        if pw_ok:
 
             # 2. Generate Tokens
             access_token, refresh_token = _tokens_for(user)
