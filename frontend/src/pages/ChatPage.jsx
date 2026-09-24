@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-24
- * @changed   Research-mode audio calls render ResearchCallScreen: fixed "Conversation with <name> (AI
+ * @changed   Research calls end on a hidden 10-minute deadline from the first Start click
+ *            (RESEARCH_CALL_MAX_MS); hang-up now offers continue-or-end. End screen reads "Please continue to
+ *            the next question." UI version bumped to plain-call-v2.
+ * Prior: Research-mode audio calls render ResearchCallScreen: fixed "Conversation with <name> (AI
  *            conversation partner)" header, one topic line from `?topic=`, EVIAudioControls' plain variant,
  *            and a terminal end screen. No avatar, transcript or branding. The call record's variables carry
  *            `ui_version` (RESEARCH_CALL_UI_VERSION) so both study sessions can be checked for the same screen.
@@ -764,7 +767,11 @@ const useTypewriter = (text, { speed = 18, enabled = true } = {}) => {
 // Version of the research-mode call screen. Filed on every call record (as the
 // `ui_version` variable) so a study can confirm both sessions saw the same screen —
 // bump it whenever ResearchCallScreen or EVIAudioControls' plain variant changes.
-const RESEARCH_CALL_UI_VERSION = 'plain-call-v1';
+const RESEARCH_CALL_UI_VERSION = 'plain-call-v2';
+
+// A research call ends this long after the participant first clicks Start, paused
+// or not. Never displayed — the study asked for no visible timer.
+const RESEARCH_CALL_MAX_MS = 10 * 60 * 1000;
 
 // "Conflict Practice — Alex" → "Alex": the part after a dash is the persona's name,
 // the part before is the professor's label for the config.
@@ -785,7 +792,7 @@ const ResearchCallScreen = ({ config, topic, children, ended }) => {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-white px-6 text-center">
         <p className="text-lg text-gray-900">That's the end of the conversation.</p>
-        <p className="mt-2 text-sm text-gray-500">Please click Next to continue the survey.</p>
+        <p className="mt-2 text-sm text-gray-500">Please continue to the next question.</p>
       </div>
     );
   }
@@ -2245,6 +2252,7 @@ const ChatPage = () => {
                   onTurn={handleEVITurn}
                   onError={handleEVIError}
                   onEnded={() => setCallEnded(true)}
+                  maxDurationMs={RESEARCH_CALL_MAX_MS}
                 />
             </ResearchCallScreen>
         ) : isCallMode ? (
