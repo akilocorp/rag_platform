@@ -386,22 +386,34 @@ const PlainCallPanel = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={isMuted ? onUnmute : onMute}
-          disabled={isConnecting}
-          className="min-w-[110px] px-5 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-800 text-sm hover:bg-gray-50 disabled:opacity-50"
-        >
-          {isMuted ? 'Unmute' : 'Mute'}
-        </button>
-        <button
-          type="button"
-          onClick={onEndCall}
-          className="min-w-[110px] px-5 py-2.5 rounded-lg bg-gray-800 text-white text-sm hover:bg-gray-700"
-        >
-          End conversation
-        </button>
+      <div className="flex items-start gap-8">
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={isMuted ? onUnmute : onMute}
+            disabled={isConnecting}
+            title={isMuted ? 'Unmute' : 'Mute'}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition active:scale-95 disabled:opacity-50 ${
+              isMuted
+                ? 'bg-[#1F1F1F]/8 text-[#1F1F1F]/60 hover:bg-[#1F1F1F]/14'
+                : 'bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85'
+            }`}
+          >
+            {isMuted ? <FaMicrophoneSlash className="text-lg" /> : <FaMicrophone className="text-lg" />}
+          </button>
+          <span className="text-xs text-gray-600">{isMuted ? 'Unmute' : 'Mute'}</span>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onEndCall}
+            title="End conversation"
+            className="w-14 h-14 rounded-full bg-[#FA6C43] hover:bg-[#E55B34] text-white flex items-center justify-center transition active:scale-95"
+          >
+            <FaPhoneSlash className="text-lg" />
+          </button>
+          <span className="text-xs text-gray-600">End conversation</span>
+        </div>
       </div>
 
       {recording && (
@@ -607,14 +619,18 @@ const InnerControls = ({
         onEndCall={handleClose}
       />
     ) : (
-      <button
-        type="button"
-        onClick={handleConnect}
-        disabled={disabled}
-        className="px-6 py-3 rounded-lg bg-gray-800 text-white text-sm hover:bg-gray-700 disabled:opacity-50"
-      >
-        Start conversation
-      </button>
+      <div className="flex flex-col items-center gap-2">
+        <button
+          type="button"
+          onClick={handleConnect}
+          disabled={disabled}
+          title="Start conversation"
+          className="w-16 h-16 rounded-full bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85 flex items-center justify-center transition active:scale-95 disabled:opacity-50"
+        >
+          <FaMicrophone className="text-xl" />
+        </button>
+        <span className="text-xs text-gray-600">Start conversation</span>
+      </div>
     );
   }
 
