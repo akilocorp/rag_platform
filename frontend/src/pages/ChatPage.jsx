@@ -1,7 +1,14 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-21
- * @changed   Posts an ACTR_SESSION message to the Qualtrics parent as soon as the session id exists, so the
+ * @updated   2026-09-24
+ * @changed   Research calls end on a hidden 10-minute deadline from the first Start click
+ *            (RESEARCH_CALL_MAX_MS); hang-up now offers continue-or-end. End screen reads "Please continue to
+ *            the next question." UI version bumped to plain-call-v2.
+ * Prior: Research-mode audio calls render ResearchCallScreen: fixed "Conversation with <name> (AI
+ *            conversation partner)" header, one topic line from `?topic=`, EVIAudioControls' plain variant,
+ *            and a terminal end screen. No avatar, transcript or branding. The call record's variables carry
+ *            `ui_version` (RESEARCH_CALL_UI_VERSION) so both study sessions can be checked for the same screen.
+ * Prior: Posts an ACTR_SESSION message to the Qualtrics parent as soon as the session id exists, so the
  *            survey can store it as `actr_session_id` and join its row to the ACTR transcript export.
  * Prior: Text turns now post the launch URL's survey variables as `session_variables`, so a Qualtrics
  *            condition or prior answer reaches the text bot's prompt the way it already reached the voice
@@ -755,6 +762,53 @@ const useTypewriter = (text, { speed = 18, enabled = true } = {}) => {
   }, [text, enabled, speed]);
 
   return shown;
+};
+
+// Version of the research-mode call screen. Filed on every call record (as the
+// `ui_version` variable) so a study can confirm both sessions saw the same screen —
+// bump it whenever ResearchCallScreen or EVIAudioControls' plain variant changes.
+const RESEARCH_CALL_UI_VERSION = 'plain-call-v2';
+
+// A research call ends this long after the participant first clicks Start, paused
+// or not. Never displayed — the study asked for no visible timer.
+const RESEARCH_CALL_MAX_MS = 10 * 60 * 1000;
+
+// "Conflict Practice — Alex" → "Alex": the part after a dash is the persona's name,
+// the part before is the professor's label for the config.
+const callPartnerName = (botName) => {
+  const parts = (botName || '').split(/\s[—–-]\s/);
+  return parts[parts.length - 1].trim() || 'your partner';
+};
+
+/**
+ * Research-mode voice call: a phone call, not a video call. A fixed header naming
+ * the partner, one topic line, the call controls — and after hang-up, only an end
+ * screen. No avatar, transcript, timer or branding, and no way to start a second
+ * call from the same page.
+ */
+const ResearchCallScreen = ({ config, topic, children, ended }) => {
+  const partner = callPartnerName(config?.bot_name);
+  if (ended) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-white px-6 text-center">
+        <p className="text-lg text-gray-900">That's the end of the conversation.</p>
+        <p className="mt-2 text-sm text-gray-500">Please continue to the next question.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 flex flex-col bg-white">
+      <header className="shrink-0 border-b border-gray-200 px-6 py-4 text-center">
+        <h1 className="text-base font-medium text-gray-900">
+          Conversation with {partner} (AI conversation partner)
+        </h1>
+        {topic && <p className="mt-1 text-sm text-gray-600">Topic: {topic}</p>}
+      </header>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 gap-8">
+        {children}
+      </div>
+    </div>
+  );
 };
 
 // One line of the audio-call transcript. `typewriter` is true only for the most recently
@@ -1828,6 +1882,8 @@ const ChatPage = () => {
   // first turn, because the call record is written the moment the socket
   // connects and both have to be filed under the same key.
   const [callSessionId, setCallSessionId] = useState(null);
+  // Research-mode calls end on a terminal screen — no redial from the same page.
+  const [callEnded, setCallEnded] = useState(false);
   useEffect(() => {
     if (config?.bot_type !== 'audio_call') return;
     setCallSessionId(getCallSessionId());
@@ -2181,7 +2237,25 @@ const ChatPage = () => {
            </div>
         )}
 
-        {isCallMode ? (
+        {isCallMode && isResearchMode ? (
+            <ResearchCallScreen config={config} topic={launchVars.vars.topic} ended={callEnded}>
+                {config?.introduction && (
+                  <p className="text-sm text-gray-600 max-w-md text-center">{config.introduction}</p>
+                )}
+                <EVIAudioControls
+                  variant="plain"
+                  partnerName={callPartnerName(config?.bot_name)}
+                  sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${launchVars.encoded ? `:${launchVars.encoded}` : ''}`}
+                  configId={configId}
+                  callSessionId={callSessionId}
+                  variables={{ ...launchVars.vars, ui_version: RESEARCH_CALL_UI_VERSION }}
+                  onTurn={handleEVITurn}
+                  onError={handleEVIError}
+                  onEnded={() => setCallEnded(true)}
+                  maxDurationMs={RESEARCH_CALL_MAX_MS}
+                />
+            </ResearchCallScreen>
+        ) : isCallMode ? (
             <div className="flex-1 flex flex-col overflow-hidden bg-[#F8FAFC]">
                 {/* Mic on top: hero + call control. Not full-height — the transcript below
                     is always visible, during a call too (EVIAudioControls embedded=true
