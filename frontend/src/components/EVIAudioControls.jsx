@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-03
- * @changed   VoiceOverlay + EmbeddedVoicePanel recolored again: #1F1F1F was a dark bg meant for white text —
+ * @updated   2026-09-24
+ * @changed   New `variant="plain"` (research-mode calls): PlainCallPanel — status dot + "<name> is speaking /
+ *            listening", a mic level bar, and text Mute / End conversation buttons. No waveform, fullscreen,
+ *            or brand colour. New `onEnded` fires on hang-up so the page can swap to its end screen.
+ *            Prior: VoiceOverlay + EmbeddedVoicePanel recolored again: #1F1F1F was a dark bg meant for white text —
  *            swapped for #F8FAFC (ChatPage's own off-white) to match the rest of the app's light surfaces,
  *            which meant flipping every white-on-dark element (dismiss/fullscreen buttons, status label,
  *            recording indicator, footer text, unmuted-mic button) to dark-on-light equivalents so contrast
@@ -325,11 +328,99 @@ const EmbeddedVoicePanel = ({
   );
 };
 
+// Hume's fft bands run 0–2 (byte frequency data rescaled per Bark band). A voice
+// lights up a handful of bands, so the loudest few are a steadier level reading
+// than a mean dragged down by the empty high bands.
+const micLevel = (micFft) => {
+  if (!Array.isArray(micFft) || micFft.length === 0) return 0;
+  const top = [...micFft].sort((a, b) => b - a).slice(0, 5);
+  const avg = top.reduce((s, v) => s + v, 0) / top.length;
+  return Math.min(1, avg / 1.4);
+};
+
+/**
+ * The research-mode call surface: as close to a phone call as a page gets.
+ * One status line (dot + words), one mic level bar, Mute and End. No waveform,
+ * no avatar, no transcript, no timer, no brand colour — a study compares
+ * sessions against each other, so nothing here should vary but the voice.
+ */
+const PlainCallPanel = ({
+  status, micFft, isPlayingAudio, isMuted, recording, partnerName,
+  onMute, onUnmute, onEndCall,
+}) => {
+  const isConnecting = status === 'connecting';
+  const speaking = !!isPlayingAudio;
+  const level = isMuted || isConnecting ? 0 : micLevel(micFft);
+  const label = isConnecting
+    ? 'Connecting…'
+    : speaking ? `${partnerName} is speaking` : `${partnerName} is listening`;
+
+  return (
+    <div className="w-full max-w-sm mx-auto flex flex-col items-center gap-8">
+      <div className="flex items-center gap-3 text-base text-gray-800" aria-live="polite">
+        <span
+          className={`w-3 h-3 rounded-full ${
+            isConnecting ? 'bg-gray-300' : speaking ? 'bg-gray-800 animate-pulse' : 'bg-gray-400'
+          }`}
+        />
+        <span>{label}</span>
+      </div>
+
+      <div className="w-full">
+        <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+          <span>Your microphone</span>
+          <span>{isMuted ? 'Muted' : ''}</span>
+        </div>
+        <div
+          className="h-2 w-full rounded-full bg-gray-200 overflow-hidden"
+          role="meter"
+          aria-label="Microphone level"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(level * 100)}
+        >
+          <div
+            className="h-full bg-gray-700 transition-[width] duration-100"
+            style={{ width: `${Math.round(level * 100)}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={isMuted ? onUnmute : onMute}
+          disabled={isConnecting}
+          className="min-w-[110px] px-5 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-800 text-sm hover:bg-gray-50 disabled:opacity-50"
+        >
+          {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+        <button
+          type="button"
+          onClick={onEndCall}
+          className="min-w-[110px] px-5 py-2.5 rounded-lg bg-gray-800 text-white text-sm hover:bg-gray-700"
+        >
+          End conversation
+        </button>
+      </div>
+
+      {recording && (
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          <span>Recording</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const InnerControls = ({
   accessToken, humeConfigId, sessionId,
   configId, callSessionId, variables,
   onTurn, onError, disabled, embedded,
+  variant, partnerName, onEnded,
 }) => {
+  const plain = variant === 'plain';
   const voice = useVoice();
   const {
     status,
@@ -382,6 +473,7 @@ const InnerControls = ({
   const handleClose = () => {
     setDismissed(true);
     setRecording(false);
+    onEnded?.();
     try {
       const r = disconnect?.();
       if (r && typeof r.then === 'function') r.catch(err => console.error('disconnect error', err));
@@ -501,6 +593,31 @@ const InnerControls = ({
 
   const isActive = !dismissed && (status?.value === 'connecting' || status?.value === 'connected');
 
+  if (plain) {
+    return isActive ? (
+      <PlainCallPanel
+        status={status?.value}
+        micFft={micFft}
+        isPlayingAudio={isPlayingAudio}
+        isMuted={isMuted}
+        recording={recording}
+        partnerName={partnerName}
+        onMute={mute}
+        onUnmute={unmute}
+        onEndCall={handleClose}
+      />
+    ) : (
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={disabled}
+        className="px-6 py-3 rounded-lg bg-gray-800 text-white text-sm hover:bg-gray-700 disabled:opacity-50"
+      >
+        Start conversation
+      </button>
+    );
+  }
+
   return (
     <>
       {!isActive && (
@@ -569,6 +686,7 @@ const EVIAudioControls = ({
   humeConfigId, sessionId,
   configId, callSessionId, variables,
   onTurn, onError, disabled, embedded,
+  variant, partnerName = 'Your partner', onEnded,
 }) => {
   const [accessToken, setAccessToken] = useState(null);
   const [serverConfigId, setServerConfigId] = useState(null);
@@ -628,6 +746,9 @@ const EVIAudioControls = ({
         onError={onError}
         disabled={disabled}
         embedded={embedded}
+        variant={variant}
+        partnerName={partnerName}
+        onEnded={onEnded}
       />
     </VoiceProvider>
   );
