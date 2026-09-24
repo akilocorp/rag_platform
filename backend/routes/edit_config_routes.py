@@ -28,6 +28,7 @@ from routes.config_routes import (
 from src.facilitator.config import normalize_config as normalize_facilitator
 from src.utils.uploads import ALLOWED_EXTENSIONS, allowed_file
 from src.utils.config_access import editable_filter
+from src.services.response_delay import normalize_response_delay
 
 
 edit_config_bp = Blueprint('edit_config_routes', __name__)
@@ -142,6 +143,7 @@ def update_existing_config(config_id):
             "model_name": data.get('model_name'),
             "temperature": float(data.get('temperature', 0.7)),
             "response_timeout": int(data.get('response_timeout', 3)),
+            "response_delay": normalize_response_delay(data.get('response_delay')),
             "is_public": str(data.get('is_public', 'false')).lower() in ['true', '1'],
             "public_purpose": 'research' if data.get('public_purpose') == 'research' else 'learning',
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],

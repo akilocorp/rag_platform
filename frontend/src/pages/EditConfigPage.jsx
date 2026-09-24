@@ -52,6 +52,7 @@ import VideoScoringEditor from '../components/VideoScoringEditor';
 import LabGenerator from '../components/experiential/LabGenerator';
 import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
+import ResponseDelaySettings, { DEFAULT_RESPONSE_DELAY } from '../components/ResponseDelaySettings';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import AdvancedReveal from '../components/AdvancedReveal';
 import FacilitatorAttempts, { DEFAULT_MAX_ATTEMPTS } from '../components/FacilitatorAttempts';
@@ -269,6 +270,9 @@ const EditConfigPage = () => {
         template_description: configFromState.template_description || '',
         audio_enabled: !!configFromState.audio_enabled,
         hume_config_id: configFromState.hume_config_id || '',
+        response_delay: (configFromState.response_delay && typeof configFromState.response_delay === 'object')
+            ? { ...DEFAULT_RESPONSE_DELAY, ...configFromState.response_delay }
+            : { ...DEFAULT_RESPONSE_DELAY },
         // maxAttempts postdates most saved configs, so the spread order matters:
         // a config without it falls back to the default rather than to undefined.
         facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
@@ -866,10 +870,11 @@ const EditConfigPage = () => {
       const scoringSpec = configToSubmit.scoring_spec;
       const experientialConfig = configToSubmit.experiential_config;
       const facilitator = configToSubmit.facilitator;
+      const responseDelay = configToSubmit.response_delay;
       const managerExercise = configToSubmit.manager_exercise;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise' && key !== 'response_delay') {
           formData.append(key, value);
         }
       });
@@ -886,6 +891,9 @@ const EditConfigPage = () => {
       // backend gets JSON (not "[object Object]"). Only for this bot_type.
       if (configToSubmit.bot_type === 'manager_exercise' && managerExercise && typeof managerExercise === 'object') {
         formData.append('manager_exercise', JSON.stringify(managerExercise));
+      }
+      if (responseDelay && typeof responseDelay === 'object') {
+        formData.append('response_delay', JSON.stringify(responseDelay));
       }
       
       // Append bots safely
@@ -2098,6 +2106,11 @@ const EditConfigPage = () => {
                     </label>
                   </div>
                 </div>
+
+                <ResponseDelaySettings
+                  value={config.response_delay}
+                  onChange={(response_delay) => setConfig(prev => ({ ...prev, response_delay }))}
+                />
 
                 {/* Facilitator — pluggable structured-UI layer over the bot's replies */}
                 <div className="p-5 bg-gray-50 border border-gray-100 rounded-xl">

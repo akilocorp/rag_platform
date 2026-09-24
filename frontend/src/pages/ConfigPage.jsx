@@ -33,6 +33,7 @@ import LabGenerator from '../components/experiential/LabGenerator';
 import VideoScoringEditor from '../components/VideoScoringEditor';
 import InfoTip from '../components/InfoTip';
 import InstructionsInfoTip from '../components/InstructionsInfoTip';
+import ResponseDelaySettings, { DEFAULT_RESPONSE_DELAY } from '../components/ResponseDelaySettings';
 import ConfigModeToggle from '../components/ConfigModeToggle';
 import AdvancedReveal from '../components/AdvancedReveal';
 import useConfigMode from '../hooks/useConfigMode';
@@ -192,6 +193,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
     prompt_template: '',
     temperature: 0.7,
     response_timeout: 3,
+    response_delay: { ...DEFAULT_RESPONSE_DELAY },
     rag_files: [],
     is_public: false,
     public_purpose: 'learning',
@@ -1797,6 +1799,13 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                           <span className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#FA6C43]"></span>
                         </span>
                       </label>
+                    </div>
+
+                    <div className="pt-4 mt-2 border-t border-gray-100">
+                      <ResponseDelaySettings
+                        value={config.response_delay}
+                        onChange={(response_delay) => setConfig(prev => ({ ...prev, response_delay }))}
+                      />
                     </div>
 
                     {/* Facilitator — pluggable structured-UI layer over the bot's replies */}

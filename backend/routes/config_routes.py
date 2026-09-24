@@ -67,6 +67,7 @@ def _default_facilitator_raw(raw, model_name):
     return raw
 from src.managers import class_presets
 from src.managers import facilitator_prompt
+from src.services.response_delay import normalize_response_delay
 
 import re
 import json
@@ -848,6 +849,7 @@ def configure_model():
         introduction = config_data.get('introduction', '') 
         temperature_str = config_data.get('temperature')
         response_timeout = config_data.get('response_timeout', 3) 
+        response_delay = normalize_response_delay(config_data.get('response_delay'))
         collection_name = config_data.get('collection_name')
 
         # --- 2. Get both 'instructions' and 'prompt_template' ---
@@ -918,6 +920,7 @@ def configure_model():
             "prompt_template": final_prompt_template,
             "temperature": temperature,
             "response_timeout": int(response_timeout),
+            "response_delay": response_delay,
             "is_public": is_public,
             "public_purpose": public_purpose,
             "config_type": "normal",
@@ -1088,6 +1091,7 @@ def get_playground_config():
         "prompt_template": "You are a helpful AI assistant. Answer questions clearly and concisely.",
         "temperature": 0.7,
         "response_timeout": 3,
+        "response_delay": normalize_response_delay(None),
         "is_public": True,
         "is_playground": True,
         "web_access": False,
