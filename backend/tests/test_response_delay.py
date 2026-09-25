@@ -125,3 +125,82 @@ def test_progress_only_does_not_add_delay():
     output = list(delay_ndjson_stream(iter(source), {'enabled': True}, sleep=sleeps.append))
     assert [json.loads(record)['type'] for record in output] == ['delay_pending', 'tool_result', 'done']
     assert sleeps == []
+
+
+def test_flask_stream_forwards_progress_before_real_delay():
+    import time
+    from flask import Flask, Response, request, stream_with_context
+
+    app = Flask(__name__)
+    closed = []
+    @app.get('/test-stream')
+    def route():
+        @stream_with_context
+        def source():
+            try:
+                yield json.dumps({'type': 'tool_use', 'id': request.args['id']}) + '\n'
+                yield json.dumps({'type': 'token', 'data': '你好'}) + '\n'
+                yield json.dumps({'type': 'done'}) + '\n'
+            finally:
+                closed.append(True)
+        return Response(delay_ndjson_stream(source(), {
+            'enabled': True, 'mode': 'fixed', 'min_seconds': 0.05,
+        }), mimetype='application/x-ndjson')
+
+    response = app.test_client().get('/test-stream?id=search', buffered=False)
+    events = iter(response.response)
+    assert json.loads(next(events))['type'] == 'delay_pending'
+    assert json.loads(next(events)) == {'type': 'tool_use', 'id': 'search'}
+    started = time.monotonic()
+    assert json.loads(next(events)) == {'type': 'token', 'data': '你好'}
+    assert time.monotonic() - started >= 0.045
+    assert json.loads(next(events))['type'] == 'done'
+    assert list(events) == []
+    response.close()
+    assert closed == [True]
+
+
+def test_disconnect_during_progress_closes_source():
+    closed = []
+    def source():
+        try:
+            yield json.dumps({'type': 'tool_use'}) + '\n'
+            raise AssertionError('Disconnected client must not continue generating')
+        finally:
+            closed.append(True)
+    stream = delay_ndjson_stream(source(), {'enabled': True})
+    next(stream)
+    next(stream)
+    stream.close()
+    assert closed == [True]
+
+
+def test_upstream_exception_does_not_release_partial_reply_or_sleep():
+    sleeps = []
+    def source():
+        yield json.dumps({'type': 'token', 'data': 'partial'}) + '\n'
+        raise RuntimeError('connection lost')
+    output = []
+    try:
+        for record in delay_ndjson_stream(source(), {'enabled': True}, sleep=sleeps.append):
+            output.append(json.loads(record)['type'])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('Upstream failure must propagate')
+    assert output == ['delay_pending']
+    assert sleeps == []
+
+
+def test_disconnect_after_initial_event_closes_unconsumed_source():
+    class Source:
+        closed = False
+        def __iter__(self):
+            raise AssertionError('Source should not be consumed yet')
+        def close(self):
+            self.closed = True
+    source = Source()
+    stream = delay_ndjson_stream(source, {'enabled': True})
+    assert json.loads(next(stream))['type'] == 'delay_pending'
+    stream.close()
+    assert source.closed

@@ -72,10 +72,10 @@ def delay_ndjson_stream(stream, config, sleep=time.sleep):
         yield from stream
         return
 
-    yield json.dumps({"type": "delay_pending"}) + "\n"
     buffered = []
     response_parts = []
     try:
+        yield json.dumps({"type": "delay_pending"}) + "\n"
         for chunk in stream:
             for line in chunk.splitlines():
                 if not line.strip():

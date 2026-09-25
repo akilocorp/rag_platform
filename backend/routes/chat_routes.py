@@ -1195,6 +1195,7 @@ def chat(config_id, chat_id):
                 agentic_stream, config_doc.get("response_delay")
             )),
             mimetype='application/x-ndjson',
+            headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
         )
         if device_cookie:
             _set_device_cookie(resp, device_cookie, request)
@@ -1596,6 +1597,7 @@ def chat(config_id, chat_id):
     resp = Response(
         delay_ndjson_stream(generate(), config_doc.get("response_delay")),
         mimetype='application/x-ndjson',
+        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
     )
     if device_cookie:
         _set_device_cookie(resp, device_cookie, request)

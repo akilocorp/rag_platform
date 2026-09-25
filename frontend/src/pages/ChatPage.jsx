@@ -49,6 +49,7 @@ import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import ChatSidebar from '../components/SideBar.jsx';
 import AvatarView from '../components/AvatarView';
 import ThinkingIndicator from '../components/ThinkingIndicator';
+import { readNdjson } from '../utils/readNdjson';
 import StreamInterruptedPage from '../components/StreamInterruptedPage';
 import ToolStatusPill from '../components/ToolStatusPill';
 import FacilitatorBlock, { FacilitatorPending } from '../facilitator/FacilitatorBlock';
@@ -485,7 +486,9 @@ const ChatMessage = React.memo(({ message, botAvatarId, fileIndex, isLast, onFac
   const hasToolCalls = toolCalls.length > 0;
   const hasAttachedFiles = isUser && attachedFiles.length > 0;
   const hasAttachedImages = isUser && attachedImages.length > 0;
-  const showThinking = !isUser && isTyping && !text && !hasToolCalls;
+  const showThinking = !isUser && !text && (
+    (message.delayPending && !message.facilitatorPending) || (isTyping && !hasToolCalls)
+  );
   // Drop prose that duplicates the attached widget's content (see helper above).
   // Flashcards are all-or-nothing: the deck holds every card, so blank the prose
   // entirely rather than line-by-line — all content lives in the widget, no text.
@@ -1568,7 +1571,6 @@ const ChatPage = () => {
       }
 
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
       let accumulatedText = '';
       let currentSentence = '';
       // Inline-widget interleaving: `closedParts` is null until the first inline
@@ -1580,15 +1582,24 @@ const ChatPage = () => {
       // prompt call, which would otherwise be built from a truncated reply.
       let turnFailed = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n').filter(Boolean);
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
+      for await (const data of readNdjson(reader)) {
+            if (data.type === 'delay_pending') {
+              setMessages(prev => {
+                const next = [...prev];
+                const index = next.length - 1;
+                next[index] = { ...next[index], delayPending: true };
+                return next;
+              });
+              continue;
+            }
+            if (['token', 'facilitator', 'done', 'error'].includes(data.type)) {
+              setMessages(prev => {
+                const next = [...prev];
+                const index = next.length - 1;
+                next[index] = { ...next[index], delayPending: false };
+                return next;
+              });
+            }
             const content = data.data || data.chunk;
             if (content && (data.type === 'token' || !data.type)) {
               accumulatedText += content;
@@ -1733,8 +1744,6 @@ const ChatPage = () => {
                 setUsageWarn(null);
               }
             }
-          } catch (e) { /* partial JSON chunk */ }
-        }
       }
 
       // Final avatar task
