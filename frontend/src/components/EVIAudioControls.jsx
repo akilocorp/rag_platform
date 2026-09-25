@@ -1,11 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-24
- * @changed   Plain variant: hang-up now pauses instead of ending. The student chooses Continue (rejoins
- *            the same Hume chat group via `resumedChatGroupId`, so the partner keeps the conversation, and
- *            resumes the same recorder so the audio stays one file) or End. New `maxDurationMs` ends the
- *            call that long after the first Start click, counted through pauses and never shown. Turn
- *            indexes carry across reconnects; `started_at` is written once.
+ * @changed   Plain variant: removed the pause / continue-where-you-left-off flow (it did not work in
+ *            practice). Hang-up ends the call again, and so does a dropped line. `maxDurationMs` still ends
+ *            the call that long after the first Start click, never shown.
+ *            Prior: Plain variant: hang-up paused instead of ending, with a Continue / End choice.
  *            Prior: New `variant="plain"` (research-mode calls): PlainCallPanel — status dot + "<name> is speaking /
  *            listening", a mic level bar, and text Mute / End conversation buttons. No waveform, fullscreen,
  *            or brand colour. New `onEnded` fires on hang-up so the page can swap to its end screen.
@@ -112,21 +111,7 @@ const useCallRecorder = () => {
     recorder.stop();
   }), []);
 
-  // A paused call keeps one recorder, so the student's audio stays one file under
-  // one key — a second recorder would upload over the first. Nothing is captured
-  // while paused; the mic stream stays open only so resume needs no new prompt.
-  const pause = useCallback(() => {
-    if (recorderRef.current?.state === 'recording') recorderRef.current.pause();
-  }, []);
-  const resume = useCallback(() => {
-    if (recorderRef.current?.state === 'paused') {
-      recorderRef.current.resume();
-      return true;
-    }
-    return false;
-  }, []);
-
-  return { start, stop, pause, resume };
+  return { start, stop };
 };
 
 /** Presign, then PUT the recording straight to S3. Returns the stored key. */
@@ -445,41 +430,6 @@ const PlainCallPanel = ({
   );
 };
 
-// Shown between hang-up and the student's choice. Continue rejoins the same Hume chat
-// group, so the partner still has the whole conversation; End finishes the call.
-const PausedCallPanel = ({ onContinue, onFinish, disabled }) => (
-  <div className="w-full max-w-sm mx-auto flex flex-col items-center gap-8 text-center">
-    <p className="text-base text-gray-800">
-      You left the conversation. You can continue where you left off, or end it.
-    </p>
-    <div className="flex items-start gap-8">
-      <div className="flex flex-col items-center gap-2">
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={disabled}
-          title="Continue conversation"
-          className="w-14 h-14 rounded-full bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85 flex items-center justify-center transition active:scale-95 disabled:opacity-50"
-        >
-          <FaMicrophone className="text-lg" />
-        </button>
-        <span className="text-xs text-gray-600">Continue conversation</span>
-      </div>
-      <div className="flex flex-col items-center gap-2">
-        <button
-          type="button"
-          onClick={onFinish}
-          title="End conversation"
-          className="w-14 h-14 rounded-full bg-[#FA6C43] hover:bg-[#E55B34] text-white flex items-center justify-center transition active:scale-95"
-        >
-          <FaPhoneSlash className="text-lg" />
-        </button>
-        <span className="text-xs text-gray-600">End conversation</span>
-      </div>
-    </div>
-  </div>
-);
-
 const InnerControls = ({
   accessToken, humeConfigId, sessionId,
   configId, callSessionId, variables,
@@ -487,18 +437,14 @@ const InnerControls = ({
   variant, partnerName, onEnded, maxDurationMs,
 }) => {
   const plain = variant === 'plain';
-  // Plain (research) calls only. Hang-up pauses rather than ends, and the call is
-  // over when the student says so or when `maxDurationMs` has passed since their
-  // first click on Start — counted through pauses, and never shown.
+  // Plain (research) calls only. One call per page: it is over when the student
+  // hangs up, the line drops, or `maxDurationMs` has passed since their first
+  // click on Start — whichever comes first. The deadline is never shown.
   const [ended, setEnded] = useState(false);
   const endedRef = useRef(false);
   const deadlineTimerRef = useRef(null);
-  const chatGroupIdRef = useRef(null);
-  // Hume clears its message list on every disconnect, so a resumed call's turns
-  // count from zero again; this carries the earlier connections' count forward.
-  const turnBaseRef = useRef(0);
-  // Set once the first connect succeeds. The clock starts at the click, but a
-  // first attempt that fails has no recorder or call row yet to resume.
+  // Set once the socket opens, so the "line dropped" check below cannot fire on
+  // the idle `disconnected` status every call starts in.
   const openedRef = useRef(false);
   const voice = useVoice();
   const {
@@ -535,7 +481,6 @@ const InnerControls = ({
   // Hume's own chat id arrives after the socket opens; file it against the call
   // so a record here can be matched to a record in Hume's dashboard.
   useEffect(() => {
-    if (chatMetadata?.chatGroupId) chatGroupIdRef.current = chatMetadata.chatGroupId;
     const humeChatId = chatMetadata?.chatId;
     if (!humeChatId || !callSessionId || !configId) return;
     apiClient.post('/audio/session/call', {
@@ -566,15 +511,7 @@ const InnerControls = ({
     finalizeCall();
   };
 
-  // Plain mode's hang-up: drop the line but keep the call open for a resume.
-  const handlePause = () => {
-    setDismissed(true);
-    setRecording(false);
-    recorder.pause();
-    safeDisconnect();
-  };
-
-  // Plain mode's real end — the student's choice or the deadline, whichever comes first.
+  // Plain mode's end — hang-up, dropped line or deadline, whichever comes first.
   const handleFinish = () => {
     if (endedRef.current) return;
     endedRef.current = true;
@@ -591,15 +528,12 @@ const InnerControls = ({
   finishRef.current = handleFinish;
   useEffect(() => () => clearTimeout(deadlineTimerRef.current), []);
 
-  // A line that drops on its own (network, Hume) is treated like a hang-up: the
-  // recorder stops capturing and the student gets the continue-or-end choice.
+  // A line that drops on its own (network, Hume) ends the call too. Offering a
+  // fresh Start instead would open a second call over the first one's record.
   useEffect(() => {
-    if (!plain || endedRef.current || !startedAtRef.current) return;
-    if (status?.value === 'disconnected' || status?.value === 'error') {
-      recorder.pause();
-      setRecording(false);
-    }
-  }, [plain, status, recorder]);
+    if (!plain || endedRef.current || !openedRef.current) return;
+    if (status?.value === 'disconnected' || status?.value === 'error') finishRef.current();
+  }, [plain, status]);
 
   const finalizeCall = () => {
     (async () => {
@@ -662,7 +596,7 @@ const InnerControls = ({
         role,
         transcript,
         prosody,
-        turnIndex: turnBaseRef.current + i,
+        turnIndex: i,
         receivedAt: receivedAt.toISOString(),
         offsetMs: startedAt ? Math.max(0, receivedAt.getTime() - startedAt.getTime()) : null,
       });
@@ -714,22 +648,17 @@ const InnerControls = ({
   };
 
   /**
-   * Plain mode's Start and Continue share this. The first click starts the clock
-   * (before the socket even opens — the deadline is measured from the student's
-   * click), the recorder and the call row. A later click rejoins the same Hume
-   * chat group, so the partner hears the conversation so far, and picks the
-   * existing recording back up rather than starting a second one.
+   * Plain mode's Start. The deadline is measured from the student's click, before
+   * the socket even opens; a retry after a failed connect keeps the same clock.
    */
   const handlePlainConnect = async () => {
-    if (endedRef.current) return;
-    const resuming = openedRef.current;
+    if (endedRef.current || openedRef.current) return;
     if (!startedAtRef.current) {
       startedAtRef.current = new Date();
       if (maxDurationMs) {
         deadlineTimerRef.current = setTimeout(() => finishRef.current(), maxDurationMs);
       }
     }
-    turnBaseRef.current += seenTurnsRef.current;
     seenTurnsRef.current = 0;
 
     try {
@@ -737,7 +666,6 @@ const InnerControls = ({
         auth: { type: 'accessToken', value: accessToken },
         configId: humeConfigId,
         sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
-        ...(resuming && chatGroupIdRef.current ? { resumedChatGroupId: chatGroupIdRef.current } : {}),
       });
     } catch (e) {
       console.error('EVI connect failed', e);
@@ -747,11 +675,6 @@ const InnerControls = ({
     // The deadline can pass while the socket is still opening.
     if (endedRef.current) {
       safeDisconnect();
-      return;
-    }
-
-    if (resuming) {
-      setRecording(recorder.resume());
       return;
     }
 
@@ -771,9 +694,6 @@ const InnerControls = ({
 
   if (plain) {
     if (ended) return null;
-    if (!isActive && openedRef.current) {
-      return <PausedCallPanel onContinue={handleConnect} onFinish={handleFinish} disabled={disabled} />;
-    }
     return isActive ? (
       <PlainCallPanel
         status={status?.value}
@@ -784,7 +704,7 @@ const InnerControls = ({
         partnerName={partnerName}
         onMute={mute}
         onUnmute={unmute}
-        onEndCall={handlePause}
+        onEndCall={handleFinish}
       />
     ) : (
       <div className="flex flex-col items-center gap-2">

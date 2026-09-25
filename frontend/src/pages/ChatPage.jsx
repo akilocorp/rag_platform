@@ -1,8 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-24
- * @changed   Research calls end on a hidden 10-minute deadline from the first Start click
- *            (RESEARCH_CALL_MAX_MS); hang-up now offers continue-or-end. End screen reads "Please continue to
+ * @changed   Removed the continue-or-end choice on hang-up: End conversation ends the call. The hidden
+ *            10-minute deadline stays. UI version bumped to plain-call-v3.
+ * Prior: Research calls end on a hidden 10-minute deadline from the first Start click
+ *            (RESEARCH_CALL_MAX_MS); hang-up offered continue-or-end. End screen reads "Please continue to
  *            the next question." UI version bumped to plain-call-v2.
  * Prior: Research-mode audio calls render ResearchCallScreen: fixed "Conversation with <name> (AI
  *            conversation partner)" header, one topic line from `?topic=`, EVIAudioControls' plain variant,
@@ -770,10 +772,10 @@ const useTypewriter = (text, { speed = 18, enabled = true } = {}) => {
 // Version of the research-mode call screen. Filed on every call record (as the
 // `ui_version` variable) so a study can confirm both sessions saw the same screen —
 // bump it whenever ResearchCallScreen or EVIAudioControls' plain variant changes.
-const RESEARCH_CALL_UI_VERSION = 'plain-call-v2';
+const RESEARCH_CALL_UI_VERSION = 'plain-call-v3';
 
-// A research call ends this long after the participant first clicks Start, paused
-// or not. Never displayed — the study asked for no visible timer.
+// A research call ends this long after the participant first clicks Start.
+// Never displayed — the study asked for no visible timer.
 const RESEARCH_CALL_MAX_MS = 10 * 60 * 1000;
 
 // "Conflict Practice — Alex" → "Alex": the part after a dash is the persona's name,
