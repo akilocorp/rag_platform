@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-17
-# @changed   `/results` carries the professor's most recent TEST run as one more row, labelled
+# @updated   2026-09-26
+# @changed   `/results` flags instructor Preview runs: a group made up only of the owner/collaborators
+#            is `is_preview` and counted into no class number; in a mixed group each instructor row
+#            is `is_instructor` and their private pick stays out of the solo tally.
+#            Prior: `/results` carries the professor's most recent TEST run as one more row, labelled
 #            "AI test" and flagged `is_test`. The class loop still skips `_t` rooms; the row is
 #            appended after the sort and after every denominator is taken, so no percentage,
 #            tally or count on the page moves. Row construction moved into `_room_row` so the
@@ -63,7 +66,7 @@ from flask import Blueprint, jsonify, current_app, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models.config import Config
-from src.utils.config_access import editable_filter
+from src.utils.config_access import editable_filter, can_edit
 from routes.group_chat_sockets import start_test_run, trigger_pairing
 from src.managers import exercise_state as ex_state
 from src.managers import exercise_templates
@@ -263,7 +266,7 @@ def _class_label(room_id):
     return f"Group {room_id.rsplit('_g', 1)[-1]}" if "_g" in room_id else room_id
 
 
-def _room_row(doc, answer, label, is_test=False):
+def _room_row(doc, answer, label, is_test=False, config_doc=None):
     """One room as the results table reads it: its roster, each private pick, and
     the name the group committed to.
 
@@ -278,6 +281,10 @@ def _room_row(doc, answer, label, is_test=False):
         pick = solo_votes.get(entry.get("uid"))
         students.append({
             "name": entry.get("name") or "",
+            # The owner or a collaborator sitting in a class group (Preview runs use
+            # real groups, not `_t` rooms). Their private pick stays out of the
+            # class tally; the page tags the row.
+            "is_instructor": bool(config_doc) and can_edit(config_doc, entry.get("uid")),
             # Which slice of the case they were reading — the column that makes
             # a wrong individual answer legible rather than just wrong.
             "role": entry.get("role") or "",
@@ -299,6 +306,9 @@ def _room_row(doc, answer, label, is_test=False):
         # out of the class summary and out of the "is anyone still playing" poll —
         # an abandoned test room sits at its last phase forever.
         "is_test": is_test,
+        # Every member was an instructor: a Preview run, not a class group. Kept on
+        # the page but, like the AI test row, counted into nothing.
+        "is_preview": bool(students) and all(s["is_instructor"] for s in students),
         "phase": doc.get("phase") or "waiting",
         "group_choice": chosen,
         # True/False against the pack's answer key, or None when there is nothing
@@ -358,15 +368,18 @@ def get_results(config_id):
         if room_id.startswith(f"{config_id}{TEST_ROOM_MARKER}"):
             continue
 
-        row = _room_row(doc, answer, _class_label(room_id))
+        row = _room_row(doc, answer, _class_label(room_id), config_doc=config_doc)
         rooms.append(row)
+        # An instructor-only Preview run is shown but moves no class number.
+        if row["is_preview"]:
+            continue
 
         # The class tallies, read off the room that was just built. They live out
         # here rather than inside `_room_row` because the AI test row calls the
         # same helper and must not move a single one of these counters.
         for student in row["students"]:
             pick = student["solo_pick"]
-            if pick:
+            if pick and not student["is_instructor"]:
                 solo_counts[pick] = solo_counts.get(pick, 0) + 1
                 students_total += 1
 
@@ -382,9 +395,10 @@ def get_results(config_id):
 
     rooms.sort(key=lambda r: r["label"])
     # Every denominator below describes the CLASS, so both are taken before the
-    # simulated row is appended.
-    decided = [r for r in rooms if r["group_choice"]]
-    class_room_count = len(rooms)
+    # simulated row is appended — and without instructor Preview runs.
+    class_rooms = [r for r in rooms if not r["is_preview"]]
+    decided = [r for r in class_rooms if r["group_choice"]]
+    class_room_count = len(class_rooms)
 
     # The professor's most recent rehearsal, shown as one more team so the AI's
     # three private picks and its final answer can go on a slide. Appended after

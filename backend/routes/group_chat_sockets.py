@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-09-26
-# @changed   Breakout lobby re-broadcasts on every room phase change (`on_phase_change` hook), fixing
+# @changed   Leaving or switching breakout groups before the start now takes the student off the old
+#            group's roster (`_forget_elsewhere`), so Results stops listing them in two groups.
+#            Prior: Breakout lobby re-broadcasts on every room phase change (`on_phase_change` hook), fixing
 #            finished rooms that still read "in progress, 0/3, joinable" and then refused the join.
 #            Prior: Fixed hiring students hanging forever on "Setting up your exercise…".
 #            `join_investigation_pool` still required template == "investigation", but d069d2e moved
@@ -664,6 +666,24 @@ def register_socket_events(socketio, app):
                 return rid.rsplit("_", 1)[0]
         return None
 
+    def _forget_elsewhere(config_id, me_config, uid, keep=None):
+        """Drop `uid` from the roster of every NOT-yet-started group of this config
+        except `keep`. Covers switching groups and close-the-tab-then-pick-another
+        alike; `forget_participant` itself refuses once a room has started, so real
+        participation is never erased. Not called on disconnect: a flaky reconnect
+        must not re-deal roles under a waiting room."""
+        try:
+            num_rooms = max(1, int(me_config.get("num_rooms") or 5))
+        except (TypeError, ValueError):
+            num_rooms = 5
+        for i in range(1, num_rooms + 1):
+            rid = _room_id_for(config_id, i)
+            if rid == keep:
+                continue
+            st = ex_state.get_exercise(rid)
+            if st is not None:
+                st.forget_participant(uid)
+
     def _bootstrap_exercise(room_id, config_doc, create_session=False):
         """Create/rehydrate the ExerciseState for a room and start its phase machine.
 
@@ -944,6 +964,7 @@ def register_socket_events(socketio, app):
             return
 
         _drop_from_rooms(uid)   # switching rooms must not leave a ghost behind
+        _forget_elsewhere(config_id, me_config, uid, keep=room_id)
         _room_members.setdefault(room_id, {})[uid] = display_name or uid
 
         leave_room(_lobby_channel(config_id))
@@ -963,7 +984,10 @@ def register_socket_events(socketio, app):
             return
         config_doc = _load_config_doc(config_id)
         if config_doc:
-            _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+            me_config = _manager_exercise_config(config_doc)
+            # An explicit leave before the start means they were never in this group.
+            _forget_elsewhere(config_id, me_config, uid)
+            _broadcast_lobby(config_id, me_config)
 
     @socketio.on('reset_breakout_room')
     def handle_reset_breakout_room(data):

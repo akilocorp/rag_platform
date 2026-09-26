@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-09-26
-# @changed   Every phase transition now fires an optional `on_phase_change` hook from _broadcast_phase,
+# @changed   `forget_participant(uid)`: drops a student from a not-yet-started room's roster (roles
+#            re-dealt), so switching groups before the start no longer lists them in both on Results.
+#            Prior: Every phase transition now fires an optional `on_phase_change` hook from _broadcast_phase,
 #            so the sockets layer can keep the breakout lobby in step with each room's real phase.
 #            Prior: The Post Outcome Discussion now ends on a SECOND ballot, not on the clock alone: the last
 #            `revision_seconds` (default 60) of round 2 open `revision_ballot`, where the decider enters
@@ -792,6 +794,31 @@ class ExerciseState:
                 "name": name or f"Student {len(self.roster) + 1}",
                 "role": role,
             })
+            self._persist({"roster": self.roster})
+            return True
+
+    def forget_participant(self, uid: str) -> bool:
+        """Take a student back off the roster — only while the room hasn't started.
+
+        The roster is what the Results page lists a group's members from, and it
+        used to only ever grow: someone who stepped into Group 1, backed out, and
+        started in Group 2 was listed under both. Once a room has started, anyone
+        on the roster took part and stays. Roles are re-dealt in join order so the
+        next joiner can't be handed a role someone still holds; nobody has seen a
+        role yet in `waiting`, so re-dealing is invisible. Returns True if removed.
+        """
+        if not uid:
+            return False
+        with self._lock:
+            if self._phase != PHASE_WAITING:
+                return False
+            kept = [e for e in self.roster if e.get("uid") != uid]
+            if len(kept) == len(self.roster):
+                return False
+            roles = self._role_names()
+            for i, e in enumerate(kept):
+                e["role"] = roles[i % len(roles)] if roles else None
+            self.roster = kept
             self._persist({"roster": self.roster})
             return True
 

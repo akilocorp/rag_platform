@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-17  @changed The professor's last TEST run renders as one more team
+/* @language JSX  @updated 2026-09-26  @changed Instructor Preview runs (`is_preview`) render with an "instructor
+   preview" caption and are held out of the class summary and live poll like the AI test row; instructor rows in a
+   mixed group get an "instructor" tag. Prior: The professor's last TEST run renders as one more team
    at the bottom of "Group by group", pilled "AI test" instead of "Group N". Rows flagged `is_test` are
    held out of the class-summary request and out of the still-live poll check, since an abandoned test
    room keeps its last phase forever and would otherwise poll the page until it was closed.
@@ -72,15 +74,15 @@ const Avatar = ({ name }) => (
 );
 
 // A row-block's identity pill. A real group gets the neutral gray chip; the
-// professor's simulated run gets the page's orange and a "simulated" caption, so
-// a row that is not part of the class can never be read as one at a glance.
+// professor's simulated run and instructor-only Preview runs get the page's orange
+// and a caption, so a row that is not part of the class can never be read as one.
 const RoomLabel = ({ room }) => (
-  room.is_test ? (
+  room.is_test || room.is_preview ? (
     <span className="inline-flex flex-col items-start gap-0.5">
       <span className="inline-flex px-2.5 py-1 rounded-lg bg-[#F9D0C4]/50 text-[#C2410C] text-xs font-bold whitespace-nowrap">
         {room.label}
       </span>
-      <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">simulated</span>
+      <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">{room.is_test ? 'simulated' : 'instructor preview'}</span>
     </span>
   ) : (
     <span className="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold whitespace-nowrap">
@@ -199,7 +201,7 @@ export default function ManagerExerciseResultsPage() {
       if (cancelled) return;
       // Only real groups can still be playing. A test run that was killed mid-phase
       // never reaches `done`, and counting it here polls the page forever.
-      const live = (d?.rooms || []).some((r) => !r.is_test && r.phase !== 'done');
+      const live = (d?.rooms || []).some((r) => !r.is_test && !r.is_preview && r.phase !== 'done');
       if (!d || live) timer = setTimeout(tick, POLL_MS);
     };
     tick();
@@ -209,14 +211,14 @@ export default function ManagerExerciseResultsPage() {
   const loadClassSummary = useCallback(async (d) => {
     // Nothing to summarize until a REAL group has decided something — a page
     // holding only the professor's rehearsal has no class to describe.
-    if (!d || !(d.rooms || []).some((r) => !r.is_test && r.group_choice)) return;
+    if (!d || !(d.rooms || []).some((r) => !r.is_test && !r.is_preview && r.group_choice)) return;
     setClassLoading(true);
     setClassError('');
     try {
       const res = await apiClient.post(`/manager-exercise/${configId}/class-summary`, {
         // The simulated team is not part of the class and must not be described as
         // though it were — it is on the page for comparison, not for the average.
-        rooms: (d.rooms || []).filter((r) => !r.is_test),
+        rooms: (d.rooms || []).filter((r) => !r.is_test && !r.is_preview),
         answer: d.answer, template: d.template,
       });
       setClassSummary(res.data.summary || '');
@@ -372,8 +374,9 @@ export default function ManagerExerciseResultsPage() {
             <p className="px-6 pb-4 text-xs text-gray-400">
               Hit <span className="font-bold text-[#C2410C]">See summary</span> on any group to read what they
               actually discussed and what came out of their debrief. A row pilled
-              <span className="font-bold text-[#C2410C]"> AI test</span> is your last simulated run — shown for
-              comparison, and left out of every number above.
+              <span className="font-bold text-[#C2410C]"> AI test</span> is your last simulated run, and one captioned
+              <span className="font-bold text-[#C2410C]"> instructor preview</span> is a group only instructors played —
+              both shown for comparison and left out of every number above.
             </p>
             {rooms.length === 0 && <p className="px-6 pb-6 text-sm text-gray-400">No group has started this exercise yet.</p>}
             {rooms.length > 0 && (
@@ -434,6 +437,9 @@ export default function ManagerExerciseResultsPage() {
                                 <div className="flex items-center gap-2.5">
                                   <Avatar name={st.name} />
                                   <span className="font-semibold text-[#222]">{st.name || '—'}</span>
+                                  {st.is_instructor && (
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">instructor</span>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-gray-500">{st.role || '—'}</td>
