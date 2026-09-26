@@ -1,7 +1,7 @@
 /**
  * @language JavaScript (React JSX)
- * @updated 2026-07-15
- * @changed Mute "Forgot Password?" link to lighter gray so hierarchy stays on "Keep me logged in"
+ * @updated 2026-09-26
+ * @changed Empty-login error names the real field (email or username); spinner no longer shows an I-beam cursor.
  */
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
@@ -61,7 +61,7 @@ const LoginPage = () => {
 
   const validate = () => {
     const newErrors = {};
-    if (!username.trim()) newErrors.username = 'Email is required.';
+    if (!username.trim()) newErrors.username = 'Email or username is required.';
     if (!password) newErrors.password = 'Password is required.';
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -127,7 +127,7 @@ const LoginPage = () => {
   };
 
   const LoadingSpinner = () => (
-    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-gray-900 border-r-transparent align-[-0.125em] mr-2"></div>
+    <div className="inline-block h-4 w-4 cursor-default select-none animate-spin rounded-full border-2 border-solid border-gray-900 border-r-transparent align-[-0.125em] mr-2"></div>
   );
 
   return (
@@ -222,7 +222,7 @@ const LoginPage = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-[0.98] mt-2 ${
+              className={`w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center select-none disabled:cursor-default transition-all active:scale-[0.98] mt-2 ${
                 isFormValid()
                   ? 'bg-[#FA6C43] hover:bg-[#E55B34] text-white'
                   : 'bg-[#F9D0C4] hover:bg-[#F4BFB0] text-gray-900'

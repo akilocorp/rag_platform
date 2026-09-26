@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-18
-// @changed   The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
+// @updated   2026-09-26
+// @changed   Cancel and a new top "Back to my AIs" link both return to /config_list (Cancel used to open
+//            the chat); Manager Exercise blurb no longer says "printed packets"; usage-tier options stop
+//            repeating the cap the tier name already carries.
+//            Prior: The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
 //            `&name=${e://Field/name}` (or a pasted question pipe) to the iframe src, and the generated
 //            HTML re-derives as that list is edited instead of being frozen at modal-open.
 //            Prior: "Offer this class as a template" toggle (+ a one-line description shown on the template
@@ -45,7 +48,7 @@ import AvatarSelector from '../components/AvatarSelector';
 // those surfaces — a group chat, a video assignment, a lab and the manager exercise
 // each open on their own framing — so both fields are chat-only.
 const isChatLike = (t) => t === 'chat' || t === 'avatar';
-import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask, FaChevronRight, FaUserPlus } from 'react-icons/fa';
+import { FaInfoCircle, FaTrash, FaPlus, FaUsers, FaRobot, FaListAlt, FaCode, FaCopy, FaCheck, FaSpinner, FaUserTie, FaFileAlt, FaCheckCircle, FaUpload, FaFlask, FaChevronRight, FaUserPlus, FaArrowLeft } from 'react-icons/fa';
 import CollaboratorsModal from '../components/CollaboratorsModal';
 import { SIMULATION_TEMPLATES } from '../data/simulationTemplates';
 import VideoScoringEditor from '../components/VideoScoringEditor';
@@ -308,17 +311,6 @@ const EditConfigPage = () => {
       setShowNotification(false);
       setNotificationMessage('');
     }, 3000);
-  };
-
-  const navigateToThisAgentChat = () => {
-    const id = config.config_id || config._id;
-    if (id) {
-      if (config.bot_type === 'group_chat') navigate(`/group-chat/${id}`);
-      else if (config.bot_type === 'video_analysis') navigate(`/video-dashboard/${id}`);
-      else navigate(`/chat/${id}`, { state: { fromEdit: true } });
-    } else {
-      navigate('/config_list');
-    }
   };
 
   const handleChange = (e) => {
@@ -954,7 +946,7 @@ const EditConfigPage = () => {
         >
           <option value="">Select a tier…</option>
           {usageTiers.map(t => (
-            <option key={t.id} value={t.id}>{t.name} ({t.messages_per_student}/student)</option>
+            <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
       </div>
@@ -980,8 +972,16 @@ const EditConfigPage = () => {
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
 
-        {/* Faculty mode switch, top-right — mirrors the dashboard toggle. */}
-        <div className="flex justify-end mb-4">
+        {/* Faculty mode switch, top-right — mirrors the dashboard toggle. Top-left is the
+            way back to the assistant list, so nobody has to scroll to Cancel to leave. */}
+        <div className="flex items-center justify-between mb-4">
+          <button
+            type="button"
+            onClick={() => navigate('/config_list')}
+            className="inline-flex items-center gap-2 rounded-lg -ml-2 px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
+          >
+            <FaArrowLeft className="text-xs" /> Back to my AIs
+          </button>
           <ConfigModeToggle />
         </div>
 
@@ -1302,7 +1302,7 @@ const EditConfigPage = () => {
                     <p className="text-[11px] text-gray-400 mb-6">
                       {investigating
                         ? "The group names one person, and there's no debrief — everything below is what ACTR needs to run the room and what the results page reads the answer against."
-                        : 'The decision itself happens offline on printed packets. Everything below is what ACTR needs for the debrief afterwards.'}
+                        : 'The decision happens live in the group discussion. Everything below is what ACTR needs for the debrief afterwards.'}
                     </p>
 
                     {/* Test run. Sits at the top of the section because it is the
@@ -2305,7 +2305,7 @@ const EditConfigPage = () => {
                 <button type="button" onClick={() => navigate(config.bot_type === 'video_analysis' ? `/video-dashboard/${config.config_id}` : `/responses/${config.config_id}`)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
                   <FaListAlt className="text-sm text-gray-500" /><span>{config.bot_type === 'video_analysis' ? 'Dashboard' : 'View Responses'}</span>
                 </button>
-                <button type="button" onClick={navigateToThisAgentChat} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
+                <button type="button" onClick={() => navigate('/config_list')} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
                 <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">
                   {isLoading ? 'Saving...' : 'Save Changes'}
                 </button>

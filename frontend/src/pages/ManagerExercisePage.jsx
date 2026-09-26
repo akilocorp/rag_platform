@@ -1,4 +1,7 @@
-/* @language JSX  @updated 2026-09-16  @changed The "waiting for your instructor" screen gets a way out.
+/* @language JSX  @updated 2026-09-26  @changed Exits: "Back to lobby" on the timeout screen now clears `expired`
+   (it was a no-op), the Post Outcome header gets a Leave (confirm + quit_exercise → home), and the
+   professor-paired "Your exercise finished." screen gets a home button.
+   Prior banner: @language JSX  @updated 2026-09-16  @changed The "waiting for your instructor" screen gets a way out.
    It is the one screen in the exercise a student may leave — waiting is not a stage anyone else's
    clock depends on, and their place is held server-side against their uid. So the button just
    navigates: it does NOT emit `leave_investigation_pool`, and `pool` stays out of the back-nav
@@ -725,6 +728,21 @@ const ManagerExercisePage = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // In-product exit from the Post Outcome discussion (no lobby to return to there).
+  // Same confirm and `quit_exercise` as the browser-Back guard, then home.
+  const quitToHome = () => {
+    const wantsToQuit = window.confirm(
+      "Leave the exercise?\n\n"
+      + "You won't be able to rejoin your group, and they'll carry on without you."
+    );
+    if (!wantsToQuit) return;
+    socketRef.current?.emit('quit_exercise', {
+      room_id: roomIdRef.current, uid: userIdRef.current,
+    });
+    guardArmedRef.current = false;
+    navigate(dashboardPath());
+  };
+
   // M4 fix: breakout room ids are deterministic (`{config_id}_g{index}`), so the
   // per-room "premise seen" flag written below would otherwise stick forever and
   // skip the prelude on every later run of that group — even after an instructor
@@ -1221,8 +1239,12 @@ const ManagerExercisePage = () => {
   };
 
   // Step back out to the lobby before the exercise begins, freeing the slot.
+  // Leave the current breakout room and return to the lobby. Clears `expired` too:
+  // the timeout view is checked before every phase, so leaving it set kept the
+  // student pinned on "Time ran out" no matter how often they pressed Back.
   const leaveBreakout = () => {
     socketRef.current?.emit('leave_breakout_room', { uid: userIdRef.current });
+    setExpired(false);
     setRoomId(null);
     roomIdRef.current = null;
     setRoster([]);
@@ -2066,6 +2088,15 @@ const ManagerExercisePage = () => {
                   <FaArrowLeft className="text-xs" /> Back to lobby
                 </button>
               )}
+              {/* ...but the finished screen still needs a way out: home, not the lobby. */}
+              {flow.prof_paired && (
+                <button
+                  onClick={() => navigate(dashboardPath())}
+                  className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-6 py-3 shadow-sm transition-all active:scale-95"
+                >
+                  <FaArrowLeft className="text-xs" /> {homeLabel()}
+                </button>
+              )}
             </div>
 
             {/* M9: the payoff of having captured a private answer — what this
@@ -2410,6 +2441,16 @@ const ManagerExercisePage = () => {
               className="flex-shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
             >
               <FaArrowLeft className="text-xs" /> <span className="hidden sm:inline">Back</span>
+            </button>
+          )}
+          {/* Post Outcome wrap-up had no exit at all; this one quits (with a confirm) and goes home. */}
+          {isDebrief && (
+            <button
+              onClick={quitToHome}
+              title="Leave the exercise"
+              className="flex-shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors active:scale-95"
+            >
+              <FaArrowLeft className="text-xs" /> <span className="hidden sm:inline">Leave</span>
             </button>
           )}
           <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
