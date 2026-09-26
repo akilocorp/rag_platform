@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-16
-# @changed   Fixed hiring students hanging forever on "Setting up your exercise…".
+# @updated   2026-09-26
+# @changed   Breakout lobby re-broadcasts on every room phase change (`on_phase_change` hook), fixing
+#            finished rooms that still read "in progress, 0/3, joinable" and then refused the join.
+#            Prior: Fixed hiring students hanging forever on "Setting up your exercise…".
 #            `join_investigation_pool` still required template == "investigation", but d069d2e moved
 #            the client to `usePool = !config.owned` — so every hiring student emitted into a handler
 #            that returned without emitting anything back, and the page never left phase 'loading'.
@@ -355,8 +357,23 @@ def register_socket_events(socketio, app):
             """Exercise reached `done` → ACTR's closing message."""
             socketio.start_background_task(_wrapup, st.room_id)
 
+        def on_phase_change(st):
+            """Any phase transition → re-send the lobby for this room's config.
+
+            The lobby used to refresh only on join/leave/start/reset, so a room that
+            moved on (debrief timing out into `done`, most often with nobody left in
+            it) kept showing "in progress, joinable" until the join was refused.
+            Test rooms (`_t…`) never appear in the lobby, so they're skipped."""
+            config_id, suffix = st.room_id.rsplit("_", 1)
+            if not suffix.startswith("g"):
+                return
+            doc = _load_config_doc(config_id)
+            if doc:
+                _broadcast_lobby(config_id, _manager_exercise_config(doc))
+
         # No round-0 or round-1 hook exists. That absence IS the feature.
         state.hooks = {
+            "on_phase_change": on_phase_change,
             "on_ballot_open": on_ballot_open,
             "on_revision_open": on_revision_open,
             "on_pick_resolved": on_pick_resolved,

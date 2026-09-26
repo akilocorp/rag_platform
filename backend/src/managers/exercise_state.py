@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   The Post Outcome Discussion now ends on a SECOND ballot, not on the clock alone: the last
+# @updated   2026-09-26
+# @changed   Every phase transition now fires an optional `on_phase_change` hook from _broadcast_phase,
+#            so the sockets layer can keep the breakout lobby in step with each room's real phase.
+#            Prior: The Post Outcome Discussion now ends on a SECOND ballot, not on the clock alone: the last
 #            `revision_seconds` (default 60) of round 2 open `revision_ballot`, where the decider enters
 #            the answer the group would give now that it has read the outcome. It never overwrites
 #            `chosen_candidate` — the original stands, the revision is recorded beside it as
@@ -1499,6 +1501,10 @@ class ExerciseState:
             "server_now_ts": time.time(),
             "round": self.round,   # lets the client label the round without a full snapshot
         })
+        # Lets the sockets layer re-send the breakout lobby. Without it the lobby only
+        # heard about joins/leaves, so a room that timed out into `done` with nobody
+        # watching still read "in progress, joinable" and then refused the join.
+        self._run_hook("on_phase_change")
 
     # ==================================================================
     # THE PICK (collective ballot)

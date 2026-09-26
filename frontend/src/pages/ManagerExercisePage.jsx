@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-26  @changed Exits: "Back to lobby" on the timeout screen now clears `expired`
+/* @language JSX  @updated 2026-09-26  @changed Lobby: a started-but-unoccupied group reads "No one here right now"
+   instead of "Empty — be the first", and a refused join re-fetches the room list so a stale card corrects itself.
+   Prior: Exits: "Back to lobby" on the timeout screen now clears `expired`
    (it was a no-op), the Post Outcome header gets a Leave (confirm + quit_exercise → home), and the
    professor-paired "Your exercise finished." screen gets a home button.
    Prior banner: @language JSX  @updated 2026-09-16  @changed The "waiting for your instructor" screen gets a way out.
@@ -1050,6 +1052,9 @@ const ManagerExercisePage = () => {
           setRoomError(d.reason === 'finished'
             ? 'That group has already finished — pick another.'
             : 'That group is full — pick another.');
+          // Safety net: a refused join means this client's room list was stale, so
+          // re-fetch it and let the card flip to Finished/full straight away.
+          socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
         });
 
         // Faculty reset landed: the lobby is re-broadcast by the server, so just
@@ -1808,7 +1813,9 @@ const ManagerExercisePage = () => {
                           )}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate">
-                          {r.names.length ? r.names.join(', ') : 'Empty — be the first'}
+                          {/* A started room with nobody in it isn't "empty" in the be-the-first
+                              sense — it has a discussion behind it — so say so plainly. */}
+                          {r.names.length ? r.names.join(', ') : r.started ? 'No one here right now' : 'Empty — be the first'}
                         </div>
                       </div>
                       <span className={`flex-shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
