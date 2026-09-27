@@ -1,13 +1,17 @@
-/* @language JSX  @updated 2026-08-15  @changed WhatsApp-style quote-reply: hover reply affordance, a composer chip, a quote block above each bubble, and click-to-scroll to the parent — so a message shows who it's answering in a 3+ person thread. */
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+/* @language JSX  @updated 2026-09-27  @changed Dropped the unused useCallback import left over from the textarea auto-grow.
+   @changed Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
+   @changed Prior: Composer swapped from a plain textarea to the unified PromptInput (components/ui/ai-chat-input) — same landing-page look now used everywhere; the reply-preview chip moved onto PromptInput's quoteReply prop.
+   @changed Prior: WhatsApp-style quote-reply: hover reply affordance, a composer chip, a quote block above each bubble, and click-to-scroll to the parent — so a message shows who it's answering in a 3+ person thread. */
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaSpinner, FaPaperPlane, FaUsers, FaArrowLeft, FaReply, FaTimes } from 'react-icons/fa';
+import { FaSpinner, FaUsers, FaArrowLeft, FaReply } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
 import { renderMarkdown } from '../utils/markdown';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
 import ChatSidebar from '../components/SideBar.jsx';
+import { PromptInput } from '../components/ui/ai-chat-input';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
@@ -165,15 +169,8 @@ const GroupChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-expand textarea
-  const adjustInputHeight = useCallback(() => {
-    const ta = inputRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
-  }, []);
-
-  useEffect(() => { adjustInputHeight(); }, [input, adjustInputHeight]);
+  // Auto-expand is now owned entirely by PromptInput (components/ui/ai-chat-input) —
+  // it mirrors its editable DOM node onto inputRef and manages its own height.
 
   const handleCancelQueue = () => {
     if (socketRef.current) {
@@ -183,13 +180,14 @@ const GroupChatPage = () => {
     navigate('/config_list');
   };
 
-  const handleSend = () => {
-    if (!input.trim() || !socketRef.current) return;
+  const handleSend = (text) => {
+    const toSend = (typeof text === 'string' ? text : input).trim();
+    if (!toSend || !socketRef.current) return;
 
     socketRef.current.emit('send_message', {
       room_id: roomId,
       uid: userIdRef.current,
-      text: input,
+      text: toSend,
       reply_to: replyingTo?.mid || null,
     });
 
@@ -430,45 +428,18 @@ const GroupChatPage = () => {
 
         {/* Input Area */}
         <footer className="p-4 sm:p-6 lg:px-12 xl:px-20 bg-white border-t border-gray-200">
-          {/* Reply preview chip — shows what the next message will quote, with a cancel. */}
-          {replyingTo && (
-            <div className="mb-3 flex items-center gap-3 rounded-xl border-l-2 border-[#FA6C43] bg-[#F9D0C4]/20 pl-3 pr-2 py-2 animate-chip-in">
-              <div className="flex-1 min-w-0">
-                <span className="block text-[11px] font-bold text-[#C2410C] truncate">Replying to {replyingTo.sender}</span>
-                <span className="block text-[12px] text-gray-500 truncate">{replyingTo.text}</span>
-              </div>
-              <button
-                onClick={() => setReplyingTo(null)}
-                title="Cancel reply"
-                className="p-1.5 rounded-lg text-gray-400 hover:text-[#FA6C43] hover:bg-white transition-colors"
-              >
-                <FaTimes className="text-sm" />
-              </button>
-            </div>
-          )}
-          <div className="w-full relative flex items-center gap-3">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Message the space..."
-              rows={1}
-              className="flex-1 min-h-[52px] max-h-[200px] resize-none overflow-y-auto scrollbar-hide bg-[#F0F6FB] text-[#222] placeholder-gray-500 border border-gray-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-[#FA6C43]/50 focus:border-[#FA6C43]/50 transition-all"
-            />
-            <button 
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="p-4 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-2xl disabled:opacity-50 transition-all active:scale-95"
-            >
-              <FaPaperPlane className="text-lg" />
-            </button>
-          </div>
+          <PromptInput
+            value={input}
+            onChange={setInput}
+            inputRef={inputRef}
+            placeholder="Message the space..."
+            alwaysExpanded
+            onSubmit={handleSend}
+            quoteReply={replyingTo ? { sender: replyingTo.sender, text: replyingTo.text } : null}
+            onCancelQuoteReply={() => setReplyingTo(null)}
+            showAttach={false}
+            showVoice={false}
+          />
         </footer>
 
       </div>

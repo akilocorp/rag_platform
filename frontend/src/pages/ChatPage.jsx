@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-24
- * @changed   Removed the continue-or-end choice on hang-up: End conversation ends the call. The hidden
+ * @updated   2026-09-27
+ * @changed   Composer is the unified PromptInput (always expanded); dropped the dead showOptions/optionsRef
+ *            "Live Drills" menu state, which nothing had rendered since before the swap.
+ * Prior: Removed the continue-or-end choice on hang-up: End conversation ends the call. The hidden
  *            10-minute deadline stays. UI version bumped to plain-call-v3.
  * Prior: Research calls end on a hidden 10-minute deadline from the first Start click
  *            (RESEARCH_CALL_MAX_MS); hang-up offered continue-or-end. End screen reads "Please continue to
@@ -15,6 +17,11 @@
  * Prior: Text turns now post the launch URL's survey variables as `session_variables`, so a Qualtrics
  *            condition or prior answer reaches the text bot's prompt the way it already reached the voice
  *            persona. `voiceSession` renamed `launchVars` — it is no longer voice-only.
+ * Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill
+ *            mid-conversation.
+ * Prior: Composer swapped from ChatComposer to the unified PromptInput (components/ui/ai-chat-input) —
+ *            same landing-page look everywhere now, equation button/attach/voice/model-picker/quick-prompt
+ *            fan all ported over as PromptInput's "external mode" props.
  * Prior: Drag-and-drop overlay's dashed border now breathes via animate-dropzone-pulse instead of
  *            sitting static while a file is dragged over the page.
  * Prior: isCallMode recolored again: #1F1F1F was a dark bg meant for white text — swapped for #F8FAFC,
@@ -55,7 +62,7 @@ import { readNdjson } from '../utils/readNdjson';
 import StreamInterruptedPage from '../components/StreamInterruptedPage';
 import ToolStatusPill from '../components/ToolStatusPill';
 import FacilitatorBlock, { FacilitatorPending } from '../facilitator/FacilitatorBlock';
-import ChatComposer from '../components/ChatComposer';
+import { PromptInput, CHAT_MODEL_OPTIONS } from '../components/ui/ai-chat-input';
 import DefinitionPopover from '../components/DefinitionPopover';
 import EVIAudioControls from '../components/EVIAudioControls';
 import { getModelDisplayName } from '../utils/modelNames';
@@ -873,7 +880,6 @@ const ChatPage = () => {
   // Latched once a turn fails; only a reload clears it, which is the point.
   const [streamInterrupted, setStreamInterrupted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [isSending, setIsSending] = useState(false);
   // Tailored follow-up prompts shown in the send-button hover fan.
   // Backend regenerates these from the latest AI reply; default until then.
@@ -965,7 +971,6 @@ const ChatPage = () => {
   const inputRef = useRef(null);
   const attachInputRef = useRef(null);
   const imageInputRef = useRef(null);
-  const optionsRef = useRef(null);
   const qualtricsSentCountRef = useRef(0); // Tracks how many messages have been sent to Qualtrics
 
   const isAuthenticated = !!getToken();
@@ -1022,17 +1027,8 @@ const ChatPage = () => {
     currentChatIdRef.current = chatId;
   }, [chatId]);
 
-  // Auto-expand textarea as user types
-  const adjustInputHeight = useCallback(() => {
-    const ta = inputRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
-  }, []);
-
-  useEffect(() => {
-    adjustInputHeight();
-  }, [input, adjustInputHeight]);
+  // Auto-expand is now owned entirely by PromptInput (components/ui/ai-chat-input) —
+  // it mirrors its editable DOM node onto inputRef and manages its own height.
 
   // --- 1. INITIALIZATION: FETCH USER ---
   useEffect(() => {
@@ -1916,16 +1912,6 @@ const ChatPage = () => {
     } catch { /* not in an iframe */ }
   }, [callSessionId, chatId, configId]);
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (optionsRef.current && !optionsRef.current.contains(e.target)) {
-        setShowOptions(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   // --- 6. QUALTRICS INTEGRATION: Send messages to Parent Window ---
   useEffect(() => {
     if (messages.length === 0) return;
@@ -2493,12 +2479,19 @@ const ChatPage = () => {
                             });
 
                             const attachments = chips.length > 0 ? chips : null;
+                            const showModelPicker = !isResearchMode && !!(config?.is_playground || config?.is_personal);
                             return (
-                                <ChatComposer
-                                    input={input}
-                                    setInput={setInput}
+                                <PromptInput
+                                    value={input}
+                                    onChange={setInput}
                                     inputRef={inputRef}
-                                    onSend={handleSendWithAnimation}
+                                    placeholder="Type a message..."
+                                    alwaysExpanded
+                                    showEquation
+                                    // PromptInput's own meta ({model, effort, attachments}) is dropped here —
+                                    // handleSendWithAnimation's 2nd arg is reserved for facilitator-widget
+                                    // answers (see onFacilitatorSubmit below), not composer metadata.
+                                    onSubmit={(text) => handleSendWithAnimation(text)}
                                     onPaste={handlePaste}
                                     isLoading={isLoading}
                                     isSending={isSending}
@@ -2511,13 +2504,10 @@ const ChatPage = () => {
                                     onImageChange={handleImageChange}
                                     showVoice={!config?.bot_type || config?.bot_type === 'chat'}
                                     onVoiceTranscribed={handleVoiceTranscribed}
-                                    showOptions={showOptions}
-                                    setShowOptions={setShowOptions}
-                                    optionsRef={optionsRef}
-                                    showModelPicker={!isResearchMode && !!(config?.is_playground || config?.is_personal)}
+                                    models={showModelPicker ? CHAT_MODEL_OPTIONS : []}
                                     model={sessionModel || config?.model_name || ''}
                                     onModelChange={setSessionModel}
-                                    attachments={attachments}
+                                    attachmentsSlot={attachments}
                                     hasAiReplied={messages.some(m => m.sender === 'ai' && m.text && !m.isTyping)}
                                     quickPrompts={quickPrompts}
                                 />

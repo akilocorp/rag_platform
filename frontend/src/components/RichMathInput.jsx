@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-19
- * @changed   Empty field self-deletes on Backspace/Delete; Right-arrow/Enter step the caret forward out of a field.
+ * @updated   2026-09-20
+ * @changed   Placeholder overlay position/size retuned (left-1/top-2/text-base -> left-4/top-3.5/text-sm) to
+ *            match PromptInput's padding scale now that PromptInput (components/ui/ai-chat-input.jsx) is the
+ *            sole consumer — ChatComposer, which this was originally tuned for, is retired.
+ * @changed   Prior: Empty field self-deletes on Backspace/Delete; Right-arrow/Enter step the caret forward out of a field.
  */
 import React, { useRef, useState, useCallback, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
@@ -310,7 +313,7 @@ const RichMathInput = forwardRef(function RichMathInput(
       {/* Placeholder overlay — contentEditable has no native placeholder, so show
           our own only while the line is truly empty. */}
       {isEmpty && (
-        <span className="pointer-events-none absolute left-1 top-2 text-gray-400 text-base sm:text-lg select-none">
+        <span className="pointer-events-none absolute left-4 top-3.5 text-gray-400 text-sm select-none">
           {placeholder}
         </span>
       )}

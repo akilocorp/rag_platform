@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-07-15
- * @changed   Hide the composer once a lab finishes (debrief); scroll the debrief to the top of the viewport so it's the focus.
+ * @updated   2026-09-21
+ * @changed   PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
+ * @changed   Prior: Composer swapped from ChatComposer to the unified PromptInput (components/ui/ai-chat-input) —
+ *            same landing-page look now used everywhere; this page keeps attach/voice/model-picker off,
+ *            same as its old ChatComposer usage.
+ * @changed   Prior: Hide the composer once a lab finishes (debrief); scroll the debrief to the top of the viewport so it's the focus.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
@@ -16,7 +20,7 @@ import { validateExperientialConfig } from '../configs/experiential/schema';
 import { enforceChartAccuracy } from '../configs/experiential/chartGuard';
 import { getMethod, registerMethod, DEFAULT_METHOD_ID } from '../methods/registry';
 import ChatSidebar from '../components/SideBar.jsx';
-import ChatComposer from '../components/ChatComposer';
+import { PromptInput } from '../components/ui/ai-chat-input';
 import StickyHeader from '../components/experiential/StickyHeader';
 import IrfChart from '../components/experiential/IrfChart';
 import ComparisonTable from '../components/experiential/ComparisonTable';
@@ -558,8 +562,6 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
   // Composer state (reused chat input box).
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
-  const attachInputRef = useRef(null);
-  const imageInputRef = useRef(null);
 
   const chartKeys = useMemo(() => Object.keys(baseLayer.reveal.chartSeries), [baseLayer]);
   // Friendly chart-variable labels come from the lab's own predictionVariables
@@ -1137,19 +1139,18 @@ function Player({ config, configId, templateId, onReset, onBack, isAuthenticated
             Skip ahead to my synthesis →
           </button>
         )}
-        <ChatComposer
-          input={input}
-          setInput={setInput}
+        <PromptInput
+          value={input}
+          onChange={setInput}
           inputRef={inputRef}
-          onSend={onComposerSend}
+          placeholder="Type a message..."
+          alwaysExpanded
+          showEquation
+          onSubmit={onComposerSend}
           isLoading={false}
-          attachInputRef={attachInputRef}
-          imageInputRef={imageInputRef}
           showAttach={false}
           showVoice={false}
-          showModelPicker={false}
           hasAiReplied={false}
-          attachments={null}
         />
       </div>
     </footer>
