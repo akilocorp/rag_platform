@@ -1,3 +1,6 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-09-27
+// @changed   Quieter motion: no staggered pop-in or hover/press scaling; selection shown by the ring alone.
 import React from 'react';
 import {
   RiRobot2Line,
@@ -61,7 +64,7 @@ const AvatarSelector = ({
         </label>
       )}
       <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 p-1 -m-1">
-        {AVATAR_OPTIONS.map((avatar, i) => {
+        {AVATAR_OPTIONS.map((avatar) => {
           const Icon = avatar.icon;
           const isSelected = currentSelection === avatar.id;
 
@@ -71,13 +74,12 @@ const AvatarSelector = ({
               type="button"
               onClick={() => onSelect(avatar.id)}
               style={{
-                color: '#1F1F1F',
-                animation: `chip-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) ${i * 22}ms both`,
+                color: '#1F1F1F'
               }}
-              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all ${
+              className={`flex flex-col items-center justify-center p-3 rounded-xl transition-colors ${
                 isSelected
-                  ? 'bg-gray-100 ring-2 ring-[#FA6C43] scale-105'
-                  : 'bg-gray-100 hover:bg-gray-200 hover:scale-105 active:scale-95'
+                  ? 'bg-gray-100 ring-2 ring-[#FA6C43]'
+                  : 'bg-gray-100 hover:bg-gray-200'
               }`}
               title={avatar.name}
             >

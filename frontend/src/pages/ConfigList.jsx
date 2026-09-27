@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Fewer clicks: a labelled Results button on every card whose main button doesn't already open
+// @changed   Quieter motion: no card fly-in, chip pop-in, button press-shrink or sidebar hover shadow; dialogs fade instead of zooming; view toggle glides 150ms ease-out instead of a spring.
+// @changed   Prior: Fewer clicks: a labelled Results button on every card whose main button doesn't already open
 //            results (the unlabelled Results icon is gone); Open + Results head the card's right-click
 //            menu; a class made from a template opens straight in Customize; the Share dialog's
 //            "no class code" state gets a Set class code button that jumps to Customize.
@@ -173,7 +174,7 @@ const ContextMenu = ({ menu, onClose, items }) => {
 
   return (
     <div
-      className="fixed z-[120] w-[200px] py-1.5 bg-white rounded-xl border border-gray-200 shadow-xl animate-in zoom-in-95 duration-100"
+      className="fixed z-[120] w-[200px] py-1.5 bg-white rounded-xl border border-gray-200 shadow-xl animate-in fade-in duration-100"
       style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -329,7 +330,7 @@ const PasteConfigModal = ({ isOpen, token, preview, loadError, onResolveToken, o
       onContextMenu={(e) => e.stopPropagation()}
     >
       <div
-        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in zoom-in-95 duration-200 p-8"
+        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in fade-in duration-200 p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button onClick={onClose} title="Close" className="absolute top-5 right-5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all">
@@ -391,7 +392,7 @@ const ShareModal = ({ isOpen, onClose, config, onSetCode }) => {
       onContextMenu={(e) => e.stopPropagation()}
     >
       <div
-        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in zoom-in-95 duration-200 p-8"
+        className="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden relative animate-in fade-in duration-200 p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button onClick={onClose} title="Close" className="absolute top-5 right-5 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all">
@@ -439,7 +440,7 @@ const ShareModal = ({ isOpen, onClose, config, onSetCode }) => {
   );
 };
 
-const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onCollaborators, onHover, onCardMenu, isSelected }) => {
+const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDelete, onCopy, onCollaborators, onHover, onCardMenu, isSelected }) => {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -510,10 +511,9 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl border shadow-sm transition-all duration-300 animate-send-fly-in ${
+      className={`group relative bg-white rounded-2xl border shadow-sm transition-colors duration-200 ${
         isSelected ? 'border-[#FA6C43] ring-2 ring-[#FA6C43]/30' : 'border-gray-200'
       } ${isList ? 'p-5 flex items-center gap-5' : 'p-5 flex flex-col'}`}
-      style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
       // Clicking the card body selects it as the Ctrl+C copy target (the orange
       // ring). Opening the bot is the primary button's job (Chat Now, etc.).
       onClick={() => onSelect(config)}
@@ -557,7 +557,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
           {/* Info chips */}
           <div className="mt-3 flex flex-wrap gap-1.5">
             {config.class_code && (
-              <span className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#F9D0C4]/30 text-[#FA6C43] border border-[#FA6C43]/20 uppercase tracking-wide animate-chip-in">
+              <span className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#F9D0C4]/30 text-[#FA6C43] border border-[#FA6C43]/20 uppercase tracking-wide">
                 {config.class_code}
               </span>
             )}
@@ -614,7 +614,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(config); }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors active:scale-[0.98]"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors"
             >
               <FaExternalLinkAlt className="text-[10px]" />
               {primaryActionLabel(config.bot_type)}
@@ -980,7 +980,7 @@ const ConfigListPage = () => {
               entity from bot configs, so it gets its own nav entry rather than a category. */}
           <button
             onClick={() => navigate('/studio')}
-            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-white border border-gray-200 hover:border-[#FA6C43] text-gray-700 hover:text-[#FA6C43] rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
+            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-white border border-gray-200 hover:border-[#FA6C43] text-gray-700 hover:text-[#FA6C43] rounded-xl transition-all duration-200 shadow-sm"
           >
             <FaShapes className="mr-2 text-sm" />
             <span className="font-bold text-[14px]">Studio</span>
@@ -989,7 +989,7 @@ const ConfigListPage = () => {
           {/* Report Bug Button added to Navbar */}
           <button
             onClick={() => setIsBugModalOpen(true)}
-            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
+            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
           >
             <FaBug className="mr-2 text-sm" />
             <span className="font-bold text-[14px]">Report a Bug</span>
@@ -1004,7 +1004,7 @@ const ConfigListPage = () => {
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-10">
 
           {/* ── Sidebar ─────────────────────────────────── */}
-          <aside className="w-full lg:w-60 flex-shrink-0 lg:sticky lg:top-6 lg:self-start rounded-2xl p-2 -m-2 transition-shadow duration-300 ease-out hover:shadow-md">
+          <aside className="w-full lg:w-60 flex-shrink-0 lg:sticky lg:top-6 lg:self-start rounded-2xl p-2 -m-2">
             <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3 px-1">Categories</p>
 
             {/* Private / Shared toggle */}
@@ -1058,13 +1058,13 @@ const ConfigListPage = () => {
                 {/* View toggle — Apple-style: a single pill slides between
                     the two segments instead of each toggling its own bg. */}
                 <div className="relative flex p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
-                  {/* Sliding indicator (springy glide w/ slight overshoot) */}
+                  {/* Sliding indicator — short, no overshoot */}
                   <span
                     aria-hidden="true"
                     className="absolute top-1 bottom-1 left-1 w-9 rounded-lg bg-[#F0F6FB]"
                     style={{
                       transform: view === 'grid' ? 'translateX(100%)' : 'translateX(0)',
-                      transition: 'transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                      transition: 'transform 150ms ease-out',
                     }}
                   />
                   <button
@@ -1085,7 +1085,7 @@ const ConfigListPage = () => {
 
                 {/* Keyboard-free way in to the same flow as Ctrl+V. */}
                 <button
-                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm active:scale-[0.98]"
+                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
                   onClick={handleMenuPaste}
                   title="Paste a copied assistant (Ctrl+V)"
                 >
@@ -1096,7 +1096,7 @@ const ConfigListPage = () => {
                 {/* For the professor staring at a blank list: start from the syllabus
                     they already have rather than from a decision they can't yet make. */}
                 <button
-                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm active:scale-[0.98]"
+                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
                   onClick={() => navigate('/course-plan')}
                   title="Upload your syllabus and see which classes ACTR fits"
                 >
@@ -1105,7 +1105,7 @@ const ConfigListPage = () => {
                 </button>
 
                 <button
-                  className="flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98]"
+                  className="flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
                   onClick={handleCreateNew}
                 >
                   <FaPlus className="mr-2 text-sm" />
@@ -1149,7 +1149,7 @@ const ConfigListPage = () => {
                 </p>
                 <button
                   onClick={handleCreateNew}
-                  className="px-6 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-colors flex items-center shadow-sm font-bold active:scale-[0.98]"
+                  className="px-6 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-colors flex items-center shadow-sm font-bold"
                 >
                   <FaPlus className="mr-2" />
                   Create Assistant
@@ -1161,11 +1161,10 @@ const ConfigListPage = () => {
                   <section key={section.key}>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">{section.label}</p>
                     <div className={view === 'grid' ? 'grid grid-cols-1 xl:grid-cols-2 gap-5' : 'flex flex-col gap-4'}>
-                      {section.items.map((config, idx) => (
+                      {section.items.map((config) => (
                         <ConfigItem
                           key={config._id || config.config_id}
                           config={config}
-                          index={idx}
                           view={view}
                           onOpen={handleOpen}
                           onSelect={(c) => setSelectedId(c.config_id || c._id)}
@@ -1227,7 +1226,7 @@ const ConfigListPage = () => {
       />
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-[90vw] bg-gray-900 text-white text-sm font-medium px-6 py-3 rounded-xl shadow-xl z-[130] animate-in zoom-in-95 duration-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-[90vw] bg-gray-900 text-white text-sm font-medium px-6 py-3 rounded-xl shadow-xl z-[130] animate-in fade-in duration-200">
           {toast}
         </div>
       )}

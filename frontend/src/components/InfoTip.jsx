@@ -1,10 +1,13 @@
+// @language  JavaScript (React / JSX)
+// @updated   2026-09-27
+// @changed   Tooltip fades in instead of scaling/rising.
 import React from 'react';
 import { FiInfo } from 'react-icons/fi';
 
 // Small inline info icon that reveals an explanatory tooltip on hover/focus.
 // Pure CSS (group-hover / group-focus-within) — no portal, no state. Focusable
-// for keyboard users via tabIndex. The tooltip fades + rises slightly on reveal
-// (subtle micro-animation, consistent with the rest of the UI).
+// for keyboard users via tabIndex. The tooltip fades in on reveal — no rise or
+// scale, in keeping with the quieter motion across the faculty pages.
 //
 // `align` controls horizontal anchoring relative to the icon. Default 'center'
 // keeps the tip centered; 'left' anchors its left edge to the icon so a wide tip
@@ -22,7 +25,7 @@ const InfoTip = ({ text, className = '', wide = false, align = 'center' }) => {
       />
       <span
         role="tooltip"
-        className={`pointer-events-none absolute ${anchor} bottom-full mb-2 ${wide ? 'w-80' : 'w-56'} rounded-lg bg-[#1F1F1F] text-white text-[11px] leading-snug font-normal normal-case tracking-normal px-3 py-2 shadow-lg opacity-0 translate-y-1 scale-95 group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:translate-y-0 group-focus-within:scale-100 transition-all duration-150 ease-out z-50`}
+        className={`pointer-events-none absolute ${anchor} bottom-full mb-2 ${wide ? 'w-80' : 'w-56'} rounded-lg bg-[#1F1F1F] text-white text-[11px] leading-snug font-normal normal-case tracking-normal px-3 py-2 shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 ease-out z-50`}
       >
         {text}
       </span>

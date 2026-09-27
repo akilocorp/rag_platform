@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Collapsed state is `inert`, so Tab can't land in invisible fields.
+// @changed   Reveal shortened 500ms -> 150ms.
+// @changed   Prior: Collapsed state is `inert`, so Tab can't land in invisible fields.
 // @changed   Prior: New component: height+fade reveal wrapper that animates advanced config fields in/out.
 import React from 'react';
 
@@ -14,7 +15,7 @@ export default function AdvancedReveal({ show, children, className = '' }) {
     <div
       aria-hidden={!show}
       inert={!show}
-      className={`grid transition-all duration-500 ease-out ${show ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'} ${className}`}
+      className={`grid transition-all duration-150 ease-out ${show ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'} ${className}`}
     >
       <div className="overflow-hidden min-h-0">{children}</div>
     </div>

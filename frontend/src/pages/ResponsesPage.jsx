@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-27
- * @changed   Opens on Sessions when the class has no saved analysis yet (it used to drop the professor
+ * @changed   Quieter motion: score bars no longer animate their width; no hover shadow or press-shrink.
+ * @changed   Prior: Opens on Sessions when the class has no saved analysis yet (it used to drop the professor
  *            into the New Analysis form); Analytics then shows a one-line empty state with a
  *            "Run analysis" button instead of auto-opening the form.
  * @changed   Prior: Surfaced per-session survey variables (the values a Qualtrics launch URL piped in): a chip
@@ -108,7 +109,7 @@ const DistributionBar = ({ label, count, total, colorClass }) => (
   <div className="flex items-center gap-3">
     <span className="text-xs text-gray-500 w-16 text-right">{label}</span>
     <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-      <div className={`h-full rounded-full ${colorClass} transition-all duration-500`} style={{ width: total ? `${(count / total) * 100}%` : '0%' }} />
+      <div className={`h-full rounded-full ${colorClass}`} style={{ width: total ? `${(count / total) * 100}%` : '0%' }} />
     </div>
     <span className="text-xs font-bold text-gray-600 w-5">{count}</span>
   </div>
@@ -117,7 +118,7 @@ const DistributionBar = ({ label, count, total, colorClass }) => (
 const TopPerformerCard = ({ student, rank }) => {
   const c = scoreColor(student.score);
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <span className="text-2xl">{MEDALS[rank] || '🏅'}</span>
         <ScoreBadge score={student.score} />
@@ -507,7 +508,7 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
         </div>
         {error && <p className="text-sm text-red-500 text-center">{error}</p>}
         <button onClick={handleAnalyze}
-          className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm active:scale-[0.98] flex items-center justify-center gap-2 w-full">
+          className="px-8 py-3 bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 w-full">
           <FaBrain className="text-sm" /> Generate Analysis
         </button>
       </div>

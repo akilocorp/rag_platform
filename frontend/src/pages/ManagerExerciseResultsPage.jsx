@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-09-27  @changed Back buttons go to /config_list instead of history -1, which went nowhere when the page was opened in a new tab or from a link. Prior: Instructor Preview runs (`is_preview`) render with an "instructor
+/* @language JSX  @updated 2026-09-27  @changed Tally bars no longer re-animate their width on every 15s poll. Prior: Back buttons go to /config_list instead of history -1, which went nowhere when the page was opened in a new tab or from a link. Prior: Instructor Preview runs (`is_preview`) render with an "instructor
    preview" caption and are held out of the class summary and live poll like the AI test row; instructor rows in a
    mixed group get an "instructor" tag. Prior: The professor's last TEST run renders as one more team
    at the bottom of "Group by group", pilled "AI test" instead of "Group N". Rows flagged `is_test` are
@@ -47,7 +47,7 @@ const TallyBar = ({ row, answer, highlight }) => {
       </div>
       <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${correct ? 'bg-emerald-500' : highlight}`}
+          className={`h-full rounded-full ${correct ? 'bg-emerald-500' : highlight}`}
           style={{ width: `${Math.max(row.pct, 2)}%` }}
         />
       </div>

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-07-19
-// @changed   Add a compact S⚬A variant (small switch + letters) for the create-modal footer.
+// @updated   2026-09-27
+// @changed   Quieter motion: no press-shrink, hover shadow or slide-in; fade only.
+// @changed   Prior: Add a compact S⚬A variant (small switch + letters) for the create-modal footer.
 import React from 'react';
 import { FiSliders } from 'react-icons/fi';
 import useConfigMode from '../hooks/useConfigMode';
@@ -21,7 +22,7 @@ function CompactToggle({ advanced, setMode, className }) {
       aria-checked={advanced}
       aria-label="Toggle advanced configuration mode"
       onClick={() => setMode(advanced ? 'simple' : 'advanced')}
-      className={`animate-in fade-in duration-300 inline-flex items-center gap-1.5 select-none cursor-pointer active:scale-[0.96] transition-transform ${className}`}
+      className={`animate-in fade-in duration-300 inline-flex items-center gap-1.5 select-none cursor-pointer transition-transform ${className}`}
     >
       <span className={letter(!advanced)}>S</span>
       <span className={`relative h-4 w-7 rounded-full transition-colors duration-300 ${advanced ? 'bg-[#FA6C43]' : 'bg-gray-300'}`}>
@@ -47,13 +48,13 @@ export default function ConfigModeToggle({ className = '', variant = 'full' }) {
   }
 
   return (
-    <div className={`animate-in fade-in slide-in-from-top-1 duration-300 ${className}`}>
+    <div className={`animate-in fade-in duration-300 ${className}`}>
       <div
         role="switch"
         aria-checked={advanced}
         aria-label="Toggle advanced configuration mode"
         onClick={() => setMode(advanced ? 'simple' : 'advanced')}
-        className="relative inline-flex items-center select-none cursor-pointer rounded-full bg-gray-100 border border-gray-200 p-1 shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.97]"
+        className="relative inline-flex items-center select-none cursor-pointer rounded-full bg-gray-100 border border-gray-200 p-1 shadow-sm"
       >
         {/* Sliding highlight — animates between the two 7rem segments. */}
         <span

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Class Code is visible in Simple mode for chat, lab and video (usage tier / student count
+// @changed   Quieter motion: no press-shrink on buttons; small panels fade instead of sliding.
+// @changed   Prior: Class Code is visible in Simple mode for chat, lab and video (usage tier / student count
 //            stay in Advanced) — the Share dialog sends professors here to set it.
 // @changed   Prior: Footer results button routes by bot type like the dashboard card (lab → sessions, exercise →
 //            class results, video → dashboard) and is labelled to match; it used to send labs and
@@ -1338,7 +1339,7 @@ const EditConfigPage = () => {
                           type="button"
                           onClick={startTestRun}
                           disabled={testBusy || !config.config_id}
-                          className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-xs px-4 py-2.5 shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                          className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold text-xs px-4 py-2.5 shadow-sm disabled:opacity-50 transition-all"
                         >
                           {testBusy ? <><FaSpinner className="animate-spin" /> Starting…</> : <>Run a test</>}
                         </button>
@@ -1567,11 +1568,11 @@ const EditConfigPage = () => {
                               <code className="bg-white px-1 rounded border border-gray-200">&lt;&lt;GROUP_SIZE&gt;&gt;</code> are optional.
                             </p>
                             <div className="flex gap-2 mb-2">
-                              <button type="button" onClick={loadStockPrompt} disabled={promptBusy} className="rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-3 py-1.5 text-xs shadow-sm disabled:opacity-50 transition-all active:scale-95">
+                              <button type="button" onClick={loadStockPrompt} disabled={promptBusy} className="rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-3 py-1.5 text-xs shadow-sm disabled:opacity-50 transition-all">
                                 {promptBusy ? 'Loading…' : ((me.facilitator_prompt_override || '').trim() ? 'Reset to standard' : 'Load standard prompt')}
                               </button>
                               {(me.facilitator_prompt_override || '').trim() && (
-                                <button type="button" onClick={() => setMgr('facilitator_prompt_override', '')} className="rounded-lg border border-gray-200 bg-white hover:border-gray-300 text-gray-600 font-bold px-3 py-1.5 text-xs transition-all active:scale-95">
+                                <button type="button" onClick={() => setMgr('facilitator_prompt_override', '')} className="rounded-lg border border-gray-200 bg-white hover:border-gray-300 text-gray-600 font-bold px-3 py-1.5 text-xs transition-all">
                                   Clear &amp; follow the standard
                                 </button>
                               )}
@@ -1640,7 +1641,7 @@ const EditConfigPage = () => {
                               </p>
                               <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
                             </div>
-                            <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
+                            <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all">
                               {filled ? 'Replace' : 'Upload'}
                               <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
                             </label>
@@ -1660,13 +1661,13 @@ const EditConfigPage = () => {
                         </div>
                         <div className="space-y-2 mb-3">
                           {candidates.map((cand, idx) => (
-                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in duration-200">
                               <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Suspect name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                               <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
                             </div>
                           ))}
                         </div>
-                        <button type="button" onClick={addSuspect} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                        <button type="button" onClick={addSuspect} className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer">
                           <FaPlus className="mr-2" /> Add a suspect
                         </button>
                       </>
@@ -1679,14 +1680,14 @@ const EditConfigPage = () => {
                         </div>
                         <div className="space-y-2 mb-3">
                           {candidates.map((cand, idx) => (
-                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in duration-200">
                               <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                               <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(cand.forecast_text || '').trim().length.toLocaleString()} chars</span>
                               <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
                             </div>
                           ))}
                         </div>
-                        <label className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                        <label className="w-full py-3 mb-6 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer">
                           <FaPlus className="mr-2" /> Add a candidate outcome
                           <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleOutcomeUpload(e.target.files?.[0])} />
                         </label>
@@ -1722,7 +1723,7 @@ const EditConfigPage = () => {
                                   ...(opt.key === 'investigation' ? { student_view: 'case' } : {}),
                                 },
                               }))}
-                              className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                              className={`text-left rounded-xl border-2 p-3 transition-all ${
                                 active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
                               }`}
                             >
@@ -1751,7 +1752,7 @@ const EditConfigPage = () => {
                                 key={opt.key}
                                 type="button"
                                 onClick={() => setMgr('student_view', opt.key)}
-                                className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                                className={`text-left rounded-xl border-2 p-3 transition-all ${
                                   active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
                                 }`}
                               >
@@ -1764,7 +1765,7 @@ const EditConfigPage = () => {
                       )}
 
                       {(investigating || (me.student_view || 'cards') === 'case') && (
-                        <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="animate-in fade-in duration-200">
                           <p className="text-[11px] text-gray-400 mb-3">
                             {investigating
                               ? "One case file per confidential role — the split version of the file that seat reads. Bind at least two, one per role students can hold; the killer question below only offers names once these are filled in."
@@ -1772,14 +1773,14 @@ const EditConfigPage = () => {
                           </p>
                           <div className="space-y-2 mb-3">
                             {(me.role_packets || []).map((p, idx) => (
-                              <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                              <div key={idx} className="flex items-center gap-2 animate-in fade-in duration-200">
                                 <input type="text" value={p.role} onChange={(e) => setRolePacketRole(idx, e.target.value)} placeholder={investigating ? 'e.g. Case File 1' : 'Role (e.g. Logistics)'} className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                                 <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(p.text || '').trim().length.toLocaleString()} chars</span>
                                 <button type="button" onClick={() => removeRolePacket(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
                               </div>
                             ))}
                           </div>
-                          <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99]">
+                          <label className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm flex items-center justify-center cursor-pointer">
                             <FaPlus className="mr-2" /> {investigating ? 'Add a case file' : 'Add a role packet'}
                             <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleRolePacketUpload(e.target.files?.[0])} />
                           </label>
@@ -1850,7 +1851,7 @@ const EditConfigPage = () => {
                                   type="button"
                                   onClick={saveCasePreset}
                                   disabled={presetBusy || !presetName.trim() || !mePack}
-                                  className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                                  className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all"
                                 >
                                   {presetBusy ? 'Saving…' : 'Save case'}
                                 </button>
@@ -1864,7 +1865,7 @@ const EditConfigPage = () => {
                                     key={v.key}
                                     type="button"
                                     onClick={() => setPresetVisibility(v.key)}
-                                    className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                    className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all ${
                                       presetVisibility === v.key
                                         ? 'border-[#FA6C43] bg-[#FA6C43]/5'
                                         : 'border-gray-200 bg-white hover:border-gray-300'
@@ -1883,7 +1884,7 @@ const EditConfigPage = () => {
                     ) : !mePack ? (
                       <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 text-center">
                         <p className="text-sm text-gray-500 mb-4">Not analysed yet.</p>
-                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95">
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all">
                           {packLoading ? 'Analysing…' : 'Analyse the case'}
                         </button>
                         {packError && <p className="text-xs font-medium text-red-500 mt-3">{packError}</p>}
@@ -2009,7 +2010,7 @@ const EditConfigPage = () => {
                               type="button"
                               onClick={saveCasePreset}
                               disabled={presetBusy || !presetName.trim()}
-                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all"
                             >
                               {presetBusy ? 'Saving…' : 'Save case'}
                             </button>
@@ -2026,7 +2027,7 @@ const EditConfigPage = () => {
                                 key={v.key}
                                 type="button"
                                 onClick={() => setPresetVisibility(v.key)}
-                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all ${
                                   presetVisibility === v.key
                                     ? 'border-[#FA6C43] bg-[#FA6C43]/5'
                                     : 'border-gray-200 bg-white hover:border-gray-300'
@@ -2040,7 +2041,7 @@ const EditConfigPage = () => {
                           {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
                         </div>
 
-                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50 active:scale-[0.99]">
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50">
                           {packLoading ? 'Analysing…' : 'Re-analyse from the documents'}
                         </button>
                         {packError && <p className="text-xs font-medium text-red-500">{packError}</p>}
@@ -2219,7 +2220,7 @@ const EditConfigPage = () => {
               <button
                 type="button"
                 onClick={() => setCollabOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl border-2 border-[#FA6C43]/40 px-4 py-2.5 text-sm font-bold text-[#C2410C] hover:bg-[#F9D0C4]/20 transition-all active:scale-[0.98]"
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-[#FA6C43]/40 px-4 py-2.5 text-sm font-bold text-[#C2410C] hover:bg-[#F9D0C4]/20 transition-all"
               >
                 <FaUserPlus className="text-xs" />
                 {isCollaborator ? 'See who has access' : 'Manage collaborators'}

@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-17
- * @changed   New file: the "Start from a template" tab inside the create dialog. Replaces
+ * @updated   2026-09-27
+ * @changed   Quieter motion: cards no longer lift or shrink (border colour carries hover); sub-views fade instead of sliding.
+ * @changed   Prior: New file: the "Start from a template" tab inside the create dialog. Replaces
  *            NewClassModal, which was a second modal in front of the wizard rather than a
  *            tab inside it.
  */
@@ -81,7 +82,7 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
       <button
         type="button"
         onClick={() => pick(card)}
-        className="text-left p-5 bg-white border-2 border-gray-200 rounded-2xl hover:border-[#FA6C43] hover:-translate-y-0.5 hover:shadow-md transition-all active:scale-[0.98] flex flex-col h-full"
+        className="text-left p-5 bg-white border-2 border-gray-200 rounded-2xl hover:border-[#FA6C43] transition-colors flex flex-col h-full"
       >
         <div className="flex items-center gap-3 mb-2.5">
           {card.icon
@@ -130,7 +131,7 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
   // was a real crash here; keep the guard structural.
   if (picked) {
     return (
-      <div className="animate-in fade-in slide-in-from-right-4">
+      <div className="animate-in fade-in">
         <button
           type="button"
           onClick={() => setPicked(null)}
@@ -176,7 +177,7 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
           type="button"
           onClick={submit}
           disabled={!botName.trim() || busy}
-          className="w-full mt-7 py-3 px-6 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          className="w-full mt-7 py-3 px-6 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
         >
           {busy && <FaSpinner className="animate-spin text-sm" />}
           {busy ? 'Creating…' : 'Create class'}
@@ -186,7 +187,7 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
   }
 
   return (
-    <div className="animate-in fade-in slide-in-from-left-4">
+    <div className="animate-in fade-in">
       <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Start from a template</h2>
       <p className="text-sm text-gray-500 text-center mb-7">
         Pick a ready-made class and adjust it afterwards.

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Class Code shows in Simple mode for chat and video (usage fields stay Advanced).
+// @changed   Quieter motion: wizard steps/panels fade instead of sliding; no hover lift or press-shrink on cards and buttons.
+// @changed   Prior: Class Code shows in Simple mode for chat and video (usage fields stay Advanced).
 // @changed   Prior: Wizard's primary button reads "Publish" on the last step for the chosen type (labs end on
 //            step 3), not only on step 5.
 // @changed   Prior: Manager Exercise (investigation template): new "Case-reading window (minutes)" field in
@@ -937,7 +938,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
 
             {/* STEP 1: Basic Info */}
             {step === 1 && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+              <div className="space-y-6 animate-in fade-in">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-8">What do we call your Space?</h2>
                 
                 <div>
@@ -992,7 +993,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                     </label>
 
                     {/* Manager Exercise — hidden-profile decision game (group bot_type). */}
-                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all active:scale-[0.98] ${config.bot_type === 'manager_exercise' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 bg-white'}`}>
+                    <label className={`cursor-pointer p-4 border-2 rounded-xl flex flex-col items-center text-center transition-all ${config.bot_type === 'manager_exercise' ? 'border-[#FA6C43] bg-[#F9D0C4]/20 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                       <input type="radio" name="bot_type" value="manager_exercise" checked={config.bot_type === 'manager_exercise'} onChange={handleChange} className="hidden" />
                       <FaUserTie className={`text-2xl mb-2 transition-colors ${config.bot_type === 'manager_exercise' ? 'text-[#FA6C43]' : 'text-gray-400'}`} />
                       <p className="font-bold text-[#222] text-sm">Manager Exercise</p>
@@ -1016,14 +1017,14 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                 (the exercise pins Claude, so it reuses this slot for seats + timers). */}
             {step === 2 && (
                 config.bot_type === 'manager_exercise' ? (
-                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Setup</h2>
 
                   {/* Start from a case already uploaded, analysed and reviewed. Loads
                       the documents and the approved answer key, so the remaining
                       steps are just confirmation. */}
                   {casePresets.length > 0 && (
-                    <div className="bg-white p-5 rounded-2xl border-2 border-[#FA6C43]/30 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="bg-white p-5 rounded-2xl border-2 border-[#FA6C43]/30 animate-in fade-in duration-300">
                       <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-1 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Start from a saved case</h3>
                       <p className="text-[11px] text-gray-400 mb-3">Shared cases plus your own. Reuses the documents and the approved analysis — no re-upload, no re-analysis.</p>
                       <div className="space-y-2">
@@ -1033,7 +1034,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                               type="button"
                               disabled={presetBusy}
                               onClick={() => applyCasePreset(p.preset_id)}
-                              className="flex-1 text-left rounded-xl border-2 border-gray-200 bg-white px-4 py-3 hover:border-[#FA6C43] hover:-translate-y-0.5 transition-all disabled:opacity-50 active:scale-[0.99]"
+                              className="flex-1 text-left rounded-xl border-2 border-gray-200 bg-white px-4 py-3 hover:border-[#FA6C43] transition-all disabled:opacity-50"
                             >
                               <div className="font-bold text-sm text-[#222] flex items-center gap-2 flex-wrap">
                                 {p.name}
@@ -1073,7 +1074,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                   )}
 
                   {/* Group size + the one timed phase. num_students drives group_size. */}
-                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in duration-300">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaUserTie className="mr-2 text-[#FA6C43]"/> Group &amp; Timing</h3>
                     <div className="mb-5">
                       <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
@@ -1129,7 +1130,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
 
                   {/* What ACTR steers toward. Only the preset KEY is sent; the full
                       learning-point text is stamped in server-side. */}
-                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in duration-300">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Learning</h3>
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class preset<InfoTip text="Pre-written learning points the facilitator steers toward. Leave blank to rely on your own stated outcome alone." /></label>
                     <select value={config.manager_exercise.class_preset} onChange={(e) => setMgr('class_preset', e.target.value)} className="w-full p-2.5 mb-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all">
@@ -1142,7 +1143,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
 
                   {/* Class code — how students reach the exercise at all, so it sits
                       in the main flow rather than behind the Advanced toggle. */}
-                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in duration-300">
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class code<InfoTip text="Students open /join/CODE, sign in, and land straight in the breakout lobby. Leave blank to share the direct link instead." /></label>
                     <input
                       type="text"
@@ -1161,7 +1162,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">{config.bot_type === 'group_chat' ? 'Select Default Lobby AI' : 'Pick the Base AI Model'}</h2>
                   <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
                     {aiModels.map(model => (
@@ -1179,7 +1180,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                 lab grounded in the files uploaded on the previous step. */}
             {step === 3 && (
               config.bot_type === 'experiential' ? (
-                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Generate the Lab</h2>
                   <p className="text-center text-sm text-gray-500 mb-4">
                     Claude builds the lab from your design prompt
@@ -1230,7 +1231,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
               ) : config.bot_type === 'manager_exercise' ? (
                 // Manager Exercise: ACTR's reference documents. Students never see
                 // these — they read their confidential packets on paper, in the room.
-                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-2">Case Materials</h2>
                   <p className="text-center text-sm text-gray-500 mb-4">These go to ACTR only and are never shown to a student — the candidate summary states every role's private view.</p>
 
@@ -1267,7 +1268,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                             </p>
                             <p className="text-[11px] text-gray-400">{filled ? `${doc.text.trim().length.toLocaleString()} characters extracted` : slot.hint}</p>
                           </div>
-                          <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all active:scale-95">
+                          <label className="flex-shrink-0 cursor-pointer text-xs font-bold px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] transition-all">
                             {filled ? 'Replace' : 'Upload'}
                             <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => handleCaseDocUpload(slot.field, e.target.files?.[0])} />
                           </label>
@@ -1286,7 +1287,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                     <p className="text-[11px] text-gray-400 mb-3">One document per candidate describing how they actually performed. Revealed to the group the moment they enter their pick — Word (.docx) or PDF.</p>
                     <div className="space-y-2 mb-3">
                       {config.manager_exercise.candidates.map((cand, idx) => (
-                        <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                        <div key={idx} className="flex items-center gap-2 animate-in fade-in duration-200">
                           <input type="text" value={cand.name} onChange={(e) => setCandidateName(idx, e.target.value)} placeholder="Candidate name" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                           <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(cand.forecast_text || '').trim().length.toLocaleString()} chars</span>
                           <button type="button" onClick={() => removeCandidate(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
@@ -1295,7 +1296,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                     </div>
                     <label
                       {...caseDropProps('outcome', (file) => handleOutcomeUpload(file))}
-                      className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99] ${
+                      className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer ${
                         mgrDragTarget === 'outcome'
                           ? 'border-solid border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43]'
                           : 'border-dashed border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'
@@ -1324,7 +1325,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                             key={opt.key}
                             type="button"
                             onClick={() => setMgr('template', opt.key)}
-                            className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                            className={`text-left rounded-xl border-2 p-3 transition-all ${
                               active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
                             }`}
                           >
@@ -1346,7 +1347,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                             key={opt.key}
                             type="button"
                             onClick={() => setMgr('student_view', opt.key)}
-                            className={`text-left rounded-xl border-2 p-3 transition-all active:scale-[0.99] ${
+                            className={`text-left rounded-xl border-2 p-3 transition-all ${
                               active ? 'border-[#FA6C43] bg-[#FA6C43]/5' : 'border-gray-200 bg-white hover:border-[#FA6C43]/50'
                             }`}
                           >
@@ -1358,14 +1359,14 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                     </div>
 
                     {(config.manager_exercise.student_view || 'cards') === 'case' && (
-                      <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="animate-in fade-in duration-200">
                         <p className="text-[11px] text-gray-400 mb-3">
                           One packet per confidential role. The role name is read from the document header —
                           it must match the role in the case pack, or that student falls back to cards.
                         </p>
                         <div className="space-y-2 mb-3">
                           {(config.manager_exercise.role_packets || []).map((p, idx) => (
-                            <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-200">
+                            <div key={idx} className="flex items-center gap-2 animate-in fade-in duration-200">
                               <input type="text" value={p.role} onChange={(e) => setRolePacketRole(idx, e.target.value)} placeholder="Role (e.g. Logistics)" className="flex-1 p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                               <span className="text-[11px] font-semibold text-gray-400 whitespace-nowrap">{(p.text || '').trim().length.toLocaleString()} chars</span>
                               <button type="button" onClick={() => removeRolePacket(idx)} className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"><FaTrash className="text-sm" /></button>
@@ -1374,7 +1375,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                         </div>
                         <label
                           {...caseDropProps('role_packet', (file) => handleRolePacketUpload(file))}
-                          className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer active:scale-[0.99] ${
+                          className={`w-full py-3 border-2 rounded-xl transition-all font-bold text-sm flex items-center justify-center cursor-pointer ${
                             mgrDragTarget === 'role_packet'
                               ? 'border-solid border-[#FA6C43] bg-[#F9D0C4]/20 text-[#FA6C43]'
                               : 'border-dashed border-gray-300 text-gray-500 hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50'
@@ -1391,7 +1392,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                   {mgrUploadError && <p className="text-xs font-medium text-red-500">{mgrUploadError}</p>}
                 </div>
               ) : (
-                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Upload Knowledge Base</h2>
                   <p className="text-center text-sm text-gray-500 mb-4">{config.bot_type === 'group_chat' ? 'These files will be shared across the entire group chat and all AI agents.' : 'Provide documents for the AI to study.'}</p>
                   <FileUpload key={fileUploadKey} onFileChange={handleFileChange} initialFiles={config.rag_files} />
@@ -1401,7 +1402,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
 
             {/* STEP 4: AI Behavior OR Group Configuration */}
             {step === 4 && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-right-4 pb-4">
+              <div className="space-y-6 animate-in fade-in pb-4">
                 {config.bot_type === 'video_analysis' ? (
                   // ==============================
                   // VIDEO ANALYSIS — assignment type + editable scoring spec
@@ -1544,7 +1545,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                     {!mePack ? (
                       <div className="bg-gray-50 p-8 rounded-2xl border border-gray-100 text-center">
                         <p className="text-sm text-gray-500 mb-4">The uploaded documents haven't been analysed yet.</p>
-                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95">
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-5 py-3 text-sm shadow-sm disabled:opacity-50 transition-all">
                           {packLoading ? 'Analysing…' : 'Analyse the case'}
                         </button>
                         {packError && <p className="text-xs font-medium text-red-500 mt-3">{packError}</p>}
@@ -1689,7 +1690,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                               type="button"
                               onClick={saveCasePreset}
                               disabled={presetBusy || !presetName.trim()}
-                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all active:scale-95"
+                              className="flex-shrink-0 rounded-lg bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-4 text-sm shadow-sm disabled:opacity-50 transition-all"
                             >
                               {presetBusy ? 'Saving…' : 'Save case'}
                             </button>
@@ -1706,7 +1707,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                                 key={v.key}
                                 type="button"
                                 onClick={() => setPresetVisibility(v.key)}
-                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all active:scale-[0.98] ${
+                                className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-all ${
                                   presetVisibility === v.key
                                     ? 'border-[#FA6C43] bg-[#FA6C43]/5'
                                     : 'border-gray-200 bg-white hover:border-gray-300'
@@ -1720,7 +1721,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                           {presetMsg && <p className="text-[11px] font-semibold text-[#C2410C] mt-2">{presetMsg}</p>}
                         </div>
 
-                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50 active:scale-[0.99]">
+                        <button type="button" onClick={analyzeCase} disabled={packLoading} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:bg-[#F9D0C4]/10 hover:text-[#FA6C43] hover:border-[#FA6C43]/50 transition-all font-bold text-sm disabled:opacity-50">
                           {packLoading ? 'Analysing…' : 'Re-analyse from the documents'}
                         </button>
                         {packError && <p className="text-xs font-medium text-red-500">{packError}</p>}
@@ -1868,7 +1869,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
 
             {/* STEP 5: Fine Tune */}
             {step === 5 && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+              <div className="space-y-6 animate-in fade-in">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
                 {isChatLike(config.bot_type) && (
@@ -1947,7 +1948,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
               </div>
             </div>
             <button onClick={handleBack} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all">{step === 1 ? 'Cancel' : 'Back'}</button>
-            <button onClick={handleNext} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm active:scale-[0.98] min-w-[120px] flex justify-center">
+            <button onClick={handleNext} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm min-w-[120px] flex justify-center">
               {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === stepsFor(config.bot_type).at(-1) ? 'Publish' : 'Next')}
             </button>
           </div>
