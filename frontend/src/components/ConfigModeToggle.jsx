@@ -1,36 +1,27 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Quieter motion: no press-shrink, hover shadow or slide-in; fade only.
+// @changed   Compact variant is now a labelled "Show/Hide advanced settings" text link, not an S⚬A switch.
+// @changed   Prior: Quieter motion: no press-shrink, hover shadow or slide-in; fade only.
 // @changed   Prior: Add a compact S⚬A variant (small switch + letters) for the create-modal footer.
 import React from 'react';
 import { FiSliders } from 'react-icons/fi';
 import useConfigMode from '../hooks/useConfigMode';
 
-// Compact Simple/Advanced switch: a small iOS-style toggle flanked by an "S" and
-// an "A" letter, the active side lit brand-orange. Built for tight spots (the
-// create modal's footer) where the full segmented pill is too wide. Same shared
-// useConfigMode state as the pill, so both stay in lockstep. The knob slides on
-// toggle and the whole control fades in + dips on press per the house animation
-// convention.
+// Compact Simple/Advanced control for the create dialog's footer: a plain text link
+// ("Show / Hide advanced settings") rather than an unlabelled S/A switch, so it says what
+// it does and can't be mistaken for part of Back/Next. Same shared useConfigMode state as
+// the full pill, so both stay in lockstep.
 function CompactToggle({ advanced, setMode, className }) {
-  const letter = (active) =>
-    `text-[11px] font-bold leading-none transition-colors duration-300 ${active ? 'text-[#FA6C43]' : 'text-gray-400'}`;
-
   return (
-    <div
-      role="switch"
-      aria-checked={advanced}
-      aria-label="Toggle advanced configuration mode"
+    <button
+      type="button"
+      aria-pressed={advanced}
       onClick={() => setMode(advanced ? 'simple' : 'advanced')}
-      className={`animate-in fade-in duration-300 inline-flex items-center gap-1.5 select-none cursor-pointer transition-transform ${className}`}
+      className={`inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors ${className}`}
     >
-      <span className={letter(!advanced)}>S</span>
-      <span className={`relative h-4 w-7 rounded-full transition-colors duration-300 ${advanced ? 'bg-[#FA6C43]' : 'bg-gray-300'}`}>
-        {/* Sliding knob — glides to the "A" side when advanced. */}
-        <span className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform duration-300 ease-out ${advanced ? 'translate-x-3' : 'translate-x-0'}`} />
-      </span>
-      <span className={letter(advanced)}>A</span>
-    </div>
+      <FiSliders className="text-sm" />
+      {advanced ? 'Hide advanced settings' : 'Show advanced settings'}
+    </button>
   );
 }
 
@@ -39,7 +30,7 @@ function CompactToggle({ advanced, setMode, className }) {
 // and a hover lift. Reads/writes the shared faculty preference via useConfigMode,
 // so placing it in the navbar keeps the create/edit forms in lockstep.
 // Segments are a fixed 7rem (w-28) wide so the highlight lines up exactly.
-// `variant="compact"` swaps in the small S⚬A switch for tight footers.
+// `variant="compact"` swaps in the text-link form for tight footers.
 export default function ConfigModeToggle({ className = '', variant = 'full' }) {
   const { advanced, setMode } = useConfigMode();
 

@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Quieter motion: wizard steps/panels fade instead of sliding; no hover lift or press-shrink on cards and buttons.
+// @changed   Simpler setup: chat/audio finish on step 4 (avatar, greeting and access moved into a
+//            "How it appears" section there via renderAppearance, shared with step 5 for other
+//            types); step-4 gallery renamed "Instruction presets" and collapsed; Manager Exercise
+//            timers + class preset sit behind Advanced with a one-line timing summary in Simple.
+// @changed   Prior: Quieter motion: wizard steps/panels fade instead of sliding; no hover lift or press-shrink on cards and buttons.
 // @changed   Prior: Class Code shows in Simple mode for chat and video (usage fields stay Advanced).
 // @changed   Prior: Wizard's primary button reads "Publish" on the last step for the chosen type (labs end on
 //            step 3), not only on step 5.
@@ -262,6 +266,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
   const [heygenAvatars, setHeygenAvatars] = useState([]);
   const [isFetchingAvatars, setIsFetchingAvatars] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
+  const [presetsOpen, setPresetsOpen] = useState(false);
 
   const applyTemplate = (template) => {
     setConfig(prev => ({
@@ -737,7 +742,8 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
     // Manager exercise (fixed Claude, decision made offline) reuses the slots:
     //   1 name → 2 Setup → 3 Case Materials → 4 Review the case → 5 polish.
     if (botType === 'manager_exercise') return [1, 2, 3, 4, 5];
-    return advanced ? [1, 2, 3, 4, 5] : [1, 3, 4, 5];
+    // Chat / audio fold the old Final Polish (avatar, greeting, access) into step 4.
+    return advanced ? [1, 2, 3, 4] : [1, 3, 4];
   };
 
   // Flipping Simple/Advanced can drop the step you're on (e.g. the model step 2
@@ -869,6 +875,72 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
       setIsLoading(false);
     }
   };
+
+  // How the assistant appears and who can reach it: avatar + greeting (chat-like only) and
+  // Public/Private access. Rendered as step 5 for video / group / exercise, and at the end
+  // of step 4 for chat and audio, which no longer have a separate final step.
+  const renderAppearance = () => (
+    <>
+      {isChatLike(config.bot_type) && (
+        <div>
+          <label className="block text-[13px] font-semibold text-gray-700 mb-2">
+            {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}
+          </label>
+          {config.bot_type === 'avatar' ? (
+            <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
+              {heygenAvatars.map((avatar) => (
+                <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}><img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" /></div>
+              ))}
+            </div>
+          ) : (
+            <AvatarSelector
+              selectedAvatar={config.bot_avatar}
+              onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
+              label={null}
+            />
+          )}
+        </div>
+      )}
+
+      {isChatLike(config.bot_type) && (
+        <div>
+          <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction Message</label>
+          <textarea name="introduction" value={config.introduction} onChange={handleChange} rows="2" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]" placeholder="e.g., Welcome to the class!" />
+        </div>
+      )}
+
+      <div>
+        <label className="block text-[13px] font-semibold text-gray-700 mb-2">Access Permissions</label>
+        <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
+          <label className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${config.is_public ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
+            <input type="radio" name="is_public" checked={config.is_public === true} onChange={() => setConfig(prev => ({...prev, is_public: true}))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]"/>
+            <div className="text-sm"><span className="block font-bold text-[#222]">Public</span><span className="text-xs text-gray-500 font-medium">Link Access</span></div>
+          </label>
+          <div className="w-px bg-gray-200"></div>
+          <label className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${!config.is_public ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
+            <input type="radio" name="is_public" checked={config.is_public === false} onChange={() => setConfig(prev => ({...prev, is_public: false}))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]"/>
+            <div className="text-sm"><span className="block font-bold text-[#222]">Private</span><span className="text-xs text-gray-500 font-medium">Login Required</span></div>
+          </label>
+        </div>
+        {config.is_public && (
+          <div className="mt-3">
+            <label className="block text-[13px] font-semibold text-gray-700 mb-2">What is this link for?</label>
+            <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
+              {[
+                { id: 'learning', title: 'Learning', hint: 'Asks for name & email' },
+                { id: 'research', title: 'Research', hint: 'No sign-up, no branding, no cap' },
+              ].map(o => (
+                <label key={o.id} className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${config.public_purpose === o.id ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
+                  <input type="radio" name="public_purpose" checked={config.public_purpose === o.id} onChange={() => setConfig(prev => ({ ...prev, public_purpose: o.id }))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]" />
+                  <div className="text-sm"><span className="block font-bold text-[#222]">{o.title}</span><span className="text-xs text-gray-500 font-medium">{o.hint}</span></div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
 
   if (!isOpen) return null;
 
@@ -1093,6 +1165,14 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                         Room for up to {config.manager_exercise.num_rooms * config.manager_exercise.num_students} students.
                       </p>
                     </div>
+                    {/* Simple mode: say what timing will be used instead of hiding it silently. */}
+                    {!advanced && (
+                      <p className="text-[11px] text-gray-500">
+                        Timing: info {config.manager_exercise.general_info_minutes} · review {config.manager_exercise.review_minutes} · private {config.manager_exercise.solo_minutes} · team {config.manager_exercise.discuss_minutes} · debrief {config.manager_exercise.debrief_minutes}
+                        {config.manager_exercise.template === 'investigation' ? ` · reading ${config.manager_exercise.reading_minutes}` : ''} min — change in Advanced.
+                      </p>
+                    )}
+                    <AdvancedReveal show={advanced}>
                     {/* The two prelude gates. Each student walks these alone at their
                         own desk, so they are paced per-student rather than per-room —
                         and both run out into the next screen with no way back. */}
@@ -1126,17 +1206,20 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                         <input type="number" min="0" step="any" value={config.manager_exercise.reading_minutes} onChange={(e) => setMgr('reading_minutes', parseFloat(e.target.value) || 0)} className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all" />
                       </div>
                     )}
+                    </AdvancedReveal>
                   </div>
 
                   {/* What ACTR steers toward. Only the preset KEY is sent; the full
                       learning-point text is stamped in server-side. */}
                   <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 animate-in fade-in duration-300">
                     <h3 className="text-[13px] font-bold text-gray-800 uppercase tracking-wider mb-4 flex items-center"><FaFileAlt className="mr-2 text-[#FA6C43]"/> Learning</h3>
+                    <AdvancedReveal show={advanced}>
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-2">Class preset<InfoTip text="Pre-written learning points the facilitator steers toward. Leave blank to rely on your own stated outcome alone." /></label>
                     <select value={config.manager_exercise.class_preset} onChange={(e) => setMgr('class_preset', e.target.value)} className="w-full p-2.5 mb-4 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all">
                       <option value="">— none —</option>
                       {ME_CLASS_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
                     </select>
+                    </AdvancedReveal>
                     <label className="block text-xs font-semibold text-gray-700 mb-2">What should they take away?</label>
                     <textarea rows="3" value={config.manager_exercise.learning_outcome} onChange={(e) => setMgr('learning_outcome', e.target.value)} placeholder="e.g. Groups under-share unique information and over-weight a concern everyone happens to hold." className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43] transition-all" />
                   </div>
@@ -1735,15 +1818,22 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                   <>
                     <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Customize AI Behavior</h2>
 
-                    {/* Template Gallery */}
+                    {/* Instruction presets — collapsed by default; fills instructions only. Named
+                        "presets" so it isn't confused with the dialog's class templates tab. */}
                     <div className="mb-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-[13px] font-semibold text-gray-700">Start from a template <span className="font-normal text-gray-400">(optional)</span></p>
+                      <div className="flex items-center justify-between">
+                        <button type="button" onClick={() => setPresetsOpen(o => !o)} aria-expanded={presetsOpen} className="text-[13px] font-semibold text-gray-700 hover:text-[#FA6C43] transition-colors">
+                          {presetsOpen ? '▾' : '▸'} Use an instruction preset{' '}
+                          <span className="font-normal text-gray-400">
+                            {selectedTemplateId ? `— ${SIMULATION_TEMPLATES.find(t => t.id === selectedTemplateId)?.title || ''}` : '(optional)'}
+                          </span>
+                        </button>
                         {selectedTemplateId && (
                           <button type="button" onClick={() => { setSelectedTemplateId(null); setConfig(prev => ({ ...prev, instructions: '' })); setErrors(prev => ({ ...prev, instructions: null })); }} className="text-xs text-gray-400 hover:text-gray-600 underline">Write from scratch</button>
                         )}
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      {presetsOpen && (
+                      <div className="grid grid-cols-2 gap-3 mt-3 animate-in fade-in duration-150">
                         {SIMULATION_TEMPLATES.map(t => (
                           <button
                             key={t.id}
@@ -1760,6 +1850,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                           </button>
                         ))}
                       </div>
+                      )}
                     </div>
 
                     <div>
@@ -1862,74 +1953,22 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                       <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                     </div>
 
+                    <div className="pt-6 mt-2 border-t border-gray-100 space-y-6">
+                      <p className="text-[13px] font-bold text-gray-800">How it appears</p>
+                      {renderAppearance()}
+                    </div>
+
                   </>
                 )}
               </div>
             )}
 
-            {/* STEP 5: Fine Tune */}
+            {/* STEP 5: Final Polish — video, group chat and manager exercise only */}
             {step === 5 && (
               <div className="space-y-6 animate-in fade-in">
                 <h2 className="text-2xl font-bold text-center text-[#222] mb-6">Final Polish</h2>
                 
-                {isChatLike(config.bot_type) && (
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-2">
-                      {config.bot_type === 'avatar' ? 'Video Avatar' : 'Bot Avatar'}
-                    </label>
-                    {config.bot_type === 'avatar' ? (
-                      <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
-                        {heygenAvatars.map((avatar) => (
-                          <div key={avatar.avatar_id} onClick={() => setConfig(prev => ({ ...prev, heygen_avatar_id: avatar.avatar_id }))} className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${config.heygen_avatar_id === avatar.avatar_id ? 'border-[#FA6C43] shadow-md scale-95' : 'border-transparent hover:border-gray-300'}`}><img src={avatar.normal_preview} alt="Avatar" className="w-full h-16 object-cover bg-gray-100" /></div>
-                        ))}
-                      </div>
-                    ) : (
-                      <AvatarSelector
-                        selectedAvatar={config.bot_avatar}
-                        onSelect={(avatarId) => setConfig(prev => ({ ...prev, bot_avatar: avatarId }))}
-                        label={null}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {isChatLike(config.bot_type) && (
-                  <div>
-                    <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Introduction Message</label>
-                    <textarea name="introduction" value={config.introduction} onChange={handleChange} rows="2" className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]" placeholder="e.g., Welcome to the class!" />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-[13px] font-semibold text-gray-700 mb-2">Access Permissions</label>
-                  <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <label className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${config.is_public ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
-                      <input type="radio" name="is_public" checked={config.is_public === true} onChange={() => setConfig(prev => ({...prev, is_public: true}))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]"/>
-                      <div className="text-sm"><span className="block font-bold text-[#222]">Public</span><span className="text-xs text-gray-500 font-medium">Link Access</span></div>
-                    </label>
-                    <div className="w-px bg-gray-200"></div>
-                    <label className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${!config.is_public ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
-                      <input type="radio" name="is_public" checked={config.is_public === false} onChange={() => setConfig(prev => ({...prev, is_public: false}))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]"/>
-                      <div className="text-sm"><span className="block font-bold text-[#222]">Private</span><span className="text-xs text-gray-500 font-medium">Login Required</span></div>
-                    </label>
-                  </div>
-                  {config.is_public && (
-                    <div className="mt-3">
-                      <label className="block text-[13px] font-semibold text-gray-700 mb-2">What is this link for?</label>
-                      <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
-                        {[
-                          { id: 'learning', title: 'Learning', hint: 'Asks for name & email' },
-                          { id: 'research', title: 'Research', hint: 'No sign-up, no branding, no cap' },
-                        ].map(o => (
-                          <label key={o.id} className={`flex-1 flex items-center justify-center p-3 cursor-pointer transition-all ${config.public_purpose === o.id ? 'bg-[#F9D0C4]/20' : 'hover:bg-gray-50'}`}>
-                            <input type="radio" name="public_purpose" checked={config.public_purpose === o.id} onChange={() => setConfig(prev => ({ ...prev, public_purpose: o.id }))} className="mr-2 text-[#FA6C43] focus:ring-[#FA6C43]" />
-                            <div className="text-sm"><span className="block font-bold text-[#222]">{o.title}</span><span className="text-xs text-gray-500 font-medium">{o.hint}</span></div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {renderAppearance()}
               </div>
             )}
 
