@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-21
-// @changed   New alwaysExpanded prop — real chat surfaces (1:1 chat, group chat, Experiential) pass it
+// @updated   2026-09-27
+// @changed   Bigger composer controls: send/mic 32->36px, attach/equation/+ 28->32px, glyphs 16px,
+//            model/effort pills get more padding; text + action-row clearance right-12 -> right-14
+//            so copy never runs under the wider send button.
+// @changed   Prior: New alwaysExpanded prop — real chat surfaces (1:1 chat, group chat, Experiential) pass it
 //            so the composer never collapses to the 48px pill mid-conversation; only the landing-page
 //            demo keeps the original expand-on-focus/collapse-on-blur behavior.
 // @changed   Prior: PromptInput is now the single composer used everywhere — 1:1 chat (ChatPage), the
@@ -124,7 +127,7 @@ function ModelIcon({ className }) {
 
 function ArrowUpIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path d="M7 12V2M7 2L2.5 6.5M7 2L11.5 6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -132,7 +135,7 @@ function ArrowUpIcon() {
 
 function MicIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <rect x="5" y="1" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.5" />
       <path d="M2.75 6.5V7a4.25 4.25 0 0 0 8.5 0v-.5M7 11.25V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
@@ -141,7 +144,7 @@ function MicIcon() {
 
 function StopIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" fill="currentColor" />
     </svg>
   );
@@ -149,7 +152,7 @@ function StopIcon() {
 
 function PlusIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path d="M7 2.5V11.5M2.5 7H11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
@@ -1070,7 +1073,7 @@ export const PromptInput = React.forwardRef(
                 placeholder={expanded ? placeholder : ''}
                 disabled={isRecording || isLoading}
                 className={cn(
-                  'prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full pl-4 pr-12 py-3.5 text-sm leading-[22px] text-[#1F1F1F] outline-none cursor-text',
+                  'prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full pl-4 pr-14 py-3.5 text-sm leading-[22px] text-[#1F1F1F] outline-none cursor-text',
                   expanded ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-1 pointer-events-none',
                   isScrolling ? 'overflow-y-auto' : 'overflow-y-hidden'
                 )}
@@ -1102,7 +1105,7 @@ export const PromptInput = React.forwardRef(
                     : 'opacity 0.3s ease-out, transform 0.3s ease-out, height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
                 }}
                 className={cn(
-                  'prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-12 py-3.5 text-sm leading-[22px] text-[#1F1F1F] outline-none placeholder:font-medium placeholder:text-gray-400 cursor-text',
+                  'prompt-scrollbar absolute top-0 inset-x-0 z-[1] w-full resize-none bg-transparent pl-4 pr-14 py-3.5 text-sm leading-[22px] text-[#1F1F1F] outline-none placeholder:font-medium placeholder:text-gray-400 cursor-text',
                   expanded ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-1 pointer-events-none',
                   isScrolling ? 'overflow-y-auto' : 'overflow-y-hidden',
                   isRecording && 'pointer-events-none'
@@ -1112,11 +1115,11 @@ export const PromptInput = React.forwardRef(
 
             <div
               ref={topFadeRef}
-              className="absolute left-4 right-12 top-0 z-[2] h-8 bg-gradient-to-b from-white via-white/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-14 top-0 z-[2] h-8 bg-gradient-to-b from-white via-white/90 to-transparent pointer-events-none"
             />
             <div
               ref={bottomFadeRef}
-              className="absolute left-4 right-12 z-[2] h-8 bg-gradient-to-t from-white via-white/90 to-transparent pointer-events-none"
+              className="absolute left-4 right-14 z-[2] h-8 bg-gradient-to-t from-white via-white/90 to-transparent pointer-events-none"
               style={{
                 opacity: 0,
                 top: `${textareaHeight - 32}px`,
@@ -1129,7 +1132,7 @@ export const PromptInput = React.forwardRef(
               onClick={expand}
               style={{ transition: isSmoothResize ? 'none' : 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
               className={cn(
-                'absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-12 py-[15px] text-left text-sm font-medium leading-[17px] text-gray-400 outline-none',
+                'absolute inset-x-0 top-0 z-[1] cursor-text pl-4 pr-14 py-[15px] text-left text-sm font-medium leading-[17px] text-gray-400 outline-none',
                 !expanded ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-105 translate-y-1 pointer-events-none'
               )}
               aria-label="Open prompt input"
@@ -1140,7 +1143,7 @@ export const PromptInput = React.forwardRef(
             {/* Bottom Actions Wrapper - Hides when recording to make space for visualizer */}
             <div
               className={cn(
-                'absolute bottom-2 left-3 right-12 z-[10] flex items-center gap-0 transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]',
+                'absolute bottom-2 left-3 right-14 z-[10] flex items-center gap-0 transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]',
                 expanded && !isRecording ? 'opacity-100 blur-0 translate-y-0 pointer-events-auto' : 'opacity-0 blur-sm translate-y-2 pointer-events-none'
               )}
             >
@@ -1154,12 +1157,12 @@ export const PromptInput = React.forwardRef(
                       setIsModelSelectOpen((prev) => !prev);
                     }}
                     className={cn(
-                      'group flex items-center gap-1 rounded-full px-2 py-1 text-[#1F1F1F]/50 transition-all duration-200 outline-none hover:bg-gray-100 hover:text-[#1F1F1F] cursor-default',
+                      'group flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[#1F1F1F]/50 transition-all duration-200 outline-none hover:bg-gray-100 hover:text-[#1F1F1F] cursor-default',
                       isModelSelectOpen ? 'bg-gray-100 text-[#1F1F1F]' : ''
                     )}
                     aria-label={`Select model. Current: ${selectedModelObj?.label}`}
                   >
-                    <ModelIcon className="size-3.5 opacity-70 group-hover:opacity-100 transition-opacity" />
+                    <ModelIcon className="size-4 opacity-70 group-hover:opacity-100 transition-opacity" />
                     <span className="text-xs font-semibold select-none transition-colors">
                       <MorphingText text={selectedModelObj?.label} />
                     </span>
@@ -1213,7 +1216,7 @@ export const PromptInput = React.forwardRef(
               {hasEfforts && (
                 <button
                   type="button" onMouseDown={(e) => e.preventDefault()} onClick={cycleEffort}
-                  className="group flex items-center gap-1 rounded-full px-2 py-1 text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default"
+                  className="group flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default"
                 >
                   <DynamicBarsIcon level={efforts[effortIndex]} />
                   <span className="text-xs font-semibold select-none transition-colors"><MorphingText text={efforts[effortIndex]} /></span>
@@ -1227,9 +1230,9 @@ export const PromptInput = React.forwardRef(
                     onClick={() => richInputRef.current?.insertMath()}
                     disabled={isLoading}
                     title="Insert equation"
-                    className="flex size-7 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                    className="flex size-8 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
                   >
-                    <TbMathFunction className="text-sm" />
+                    <TbMathFunction className="text-base" />
                   </button>
                 )}
                 {showAttach && isExternalAttach && (
@@ -1239,25 +1242,25 @@ export const PromptInput = React.forwardRef(
                       onClick={onAttachPick}
                       disabled={isUploading}
                       title="Attach files"
-                      className="flex size-7 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                      className="flex size-8 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
                     >
-                      {isUploading ? <FaSpinner className="animate-spin text-sm" /> : <FiPaperclip className="text-sm" />}
+                      {isUploading ? <FaSpinner className="animate-spin text-base" /> : <FiPaperclip className="text-base" />}
                     </button>
                     <button
                       type="button" onMouseDown={(e) => e.preventDefault()}
                       onClick={() => imageInputRef?.current?.click()}
                       disabled={isUploading}
                       title="Attach image"
-                      className="flex size-7 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                      className="flex size-8 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
                     >
-                      <FiImage className="text-sm" />
+                      <FiImage className="text-base" />
                     </button>
                   </>
                 )}
                 {showAttach && !isExternalAttach && (
                   <button
                     type="button" onMouseDown={(e) => e.preventDefault()} onClick={openFileChooser} disabled={attachments.length >= maxAttachments}
-                    className="flex size-7 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
+                    className="flex size-8 items-center justify-center rounded-full text-[#1F1F1F]/50 transition-all duration-200 hover:bg-gray-100 hover:text-[#1F1F1F] outline-none cursor-default disabled:opacity-40 disabled:pointer-events-none"
                   >
                     <PlusIcon />
                   </button>
@@ -1271,7 +1274,7 @@ export const PromptInput = React.forwardRef(
             {!isRealVoice && (
               <div
                 className={cn(
-                  'absolute right-12 bottom-2 z-[10] flex h-8 items-center justify-end gap-[3px] transition-all duration-400 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]',
+                  'absolute right-14 bottom-2 z-[10] flex h-8 items-center justify-end gap-[3px] transition-all duration-400 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]',
                   isRecording ? 'w-16 opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-4 pointer-events-none'
                 )}
               >
@@ -1334,7 +1337,7 @@ export const PromptInput = React.forwardRef(
                 aria-label={showArrow ? 'Send prompt' : showStop ? 'Stop recording' : showSpinner ? 'Working' : 'Use voice input'}
                 style={{ borderRadius: 9999 }}
                 className={cn(
-                  'relative flex h-8 w-8 items-center justify-center bg-[#FA6C43] text-white transition-all duration-300 hover:bg-[#E55B34] outline-none focus-visible:ring-2 focus-visible:ring-[#F9D0C4] cursor-default disabled:opacity-50',
+                  'relative flex h-9 w-9 items-center justify-center bg-[#FA6C43] text-white transition-all duration-300 hover:bg-[#E55B34] outline-none focus-visible:ring-2 focus-visible:ring-[#F9D0C4] cursor-default disabled:opacity-50',
                   isPulsing && 'animate-send-pulse'
                 )}
               >
@@ -1351,7 +1354,7 @@ export const PromptInput = React.forwardRef(
                     <StopIcon />
                   </span>
                   <span className={cn('absolute inset-0 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)]', showSpinner ? 'opacity-100 scale-100 rotate-0 blur-none' : 'opacity-0 scale-50 rotate-45 blur-[1px] pointer-events-none')}>
-                    <FaSpinner className="animate-spin text-xs" />
+                    <FaSpinner className="animate-spin text-sm" />
                   </span>
                 </span>
               </button>
