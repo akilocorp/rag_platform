@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-09-26  @changed Instructor Preview runs (`is_preview`) render with an "instructor
+/* @language JSX  @updated 2026-09-27  @changed Back buttons go to /config_list instead of history -1, which went nowhere when the page was opened in a new tab or from a link. Prior: Instructor Preview runs (`is_preview`) render with an "instructor
    preview" caption and are held out of the class summary and live poll like the AI test row; instructor rows in a
    mixed group get an "instructor" tag. Prior: The professor's last TEST run renders as one more team
    at the bottom of "Group by group", pilled "AI test" instead of "Group N". Rows flagged `is_test` are
@@ -262,7 +262,7 @@ export default function ManagerExerciseResultsPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F0F6FB] px-6 text-center">
         <p className="text-sm font-semibold text-red-500 mb-4">{error}</p>
-        <button onClick={() => navigate(-1)} className="text-sm font-semibold text-gray-500 hover:text-[#FA6C43]">
+        <button onClick={() => navigate('/config_list')} className="text-sm font-semibold text-gray-500 hover:text-[#FA6C43]">
           <FaArrowLeft className="inline mr-1.5 text-xs" /> Back
         </button>
       </div>
@@ -286,7 +286,7 @@ export default function ManagerExerciseResultsPage() {
     <div className="min-h-screen bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur sticky top-0 z-10 h-16 shadow-sm">
         <div className="flex items-center gap-4 min-w-0">
-          <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+          <button onClick={() => navigate('/config_list')} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
             <FaArrowLeft />
           </button>
           <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaChartBar className="text-lg" /></div>

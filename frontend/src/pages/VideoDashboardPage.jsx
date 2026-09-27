@@ -1,7 +1,9 @@
 /*
  * @language JavaScript (React / JSX)
- * @updated 2026-09-15
- * @changed Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
+ * @updated 2026-09-27
+ * @changed Student-table dimension headers show the full name (truncated with a hover title) instead of
+ *          a hard 4-character cut ("Deli", "Stru").
+ * @changed Prior: Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
  *          (blob-download pattern mirrored from StudioResponsesPage.jsx). Filename uses the config's
  *          bot_name, captured into new `botName` state alongside the existing classCode fetch.
  * @changed Prior: Fixed past analyses not rendering on re-select (ref -> state); show per-criterion scores
@@ -552,7 +554,7 @@ export default function VideoDashboardPage() {
                 <span className="w-4" />
                 <span className="flex-1">Student</span>
                 {!analysisStudentMap ? (
-                  <span className="hidden sm:flex gap-3">{dimList.map(d => <span key={d.id} className="w-14 text-center">{(d.name || d.id).slice(0, 4)}</span>)}</span>
+                  <span className="hidden sm:flex gap-3">{dimList.map(d => <span key={d.id} className="w-14 text-center truncate" title={d.name || d.id}>{d.name || d.id}</span>)}</span>
                 ) : critList.length > 0 && (
                   <span className="hidden sm:flex gap-3">{critList.map(n => <span key={n} className="w-20 text-center truncate" title={n}>{n}</span>)}</span>
                 )}

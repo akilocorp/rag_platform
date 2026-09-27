@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-26
-// @changed   Cancel and a new top "Back to my AIs" link both return to /config_list (Cancel used to open
+// @updated   2026-09-27
+// @changed   Footer results button routes by bot type like the dashboard card (lab → sessions, exercise →
+//            class results, video → dashboard) and is labelled to match; it used to send labs and
+//            exercises to the generic /responses page.
+// @changed   Prior: Cancel and a new top "Back to my AIs" link both return to /config_list (Cancel used to open
 //            the chat); Manager Exercise blurb no longer says "printed packets"; usage-tier options stop
 //            repeating the cap the tier name already carries.
 //            Prior: The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
@@ -967,6 +970,13 @@ const EditConfigPage = () => {
       )}
     </div>
   ) : null;
+
+  // Footer results button — same per-type destination as the dashboard card's handleResponses.
+  const resultsLink = {
+    video_analysis: { path: `/video-dashboard/${config.config_id}`, label: 'Dashboard' },
+    experiential: { path: `/experiential-dashboard/${config.config_id}`, label: 'Sessions' },
+    manager_exercise: { path: `/manager-exercise/${config.config_id}/results`, label: 'Results' },
+  }[config.bot_type] || { path: `/responses/${config.config_id}`, label: 'View Responses' };
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -2302,8 +2312,8 @@ const EditConfigPage = () => {
                 {isDeleting ? 'Deleting...' : 'Delete Space'}
               </button>
               <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-end">
-                <button type="button" onClick={() => navigate(config.bot_type === 'video_analysis' ? `/video-dashboard/${config.config_id}` : `/responses/${config.config_id}`)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
-                  <FaListAlt className="text-sm text-gray-500" /><span>{config.bot_type === 'video_analysis' ? 'Dashboard' : 'View Responses'}</span>
+                <button type="button" onClick={() => navigate(resultsLink.path)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
+                  <FaListAlt className="text-sm text-gray-500" /><span>{resultsLink.label}</span>
                 </button>
                 <button type="button" onClick={() => navigate('/config_list')} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
                 <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">

@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Dropped the Simple/Advanced toggle from the list header — it changed nothing on this page
+// @changed   Labs/Exercises category filter now persists across visits; the message/error Customize
+//            hands back on navigate ("Updated successfully." etc.) is finally shown as a toast.
+// @changed   Prior: Dropped the Simple/Advanced toggle from the list header — it changed nothing on this page
 //            (it still lives in Customize and the create wizard).
 //            Prior: The create dialog gained a "Start from a template" tab, so ConfigModal takes an
 //            onCreated callback: a class made from a template lands in the list through the same
@@ -627,7 +629,7 @@ const ConfigListPage = () => {
   // through their Shared classes was dropped back on Private after every single edit.
   // Wrapped in try/catch because localStorage throws outright in some privacy modes.
   const [visibility, setVisibility] = useState(() => readStored(VISIBILITY_KEY, ['private', 'shared'], 'private'));
-  const [category, setCategory] = useState(() => readStored(CATEGORY_KEY, ['all', 'text', 'video'], 'all'));
+  const [category, setCategory] = useState(() => readStored(CATEGORY_KEY, ['all', 'text', 'lab', 'exercise', 'video'], 'all'));
   const [view, setView] = useState(() => readStored(VIEW_KEY, ['grid', 'list'], 'grid'));
 
   useEffect(() => { writeStored(VISIBILITY_KEY, visibility); }, [visibility]);
@@ -747,6 +749,17 @@ const ConfigListPage = () => {
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Surface the one-shot message/error EditConfigPage passes back via router state, then
+  // drop it from history directly (not via navigate, which would re-trigger the list fetch)
+  // so a refresh or Back doesn't replay the toast.
+  useEffect(() => {
+    const note = location.state?.message || location.state?.error;
+    if (!note) return;
+    showToast(note);
+    window.history.replaceState({ ...window.history.state, usr: undefined }, '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key, showToast]);
 
   // Ctrl+C: mint a transfer token for the card and put one readable line on the
   // clipboard. The token is minted server-side even if the clipboard write is

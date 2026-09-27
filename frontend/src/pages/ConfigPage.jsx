@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   Manager Exercise (investigation template): new "Case-reading window (minutes)" field in
+// @updated   2026-09-27
+// @changed   Wizard's primary button reads "Publish" on the last step for the chosen type (labs end on
+//            step 3), not only on step 5.
+// @changed   Prior: Manager Exercise (investigation template): new "Case-reading window (minutes)" field in
 //            Group & Timing, default 30 — the professor-paired timed reading window's length
 //            (backend: exercise_state.py's `reading_minutes`). Hidden for the hiring template, which
 //            has no reading window.
@@ -1945,7 +1947,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
             </div>
             <button onClick={handleBack} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all">{step === 1 ? 'Cancel' : 'Back'}</button>
             <button onClick={handleNext} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm active:scale-[0.98] min-w-[120px] flex justify-center">
-              {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === 5 ? 'Publish' : 'Next')}
+              {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === stepsFor(config.bot_type).at(-1) ? 'Publish' : 'Next')}
             </button>
           </div>
           )}
