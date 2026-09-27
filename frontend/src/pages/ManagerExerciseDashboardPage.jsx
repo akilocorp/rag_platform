@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-11  @changed Both templates pair now, so the pairing panel is no
+/* @language JSX  @updated 2026-09-27  @changed Room monitor retitled "Groups — live" with copy that describes it as
+   the live view of the paired groups; the old "students pick their own group" text contradicted the Pair panel.
+   Prior banner: @language JSX  @updated 2026-09-11  @changed Both templates pair now, so the pairing panel is no
    longer investigation-only and the room monitor sits under it rather than instead of it.
    Prior banner: @language JSX  @updated 2026-09-08  @changed Pairing is no longer one-shot: PairingPanel reads the
    professor's own `investigation_group_size`/`_max` (passed from the fetched config) instead of a
@@ -171,11 +173,13 @@ const RoomMonitor = ({ configId }) => {
   return (
     <div className="rounded-3xl border border-gray-200 bg-white p-6">
       <h2 className="text-sm font-bold text-gray-800 inline-flex items-center gap-2 mb-1">
-        <FaUsers className="text-[#FA6C43]" /> Breakout groups
+        <FaUsers className="text-[#FA6C43]" /> Groups — live
       </h2>
+      {/* Pairing (above) is the only way a class is grouped now, so this panel is its
+          live view — not a second, student-picks-a-room mode, which the old copy described. */}
       <p className="text-xs text-gray-500 mb-5">
-        Students pick their own group and start when they're ready — there is nothing to start
-        here. Reset wipes a group back to an empty slot, including its transcript.
+        Each group once you've paired the class, updating live. Reset wipes a group back to an
+        empty slot, including its transcript.
       </p>
       {roomError && <p className="mb-4 text-xs font-semibold text-red-500">{roomError}</p>}
       <div className="grid sm:grid-cols-2 gap-3">

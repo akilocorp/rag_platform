@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-09-27
-# @changed   Dashboard occupancy no longer drains to 0/3 mid-exercise: `get_history` re-seats a
+# @changed   Group capacity for professor-paired templates follows the pairing max (`_room_capacity`),
+#            so the dashboard reads "/4" beside a paired group of four and a 4th Preview join is allowed.
+#            Prior: Dashboard occupancy no longer drains to 0/3 mid-exercise: `get_history` re-seats a
 #            reconnecting student (`_reseat_in_breakout`) and records its socket as current, and a stale
 #            socket's disconnect no longer removes a student who has already reconnected.
 #            Prior: Leaving or switching breakout groups before the start now takes the student off the old
@@ -601,6 +603,28 @@ def register_socket_events(socketio, app):
             return ex_state.PHASE_WAITING
         return (doc or {}).get("phase") or ex_state.PHASE_WAITING
 
+    def _room_capacity(me_config):
+        """How many students a Group N room holds.
+
+        Professor-paired templates (every template now) fill groups by pairing, up
+        to `investigation_group_size_max` — the same bound `_launch_pairing` uses.
+        Reading the old breakout `num_students` here instead showed "/3" beside a
+        paired group of four and refused a 4th Preview join the pairing copy promised.
+        """
+        if exercise_templates.flow(me_config.get("template")).get("prof_paired"):
+            try:
+                normal = max(1, int(me_config.get("investigation_group_size") or 3))
+            except (TypeError, ValueError):
+                normal = 3
+            try:
+                return max(normal, int(me_config.get("investigation_group_size_max") or normal + 1))
+            except (TypeError, ValueError):
+                return normal + 1
+        try:
+            return max(1, int(me_config.get("num_students") or 3))
+        except (TypeError, ValueError):
+            return 3
+
     def _lobby_rooms(config_id, me_config):
         """Live view of every breakout room: who's in it and whether it has begun.
 
@@ -612,10 +636,7 @@ def register_socket_events(socketio, app):
             num_rooms = max(1, int(me_config.get("num_rooms") or 5))
         except (TypeError, ValueError):
             num_rooms = 5
-        try:
-            capacity = max(1, int(me_config.get("num_students") or 3))
-        except (TypeError, ValueError):
-            capacity = 3
+        capacity = _room_capacity(me_config)
 
         # Durable phase per room in ONE query, so a finished room survives a restart
         # in the lobby (in-memory ex_state is gone then, but the session doc isn't).
@@ -974,10 +995,7 @@ def register_socket_events(socketio, app):
         if phase == ex_state.PHASE_DONE:
             emit('breakout_error', {'reason': 'finished', 'room_id': room_id}, to=request.sid)
             return
-        try:
-            capacity = max(1, int(me_config.get("num_students") or 3))
-        except (TypeError, ValueError):
-            capacity = 3
+        capacity = _room_capacity(me_config)
         members = _room_members.setdefault(room_id, {})
         if uid not in members and len(members) >= capacity:
             emit('breakout_error', {'reason': 'full', 'room_id': room_id}, to=request.sid)

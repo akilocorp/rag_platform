@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-17
-// @changed   The create dialog gained a "Start from a template" tab, so ConfigModal takes an
+// @updated   2026-09-27
+// @changed   Dropped the Simple/Advanced toggle from the list header — it changed nothing on this page
+//            (it still lives in Customize and the create wizard).
+//            Prior: The create dialog gained a "Start from a template" tab, so ConfigModal takes an
 //            onCreated callback: a class made from a template lands in the list through the same
 //            insert path as a paste (addCreatedConfig), with its own toast.
 //            Prior: Collaborators: a person-plus icon sits in the card's own action row, next to Share —
@@ -36,7 +38,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import UserInfo from '../components/UserInfo';
-import ConfigModeToggle from '../components/ConfigModeToggle';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { getModelDisplayName } from '../utils/modelNames';
 import { studentPathFor } from '../utils/botTypes';
@@ -944,9 +945,9 @@ const ConfigListPage = () => {
         </div>
         <div className="flex items-center space-x-6 lg:space-x-8">
 
-          {/* Faculty Simple/Advanced mode switch — gates how much bot-config
-              detail the create/edit forms expose. */}
-          <ConfigModeToggle className="hidden sm:block" />
+          {/* No Simple/Advanced switch here: nothing on this list changes with it, so it
+              read as a dead control. It lives in Customize and the create wizard, where
+              it gates how much bot-config detail the forms expose. */}
 
           {/* Studio — the drag-and-drop research-project builder. A separate top-level
               entity from bot configs, so it gets its own nav entry rather than a category. */}
