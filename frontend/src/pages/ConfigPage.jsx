@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Wizard's primary button reads "Publish" on the last step for the chosen type (labs end on
+// @changed   Class Code shows in Simple mode for chat and video (usage fields stay Advanced).
+// @changed   Prior: Wizard's primary button reads "Publish" on the last step for the chosen type (labs end on
 //            step 3), not only on step 5.
 // @changed   Prior: Manager Exercise (investigation template): new "Case-reading window (minutes)" field in
 //            Group & Timing, default 30 — the professor-paired timed reading window's length
@@ -1422,7 +1423,6 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                           introduction: prev.introduction?.trim() ? prev.introduction : (introduction || prev.introduction),
                         }))}
                     />
-                    <AdvancedReveal show={advanced}>
                     <div className="mt-4">
                       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                         Class Code <span className="font-normal text-gray-400">(optional - lets students join via invite link)</span>
@@ -1436,9 +1436,8 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
-                      {classUsageFields}
+                      <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                     </div>
-                    </AdvancedReveal>
                   </>
                 ) : config.bot_type === 'group_chat' ? (
                   // ==============================
@@ -1842,7 +1841,10 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                       )}
                     </div>
 
-                    {/* Class rollout — optional class code + shared message pool */}
+                    </AdvancedReveal>
+
+                    {/* Class rollout — optional class code + shared message pool. Outside Advanced:
+                        sharing a class needs it. */}
                     <div className="pt-4 mt-2 border-t border-gray-100">
                       <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                         Class Code <span className="font-normal text-gray-400">(optional — roll this bot out to a class with a shared message pool)</span>
@@ -1856,9 +1858,8 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
-                      {classUsageFields}
+                      <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                     </div>
-                    </AdvancedReveal>
 
                   </>
                 )}

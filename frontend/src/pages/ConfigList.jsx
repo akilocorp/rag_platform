@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Labs/Exercises category filter now persists across visits; the message/error Customize
+// @changed   Fewer clicks: a labelled Results button on every card whose main button doesn't already open
+//            results (the unlabelled Results icon is gone); Open + Results head the card's right-click
+//            menu; a class made from a template opens straight in Customize; the Share dialog's
+//            "no class code" state gets a Set class code button that jumps to Customize.
+// @changed   Prior: Labs/Exercises category filter now persists across visits; the message/error Customize
 //            hands back on navigate ("Updated successfully." etc.) is finally shown as a toast.
 // @changed   Prior: Dropped the Simple/Advanced toggle from the list header — it changed nothing on this page
 //            (it still lives in Customize and the create wizard).
@@ -50,6 +54,9 @@ import ReportBugModal from './ReportBugModal';
 
 // Primary action label + the route a card opens, derived from bot_type.
 // Keeps the existing routing behavior (chat / group / dashboards / sessions).
+// Bot types whose main card button already opens the professor's results page.
+const OPEN_IS_RESULTS = new Set(['video_analysis', 'experiential']);
+
 const primaryActionLabel = (botType) => {
   switch (botType) {
     case 'video_analysis': return 'Open Dashboard';
@@ -360,7 +367,7 @@ const PasteConfigModal = ({ isOpen, token, preview, loadError, onResolveToken, o
 
 // "Share to class" popup: shows the class-invite link (/join/<code>) when the
 // bot has a class code, else the direct link. Copy + Cancel.
-const ShareModal = ({ isOpen, onClose, config }) => {
+const ShareModal = ({ isOpen, onClose, config, onSetCode }) => {
   const [copied, setCopied] = useState(false);
   useEffect(() => { if (isOpen) setCopied(false); }, [isOpen]);
   if (!isOpen) return null;
@@ -398,7 +405,7 @@ const ShareModal = ({ isOpen, onClose, config }) => {
         <p className="text-sm text-gray-500 mb-5">
           {classLink
             ? 'Share this link with your students — they’ll join your class and land straight in the bot.'
-            : 'This bot has no class code yet. You can share the direct link below, or add a class code under Customize for a class-invite link.'}
+            : 'No class code yet. Share the direct link below, or set a class code to get a class-invite link.'}
         </p>
 
         <div className="flex items-center gap-2 mb-6">
@@ -411,12 +418,22 @@ const ShareModal = ({ isOpen, onClose, config }) => {
           </button>
         </div>
 
-        <button
-          onClick={onClose}
-          className="w-full py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-3">
+          {!classLink && (
+            <button
+              onClick={() => { onClose(); onSetCode(config); }}
+              className="flex-1 py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all flex items-center justify-center gap-2"
+            >
+              <FaCog className="text-sm text-gray-500" /> Set class code
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 px-6 rounded-xl font-bold border-2 border-gray-200 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -444,7 +461,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
     }
   };
 
-  // Icon actions (Copy, Share, Collaborators, Responses, Delete). In grid view
+  // Icon actions (Copy, Share, Collaborators, Delete). Results is a labelled footer button. In grid view
   // these sit top-right next to the title; in list view they're relocated into
   // the footer cluster so they line up with Customize / Chat Now on one
   // vertically-centered row.
@@ -475,13 +492,6 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
         className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
       >
         <FaUserPlus className="text-sm" />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onResponses(config); }}
-        title={config.bot_type === 'video_analysis' ? 'Dashboard' : config.bot_type === 'experiential' ? 'Sessions' : config.bot_type === 'manager_exercise' ? "Students' results" : 'Responses'}
-        className="p-1.5 text-gray-400 rounded-lg hover:text-[#FA6C43] hover:bg-[#F9D0C4]/30 transition-colors"
-      >
-        <FaListAlt className="text-sm" />
       </button>
       {/* Delete belongs to the owner. A collaborator's DELETE is refused server-side
           (edit_config_routes pins it to user_id), so rendering the button for them
@@ -590,10 +600,9 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
                 <FaCog className="text-sm" />
                 Customize
               </button>
-              {/* Manager Exercise gets a 3rd button: Dashboard (start/monitor the live
-                  class) and Customize (author it) are two different jobs, and the class
-                  results are neither — a dedicated button beats overloading one of them. */}
-              {config.bot_type === 'manager_exercise' && (
+              {/* Results, labelled — the page a professor visits most after opening. Skipped
+                  where the main button already lands on it (video → dashboard, lab → sessions). */}
+              {!OPEN_IS_RESULTS.has(config.bot_type) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onResponses(config); }}
                   className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
@@ -614,7 +623,7 @@ const ConfigItem = ({ config, index, view, onOpen, onSelect, onResponses, onEdit
         )}
       </div>
 
-      <ShareModal isOpen={shareOpen} onClose={() => setShareOpen(false)} config={config} />
+      <ShareModal isOpen={shareOpen} onClose={() => setShareOpen(false)} config={config} onSetCode={onEdit} />
     </div>
   );
 };
@@ -830,13 +839,14 @@ const ConfigListPage = () => {
       : `“${config.bot_name}” created. No student data was copied.`);
   }, [addCreatedConfig]);
 
-  // A class started from a template. Same insert, different sentence: there was no
-  // original class of the professor's to reassure them about, only a new one to open.
-  const handleTemplateCreated = useCallback((config, filesCopied) => {
-    addCreatedConfig(config, filesCopied > 0
-      ? `“${config.bot_name}” created from a template with ${filesCopied} file${filesCopied === 1 ? '' : 's'}. Open it to adjust anything.`
-      : `“${config.bot_name}” created. Open it to adjust anything.`);
-  }, [addCreatedConfig]);
+  // A class started from a template.
+  // Goes straight to Customize — a class from a template almost always needs its name,
+  // class code or instructions touched, so landing back on the list only cost a click.
+  const handleTemplateCreated = useCallback((config) => {
+    setIsConfigModalOpen(false);
+    onEdit(config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keyboard copy. The target is the right-clicked card, else the hovered one.
   useEffect(() => {
@@ -882,6 +892,10 @@ const ConfigListPage = () => {
 
   const contextMenuItems = contextMenu?.config
     ? [
+        { label: 'Open', icon: <FaExternalLinkAlt className="text-xs" />, onClick: () => handleOpen(contextMenu.config) },
+        ...(OPEN_IS_RESULTS.has(contextMenu.config.bot_type) ? [] : [
+          { label: 'Results', icon: <FaChartBar className="text-xs" />, onClick: () => handleResponses(contextMenu.config) },
+        ]),
         { label: 'Copy', icon: <FaClone className="text-xs" />, onClick: () => handleCopy(contextMenu.config) },
         { label: 'Customize', icon: <FaCog className="text-xs" />, onClick: () => onEdit(contextMenu.config) },
         // Offered on every card, not just owned ones: a collaborator opens the

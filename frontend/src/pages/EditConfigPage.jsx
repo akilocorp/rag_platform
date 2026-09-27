@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-09-27
-// @changed   Footer results button routes by bot type like the dashboard card (lab → sessions, exercise →
+// @changed   Class Code is visible in Simple mode for chat, lab and video (usage tier / student count
+//            stay in Advanced) — the Share dialog sends professors here to set it.
+// @changed   Prior: Footer results button routes by bot type like the dashboard card (lab → sessions, exercise →
 //            class results, video → dashboard) and is labelled to match; it used to send labs and
 //            exercises to the generic /responses page.
 // @changed   Prior: Cancel and a new top "Back to my AIs" link both return to /config_list (Cancel used to open
@@ -1155,7 +1157,6 @@ const EditConfigPage = () => {
                   )}
                 </div>
 
-                <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
@@ -1168,9 +1169,8 @@ const EditConfigPage = () => {
                     placeholder="e.g. MACRO101"
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
-                  {classUsageFields}
+                  <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                 </div>
-                </AdvancedReveal>
               </div>
             ) : config.bot_type === 'video_analysis' ? (
               <div className="border-t border-gray-100 pt-8 mt-8">
@@ -1202,7 +1202,6 @@ const EditConfigPage = () => {
                 </button>
                 <p className="text-[11px] text-gray-400 mt-1.5">Opens its own page and saves there — save any changes here first.</p>
 
-                <AdvancedReveal show={advanced}>
                 <div className="mt-4">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Class Code <span className="font-normal text-gray-400">(optional - generates a student invite link)</span>
@@ -1216,8 +1215,9 @@ const EditConfigPage = () => {
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
-                  {classUsageFields}
+                  <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                 </div>
+                <AdvancedReveal show={advanced}>
                 <p className="text-xs text-gray-400 mt-4">Editing weights or prompts applies to new submissions. Use "Rescore" on the dashboard to re-grade existing ones.</p>
                 </AdvancedReveal>
               </div>
@@ -2183,7 +2183,11 @@ const EditConfigPage = () => {
                   )}
                 </div>
 
-                {/* Class rollout — optional class code + shared message pool */}
+                </div>
+                </AdvancedReveal>
+
+                {/* Class rollout — optional class code + shared message pool. Outside Advanced:
+                    sharing a class needs it, and Share points the professor here. */}
                 <div className="border-t border-gray-100 pt-8 mt-8">
                   <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">
                     Class Code <span className="font-normal text-gray-400">(optional — roll this bot out to a class with a shared message pool)</span>
@@ -2197,11 +2201,8 @@ const EditConfigPage = () => {
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43] transition-all"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">3-20 characters, letters, numbers, hyphens. Must be unique.</p>
-                  {classUsageFields}
+                  <AdvancedReveal show={advanced}>{classUsageFields}</AdvancedReveal>
                 </div>
-
-                </div>
-                </AdvancedReveal>
               </>
             )}
 

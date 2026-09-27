@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-18
- * @changed   Surfaced per-session survey variables (the values a Qualtrics launch URL piped in): a chip
+ * @updated   2026-09-27
+ * @changed   Opens on Sessions when the class has no saved analysis yet (it used to drop the professor
+ *            into the New Analysis form); Analytics then shows a one-line empty state with a
+ *            "Run analysis" button instead of auto-opening the form.
+ * @changed   Prior: Surfaced per-session survey variables (the values a Qualtrics launch URL piped in): a chip
  *            row on each session card, and one CSV column per variable key.
  */
 import React, { useEffect, useState, useCallback, useRef } from 'react';
@@ -393,8 +396,6 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
         const id = list[0]._id;
         setViewId(id);
         loadDetail(id).catch(() => {});
-      } else {
-        setShowForm(true);
       }
       setLoadingList(false);
     });
@@ -457,6 +458,8 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
   const compareData = compareId ? loaded[compareId] : null;
   const viewMeta = analyses.find(a => a._id === viewId);
   const compareMeta = analyses.find(a => a._id === compareId);
+
+  const openForm = () => { setShowForm(true); setViewId(null); setCompareId(null); setPickingCompare(false); setError(''); setGradingCriteria(''); setActiveTemplate(null); };
 
   const renderMain = () => {
     if (analyzing) return (
@@ -610,6 +613,17 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
       );
     }
 
+    // No analysis has ever been run: say so and offer the form, rather than opening it uninvited.
+    if (!viewId && analyses.length === 0) return (
+      <div className="bg-white rounded-[2rem] border border-gray-100 p-10 flex flex-col items-center text-center gap-4">
+        <p className="text-sm text-gray-500">No analysis yet for these {sessions.length} session{sessions.length === 1 ? '' : 's'}.</p>
+        <button onClick={openForm}
+          className="flex items-center gap-2 px-4 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl font-bold text-sm transition-colors">
+          <FaBrain className="text-xs" /> Run analysis
+        </button>
+      </div>
+    );
+
     return null;
   };
 
@@ -618,7 +632,7 @@ const AnalyticsTab = ({ sessions, configId, systemPrompt, configName }) => {
       {/* Sidebar */}
       <div className="w-52 shrink-0 space-y-2">
         <button
-          onClick={() => { setShowForm(true); setViewId(null); setCompareId(null); setPickingCompare(false); setError(''); setGradingCriteria(''); setActiveTemplate(null); }}
+          onClick={openForm}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl font-bold text-sm transition-colors">
           <FaPlus className="text-xs" /> New Analysis
         </button>
@@ -725,9 +739,12 @@ const ResponsesPage = () => {
     Promise.all([
       apiClient.get(`/config/${configId}/sessions`),
       apiClient.get(`/config/${configId}`).catch(() => ({ data: null })),
-    ]).then(([sessRes, cfgRes]) => {
+      apiClient.get(`/config/${configId}/analyses`).catch(() => ({ data: null })),
+    ]).then(([sessRes, cfgRes, anRes]) => {
       setSessions(sessRes.data.sessions || []);
       setConfig(cfgRes.data?.config || null);
+      // Land on whatever there is to read: the latest analysis if one exists, else the transcripts.
+      if (!(anRes.data?.analyses || []).length) setTab('sessions');
     }).catch(err => {
       if (err.response?.status === 403) navigate('/config_list');
     }).finally(() => setLoading(false));

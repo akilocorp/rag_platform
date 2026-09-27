@@ -1,51 +1,15 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-10
-// @changed   Overlay markup + CSS moved into LoadingScreen so guards and pages can render the
-//            same loader; this file now only owns the route-change timing.
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import LoadingScreen, { pickLoadingAsset, LOADING_FADE_MS } from './LoadingScreen';
+// @updated   2026-09-27
+// @changed   Route changes no longer play the full-screen loader. It was held for >=1.1s (+260ms fade)
+//            on every navigation, but no route is lazy-loaded — pages render the instant the URL
+//            changes — so it was pure delay. Real waits (auth guards, data fetches) still render
+//            LoadingScreen themselves. Kept as a passthrough so App's tree and any future
+//            route-level hook have one place to live.
+import React from 'react';
 
-const MIN_DURATION_MS = 1100;
-
+// Route-change wrapper. Currently a passthrough: every page is in the main bundle, so there
+// is never a render gap to cover. If routes become React.lazy, wrap them in Suspense with a
+// delayed LoadingScreen fallback here rather than reinstating a fixed-duration overlay.
 export default function PageTransition({ children }) {
-  const location = useLocation();
-  const firstRenderRef = useRef(true);
-  const lastPathRef = useRef(location.pathname);
-  const [overlay, setOverlay] = useState(null);
-
-  useLayoutEffect(() => {
-    if (firstRenderRef.current) {
-      firstRenderRef.current = false;
-      lastPathRef.current = location.pathname;
-      return;
-    }
-    if (lastPathRef.current === location.pathname) return;
-    lastPathRef.current = location.pathname;
-
-    setOverlay({ asset: pickLoadingAsset(), phase: 'in' });
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!overlay || overlay.phase !== 'in') return;
-    const fadeTimer = setTimeout(() => {
-      setOverlay((curr) => (curr ? { ...curr, phase: 'out' } : curr));
-    }, MIN_DURATION_MS);
-    return () => clearTimeout(fadeTimer);
-  }, [overlay]);
-
-  useEffect(() => {
-    if (!overlay || overlay.phase !== 'out') return;
-    const clearTimer = setTimeout(() => setOverlay(null), LOADING_FADE_MS);
-    return () => clearTimeout(clearTimer);
-  }, [overlay]);
-
-  return (
-    <>
-      {children}
-      {overlay && (
-        <LoadingScreen asset={overlay.asset} opacity={overlay.phase === 'in' ? 1 : 0} />
-      )}
-    </>
-  );
+  return <>{children}</>;
 }

@@ -1,7 +1,8 @@
 /*
  * @language JavaScript (React / JSX)
  * @updated 2026-09-27
- * @changed Student-table dimension headers show the full name (truncated with a hover title) instead of
+ * @changed Opens on the newest AI grading analysis when one exists (was always Delivery View, one extra
+ *          click every visit). Prior: Student-table dimension headers show the full name (truncated with a hover title) instead of
  *          a hard 4-character cut ("Deli", "Stru").
  * @changed Prior: Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
  *          (blob-download pattern mirrored from StudioResponsesPage.jsx). Filename uses the config's
@@ -249,18 +250,27 @@ export default function VideoDashboardPage() {
     }).finally(() => setLoading(false));
   }, [configId]);
 
-  const refreshAnalyses = useCallback(() => {
+  const refreshAnalyses = useCallback(() => (
     apiClient.get(`/video/config/${configId}/ai-analyses`)
-      .then((res) => setAnalyses(res.data.analyses || []))
-      .catch(() => {});
-  }, [configId]);
+      .then((res) => { const list = res.data.analyses || []; setAnalyses(list); return list; })
+      .catch(() => [])
+  ), [configId]);
 
   const loadAnalysis = useCallback((id) => (
     apiClient.get(`/video/config/${configId}/ai-analyses/${id}`)
       .then((res) => { setLoaded((prev) => ({ ...prev, [id]: res.data })); return res.data; })
   ), [configId]);
 
-  useEffect(() => { loadDash(); refreshAnalyses(); }, [loadDash, refreshAnalyses]);
+  // First load opens on the newest AI grading analysis if there is one — that is what a professor
+  // who has already graded came back for. Only on mount, so choosing Delivery View afterwards sticks.
+  useEffect(() => {
+    loadDash();
+    refreshAnalyses().then((list) => {
+      if (!list[0]) return;
+      setViewId(list[0]._id);
+      loadAnalysis(list[0]._id).catch(() => {});
+    });
+  }, [loadDash, refreshAnalyses, loadAnalysis]);
 
   // Poll running job
   useEffect(() => {
