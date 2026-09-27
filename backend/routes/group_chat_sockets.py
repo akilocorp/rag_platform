@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-26
-# @changed   Leaving or switching breakout groups before the start now takes the student off the old
+# @updated   2026-09-27
+# @changed   Dashboard occupancy no longer drains to 0/3 mid-exercise: `get_history` re-seats a
+#            reconnecting student (`_reseat_in_breakout`) and records its socket as current, and a stale
+#            socket's disconnect no longer removes a student who has already reconnected.
+#            Prior: Leaving or switching breakout groups before the start now takes the student off the old
 #            group's roster (`_forget_elsewhere`), so Results stops listing them in two groups.
 #            Prior: Breakout lobby re-broadcasts on every room phase change (`on_phase_change` hook), fixing
 #            finished rooms that still read "in progress, 0/3, joinable" and then refused the join.
@@ -666,6 +669,23 @@ def register_socket_events(socketio, app):
                 return rid.rsplit("_", 1)[0]
         return None
 
+    def _reseat_in_breakout(room_id, config_id, config_doc, uid, display_name):
+        """Put a (re)connecting student back into the room's live occupancy.
+
+        Occupancy used to be added only by `join_breakout_room`. A reconnect comes
+        back on a new socket straight into `get_history`, so it never re-seated —
+        and the old socket's late disconnect then removed the student, draining the
+        dashboard to "SOLO · 0/3" mid-exercise. Breakout rooms (`_g…`) only; re-sends
+        the lobby when the count actually changes."""
+        if not room_id.rsplit("_", 1)[-1].startswith("g"):
+            return
+        members = _room_members.get(room_id) or {}
+        if uid in members:
+            return
+        _drop_from_rooms(uid)   # never seated in two rooms at once
+        _room_members.setdefault(room_id, {})[uid] = (display_name or "").strip() or uid
+        _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+
     def _forget_elsewhere(config_id, me_config, uid, keep=None):
         """Drop `uid` from the roster of every NOT-yet-started group of this config
         except `keep`. Covers switching groups and close-the-tab-then-pick-another
@@ -1190,12 +1210,17 @@ def register_socket_events(socketio, app):
             uid = (data or {}).get('uid') or sid_to_uid.get(request.sid)
             if uid:
                 sid_to_uid[request.sid] = uid
+                # This socket is now the uid's CURRENT one — the disconnect guard
+                # below reads this to tell a real leave from a stale socket closing.
+                uid_to_sid[uid] = request.sid
             state = _bootstrap_exercise(room_id, config_doc)
             if uid:
                 # The roster is captured on entry (not on first message) because the
                 # go-around quorum is measured against it — a student who never
                 # speaks must still be someone ACTR is waiting on.
                 state.note_participant(uid, (data or {}).get('display_name'))
+                _reseat_in_breakout(room_id, config_id, config_doc, uid,
+                                    (data or {}).get('display_name') or state.display_name(uid))
                 emit('exercise_state', state.snapshot_for(uid), to=request.sid)
 
         logger.info(f"📜 Sent history for room {room_id} to {request.sid}")
@@ -1361,6 +1386,12 @@ def register_socket_events(socketio, app):
     @socketio.on('disconnect')
     def handle_disconnect():
         uid = sid_to_uid.pop(request.sid, None)
+        # A socket that closes after its user has already reconnected on a new one
+        # is stale: forgetting the sid is all it gets. Treating it as a leave used to
+        # knock a present student out of their room (and the matchmaking queue).
+        if uid and uid_to_sid.get(uid) not in (None, request.sid):
+            logger.info(f"🔌 stale socket for {uid} closed; newer connection kept")
+            return
         if uid:
             uid_to_sid.pop(uid, None)
             match_manager.leave_queue(uid)
