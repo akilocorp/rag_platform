@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-17
-# @changed   PUT accepts `is_template` / `template_description` (the "publish as a template" toggle),
+# @updated   2026-09-28
+# @changed   PUT accepts `hume_voice` (JSON {id, provider}): a changed voice re-versions the bot's Hume
+#            config, or creates one if it has none (config_routes.apply_bot_voice). `hume_config_id` is
+#            no longer written from the form — the server owns it. A voice that failed to apply comes
+#            back as `warning` alongside the normal success message.
+#            Prior: PUT accepts `is_template` / `template_description` (the "publish as a template" toggle),
 #            applied only when the caller OWNS the config — a collaborator may edit the class but not
 #            list the owner's material in the platform-wide gallery.
 #            Prior: PUT accepts collaborators, DELETE deliberately does not. Editing is widened via
@@ -21,6 +25,7 @@ import json
 from models.config import Config
 from src.utils.vector_stores.store_vector_stores import process_files_and_create_vector_store
 from routes.config_routes import (
+    apply_bot_voice,
     build_prompt_template,
     validate_class_usage,
     validate_manager_exercise,
@@ -147,7 +152,6 @@ def update_existing_config(config_id):
             "web_access": str(data.get('web_access', 'true')).lower() in ['true', '1'],
             "qualtrics_enabled": str(data.get('qualtrics_enabled', 'false')).lower() in ['true', '1'],
             "audio_enabled": str(data.get('audio_enabled', 'false')).lower() in ['true', '1'],
-            "hume_config_id": (data.get('hume_config_id') or '').strip(),
             "instructions": edited_instructions,
             "prompt_template": final_prompt_template,
             "collection_name": data.get('collection_name'),
@@ -231,7 +235,19 @@ def update_existing_config(config_id):
             {"$set": update_data}
         )
 
-        return jsonify({"message": "Configuration updated successfully"}), 200
+        # Voice last: it may call Hume, and a Hume failure must not undo the
+        # edits above. `config_to_update` still holds the pre-edit voice and
+        # config id, which is what sync compares against.
+        raw_voice = data.get('hume_voice')
+        if isinstance(raw_voice, str) and raw_voice.strip():
+            try:
+                raw_voice = json.loads(raw_voice)
+            except json.JSONDecodeError:
+                raw_voice = None
+        config_to_update['bot_name'] = update_data.get('bot_name') or config_to_update.get('bot_name')
+        voice_warning = apply_bot_voice(config_to_update, config_id, raw_voice or None)
+
+        return jsonify({"message": "Configuration updated successfully", "warning": voice_warning}), 200
 
     except Exception as e:
         current_app.logger.error(f"Error updating configuration: {e}", exc_info=True)

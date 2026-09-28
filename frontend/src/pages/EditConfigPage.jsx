@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-18
-// @changed   The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
+// @updated   2026-09-28
+// @changed   Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
+//            `hume_voice` and the server re-versions the bot's Hume config (or creates one). If Hume
+//            could not apply it, the page stays open with the server's warning instead of returning
+//            to the list — everything else was saved, and saving again retries the voice.
+// @changed   Prior: The Qualtrics embed modal can now pipe survey answers INTO the chat: a field list appends
 //            `&name=${e://Field/name}` (or a pasted question pipe) to the iframe src, and the generated
 //            HTML re-derives as that list is edited instead of being frozen at modal-open.
 //            Prior: "Offer this class as a template" toggle (+ a one-line description shown on the template
@@ -38,6 +42,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
+import HumeVoicePicker from '../components/HumeVoicePicker';
 import AvatarSelector from '../components/AvatarSelector';
 
 // The bot avatar and the introduction message dress a 1:1 conversation: an icon that
@@ -268,7 +273,7 @@ const EditConfigPage = () => {
         is_template: !!configFromState.is_template,
         template_description: configFromState.template_description || '',
         audio_enabled: !!configFromState.audio_enabled,
-        hume_config_id: configFromState.hume_config_id || '',
+        hume_voice: configFromState.hume_voice || null,
         // maxAttempts postdates most saved configs, so the spread order matters:
         // a config without it falls back to the default rather than to undefined.
         facilitator: (configFromState.facilitator && typeof configFromState.facilitator === 'object')
@@ -867,9 +872,10 @@ const EditConfigPage = () => {
       const experientialConfig = configToSubmit.experiential_config;
       const facilitator = configToSubmit.facilitator;
       const managerExercise = configToSubmit.manager_exercise;
+      const humeVoice = configToSubmit.hume_voice;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise' && key !== 'hume_voice' && key !== 'hume_config_id') {
           formData.append(key, value);
         }
       });
@@ -887,6 +893,9 @@ const EditConfigPage = () => {
       if (configToSubmit.bot_type === 'manager_exercise' && managerExercise && typeof managerExercise === 'object') {
         formData.append('manager_exercise', JSON.stringify(managerExercise));
       }
+      if (configToSubmit.bot_type === 'audio_call' && humeVoice && typeof humeVoice === 'object') {
+        formData.append('hume_voice', JSON.stringify(humeVoice));
+      }
       
       // Append bots safely
       if (configToSubmit.bot_type === 'group_chat') {
@@ -899,7 +908,11 @@ const EditConfigPage = () => {
       const filesToDelete = initialDocuments.filter(doc => !configToSubmit.documents.includes(doc));
       formData.append('files_to_delete', JSON.stringify(filesToDelete));
 
-      await apiClient.put(`/config/${config.config_id}`, formData);
+      const res = await apiClient.put(`/config/${config.config_id}`, formData);
+      if (res.data?.warning) {
+        setErrors({ form: res.data.warning });
+        return;
+      }
 
       // Back to the list, not into the thing just edited. Saving a config is a
       // housekeeping act — the professor is usually mid-way through setting several
@@ -1059,6 +1072,13 @@ const EditConfigPage = () => {
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
                 />
               </div>
+            )}
+
+            {config.bot_type === 'audio_call' && (
+              <HumeVoicePicker
+                value={config.hume_voice}
+                onChange={(voice) => setConfig(prev => ({ ...prev, hume_voice: voice }))}
+              />
             )}
 
             {/* Public Access Toggle */}

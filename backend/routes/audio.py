@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-14
-# @changed   `_load_owned_config` admits config collaborators, not just the owner.
+# @updated   2026-09-28
+# @changed   Voice picker endpoints: `GET /audio/hume/voices` lists Hume's voice library and
+#            `GET /audio/hume/voices/<provider>/<voice_id>/preview` returns a short spoken mp3 sample.
+#            Both back the per-bot voice picker; see src/audio/hume_configs.py.
+#            Prior: `_load_owned_config` admits config collaborators, not just the owner.
 #            Prior: Calls are now recorded and exportable. Turns carry a real position in the call
 #            (turn_index + offset_ms + client received_at) instead of only a server receive time;
 #            a new `audio_calls` doc holds per-call metadata and the S3 recording key; and
@@ -22,7 +25,8 @@ Three things live here:
 
 `/audio/hume/access_token` mints a short-lived token via OAuth2 client
 credentials so the browser-side @humeai/voice-react SDK can open a WebSocket
-without ever seeing the raw API key.
+without ever seeing the raw API key. `/audio/hume/voices` (+ `/preview`) serve
+the voice picker in the bot form.
 """
 import base64
 import csv
@@ -38,6 +42,7 @@ from bson import ObjectId
 from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required, verify_jwt_in_request
 
+from src.audio import hume_configs
 from src.audio.analyzer_registry import run_all as run_all_analyzers
 from src.utils.s3_client import generate_download_url, generate_presigned_put_url
 from src.utils.config_access import editable_filter
@@ -485,6 +490,32 @@ def hume_access_token():
         "token_type": data.get("token_type", "Bearer"),
         "config_id": os.getenv("HUME_CONFIG_ID"),
     })
+
+
+@audio_bp.route('/audio/hume/voices', methods=['GET'])
+@jwt_required()
+def hume_voices():
+    """The voices a professor can give an Audio Call bot."""
+    try:
+        return jsonify({"voices": hume_configs.list_voices()})
+    except hume_configs.HumeError as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@audio_bp.route('/audio/hume/voices/<provider>/<voice_id>/preview', methods=['GET'])
+@jwt_required()
+def hume_voice_preview(provider, voice_id):
+    """A few seconds of `voice_id` speaking a fixed line, as mp3."""
+    if provider not in hume_configs.VOICE_PROVIDERS:
+        return jsonify({"error": "Unknown voice provider"}), 400
+    try:
+        if not hume_configs.find_voice(voice_id, provider):
+            return jsonify({"error": "Unknown voice"}), 404
+        audio = hume_configs.preview_voice(voice_id, provider)
+    except hume_configs.HumeError as e:
+        return jsonify({"error": str(e)}), 502
+    return Response(audio, mimetype='audio/mpeg',
+                    headers={'Cache-Control': 'private, max-age=86400'})
 
 
 @audio_bp.route('/audio/transcribe', methods=['POST'])

@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-17
-# @changed   Class templates. New `GET /config/templates` (built-ins from src/managers/config_templates.py
+# @updated   2026-09-28
+# @changed   Audio Call voices. Create accepts `hume_voice` ({id, provider}) and, after insert, gives the
+#            bot its own Hume EVI config with that voice (`apply_bot_voice`, shared with the edit route).
+#            `hume_config_id` is no longer taken from the client — only the server sets it. Clones drop
+#            it and get a fresh config of their own, so re-voicing a copy never re-voices the original.
+#            Prior: Class templates. New `GET /config/templates` (built-ins from src/managers/config_templates.py
 #            + every config flagged `is_template`) and `POST /config/from-template`, which clones a
 #            published class through the paste path or assembles a built-in. `is_template` /
 #            `template_description` are accepted on create and never survive a clone. The paste
@@ -67,6 +71,7 @@ def _default_facilitator_raw(raw, model_name):
     return raw
 from src.managers import class_presets
 from src.managers import facilitator_prompt
+from src.audio import hume_configs
 
 import re
 import json
@@ -811,6 +816,29 @@ def get_heygen_avatars():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def apply_bot_voice(bot, bot_id, raw_voice):
+    """Give a saved bot the Hume voice picked for it; returns a warning or None.
+
+    Runs after the bot is in Mongo, because its Hume config is named after the
+    bot id. Hume being down never fails the save: the bot keeps its previous
+    config (or the server default) and the professor is told the voice did not
+    apply. `bot` is updated in place with whatever was persisted.
+    """
+    if not raw_voice:
+        return None
+    try:
+        voice = hume_configs.normalize_voice(raw_voice)
+    except hume_configs.HumeError as e:
+        return f"The bot was saved, but its voice could not be set on Hume: {e}"
+    if not voice:
+        return "The bot was saved, but the chosen voice was not found on Hume."
+    fields, warning = hume_configs.sync_bot_voice(bot, bot_id, voice)
+    if fields:
+        Config.get_collection().update_one({"_id": ObjectId(bot_id)}, {"$set": fields})
+        bot.update(fields)
+    return warning
+
+
 @config_bp.route('/config', methods=['POST'])
 @jwt_required()
 def configure_model():
@@ -934,7 +962,9 @@ def configure_model():
             "template_description": (config_data.get('template_description') or '').strip(),
             "qualtrics_enabled": bool(config_data.get('qualtrics_enabled', False)),
             "audio_enabled": bool(config_data.get('audio_enabled', False)),
-            "hume_config_id": (config_data.get('hume_config_id') or '').strip(),
+            # Set by apply_bot_voice after insert, never by the client: it is the
+            # Hume config this bot's calls connect with, and it must be one Actr made.
+            "hume_config_id": "",
             # Default the facilitator ON for new Claude bots (opt-out kept). When the
             # create payload carries no facilitator block AND the model is Claude, seed
             # an enabled one; an explicit block (the wizard always sends one) passes
@@ -992,6 +1022,8 @@ def configure_model():
         config_id = result.inserted_id
         config_document['_id'] = str(config_id)
 
+        voice_warning = apply_bot_voice(config_document, str(config_id), config_data.get('hume_voice'))
+
         # --- 8. Process Files ---
         if temp_file_paths:
             # Use the provided collection name, or generate one if it's empty
@@ -1011,7 +1043,8 @@ def configure_model():
         
         return jsonify({
             "message": "Configuration saved successfully!",
-            "data": config_document
+            "data": config_document,
+            "warning": voice_warning,
         }), 201
 
     except Exception as e:
@@ -1162,6 +1195,9 @@ _COPY_EXCLUDED_FIELDS = (
     # inheriting the flag would republish someone else's work under a new name
     # and fill the gallery with near-duplicates of the same template.
     'is_template', 'template_description',
+    # A Hume config is re-versioned in place when its bot's voice changes, so two
+    # bots sharing one would re-voice each other. The clone gets its own below.
+    'hume_config_id',
 )
 
 _transfer_indexes_ready = False
@@ -1290,6 +1326,14 @@ def _clone_config_into_account(source, source_config_id, user_id, bot_name, clas
     collection_name = f"config_{new_id}"
     Config.get_collection().update_one({"_id": new_id}, {"$set": {"collection_name": collection_name}})
     new_config['collection_name'] = collection_name
+
+    # Same voice as the source, on a config of the clone's own. `hume_voice` is
+    # popped first so sync_bot_voice sees a bot with no config yet.
+    source_voice = new_config.pop('hume_voice', None)
+    if source_voice:
+        warning = apply_bot_voice(new_config, str(new_id), source_voice)
+        if warning:
+            current_app.logger.warning("Clone %s kept no voice: %s", new_id, warning)
 
     files_copied, chunks_copied = _clone_knowledge_base(
         current_app.config['MONGO_DB'],
