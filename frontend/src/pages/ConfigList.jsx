@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-27
-// @changed   Quieter motion: no card fly-in, chip pop-in, button press-shrink or sidebar hover shadow; dialogs fade instead of zooming; view toggle glides 150ms ease-out instead of a spring.
+// @updated   2026-09-28
+// @changed   Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
+//            created) in an alert before the new card appears.
+// @changed   Prior: Quieter motion: no card fly-in, chip pop-in, button press-shrink or sidebar hover shadow; dialogs fade instead of zooming; view toggle glides 150ms ease-out instead of a spring.
 // @changed   Prior: Fewer clicks: a labelled Results button on every card whose main button doesn't already open
 //            results (the unlabelled Results icon is gone); Open + Results head the card's right-click
 //            menu; a class made from a template opens straight in Customize; the Share dialog's
@@ -229,6 +231,9 @@ const PasteConfigModal = ({ isOpen, token, preview, loadError, onResolveToken, o
         bot_name: botName.trim(),
         class_code: classCode.trim().toLowerCase(),
       });
+      // A pasted Audio Call whose Hume voice config could not be created still
+      // exists — say so, since its calls use the default voice until re-saved.
+      if (data.warning) window.alert(data.warning);
       onCreated(data.config, data.files_copied);
     } catch (err) {
       setSubmitError(err.response?.data?.error || 'Could not paste this assistant.');

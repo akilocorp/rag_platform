@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-27
- * @changed   Quieter motion: cards no longer lift or shrink (border colour carries hover); sub-views fade instead of sliding.
+ * @updated   2026-09-28
+ * @changed   Creating from a published template shows the server's `warning` (an Audio Call copy whose Hume
+ *            voice config could not be created) in an alert.
+ * @changed   Prior: Quieter motion: cards no longer lift or shrink (border colour carries hover); sub-views fade instead of sliding.
  * @changed   Prior: New file: the "Start from a template" tab inside the create dialog. Replaces
  *            NewClassModal, which was a second modal in front of the wizard rather than a
  *            tab inside it.
@@ -62,6 +64,9 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
         bot_name: botName.trim(),
         class_code: classCode.trim().toLowerCase(),
       });
+      // An Audio Call cloned from a template whose Hume voice config could not be created still
+      // exists — say so, since its calls use the default voice until re-saved.
+      if (data.warning) window.alert(data.warning);
       onCreated(data.config, data.files_copied);
     } catch (err) {
       setSubmitError(err.response?.data?.error || 'Could not create a class from this template.');
