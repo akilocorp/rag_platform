@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-27
-// @changed   Simpler setup: chat/audio finish on step 4 (avatar, greeting and access moved into a
+// @updated   2026-09-28
+// @changed   Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
+//            goes up as `hume_voice` and the server creates the bot's own Hume config with it.
+//            `hume_config_id` is no longer part of the form — only the server sets it. A voice that
+//            failed to apply on Hume is reported in an alert; the bot itself is saved either way.
+// @changed   Prior: Simpler setup: chat/audio finish on step 4 (avatar, greeting and access moved into a
 //            "How it appears" section there via renderAppearance, shared with step 5 for other
 //            types); step-4 gallery renamed "Instruction presets" and collapsed; Manager Exercise
 //            timers + class preset sit behind Advanced with a one-line timing summary in Simple.
@@ -30,6 +34,7 @@ import apiClient from '../api/apiClient';
 import { FaRobot, FaUpload, FaTrash, FaInfoCircle, FaFile, FaVideo, FaComments, FaTimes, FaUsers, FaPlus, FaPhoneAlt, FaFilm, FaFlask, FaUserTie, FaCheckCircle, FaSpinner, FaFileAlt, FaShareAlt } from 'react-icons/fa';
 import AvatarSelector from '../components/AvatarSelector';
 import TemplatePicker from '../components/TemplatePicker';
+import HumeVoicePicker from '../components/HumeVoicePicker';
 
 // The bot avatar and the introduction message dress a 1:1 conversation: an icon that
 // sits beside the bot's replies and a line it opens with. Nothing else has either of
@@ -207,7 +212,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
     public_purpose: 'learning',
     web_access: true,
     audio_enabled: false,
-    hume_config_id: '',
+    hume_voice: null,
     // Default ON: the initial model is Claude, and new Claude bots default the
     // facilitator on (opt-out). Kept in sync with the model until the professor
     // touches the toggle (facilitatorTouchedRef).
@@ -858,6 +863,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
         }
       });
       const newConfigId = response.data.data._id;
+      if (response.data.warning) window.alert(response.data.warning);
       
       // Back to the list rather than into the new config: the professor has just
       // finished a setup task and the list is where the next one starts. It also
@@ -881,6 +887,13 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
   // of step 4 for chat and audio, which no longer have a separate final step.
   const renderAppearance = () => (
     <>
+      {config.bot_type === 'audio_call' && (
+        <HumeVoicePicker
+          value={config.hume_voice}
+          onChange={(voice) => setConfig(prev => ({ ...prev, hume_voice: voice }))}
+        />
+      )}
+
       {isChatLike(config.bot_type) && (
         <div>
           <label className="block text-[13px] font-semibold text-gray-700 mb-2">

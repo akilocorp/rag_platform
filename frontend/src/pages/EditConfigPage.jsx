@@ -1,6 +1,10 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-27
-// @changed   Quieter motion: no press-shrink on buttons; small panels fade instead of sliding.
+// @updated   2026-09-28
+// @changed   Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
+//            `hume_voice` and the server re-versions the bot's Hume config (or creates one). If Hume
+//            could not apply it, the page stays open with the server's warning instead of returning
+//            to the list — everything else was saved, and saving again retries the voice.
+// @changed   Prior: Quieter motion: no press-shrink on buttons; small panels fade instead of sliding.
 // @changed   Prior: Class Code is visible in Simple mode for chat, lab and video (usage tier / student count
 //            stay in Advanced) — the Share dialog sends professors here to set it.
 // @changed   Prior: Footer results button routes by bot type like the dashboard card (lab → sessions, exercise →
@@ -47,6 +51,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
+import HumeVoicePicker from '../components/HumeVoicePicker';
 import AvatarSelector from '../components/AvatarSelector';
 
 // The bot avatar and the introduction message dress a 1:1 conversation: an icon that
@@ -278,7 +283,7 @@ const EditConfigPage = () => {
         is_template: !!configFromState.is_template,
         template_description: configFromState.template_description || '',
         audio_enabled: !!configFromState.audio_enabled,
-        hume_config_id: configFromState.hume_config_id || '',
+        hume_voice: configFromState.hume_voice || null,
         response_delay: (configFromState.response_delay && typeof configFromState.response_delay === 'object')
             ? { ...DEFAULT_RESPONSE_DELAY, ...configFromState.response_delay }
             : { ...DEFAULT_RESPONSE_DELAY },
@@ -870,9 +875,10 @@ const EditConfigPage = () => {
       const facilitator = configToSubmit.facilitator;
       const responseDelay = configToSubmit.response_delay;
       const managerExercise = configToSubmit.manager_exercise;
+      const humeVoice = configToSubmit.hume_voice;
 
       Object.entries(configToSubmit).forEach(([key, value]) => {
-        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise' && key !== 'response_delay') {
+        if (key !== 'documents' && key !== 'files' && key !== 'bots' && key !== 'scoring_spec' && key !== 'experiential_config' && key !== 'facilitator' && key !== 'manager_exercise' && key !== 'response_delay' && key !== 'hume_voice' && key !== 'hume_config_id') {
           formData.append(key, value);
         }
       });
@@ -893,6 +899,9 @@ const EditConfigPage = () => {
       if (responseDelay && typeof responseDelay === 'object') {
         formData.append('response_delay', JSON.stringify(responseDelay));
       }
+      if (configToSubmit.bot_type === 'audio_call' && humeVoice && typeof humeVoice === 'object') {
+        formData.append('hume_voice', JSON.stringify(humeVoice));
+      }
       
       // Append bots safely
       if (configToSubmit.bot_type === 'group_chat') {
@@ -905,7 +914,11 @@ const EditConfigPage = () => {
       const filesToDelete = initialDocuments.filter(doc => !configToSubmit.documents.includes(doc));
       formData.append('files_to_delete', JSON.stringify(filesToDelete));
 
-      await apiClient.put(`/config/${config.config_id}`, formData);
+      const res = await apiClient.put(`/config/${config.config_id}`, formData);
+      if (res.data?.warning) {
+        setErrors({ form: res.data.warning });
+        return;
+      }
 
       // Back to the list, not into the thing just edited. Saving a config is a
       // housekeeping act — the professor is usually mid-way through setting several
@@ -1080,6 +1093,13 @@ const EditConfigPage = () => {
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43]"
                 />
               </div>
+            )}
+
+            {config.bot_type === 'audio_call' && (
+              <HumeVoicePicker
+                value={config.hume_voice}
+                onChange={(voice) => setConfig(prev => ({ ...prev, hume_voice: voice }))}
+              />
             )}
 
             {/* Public Access Toggle */}
