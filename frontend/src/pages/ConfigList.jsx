@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-17
-// @changed   The create dialog gained a "Start from a template" tab, so ConfigModal takes an
+// @updated   2026-09-28
+// @changed   Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
+//            created) in an alert before the new card appears.
+// @changed   Prior: The create dialog gained a "Start from a template" tab, so ConfigModal takes an
 //            onCreated callback: a class made from a template lands in the list through the same
 //            insert path as a paste (addCreatedConfig), with its own toast.
 //            Prior: Collaborators: a person-plus icon sits in the card's own action row, next to Share —
@@ -218,6 +220,9 @@ const PasteConfigModal = ({ isOpen, token, preview, loadError, onResolveToken, o
         bot_name: botName.trim(),
         class_code: classCode.trim().toLowerCase(),
       });
+      // A pasted Audio Call whose Hume voice config could not be created still
+      // exists — say so, since its calls use the default voice until re-saved.
+      if (data.warning) window.alert(data.warning);
       onCreated(data.config, data.files_copied);
     } catch (err) {
       setSubmitError(err.response?.data?.error || 'Could not paste this assistant.');

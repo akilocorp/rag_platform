@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-09-28
-# @changed   Audio Call voices. Create accepts `hume_voice` ({id, provider}) and, after insert, gives the
+# @changed   Paste / template clones report a voice that could not be set up on Hume as `warning` in the
+#            response instead of only logging it, and keep the source's `hume_voice` either way, so the
+#            copy's next save on the edit page creates its config.
+#            Prior: Audio Call voices. Create accepts `hume_voice` ({id, provider}) and, after insert, gives the
 #            bot its own Hume EVI config with that voice (`apply_bot_voice`, shared with the edit route).
 #            `hume_config_id` is no longer taken from the client — only the server sets it. Clones drop
 #            it and get a fresh config of their own, so re-voicing a copy never re-voices the original.
@@ -1310,7 +1313,9 @@ def _clone_config_into_account(source, source_config_id, user_id, bot_name, clas
     value for both, so nothing a student ever did can follow it.
 
     Returns `(error_response, None)` when the class code fails validation — hand
-    that straight back to the client — else `(None, (new_config, files_copied))`.
+    that straight back to the client — else `(None, (new_config, files_copied,
+    voice_warning))`; `voice_warning` is None unless the clone's own Hume config
+    could not be created.
     """
     new_config = {k: copy_module.deepcopy(v) for k, v in source.items()
                   if k not in _COPY_EXCLUDED_FIELDS}
@@ -1328,12 +1333,16 @@ def _clone_config_into_account(source, source_config_id, user_id, bot_name, clas
     new_config['collection_name'] = collection_name
 
     # Same voice as the source, on a config of the clone's own. `hume_voice` is
-    # popped first so sync_bot_voice sees a bot with no config yet.
+    # popped first so sync_bot_voice sees a bot with no config yet. If Hume fails,
+    # the stored doc still carries the voice (it was inserted with it) and has no
+    # config id, so the copy's next save on the edit page creates the config.
+    voice_warning = None
     source_voice = new_config.pop('hume_voice', None)
     if source_voice:
-        warning = apply_bot_voice(new_config, str(new_id), source_voice)
-        if warning:
-            current_app.logger.warning("Clone %s kept no voice: %s", new_id, warning)
+        voice_warning = apply_bot_voice(new_config, str(new_id), source_voice)
+        if voice_warning:
+            new_config['hume_voice'] = source_voice
+            current_app.logger.warning("Clone %s has no Hume config yet: %s", new_id, voice_warning)
 
     files_copied, chunks_copied = _clone_knowledge_base(
         current_app.config['MONGO_DB'],
@@ -1349,7 +1358,7 @@ def _clone_config_into_account(source, source_config_id, user_id, bot_name, clas
     # cannot serialize — swap it for the string id the frontend expects.
     new_config.pop('_id', None)
     new_config['config_id'] = str(new_id)
-    return None, (new_config, files_copied)
+    return None, (new_config, files_copied, voice_warning)
 
 
 @config_bp.route('/config/<string:config_id>/copy', methods=['POST'])
@@ -1454,12 +1463,13 @@ def paste_config(token):
             source, transfer['config_id'], user_id, bot_name, payload.get('class_code'))
         if err:
             return err
-        new_config, files_copied = cloned
+        new_config, files_copied, voice_warning = cloned
 
         return jsonify({
             "message": "Assistant copied.",
             "config": new_config,
             "files_copied": files_copied,
+            "warning": voice_warning,
         }), 201
 
     except Exception as e:
@@ -1568,11 +1578,12 @@ def create_config_from_template():
                 source, key, user_id, bot_name, payload.get('class_code'))
             if err:
                 return err
-            new_config, files_copied = cloned
+            new_config, files_copied, voice_warning = cloned
             return jsonify({
                 "message": "Class created from template.",
                 "config": new_config,
                 "files_copied": files_copied,
+                "warning": voice_warning,
             }), 201
 
         if kind != 'builtin':
