@@ -1260,7 +1260,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
               ) : (
                 <div className="space-y-4 animate-in fade-in">
                   <h2 className="text-2xl font-bold text-center text-[#222] mb-6">{config.bot_type === 'group_chat' ? 'Select Default Lobby AI' : 'Pick the Base AI Model'}</h2>
-                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="space-y-3">
                     {aiModels.map(model => (
                       <div key={model.id} onClick={() => setConfig(prev => applyModel(prev, model.id))} className={`cursor-pointer p-4 border-2 rounded-xl transition-all ${config.model_name === model.id ? 'border-[#FA6C43] bg-[#F9D0C4]/10 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
                         <h3 className="font-bold text-[#222]">{model.name}</h3>
