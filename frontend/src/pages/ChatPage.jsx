@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-24
- * @changed   Research calls end on a hidden 10-minute deadline from the first Start click
+ * @updated   2026-09-28
+ * @changed   Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
+ *            picked in the bot form); bots without one still fall back to the server's HUME_CONFIG_ID.
+ * @changed   Prior: Research calls end on a hidden 10-minute deadline from the first Start click
  *            (RESEARCH_CALL_MAX_MS); hang-up now offers continue-or-end. End screen reads "Please continue to
  *            the next question." UI version bumped to plain-call-v2.
  * Prior: Research-mode audio calls render ResearchCallScreen: fixed "Conversation with <name> (AI
@@ -2244,6 +2246,7 @@ const ChatPage = () => {
                 )}
                 <EVIAudioControls
                   variant="plain"
+                  humeConfigId={config?.hume_config_id}
                   partnerName={callPartnerName(config?.bot_name)}
                   sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${launchVars.encoded ? `:${launchVars.encoded}` : ''}`}
                   configId={configId}
@@ -2275,6 +2278,7 @@ const ChatPage = () => {
                     </p>
                     <EVIAudioControls
                       embedded
+                      humeConfigId={config?.hume_config_id}
                       sessionId={`${configId}:${callSessionId || 'new'}:${isAuthenticated ? 'user' : 'anonymous'}${launchVars.encoded ? `:${launchVars.encoded}` : ''}`}
                       configId={configId}
                       callSessionId={callSessionId}
