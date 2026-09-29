@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   Debug log: records when the Hume token was fetched, and on a socket connection failure probes
+ * @changed   `?voicerelay=1` sends the Hume socket through this site's /hume/ relay (frontend/nginx.conf)
+ *            instead of api.hume.ai directly; the probe now reads Hume's real HTTP status via CORS.
+ * @changed   Prior: Debug log: records when the Hume token was fetched, and on a socket connection failure probes
  *            api.hume.ai from the device (reachable or not, token age, online/connection type).
  * @changed   Prior: `?voicedebug=1` shows an on-screen log of the call (status, SDK errors, Hume error frames,
  *            socket close code/reason, mic track mute/ended, recorder path) with a Copy button, for
@@ -119,6 +121,21 @@ const voiceDebug = (label, data) => {
   pre.scrollTop = pre.scrollHeight;
 };
 
+// `?voicerelay=1` routes the Hume socket through this site's /hume/ nginx
+// location instead of straight to api.hume.ai (see frontend/nginx.conf). Kept
+// in sessionStorage like the debug flag. The SDK builds wss://<hostname>/v0/evi.
+const voiceRelayEnabled = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get('voicerelay') === '1') {
+      sessionStorage.setItem('voicerelay', '1');
+    }
+    return sessionStorage.getItem('voicerelay') === '1';
+  } catch {
+    return false;
+  }
+})();
+const humeHostname = () => (voiceRelayEnabled ? `${window.location.host}/hume` : undefined);
+
 // When the Hume socket cannot open, check from THIS device whether api.hume.ai
 // is reachable at all and how old our token is. A browser's WebSocket error
 // never says why; this separates "network can't reach Hume" (fetch throws)
@@ -133,10 +150,16 @@ const probeHumeReachability = () => {
     tokenAgeSec: humeTokenFetchedAt ? Math.round((Date.now() - humeTokenFetchedAt) / 1000) : null,
   });
   const started = Date.now();
-  // no-cors: an opaque answer still proves the request reached Hume and came back.
+  // Hume answers CORS for this origin, so the real status is readable: 401 means
+  // Hume's own API answered (normal without a key); anything else, or a thrown
+  // fetch while the no-cors request below succeeds, means something in between
+  // (a regional block page, a filter) answered instead.
+  fetch('https://api.hume.ai/v0/evi/configs?page_size=1', { cache: 'no-store' })
+    .then((r) => voiceDebug('probe: api.hume.ai answered', { status: r.status, ms: Date.now() - started }))
+    .catch((e) => voiceDebug('probe: api.hume.ai CORS request failed', { error: String(e?.message || e), ms: Date.now() - started }));
   fetch('https://api.hume.ai/v0/evi/configs?page_size=1', { mode: 'no-cors', cache: 'no-store' })
-    .then((r) => voiceDebug('probe: api.hume.ai REACHABLE', { type: r.type, ms: Date.now() - started }))
-    .catch((e) => voiceDebug('probe: api.hume.ai UNREACHABLE', { error: String(e?.message || e), ms: Date.now() - started }));
+    .then((r) => voiceDebug('probe: api.hume.ai REACHABLE (opaque)', { type: r.type }))
+    .catch((e) => voiceDebug('probe: api.hume.ai UNREACHABLE', { error: String(e?.message || e) }));
 };
 
 // Watch a mic stream's tracks: on iPhone/iPad a track that goes `mute` or
@@ -860,11 +883,12 @@ const InnerControls = ({
    */
   const handleConnect = async () => {
     if (plain) return handlePlainConnect();
-    voiceDebug('connect', { plain, humeConfigId, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
+    voiceDebug('connect', { plain, humeConfigId, relay: voiceRelayEnabled, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
         auth: { type: 'accessToken', value: accessToken },
+        hostname: humeHostname(),
         configId: humeConfigId,
         sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
       });
@@ -913,11 +937,12 @@ const InnerControls = ({
     turnBaseRef.current += seenTurnsRef.current;
     seenTurnsRef.current = 0;
 
-    voiceDebug('connect', { plain, humeConfigId, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
+    voiceDebug('connect', { plain, humeConfigId, relay: voiceRelayEnabled, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
         auth: { type: 'accessToken', value: accessToken },
+        hostname: humeHostname(),
         configId: humeConfigId,
         sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
         ...(resuming && chatGroupIdRef.current ? { resumedChatGroupId: chatGroupIdRef.current } : {}),
