@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   `?voicedebug=1` shows an on-screen log of the call (status, SDK errors, Hume error frames,
+ * @changed   Debug log: records when the Hume token was fetched, and on a socket connection failure probes
+ *            api.hume.ai from the device (reachable or not, token age, online/connection type).
+ * @changed   Prior: `?voicedebug=1` shows an on-screen log of the call (status, SDK errors, Hume error frames,
  *            socket close code/reason, mic track mute/ended, recorder path) with a Copy button, for
  *            debugging on phones where no console is at hand. Off by default.
  * @changed   Prior: iPhone/iPad calls no longer hang up the moment they start. The call recorder opened a second
@@ -115,6 +117,26 @@ const voiceDebug = (label, data) => {
   const pre = document.getElementById('voice-debug-lines');
   pre.textContent = voiceDebugLines.join('\n');
   pre.scrollTop = pre.scrollHeight;
+};
+
+// When the Hume socket cannot open, check from THIS device whether api.hume.ai
+// is reachable at all and how old our token is. A browser's WebSocket error
+// never says why; this separates "network can't reach Hume" (fetch throws)
+// from "Hume refused us" (reachable, so look at the token or the request).
+let humeTokenFetchedAt = null;
+const probeHumeReachability = () => {
+  if (!voiceDebugEnabled) return;
+  const conn = navigator.connection || {};
+  voiceDebug('probe: environment', {
+    online: navigator.onLine,
+    connection: conn.effectiveType || conn.type || '(unknown)',
+    tokenAgeSec: humeTokenFetchedAt ? Math.round((Date.now() - humeTokenFetchedAt) / 1000) : null,
+  });
+  const started = Date.now();
+  // no-cors: an opaque answer still proves the request reached Hume and came back.
+  fetch('https://api.hume.ai/v0/evi/configs?page_size=1', { mode: 'no-cors', cache: 'no-store' })
+    .then((r) => voiceDebug('probe: api.hume.ai REACHABLE', { type: r.type, ms: Date.now() - started }))
+    .catch((e) => voiceDebug('probe: api.hume.ai UNREACHABLE', { error: String(e?.message || e), ms: Date.now() - started }));
 };
 
 // Watch a mic stream's tracks: on iPhone/iPad a track that goes `mute` or
@@ -1047,6 +1069,8 @@ const EVIAudioControls = ({
       try {
         const res = await apiClient.get('/audio/hume/access_token');
         if (cancelled) return;
+        humeTokenFetchedAt = Date.now();
+        voiceDebug('token fetched', { expiresIn: res.data?.expires_in, serverConfigId: res.data?.config_id });
         setAccessToken(res.data?.access_token || null);
         setServerConfigId(res.data?.config_id || null);
       } catch (e) {
@@ -1083,6 +1107,7 @@ const EVIAudioControls = ({
       onClose={(e) => voiceDebug('socket CLOSED', { code: e?.code, reason: e?.reason, wasClean: e?.wasClean })}
       onError={(err) => {
         voiceDebug('SDK ERROR', { type: err?.type, reason: err?.reason, message: err?.message });
+        if (err?.reason === 'socket_connection_failure') probeHumeReachability();
         console.error('EVI VoiceProvider error', err);
         onError?.(err?.message || err?.reason || 'Voice session error');
       }}
