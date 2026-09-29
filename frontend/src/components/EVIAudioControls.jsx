@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   The /hume/ relay is now the default for every call (confirmed fixing Hong Kong phones/iPads);
+ * @changed   Removed the `?voicedebug=1` on-screen call log and its api.hume.ai probe now the Hong Kong
+ *            issue is fixed. The /hume/ relay and the iPhone/iPad shared-mic recorder stay.
+ * @changed   Prior: The /hume/ relay is now the default for every call (confirmed fixing Hong Kong phones/iPads);
  *            `?voicerelay=0` connects straight to api.hume.ai instead.
  * @changed   Prior: `?voicerelay=1` sends the Hume socket through this site's /hume/ relay (frontend/nginx.conf)
  *            instead of api.hume.ai directly; the probe now reads Hume's real HTTP status via CORS.
@@ -67,62 +69,6 @@ const BAR_COUNT = 28;
 // clause so rewording the tail of the sentence doesn't silently stop the lookup.
 const SPOKEN_FAILURE_PREFIX = 'Sorry, I lost my train of thought';
 
-/**
- * On-screen voice debug log, for devices with no console at hand (a phone).
- *
- * Off unless the page was opened with `?voicedebug=1`; the flag is kept in
- * sessionStorage so it survives in-app navigation. The panel is plain DOM on
- * document.body, not React, so it stays up after the call page swaps to its end
- * screen and unmounts this component — which is exactly when it is needed.
- * Every entry also goes to the console as `[voicedebug]`.
- */
-const voiceDebugEnabled = (() => {
-  try {
-    if (new URLSearchParams(window.location.search).get('voicedebug') === '1') {
-      sessionStorage.setItem('voicedebug', '1');
-    }
-    return sessionStorage.getItem('voicedebug') === '1';
-  } catch {
-    return false;
-  }
-})();
-const voiceDebugLines = [];
-const voiceDebug = (label, data) => {
-  if (!voiceDebugEnabled) return;
-  const t = new Date().toISOString().slice(11, 23);
-  let detail = '';
-  if (data !== undefined) {
-    try { detail = ' ' + (typeof data === 'string' ? data : JSON.stringify(data)); } catch { detail = ' ' + String(data); }
-  }
-  const line = `${t} ${label}${detail}`;
-  voiceDebugLines.push(line);
-  console.log('[voicedebug]', line);
-  let panel = document.getElementById('voice-debug-panel');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.id = 'voice-debug-panel';
-    panel.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;max-height:40vh;z-index:99999;'
-      + 'background:rgba(17,24,39,.94);color:#e5e7eb;font:11px/1.4 ui-monospace,Menlo,monospace;'
-      + 'border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;';
-    const copy = document.createElement('button');
-    copy.textContent = 'Copy log';
-    copy.style.cssText = 'align-self:flex-end;background:#FA6C43;color:#fff;border:0;border-radius:6px;padding:4px 10px;font:inherit;';
-    copy.onclick = () => {
-      navigator.clipboard?.writeText(voiceDebugLines.join('\n'))
-        .then(() => { copy.textContent = 'Copied'; })
-        .catch(() => { copy.textContent = 'Copy failed — screenshot instead'; });
-    };
-    const pre = document.createElement('pre');
-    pre.id = 'voice-debug-lines';
-    pre.style.cssText = 'margin:0;overflow:auto;white-space:pre-wrap;word-break:break-word;';
-    panel.append(copy, pre);
-    document.body.appendChild(panel);
-  }
-  const pre = document.getElementById('voice-debug-lines');
-  pre.textContent = voiceDebugLines.join('\n');
-  pre.scrollTop = pre.scrollHeight;
-};
-
 // Every call reaches Hume through this site's /hume/ nginx relay (see
 // frontend/nginx.conf) rather than api.hume.ai directly: from Hong Kong, phones
 // and iPads could reach Hume over HTTPS but never open its WebSocket, while our
@@ -139,43 +85,6 @@ const voiceRelayEnabled = (() => {
   }
 })();
 const humeHostname = () => (voiceRelayEnabled ? `${window.location.host}/hume` : undefined);
-
-// When the Hume socket cannot open, check from THIS device whether api.hume.ai
-// is reachable at all and how old our token is. A browser's WebSocket error
-// never says why; this separates "network can't reach Hume" (fetch throws)
-// from "Hume refused us" (reachable, so look at the token or the request).
-let humeTokenFetchedAt = null;
-const probeHumeReachability = () => {
-  if (!voiceDebugEnabled) return;
-  const conn = navigator.connection || {};
-  voiceDebug('probe: environment', {
-    online: navigator.onLine,
-    connection: conn.effectiveType || conn.type || '(unknown)',
-    tokenAgeSec: humeTokenFetchedAt ? Math.round((Date.now() - humeTokenFetchedAt) / 1000) : null,
-  });
-  const started = Date.now();
-  // Hume answers CORS for this origin, so the real status is readable: 401 means
-  // Hume's own API answered (normal without a key); anything else, or a thrown
-  // fetch while the no-cors request below succeeds, means something in between
-  // (a regional block page, a filter) answered instead.
-  fetch('https://api.hume.ai/v0/evi/configs?page_size=1', { cache: 'no-store' })
-    .then((r) => voiceDebug('probe: api.hume.ai answered', { status: r.status, ms: Date.now() - started }))
-    .catch((e) => voiceDebug('probe: api.hume.ai CORS request failed', { error: String(e?.message || e), ms: Date.now() - started }));
-  fetch('https://api.hume.ai/v0/evi/configs?page_size=1', { mode: 'no-cors', cache: 'no-store' })
-    .then((r) => voiceDebug('probe: api.hume.ai REACHABLE (opaque)', { type: r.type }))
-    .catch((e) => voiceDebug('probe: api.hume.ai UNREACHABLE', { error: String(e?.message || e) }));
-};
-
-// Watch a mic stream's tracks: on iPhone/iPad a track that goes `mute` or
-// `ended` right after connect is the signature of a competing capture.
-const watchTracks = (stream, name) => {
-  stream?.getAudioTracks().forEach((track, i) => {
-    voiceDebug(`${name} track ${i}`, { readyState: track.readyState, muted: track.muted, label: track.label });
-    track.addEventListener('mute', () => voiceDebug(`${name} track ${i} MUTED`));
-    track.addEventListener('unmute', () => voiceDebug(`${name} track ${i} unmuted`));
-    track.addEventListener('ended', () => voiceDebug(`${name} track ${i} ENDED`));
-  });
-};
 
 // iPhone and iPad — every browser there runs on WebKit, including Chrome. iPadOS
 // reports itself as a Mac, so a touch-capable "Macintosh" counts too.
@@ -208,8 +117,6 @@ const tapNextMicStream = () => {
   media.getUserMedia = async (constraints) => {
     const result = await original.call(media, constraints);
     if (constraints?.audio) {
-      voiceDebug('SDK opened mic');
-      watchTracks(result, 'hume-mic');
       settle(result);
       release();
     }
@@ -242,12 +149,9 @@ const useCallRecorder = () => {
       if (sourceStream) {
         // A clone shares the SDK's capture; stopping it later leaves the SDK's tracks live.
         stream = sourceStream.clone();
-        voiceDebug('recorder: cloning the SDK mic stream');
       } else if (isAppleMobile()) {
-        voiceDebug('recorder: no SDK stream caught; skipping recording on iPhone/iPad');
         return false;
       } else {
-        voiceDebug('recorder: no SDK stream caught; opening its own capture');
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       streamRef.current = stream;
@@ -260,10 +164,8 @@ const useCallRecorder = () => {
       // one buffer that was never flushed.
       recorder.start(5000);
       recorderRef.current = recorder;
-      voiceDebug('recorder started', { mimeType: recorder.mimeType || '(default)' });
       return true;
     } catch (e) {
-      voiceDebug('recorder FAILED', String(e?.name || '') + ' ' + String(e?.message || e));
       console.warn('Call recording unavailable', e);
       return false;
     }
@@ -706,25 +608,6 @@ const InnerControls = ({
   const startedAtRef = useRef(null);
 
   useEffect(() => {
-    voiceDebug('status', status?.reason ? `${status.value}: ${status.reason}` : status?.value);
-  }, [status]);
-
-  // Hume's own error frames and the socket's open/close — the close code and
-  // reason are usually the whole answer to "why did the call end".
-  const debugSeenRef = useRef(0);
-  useEffect(() => {
-    if (!voiceDebugEnabled || !Array.isArray(messages)) return;
-    if (messages.length < debugSeenRef.current) debugSeenRef.current = 0;
-    messages.slice(debugSeenRef.current).forEach((m) => {
-      if (['error', 'socket_connected', 'socket_disconnected', 'chat_metadata'].includes(m?.type)) {
-        const { type, code, reason, message, slug, chatId } = m;
-        voiceDebug(`hume ${type}`, { code, reason, message, slug, chatId });
-      }
-    });
-    debugSeenRef.current = messages.length;
-  }, [messages]);
-
-  useEffect(() => {
     if (status?.value === 'disconnected' || status?.value === 'error') {
       setDismissed(false);
       setIsFullscreen(false);
@@ -767,7 +650,6 @@ const InnerControls = ({
 
   // Plain mode's hang-up: drop the line but keep the call open for a resume.
   const handlePause = () => {
-    voiceDebug('hang-up: call paused');
     setDismissed(true);
     setRecording(false);
     recorder.pause();
@@ -775,9 +657,8 @@ const InnerControls = ({
   };
 
   // Plain mode's real end — the student's choice or the deadline, whichever comes first.
-  const handleFinish = (why = 'end') => {
+  const handleFinish = () => {
     if (endedRef.current) return;
-    voiceDebug('call ended', why);
     endedRef.current = true;
     clearTimeout(deadlineTimerRef.current);
     setEnded(true);
@@ -797,7 +678,6 @@ const InnerControls = ({
   useEffect(() => {
     if (!plain || endedRef.current || !startedAtRef.current) return;
     if (status?.value === 'disconnected' || status?.value === 'error') {
-      voiceDebug('line dropped; call paused', status?.reason ? `${status.value}: ${status.reason}` : status?.value);
       recorder.pause();
       setRecording(false);
     }
@@ -887,7 +767,6 @@ const InnerControls = ({
    */
   const handleConnect = async () => {
     if (plain) return handlePlainConnect();
-    voiceDebug('connect', { plain, humeConfigId, relay: voiceRelayEnabled, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -898,13 +777,11 @@ const InnerControls = ({
       });
     } catch (e) {
       micTap.release();
-      voiceDebug('connect THREW', String(e?.message || e));
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
-    voiceDebug('connect returned');
 
     const startedAt = new Date();
     startedAtRef.current = startedAt;
@@ -935,13 +812,12 @@ const InnerControls = ({
     if (!startedAtRef.current) {
       startedAtRef.current = new Date();
       if (maxDurationMs) {
-        deadlineTimerRef.current = setTimeout(() => finishRef.current('deadline'), maxDurationMs);
+        deadlineTimerRef.current = setTimeout(() => finishRef.current(), maxDurationMs);
       }
     }
     turnBaseRef.current += seenTurnsRef.current;
     seenTurnsRef.current = 0;
 
-    voiceDebug('connect', { plain, humeConfigId, relay: voiceRelayEnabled, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -953,13 +829,11 @@ const InnerControls = ({
       });
     } catch (e) {
       micTap.release();
-      voiceDebug('connect THREW', String(e?.message || e));
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
-    voiceDebug('connect returned');
     // The deadline can pass while the socket is still opening.
     if (endedRef.current) {
       safeDisconnect();
@@ -988,7 +862,7 @@ const InnerControls = ({
   if (plain) {
     if (ended) return null;
     if (!isActive && openedRef.current) {
-      return <PausedCallPanel onContinue={handleConnect} onFinish={() => handleFinish('student chose End')} disabled={disabled} />;
+      return <PausedCallPanel onContinue={handleConnect} onFinish={handleFinish} disabled={disabled} />;
     }
     return isActive ? (
       <PlainCallPanel
@@ -1098,8 +972,6 @@ const EVIAudioControls = ({
       try {
         const res = await apiClient.get('/audio/hume/access_token');
         if (cancelled) return;
-        humeTokenFetchedAt = Date.now();
-        voiceDebug('token fetched', { expiresIn: res.data?.expires_in, serverConfigId: res.data?.config_id });
         setAccessToken(res.data?.access_token || null);
         setServerConfigId(res.data?.config_id || null);
       } catch (e) {
@@ -1132,11 +1004,7 @@ const EVIAudioControls = ({
 
   return (
     <VoiceProvider
-      onOpen={() => voiceDebug('socket open')}
-      onClose={(e) => voiceDebug('socket CLOSED', { code: e?.code, reason: e?.reason, wasClean: e?.wasClean })}
       onError={(err) => {
-        voiceDebug('SDK ERROR', { type: err?.type, reason: err?.reason, message: err?.message });
-        if (err?.reason === 'socket_connection_failure') probeHumeReachability();
         console.error('EVI VoiceProvider error', err);
         onError?.(err?.message || err?.reason || 'Voice session error');
       }}
