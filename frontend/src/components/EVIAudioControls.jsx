@@ -1,7 +1,11 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-24
- * @changed   Plain variant: removed the pause / continue-where-you-left-off flow (it did not work in
+ * @updated   2026-09-30
+ * @changed   iPhone/iPad calls no longer hang up the moment they start. The call recorder opened a second
+ *            microphone capture, which WebKit answers by muting the first — Hume's — so the SDK raised a
+ *            mic error and the call ended. The recorder now records a clone of the SDK's own stream
+ *            (caught via tapNextMicStream), and never opens its own capture on iPhone/iPad.
+ *            Prior: Plain variant: removed the pause / continue-where-you-left-off flow (it did not work in
  *            practice). Hang-up ends the call again, and so does a dropped line. `maxDurationMs` still ends
  *            the call that long after the first Start click, never shown.
  *            Prior: Plain variant: hang-up paused instead of ending, with a Continue / End choice.
@@ -53,24 +57,74 @@ const BAR_COUNT = 28;
 // clause so rewording the tail of the sentence doesn't silently stop the lookup.
 const SPOKEN_FAILURE_PREFIX = 'Sorry, I lost my train of thought';
 
+// iPhone and iPad — every browser there runs on WebKit, including Chrome. iPadOS
+// reports itself as a Mac, so a touch-capable "Macintosh" counts too.
+const isAppleMobile = () => typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.userAgent.includes('Macintosh') && navigator.maxTouchPoints > 1)
+);
+
+/**
+ * Hands back the microphone stream the Hume SDK opens during `connect()`.
+ *
+ * WebKit allows ONE live capture per device: a second `getUserMedia` for audio
+ * mutes the first stream's tracks for good (WebKit bug 179363). The SDK opens its
+ * own stream inside `connect()` and exposes no handle to it, so for that one call
+ * `getUserMedia` is wrapped to catch the stream on its way to the SDK. `release()`
+ * puts the browser's function back and settles `stream` (null if nothing was
+ * caught); call it once `connect()` returns or throws.
+ */
+const tapNextMicStream = () => {
+  const media = navigator.mediaDevices;
+  const hadOwn = Object.prototype.hasOwnProperty.call(media, 'getUserMedia');
+  const original = media.getUserMedia;
+  let settle;
+  const stream = new Promise((resolve) => { settle = resolve; });
+  const release = () => {
+    if (hadOwn) media.getUserMedia = original;
+    else delete media.getUserMedia;
+    settle(null);
+  };
+  media.getUserMedia = async (constraints) => {
+    const result = await original.call(media, constraints);
+    if (constraints?.audio) {
+      settle(result);
+      release();
+    }
+    return result;
+  };
+  return { stream, release };
+};
+
 /**
  * Captures the student's microphone for the length of a call.
  *
- * A second `getUserMedia` alongside the one the Hume SDK holds — browsers allow
- * concurrent captures of the same device, and tapping the SDK's own stream would
- * mean reaching into its internals. Only the student is recorded: the assistant's
- * audio arrives as separate WebSocket clips that would need decoding, mixing and
- * re-syncing around every interruption, and its words are already in the
- * transcript. So this is a clean single-speaker track, not the mixed call.
+ * Records a clone of the SDK's own mic stream when one is handed in, so the call
+ * never opens a second capture — on iPhone/iPad that second capture silenced
+ * Hume's microphone and the SDK hung up with a mic error the moment the call
+ * began. Without a stream to clone it opens its own, except on iPhone/iPad where
+ * that would do the same damage, so there the call simply goes unrecorded.
+ * Only the student is recorded: the assistant's audio arrives as separate
+ * WebSocket clips that would need decoding, mixing and re-syncing around every
+ * interruption, and its words are already in the transcript. So this is a clean
+ * single-speaker track, not the mixed call.
  */
 const useCallRecorder = () => {
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (sourceStream) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream;
+      if (sourceStream) {
+        // A clone shares the SDK's capture; stopping it later leaves the SDK's tracks live.
+        stream = sourceStream.clone();
+      } else if (isAppleMobile()) {
+        return false;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       streamRef.current = stream;
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
         .find((t) => MediaRecorder.isTypeSupported(t)) || '';
@@ -619,6 +673,7 @@ const InnerControls = ({
    */
   const handleConnect = async () => {
     if (plain) return handlePlainConnect();
+    const micTap = tapNextMicStream();
     try {
       await connect({
         auth: { type: 'accessToken', value: accessToken },
@@ -626,16 +681,18 @@ const InnerControls = ({
         sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
       });
     } catch (e) {
+      micTap.release();
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
+    micTap.release();
 
     const startedAt = new Date();
     startedAtRef.current = startedAt;
     seenTurnsRef.current = 0;
 
-    setRecording(await recorder.start());
+    setRecording(await recorder.start(await micTap.stream));
 
     if (callSessionId && configId) {
       apiClient.post('/audio/session/call', {
@@ -661,6 +718,7 @@ const InnerControls = ({
     }
     seenTurnsRef.current = 0;
 
+    const micTap = tapNextMicStream();
     try {
       await connect({
         auth: { type: 'accessToken', value: accessToken },
@@ -668,10 +726,12 @@ const InnerControls = ({
         sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
       });
     } catch (e) {
+      micTap.release();
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
+    micTap.release();
     // The deadline can pass while the socket is still opening.
     if (endedRef.current) {
       safeDisconnect();
@@ -679,7 +739,7 @@ const InnerControls = ({
     }
 
     openedRef.current = true;
-    setRecording(await recorder.start());
+    setRecording(await recorder.start(await micTap.stream));
     if (callSessionId && configId) {
       apiClient.post('/audio/session/call', {
         session_id: callSessionId,
