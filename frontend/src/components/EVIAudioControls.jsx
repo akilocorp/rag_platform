@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   iPhone/iPad calls no longer hang up the moment they start. The call recorder opened a second
+ * @changed   `?voicedebug=1` shows an on-screen log of the call (status, SDK errors, Hume error frames,
+ *            socket close code/reason, mic track mute/ended, recorder path) with a Copy button, for
+ *            debugging on phones where no console is at hand. Off by default.
+ * @changed   Prior: iPhone/iPad calls no longer hang up the moment they start. The call recorder opened a second
  *            microphone capture, which WebKit answers by muting the first — Hume's — so the SDK raised a
  *            mic error and the call ended. The recorder now records a clone of the SDK's own stream
  *            (caught via tapNextMicStream), and never opens its own capture on iPhone/iPad.
@@ -57,6 +60,73 @@ const BAR_COUNT = 28;
 // clause so rewording the tail of the sentence doesn't silently stop the lookup.
 const SPOKEN_FAILURE_PREFIX = 'Sorry, I lost my train of thought';
 
+/**
+ * On-screen voice debug log, for devices with no console at hand (a phone).
+ *
+ * Off unless the page was opened with `?voicedebug=1`; the flag is kept in
+ * sessionStorage so it survives in-app navigation. The panel is plain DOM on
+ * document.body, not React, so it stays up after the call page swaps to its end
+ * screen and unmounts this component — which is exactly when it is needed.
+ * Every entry also goes to the console as `[voicedebug]`.
+ */
+const voiceDebugEnabled = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get('voicedebug') === '1') {
+      sessionStorage.setItem('voicedebug', '1');
+    }
+    return sessionStorage.getItem('voicedebug') === '1';
+  } catch {
+    return false;
+  }
+})();
+const voiceDebugLines = [];
+const voiceDebug = (label, data) => {
+  if (!voiceDebugEnabled) return;
+  const t = new Date().toISOString().slice(11, 23);
+  let detail = '';
+  if (data !== undefined) {
+    try { detail = ' ' + (typeof data === 'string' ? data : JSON.stringify(data)); } catch { detail = ' ' + String(data); }
+  }
+  const line = `${t} ${label}${detail}`;
+  voiceDebugLines.push(line);
+  console.log('[voicedebug]', line);
+  let panel = document.getElementById('voice-debug-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'voice-debug-panel';
+    panel.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;max-height:40vh;z-index:99999;'
+      + 'background:rgba(17,24,39,.94);color:#e5e7eb;font:11px/1.4 ui-monospace,Menlo,monospace;'
+      + 'border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;';
+    const copy = document.createElement('button');
+    copy.textContent = 'Copy log';
+    copy.style.cssText = 'align-self:flex-end;background:#FA6C43;color:#fff;border:0;border-radius:6px;padding:4px 10px;font:inherit;';
+    copy.onclick = () => {
+      navigator.clipboard?.writeText(voiceDebugLines.join('\n'))
+        .then(() => { copy.textContent = 'Copied'; })
+        .catch(() => { copy.textContent = 'Copy failed — screenshot instead'; });
+    };
+    const pre = document.createElement('pre');
+    pre.id = 'voice-debug-lines';
+    pre.style.cssText = 'margin:0;overflow:auto;white-space:pre-wrap;word-break:break-word;';
+    panel.append(copy, pre);
+    document.body.appendChild(panel);
+  }
+  const pre = document.getElementById('voice-debug-lines');
+  pre.textContent = voiceDebugLines.join('\n');
+  pre.scrollTop = pre.scrollHeight;
+};
+
+// Watch a mic stream's tracks: on iPhone/iPad a track that goes `mute` or
+// `ended` right after connect is the signature of a competing capture.
+const watchTracks = (stream, name) => {
+  stream?.getAudioTracks().forEach((track, i) => {
+    voiceDebug(`${name} track ${i}`, { readyState: track.readyState, muted: track.muted, label: track.label });
+    track.addEventListener('mute', () => voiceDebug(`${name} track ${i} MUTED`));
+    track.addEventListener('unmute', () => voiceDebug(`${name} track ${i} unmuted`));
+    track.addEventListener('ended', () => voiceDebug(`${name} track ${i} ENDED`));
+  });
+};
+
 // iPhone and iPad — every browser there runs on WebKit, including Chrome. iPadOS
 // reports itself as a Mac, so a touch-capable "Macintosh" counts too.
 const isAppleMobile = () => typeof navigator !== 'undefined' && (
@@ -88,6 +158,8 @@ const tapNextMicStream = () => {
   media.getUserMedia = async (constraints) => {
     const result = await original.call(media, constraints);
     if (constraints?.audio) {
+      voiceDebug('SDK opened mic');
+      watchTracks(result, 'hume-mic');
       settle(result);
       release();
     }
@@ -120,9 +192,12 @@ const useCallRecorder = () => {
       if (sourceStream) {
         // A clone shares the SDK's capture; stopping it later leaves the SDK's tracks live.
         stream = sourceStream.clone();
+        voiceDebug('recorder: cloning the SDK mic stream');
       } else if (isAppleMobile()) {
+        voiceDebug('recorder: no SDK stream caught; skipping recording on iPhone/iPad');
         return false;
       } else {
+        voiceDebug('recorder: no SDK stream caught; opening its own capture');
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       streamRef.current = stream;
@@ -135,8 +210,10 @@ const useCallRecorder = () => {
       // one buffer that was never flushed.
       recorder.start(5000);
       recorderRef.current = recorder;
+      voiceDebug('recorder started', { mimeType: recorder.mimeType || '(default)' });
       return true;
     } catch (e) {
+      voiceDebug('recorder FAILED', String(e?.name || '') + ' ' + String(e?.message || e));
       console.warn('Call recording unavailable', e);
       return false;
     }
@@ -526,6 +603,25 @@ const InnerControls = ({
   const startedAtRef = useRef(null);
 
   useEffect(() => {
+    voiceDebug('status', status?.reason ? `${status.value}: ${status.reason}` : status?.value);
+  }, [status]);
+
+  // Hume's own error frames and the socket's open/close — the close code and
+  // reason are usually the whole answer to "why did the call end".
+  const debugSeenRef = useRef(0);
+  useEffect(() => {
+    if (!voiceDebugEnabled || !Array.isArray(messages)) return;
+    if (messages.length < debugSeenRef.current) debugSeenRef.current = 0;
+    messages.slice(debugSeenRef.current).forEach((m) => {
+      if (['error', 'socket_connected', 'socket_disconnected', 'chat_metadata'].includes(m?.type)) {
+        const { type, code, reason, message, slug, chatId } = m;
+        voiceDebug(`hume ${type}`, { code, reason, message, slug, chatId });
+      }
+    });
+    debugSeenRef.current = messages.length;
+  }, [messages]);
+
+  useEffect(() => {
     if (status?.value === 'disconnected' || status?.value === 'error') {
       setDismissed(false);
       setIsFullscreen(false);
@@ -566,8 +662,9 @@ const InnerControls = ({
   };
 
   // Plain mode's end — hang-up, dropped line or deadline, whichever comes first.
-  const handleFinish = () => {
+  const handleFinish = (why = 'hang-up') => {
     if (endedRef.current) return;
+    voiceDebug('call ended', why);
     endedRef.current = true;
     clearTimeout(deadlineTimerRef.current);
     setEnded(true);
@@ -586,7 +683,9 @@ const InnerControls = ({
   // fresh Start instead would open a second call over the first one's record.
   useEffect(() => {
     if (!plain || endedRef.current || !openedRef.current) return;
-    if (status?.value === 'disconnected' || status?.value === 'error') finishRef.current();
+    if (status?.value === 'disconnected' || status?.value === 'error') {
+      finishRef.current(`line dropped (status ${status.value}${status.reason ? `: ${status.reason}` : ''})`);
+    }
   }, [plain, status]);
 
   const finalizeCall = () => {
@@ -673,6 +772,7 @@ const InnerControls = ({
    */
   const handleConnect = async () => {
     if (plain) return handlePlainConnect();
+    voiceDebug('connect', { plain, humeConfigId, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -682,11 +782,13 @@ const InnerControls = ({
       });
     } catch (e) {
       micTap.release();
+      voiceDebug('connect THREW', String(e?.message || e));
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
+    voiceDebug('connect returned');
 
     const startedAt = new Date();
     startedAtRef.current = startedAt;
@@ -713,11 +815,12 @@ const InnerControls = ({
     if (!startedAtRef.current) {
       startedAtRef.current = new Date();
       if (maxDurationMs) {
-        deadlineTimerRef.current = setTimeout(() => finishRef.current(), maxDurationMs);
+        deadlineTimerRef.current = setTimeout(() => finishRef.current('deadline'), maxDurationMs);
       }
     }
     seenTurnsRef.current = 0;
 
+    voiceDebug('connect', { plain, humeConfigId, userAgent: navigator.userAgent, appleMobile: isAppleMobile() });
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -727,11 +830,13 @@ const InnerControls = ({
       });
     } catch (e) {
       micTap.release();
+      voiceDebug('connect THREW', String(e?.message || e));
       console.error('EVI connect failed', e);
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
+    voiceDebug('connect returned');
     // The deadline can pass while the socket is still opening.
     if (endedRef.current) {
       safeDisconnect();
@@ -764,7 +869,7 @@ const InnerControls = ({
         partnerName={partnerName}
         onMute={mute}
         onUnmute={unmute}
-        onEndCall={handleFinish}
+        onEndCall={() => handleFinish('hang-up')}
       />
     ) : (
       <div className="flex flex-col items-center gap-2">
@@ -894,7 +999,10 @@ const EVIAudioControls = ({
 
   return (
     <VoiceProvider
+      onOpen={() => voiceDebug('socket open')}
+      onClose={(e) => voiceDebug('socket CLOSED', { code: e?.code, reason: e?.reason, wasClean: e?.wasClean })}
       onError={(err) => {
+        voiceDebug('SDK ERROR', { type: err?.type, reason: err?.reason, message: err?.message });
         console.error('EVI VoiceProvider error', err);
         onError?.(err?.message || err?.reason || 'Voice session error');
       }}
