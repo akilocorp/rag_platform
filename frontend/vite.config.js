@@ -1,3 +1,8 @@
+/*
+ * @language  JavaScript (Vite config)
+ * @updated   2026-09-30
+ * @changed   Dev-server proxy for /hume → api.hume.ai (WebSocket), mirroring the nginx relay voice calls use.
+ */
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'url'
@@ -30,6 +35,14 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: target,
           changeOrigin: true,
+        },
+        // Same Hume EVI relay nginx provides in the deployed container, so voice
+        // calls (which always connect via /hume/) also work on the dev server.
+        '/hume': {
+          target: 'https://api.hume.ai',
+          changeOrigin: true,
+          ws: true,
+          rewrite: (p) => p.replace(/^\/hume/, ''),
         },
       },
     },

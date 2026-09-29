@@ -1,7 +1,9 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   `?voicerelay=1` sends the Hume socket through this site's /hume/ relay (frontend/nginx.conf)
+ * @changed   The /hume/ relay is now the default for every call (confirmed fixing Hong Kong phones/iPads);
+ *            `?voicerelay=0` connects straight to api.hume.ai instead.
+ * @changed   Prior: `?voicerelay=1` sends the Hume socket through this site's /hume/ relay (frontend/nginx.conf)
  *            instead of api.hume.ai directly; the probe now reads Hume's real HTTP status via CORS.
  * @changed   Prior: Debug log: records when the Hume token was fetched, and on a socket connection failure probes
  *            api.hume.ai from the device (reachable or not, token age, online/connection type).
@@ -121,17 +123,19 @@ const voiceDebug = (label, data) => {
   pre.scrollTop = pre.scrollHeight;
 };
 
-// `?voicerelay=1` routes the Hume socket through this site's /hume/ nginx
-// location instead of straight to api.hume.ai (see frontend/nginx.conf). Kept
-// in sessionStorage like the debug flag. The SDK builds wss://<hostname>/v0/evi.
+// Every call reaches Hume through this site's /hume/ nginx relay (see
+// frontend/nginx.conf) rather than api.hume.ai directly: from Hong Kong, phones
+// and iPads could reach Hume over HTTPS but never open its WebSocket, while our
+// own domain works everywhere. `?voicerelay=0` connects directly instead (kept in
+// sessionStorage) — an escape hatch if the relay itself ever misbehaves. The SDK
+// builds wss://<hostname>/v0/evi from the hostname.
 const voiceRelayEnabled = (() => {
   try {
-    if (new URLSearchParams(window.location.search).get('voicerelay') === '1') {
-      sessionStorage.setItem('voicerelay', '1');
-    }
-    return sessionStorage.getItem('voicerelay') === '1';
+    const param = new URLSearchParams(window.location.search).get('voicerelay');
+    if (param === '0' || param === '1') sessionStorage.setItem('voicerelay', param);
+    return sessionStorage.getItem('voicerelay') !== '0';
   } catch {
-    return false;
+    return true;
   }
 })();
 const humeHostname = () => (voiceRelayEnabled ? `${window.location.host}/hume` : undefined);
