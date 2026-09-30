@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-09-30
-# @changed   New module. The video report's overall score is the plain average of every criterion on
+# @changed   Per-config overall mode: "average" (criteria_average) or "prompt" (the grader's holistic
+#            score), via overall_mode_of / overall_for.
+#            Prior: New module. The video report's overall score is the plain average of every criterion on
 #            the report — delivery dimensions, content checks and the opening gambit — replacing the
 #            grader's holistic `llm_overall` and the old delivery-only mean.
 """The overall score of a scored video submission.
@@ -34,3 +36,28 @@ def criteria_average(score_doc: Optional[Dict[str, Any]]) -> Optional[float]:
     if not values:
         return score_doc.get("overall")
     return round(sum(values) / len(values), 1)
+
+
+# How a config's overall grade is formed, chosen on the scoring-boxes page:
+#   "average" — criteria_average above (the default)
+#   "prompt"  — the grader's holistic score, steered by the professor's grading
+#               prompt (`llm_overall`, produced at scoring time)
+OVERALL_MODES = ("average", "prompt")
+
+
+def overall_mode_of(config: Optional[Dict[str, Any]]) -> str:
+    """The overall mode saved on a config's scoring spec; "average" when unset."""
+    mode = ((config or {}).get("scoring_spec") or {}).get("overall_mode")
+    return mode if mode in OVERALL_MODES else "average"
+
+
+def overall_for(score_doc: Optional[Dict[str, Any]], mode: str) -> Optional[float]:
+    """The overall score to show for a report under the config's mode.
+
+    "prompt" uses the stored holistic grade when the report has one and falls
+    back to the average otherwise (reports scored before it existed, or a
+    failed grading call), so switching modes never blanks a score.
+    """
+    if mode == "prompt" and score_doc and score_doc.get("llm_overall") is not None:
+        return score_doc["llm_overall"]
+    return criteria_average(score_doc)
