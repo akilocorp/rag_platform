@@ -70,7 +70,8 @@ go straight in with the AI participants.
 
 ![A results page](/guide-media/video-results.png)
 
-- **Overall Score** at the top: delivery and content weighed together.
+- **Overall Score** at the top: either the average of every score on the report, or one
+  overall grade following your professor's instructions. The subtitle under it says which.
 - **One card per dimension** your professor defined (often Confidence, Competence,
   Passion). Each has a score **out of 10** and a paragraph explaining *why*. That
   paragraph is the useful part.

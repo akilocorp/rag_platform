@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   Overall score comes from the results response, which follows the assignment's overall mode
+ * @changed   Overall banner subtitle says how the grade was formed (average vs. professor's prompt grade).
+ *            Prior: Overall score comes from the results response, which follows the assignment's overall mode
  *            (average of all criteria, or the prompt grade); utils/videoOverall is the fallback.
  * @changed   Prior: Added a "Presentation Style" heading above the scoring boxes, matching Content Checks.
  */
@@ -286,7 +287,9 @@ export default function VideoResultsPage() {
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
           <p className="text-sm text-gray-500 mt-0.5">
-            {dimNames.length ? `Delivery and content, weighed together (${dimNames.join(', ')})` : 'Delivery and content, weighed together'}
+            {data.overall_mode === 'prompt'
+              ? "Your professor's overall grade for delivery and content together"
+              : 'The average of every score on this report'}
           </p>
         </div>
         <div className="text-right shrink-0 ml-4">
