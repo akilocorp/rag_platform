@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-08-24
-# @changed   score_submission drops any dimension/content-check flagged "hidden" before grading —
+# @updated   2026-09-30
+# @changed   `overall` is now the plain average of all criteria (src/video/overall.py), not the mean of
+#            the delivery dimensions only.
+#            Prior: score_submission drops any dimension/content-check flagged "hidden" before grading —
 #            the single choke point both the rubric editor's rescore and the auto-score pipeline
 #            call through, so a hidden box stops counting toward the overall score and never
 #            reaches the student's report, without needing to touch either caller.
@@ -37,6 +39,8 @@ import re
 import time
 
 from langchain_openai import ChatOpenAI
+
+from src.video.overall import criteria_average
 from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -375,9 +379,9 @@ def score_submission(submission: dict, collected: dict, scoring_spec: dict, open
                 "score": None, "score_10": None, "label": "N/A", "rationale": "",
             })
 
-    # Overall = mean of available dimension scores (numbers are secondary here).
-    present = [d["score"] for d in dim_results if d.get("score") is not None]
-    overall = round(sum(present) / len(present), 1) if present else None
+    # Overall = plain average of every criterion on the report (delivery dimensions,
+    # content checks, opening gambit). `llm_overall` is still stored but not shown.
+    overall = criteria_average({"dimensions": dim_results, "content_checks": content_checks})
 
     feedback = {
         "summary": " ".join(coaching.get("summary", [])[:2]) or coaching.get("strength", ""),

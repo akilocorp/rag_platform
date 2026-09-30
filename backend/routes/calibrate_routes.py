@@ -1,3 +1,7 @@
+# @language  Python
+# @updated   2026-09-30
+# @changed   The per-submission `overall` shown here is the plain average of all criteria
+#            (src/video/overall.criteria_average), matching every other video screen.
 """Weight calibration tool — standalone page + API.
 
 GET  /calibrate                          → serves the HTML page
@@ -6,6 +10,8 @@ GET  /api/calibrate/submissions/<cid>    → submissions + full submetric data
 POST /api/calibrate/optimize             → optimize weights, return recommendations
 """
 from flask import Blueprint, jsonify, request, current_app, render_template_string
+
+from src.video.overall import criteria_average
 
 calibrate_bp = Blueprint('calibrate', __name__)
 
@@ -256,7 +262,7 @@ def calibrate_submissions(config_id):
         sid = str(s["_id"])
         score_doc = db['video_scores'].find_one(
             {"submission_id": sid},
-            {"_id": 0, "scores": 1, "overall": 1, "pccp_eval": 1}
+            {"_id": 0, "scores": 1, "overall": 1, "dimensions": 1, "content_checks": 1, "pccp_eval": 1}
         )
         if not score_doc:
             continue
@@ -280,7 +286,7 @@ def calibrate_submissions(config_id):
                 "confidence": _display("confidence"),
                 "competence": _display("competence"),
                 "passion":    _display("passion"),
-                "overall":    score_doc.get("overall"),
+                "overall":    criteria_average(score_doc),
             },
             "submetrics": all_sm,
         })

@@ -1,13 +1,16 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-24
- * @changed   Added a "Presentation Style" heading above the scoring boxes, matching Content Checks.
+ * @updated   2026-09-30
+ * @changed   Overall score is the plain average of every criterion (utils/videoOverall), not the
+ *            grader's holistic llm_overall.
+ * @changed   Prior: Added a "Presentation Style" heading above the scoring boxes, matching Content Checks.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { FaSpinner, FaChevronDown, FaChevronUp, FaMedal, FaFlag, FaLightbulb, FaFilePdf, FaWalking, FaFilm, FaBell } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import VideoNav from '../components/VideoNav';
+import { criteriaAverage } from '../utils/videoOverall';
 
 // Rotating pitch tips for the multi-minute analysis wait.
 const TIPS = [
@@ -231,7 +234,7 @@ export default function VideoResultsPage() {
   const checks     = scores?.content_checks || [];
   const gambit     = checks.find(c => c.id === 'gambit');
   const components = checks.filter(c => c.id !== 'gambit');
-  const overall    = scores?.llm_overall != null ? scores.llm_overall : scores?.overall;
+  const overall    = criteriaAverage(scores);
   const talkTime   = scores?.analytics?.talk_time_sec;
   const bodyLanguage = scores?.body_language;
   const dimNames   = dimensions.map(d => d.name).filter(Boolean);

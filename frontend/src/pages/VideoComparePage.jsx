@@ -1,13 +1,16 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-24
- * @changed   Added a "Presentation Style" row divider above the scoring-box rows, matching Content Checks.
+ * @updated   2026-09-30
+ * @changed   Overall row is the plain average of every criterion (utils/videoOverall), the same number
+ *            the student's report shows.
+ * @changed   Prior: Added a "Presentation Style" row divider above the scoring-box rows, matching Content Checks.
  */
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import VideoNav from '../components/VideoNav';
+import { criteriaAverage } from '../utils/videoOverall';
 
 const C = (v) => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
 
@@ -61,7 +64,7 @@ function CompareTable({ submissions, detailMap }) {
             <td className="text-xs font-semibold text-gray-600 py-3 pr-4">Overall</td>
             {submissions.map((s) => {
               const d = detailMap[s.submission_id];
-              const overall = d?.scores?.overall != null ? d.scores.overall : (d?.scores?.llm_overall ?? s.overall);
+              const overall = d?.scores ? criteriaAverage(d.scores) : s.overall;
               return (
                 <td key={s.submission_id} className="text-center py-3 px-3">
                   {s.status === 'scored'

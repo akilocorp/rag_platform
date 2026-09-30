@@ -1,8 +1,14 @@
+# @language  Python
+# @updated   2026-09-30
+# @changed   A student's best video score is the plain average of all criteria on each report
+#            (src/video/overall.criteria_average) instead of the stored delivery-only mean.
 from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
 from models.user import User
 import time
+
+from src.video.overall import criteria_average
 
 student_bp = Blueprint('student', __name__)
 
@@ -208,9 +214,9 @@ def dashboard():
             for sub in subs:
                 sub_id = str(sub['_id'])
                 if sub.get('status') == 'scored':
-                    score_doc = db['video_scores'].find_one({'submission_id': sub_id}, {'overall': 1, 'llm_overall': 1})
+                    score_doc = db['video_scores'].find_one({'submission_id': sub_id}, {'overall': 1, 'dimensions': 1, 'content_checks': 1})
                     if score_doc:
-                        s = score_doc.get('overall') if score_doc.get('overall') is not None else score_doc.get('llm_overall')
+                        s = criteria_average(score_doc)
                         if s is not None and (best_score is None or s > best_score):
                             best_score = s
                         if latest_scored_id is None:
