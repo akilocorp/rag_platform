@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-15
-# @changed   Added GET /video/config/<id>/export.csv — the per-student results table (name, email,
+# @updated   2026-09-30
+# @changed   Every overall score served here (attempt list, dashboard table, CSV, class average) is the
+#            plain average of all criteria via src/video/overall.criteria_average — not llm_overall.
+# @changed   Prior: Added GET /video/config/<id>/export.csv — the per-student results table (name, email,
 #            status, submitted date, overall, one column per rubric dimension) as a CSV download,
 #            mirroring studio_routes.py's export_responses_csv but through this file's
 #            _require_config_owner ownership check instead of Studio's @jwt_required() pattern.
@@ -52,6 +54,7 @@ from src.utils.s3_client import (
 )
 from src.video.pipeline import dispatch_pipeline
 from src.video.rubrics import registry
+from src.video.overall import criteria_average
 from src.video.scoring import score_submission
 
 logger = logging.getLogger(__name__)
@@ -538,12 +541,12 @@ def student_history(config_id):
         sub_id = str(s["_id"])
         score_doc = db['video_scores'].find_one(
             {"submission_id": sub_id},
-            {"_id": 0, "overall": 1, "llm_overall": 1, "scores": 1},
+            {"_id": 0, "overall": 1, "dimensions": 1, "content_checks": 1, "scores": 1},
         )
         overall = None
         composite_scores = None
         if score_doc:
-            overall = score_doc.get("llm_overall") if score_doc.get("llm_overall") is not None else score_doc.get("overall")
+            overall = criteria_average(score_doc)
             raw = score_doc.get("scores") or {}
             composite_scores = {
                 k: (raw[k].get("value") if isinstance(raw.get(k), dict) else None)
@@ -674,7 +677,7 @@ def list_submissions(config_id):
     out = []
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "dimensions": 1, "overall": 1})
+                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1})
         dims = [{"id": d.get("id"), "name": d.get("name"), "score": d.get("score")}
                 for d in ((score or {}).get("dimensions") or [])]
         out.append({
@@ -683,7 +686,7 @@ def list_submissions(config_id):
             "email": s.get("submitter_email"),
             "status": s.get("status"),
             "created_at": s.get("created_at"),
-            "overall": (score or {}).get("overall"),
+            "overall": criteria_average(score),
             "dimensions": dims,
         })
     return jsonify({"submissions": out})
@@ -714,7 +717,7 @@ def export_submissions_csv(config_id):
     seen_dimensions = set()
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "dimensions": 1, "overall": 1})
+                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1})
         dims = {d.get("name"): d.get("score") for d in ((score or {}).get("dimensions") or []) if d.get("name")}
         for name in dims:
             if name not in seen_dimensions:
@@ -725,7 +728,7 @@ def export_submissions_csv(config_id):
             "email": s.get("submitter_email") or "",
             "status": s.get("status") or "",
             "created_at": s.get("created_at") or "",
-            "overall": (score or {}).get("overall"),
+            "overall": criteria_average(score),
             "dimensions": dims,
         })
 
@@ -793,7 +796,7 @@ def dashboard(config_id):
     } for did in dim_order]
     weak_id = max(weakness_tally, key=weakness_tally.get) if weakness_tally else None
 
-    overall_vals = [s.get("overall") for s in scores if s.get("overall") is not None]
+    overall_vals = [v for v in (criteria_average(s) for s in scores) if v is not None]
 
     # ---- Content-check averages (dynamic; from content_checks on each doc) ----
     chk_order, chk_label, chk_vals = [], {}, {}
