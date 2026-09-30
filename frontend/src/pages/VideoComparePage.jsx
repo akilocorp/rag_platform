@@ -1,8 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   Overall row is the plain average of every criterion (utils/videoOverall), the same number
- *            the student's report shows.
+ * @changed   Overall row uses the results response's `overall`, which follows the assignment's overall
+ *            mode — the same number the student's report shows.
  * @changed   Prior: Added a "Presentation Style" row divider above the scoring-box rows, matching Content Checks.
  */
 import React, { useEffect, useState } from 'react';
@@ -64,7 +64,7 @@ function CompareTable({ submissions, detailMap }) {
             <td className="text-xs font-semibold text-gray-600 py-3 pr-4">Overall</td>
             {submissions.map((s) => {
               const d = detailMap[s.submission_id];
-              const overall = d?.scores ? criteriaAverage(d.scores) : s.overall;
+              const overall = d ? (d.overall !== undefined ? d.overall : criteriaAverage(d.scores)) : s.overall;
               return (
                 <td key={s.submission_id} className="text-center py-3 px-3">
                   {s.status === 'scored'

@@ -1,6 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-24
-// @changed   Hide/Show per box: a hidden box collapses to a single grey row and drops out of
+// @updated   2026-09-30
+// @changed   The Overall Score banner is now a choice: "Average of all boxes" or "Prompt grade". Choosing
+//            Prompt reveals the grading prompt (feedback_prompt_template) to edit in place. Both save with
+//            the boxes (PUT scoring-spec) and drive every overall shown for this assignment.
+// @changed   Prior: Hide/Show per box: a hidden box collapses to a single grey row and drops out of
 //            scoring (persisted as `hidden` and enforced server-side); active boxes now carry a
 //            green left-accent so it reads at a glance which ones still count.
 // @changed   Prior: Cards are read-only until you press Edit. The fields used to be transparent inputs sitting
@@ -129,6 +132,9 @@ export default function VideoBoxesPage() {
   // open forms turn the page back into the wall of grey rows this replaced.
   const [editingDim, setEditingDim] = useState(null);
   const [editingCheck, setEditingCheck] = useState(null);
+  // How the report's overall grade is formed, and the prompt behind the "prompt" grade.
+  const [overallMode, setOverallMode] = useState('average');
+  const [gradingPrompt, setGradingPrompt] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +145,8 @@ export default function VideoBoxesPage() {
         setBotName(res.data?.bot_name || '');
         setDimensions(spec.dimensions || []);
         setChecks(spec.content_checks || []);
+        setOverallMode(spec.overall_mode === 'prompt' ? 'prompt' : 'average');
+        setGradingPrompt(spec.feedback_prompt_template || '');
       })
       .catch((e) => alive && setError(e?.response?.data?.error || 'Could not load this rubric.'))
       .finally(() => alive && setLoading(false));
@@ -202,12 +210,16 @@ export default function VideoBoxesPage() {
     try {
       const res = await apiClient.put(`/video/config/${configId}/scoring-spec`, {
         dimensions, content_checks: checks,
+        overall_mode: overallMode,
+        feedback_prompt_template: gradingPrompt,
       });
       // Take the server's normalized rows back: it assigns ids to new boxes and drops
       // unnamed ones, so the page would otherwise show something that was not saved.
       const spec = res.data?.scoring_spec || {};
       setDimensions(spec.dimensions || []);
       setChecks(spec.content_checks || []);
+      setOverallMode(spec.overall_mode === 'prompt' ? 'prompt' : 'average');
+      setGradingPrompt(spec.feedback_prompt_template || '');
       setEditingDim(null); setEditingCheck(null);
       setDirty(false);
       setSavedAt(Date.now());
@@ -275,23 +287,59 @@ export default function VideoBoxesPage() {
           )}
         </div>
 
-        {/* ── Overall banner — not editable, shown so the boxes sit in their real context ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5 flex items-center justify-between opacity-90">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
-            <p className="text-sm text-gray-500 mt-0.5 truncate">
-              {(() => {
-                const active = dimensions.filter((d) => d.name && !d.hidden).map((d) => d.name);
-                return active.length
-                  ? `Delivery and content, weighed together (${active.join(', ')})`
-                  : 'Delivery and content, weighed together';
-              })()}
-            </p>
+        {/* ── Overall banner — choose how the overall grade is formed ── */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Score</p>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {overallMode === 'average'
+                  ? 'The plain average of every box and content check below, each counted equally.'
+                  : 'One holistic grade from the AI, following your grading prompt below.'}
+              </p>
+            </div>
+            <div className="text-right shrink-0 ml-4">
+              <span className="text-5xl font-extrabold" style={{ color: PREVIEW_GREY }}>7.9</span>
+              <span className="text-lg text-gray-300 font-bold"> / 10</span>
+            </div>
           </div>
-          <div className="text-right shrink-0 ml-4">
-            <span className="text-5xl font-extrabold" style={{ color: PREVIEW_GREY }}>7.9</span>
-            <span className="text-lg text-gray-300 font-bold"> / 10</span>
+
+          {/* Mode picker: which one the overall grade prioritizes. */}
+          <div className="mt-4 flex p-1 bg-gray-100 rounded-xl">
+            {[
+              { key: 'average', label: 'Average of all boxes' },
+              { key: 'prompt', label: 'Prompt grade' },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => { if (overallMode !== opt.key) { setOverallMode(opt.key); touch(); } }}
+                className={`flex-1 py-2 text-[13px] font-bold rounded-lg transition-colors ${
+                  overallMode === opt.key ? 'bg-white text-[#FA6C43] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
+
+          {/* The grading prompt, editable in place when the overall follows it. */}
+          {overallMode === 'prompt' && (
+            <div className="mt-4">
+              <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Grading prompt</label>
+              <textarea
+                value={gradingPrompt}
+                onChange={(e) => { setGradingPrompt(e.target.value); touch(); }}
+                rows={8}
+                placeholder="E.g. You are a strict pitch-competition judge. Reward explicit clarity; penalize vague content. Poor delivery should pull the overall grade down even when the content is strong."
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#F9D0C4] focus:border-[#FA6C43]"
+              />
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                The AI reads this when it grades a video. A new prompt applies to videos scored after you
+                save; reports already graded keep the grade their original prompt produced.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between mb-3">

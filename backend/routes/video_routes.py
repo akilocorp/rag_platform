@@ -1,7 +1,10 @@
 # @language  Python
 # @updated   2026-09-30
-# @changed   Every overall score served here (attempt list, dashboard table, CSV, class average) is the
-#            plain average of all criteria via src/video/overall.criteria_average — not llm_overall.
+# @changed   Overall scores follow the config's `overall_mode` (scoring-boxes page): "average" of all
+#            criteria or the "prompt" grade (llm_overall), via src/video/overall.overall_for — in the attempt
+#            list, results (new `overall` / `overall_mode` fields), dashboard table, CSV and class average.
+#            PUT scoring-spec also saves `overall_mode` and `feedback_prompt_template`.
+#            Prior: every overall was the plain average of all criteria.
 # @changed   Prior: Added GET /video/config/<id>/export.csv — the per-student results table (name, email,
 #            status, submitted date, overall, one column per rubric dimension) as a CSV download,
 #            mirroring studio_routes.py's export_responses_csv but through this file's
@@ -54,7 +57,7 @@ from src.utils.s3_client import (
 )
 from src.video.pipeline import dispatch_pipeline
 from src.video.rubrics import registry
-from src.video.overall import criteria_average
+from src.video.overall import OVERALL_MODES, overall_for, overall_mode_of
 from src.video.scoring import score_submission
 
 logger = logging.getLogger(__name__)
@@ -116,7 +119,7 @@ def _user_email(user_id):
 # the preset (and anything the professor never touched) is left as the registry
 # defines it, so a config saved before a preset gained a field still gets it.
 _SPEC_OVERRIDES = ("submetric_weights", "composite_weights", "feedback_prompt_template",
-                   "dimensions", "content_checks", "target_duration_sec")
+                   "dimensions", "content_checks", "target_duration_sec", "overall_mode")
 
 
 def _effective_spec(config, assignment_type=None):
@@ -499,6 +502,9 @@ def get_results(sub_id):
             current_app.logger.warning("[PIPELINE] auto-failed stale submission %s (stuck >15 min)", sub_id)
 
     scores = db['video_scores'].find_one({"submission_id": sub_id}, {"_id": 0})
+    # The overall is chosen per config (average vs. prompt grade) and can change
+    # after scoring, so it is resolved here rather than read off the report.
+    overall_mode = overall_mode_of(_get_config(sub.get("config_id")))
     collected = db['video_collected_data'].find_one(
         {"submission_id": sub_id},
         {"_id": 0, "transcript": 1, "duration_sec": 1, "modalities_present": 1},
@@ -515,6 +521,8 @@ def get_results(sub_id):
             "created_at": sub.get("created_at"),
         },
         "scores": scores,
+        "overall": overall_for(scores, overall_mode) if scores else None,
+        "overall_mode": overall_mode,
         "transcript": (collected or {}).get("transcript"),
         "duration_sec": (collected or {}).get("duration_sec"),
         "modalities_present": (collected or {}).get("modalities_present", []),
@@ -541,12 +549,12 @@ def student_history(config_id):
         sub_id = str(s["_id"])
         score_doc = db['video_scores'].find_one(
             {"submission_id": sub_id},
-            {"_id": 0, "overall": 1, "dimensions": 1, "content_checks": 1, "scores": 1},
+            {"_id": 0, "overall": 1, "llm_overall": 1, "dimensions": 1, "content_checks": 1, "scores": 1},
         )
         overall = None
         composite_scores = None
         if score_doc:
-            overall = criteria_average(score_doc)
+            overall = overall_for(score_doc, overall_mode_of(config))
             raw = score_doc.get("scores") or {}
             composite_scores = {
                 k: (raw[k].get("value") if isinstance(raw.get(k), dict) else None)
@@ -658,6 +666,12 @@ def scoring_spec_endpoint(config_id):
 
     spec['dimensions'] = clean_dims
     spec['content_checks'] = _clean_rubric_rows(checks, 'label', 'description', 'check')
+    # How the overall grade is formed, and the prompt that steers the "prompt"
+    # grade. Both optional so an older client that only sends boxes keeps them.
+    if body.get('overall_mode') in OVERALL_MODES:
+        spec['overall_mode'] = body['overall_mode']
+    if isinstance(body.get('feedback_prompt_template'), str):
+        spec['feedback_prompt_template'] = body['feedback_prompt_template'].strip()
     current_app.config['MONGO_DB']['config_collections'].update_one(
         {'_id': ObjectId(config_id)}, {'$set': {'scoring_spec': spec}})
     return jsonify({"ok": True, "scoring_spec": spec})
@@ -669,6 +683,7 @@ def list_submissions(config_id):
     if err:
         return err
     db = current_app.config['MONGO_DB']
+    mode = overall_mode_of(config)
     subs = list(db['video_submissions'].find({
         "config_id": config_id,
         "status": {"$nin": ["failed"]},
@@ -677,7 +692,7 @@ def list_submissions(config_id):
     out = []
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1})
+                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1, "llm_overall": 1})
         dims = [{"id": d.get("id"), "name": d.get("name"), "score": d.get("score")}
                 for d in ((score or {}).get("dimensions") or [])]
         out.append({
@@ -686,7 +701,7 @@ def list_submissions(config_id):
             "email": s.get("submitter_email"),
             "status": s.get("status"),
             "created_at": s.get("created_at"),
-            "overall": criteria_average(score),
+            "overall": overall_for(score, mode),
             "dimensions": dims,
         })
     return jsonify({"submissions": out})
@@ -706,6 +721,7 @@ def export_submissions_csv(config_id):
         return err
 
     db = current_app.config['MONGO_DB']
+    mode = overall_mode_of(config)
     subs = list(db['video_submissions'].find({
         "config_id": config_id,
         "status": {"$nin": ["failed"]},
@@ -717,7 +733,7 @@ def export_submissions_csv(config_id):
     seen_dimensions = set()
     for s in subs:
         score = db['video_scores'].find_one({"submission_id": str(s["_id"])},
-                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1})
+                                            {"_id": 0, "dimensions": 1, "content_checks": 1, "overall": 1, "llm_overall": 1})
         dims = {d.get("name"): d.get("score") for d in ((score or {}).get("dimensions") or []) if d.get("name")}
         for name in dims:
             if name not in seen_dimensions:
@@ -728,7 +744,7 @@ def export_submissions_csv(config_id):
             "email": s.get("submitter_email") or "",
             "status": s.get("status") or "",
             "created_at": s.get("created_at") or "",
-            "overall": criteria_average(score),
+            "overall": overall_for(score, mode),
             "dimensions": dims,
         })
 
@@ -796,7 +812,8 @@ def dashboard(config_id):
     } for did in dim_order]
     weak_id = max(weakness_tally, key=weakness_tally.get) if weakness_tally else None
 
-    overall_vals = [v for v in (criteria_average(s) for s in scores) if v is not None]
+    mode = overall_mode_of(config)
+    overall_vals = [v for v in (overall_for(s, mode) for s in scores) if v is not None]
 
     # ---- Content-check averages (dynamic; from content_checks on each doc) ----
     chk_order, chk_label, chk_vals = [], {}, {}

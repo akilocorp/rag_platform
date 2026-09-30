@@ -1,14 +1,14 @@
 # @language  Python
 # @updated   2026-09-30
-# @changed   A student's best video score is the plain average of all criteria on each report
-#            (src/video/overall.criteria_average) instead of the stored delivery-only mean.
+# @changed   A student's best video score follows the config's overall mode (average of all criteria or
+#            the prompt grade) via src/video/overall.overall_for.
 from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
 from models.user import User
 import time
 
-from src.video.overall import criteria_average
+from src.video.overall import overall_for, overall_mode_of
 
 student_bp = Blueprint('student', __name__)
 
@@ -172,7 +172,7 @@ def dashboard():
         doc['class_code']: doc
         for doc in db['config_collections'].find(
             {'class_code': {'$in': classes}},
-            {'bot_name': 1, 'bot_type': 1, 'assignment_type': 1, 'class_code': 1, 'upload_locked_until': 1}
+            {'bot_name': 1, 'bot_type': 1, 'assignment_type': 1, 'class_code': 1, 'upload_locked_until': 1, 'scoring_spec': 1}
         )
     }
 
@@ -214,9 +214,9 @@ def dashboard():
             for sub in subs:
                 sub_id = str(sub['_id'])
                 if sub.get('status') == 'scored':
-                    score_doc = db['video_scores'].find_one({'submission_id': sub_id}, {'overall': 1, 'dimensions': 1, 'content_checks': 1})
+                    score_doc = db['video_scores'].find_one({'submission_id': sub_id}, {'overall': 1, 'llm_overall': 1, 'dimensions': 1, 'content_checks': 1})
                     if score_doc:
-                        s = criteria_average(score_doc)
+                        s = overall_for(score_doc, overall_mode_of(config))
                         if s is not None and (best_score is None or s > best_score):
                             best_score = s
                         if latest_scored_id is None:

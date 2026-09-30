@@ -1,8 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-09-30
- * @changed   Overall score is the plain average of every criterion (utils/videoOverall), not the
- *            grader's holistic llm_overall.
+ * @changed   Overall score comes from the results response, which follows the assignment's overall mode
+ *            (average of all criteria, or the prompt grade); utils/videoOverall is the fallback.
  * @changed   Prior: Added a "Presentation Style" heading above the scoring boxes, matching Content Checks.
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -234,7 +234,8 @@ export default function VideoResultsPage() {
   const checks     = scores?.content_checks || [];
   const gambit     = checks.find(c => c.id === 'gambit');
   const components = checks.filter(c => c.id !== 'gambit');
-  const overall    = criteriaAverage(scores);
+  // The server resolves the config's overall mode (average vs. prompt grade).
+  const overall    = data.overall !== undefined ? data.overall : criteriaAverage(scores);
   const talkTime   = scores?.analytics?.talk_time_sec;
   const bodyLanguage = scores?.body_language;
   const dimNames   = dimensions.map(d => d.name).filter(Boolean);
