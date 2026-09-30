@@ -1,7 +1,9 @@
 /*
  * @language JavaScript (React / JSX)
- * @updated 2026-09-15
- * @changed Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
+ * @updated 2026-09-30
+ * @changed Scoring boxes and content checks show even with no submissions (the dashboard endpoint now
+ *          seeds them from the rubric), with a one-line note that averages fill in as students submit.
+ * @changed Prior: Added an "Export CSV" button in the header, wired to GET /video/config/:configId/export.csv
  *          (blob-download pattern mirrored from StudioResponsesPage.jsx). Filename uses the config's
  *          bot_name, captured into new `botName` state alongside the existing classCode fetch.
  * @changed Prior: Fixed past analyses not rendering on re-select (ref -> state); show per-criterion scores
@@ -402,6 +404,13 @@ export default function VideoDashboardPage() {
             {/* Delivery view (no analysis selected) */}
             {!viewId && (
               <>
+                {/* Before anyone submits, the cards below are just the rubric — say so. */}
+                {!dash?.total_submissions && dimList.length > 0 && (
+                  <p className="text-sm text-gray-500 -mb-2">
+                    Your scoring boxes and content checks. Class averages fill in as students submit.
+                  </p>
+                )}
+
                 {/* Scoring box class averages + distributions */}
                 {dimList.length > 0 && (
                   <div className="grid sm:grid-cols-3 gap-4">

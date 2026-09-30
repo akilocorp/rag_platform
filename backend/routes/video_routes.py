@@ -3,7 +3,8 @@
 # @changed   Overall scores follow the config's `overall_mode` (scoring-boxes page): "average" of all
 #            criteria or the "prompt" grade (llm_overall), via src/video/overall.overall_for — in the attempt
 #            list, results (new `overall` / `overall_mode` fields), dashboard table, CSV and class average.
-#            PUT scoring-spec also saves `overall_mode` and `feedback_prompt_template`.
+#            PUT scoring-spec also saves `overall_mode` and `feedback_prompt_template`. The dashboard lists
+#            every rubric box and content check even before any submission (averages null until scored).
 #            Prior: every overall was the plain average of all criteria.
 # @changed   Prior: Added GET /video/config/<id>/export.csv — the per-student results table (name, email,
 #            status, submitted date, overall, one column per rubric dimension) as a CSV download,
@@ -776,6 +777,17 @@ def dashboard(config_id):
     # ---- Per-dimension aggregation (dynamic; dimensions are prof-defined) ----
     dim_order, dim_name, dim_vals, dim_dist = [], {}, {}, {}
     weakness_tally = {}
+    # Seed with the rubric in force (visible boxes, in the editor's order) so every
+    # box and content check has a card before anyone submits; scored reports then
+    # fill in averages. Boxes only found on older reports are appended after these.
+    rubric = _effective_spec(config)
+    for d in (rubric.get("dimensions") or []):
+        did = d.get("id")
+        if did and not d.get("hidden") and did not in dim_name:
+            dim_order.append(did)
+            dim_name[did] = d.get("name") or did
+            dim_vals[did] = []
+            dim_dist[did] = {"excellent": 0, "strong": 0, "developing": 0, "weak": 0}
     for s in scores:
         lowest = None
         for d in (s.get("dimensions") or []):
@@ -817,6 +829,12 @@ def dashboard(config_id):
 
     # ---- Content-check averages (dynamic; from content_checks on each doc) ----
     chk_order, chk_label, chk_vals = [], {}, {}
+    for c in (rubric.get("content_checks") or []):
+        cid = c.get("id")
+        if cid and not c.get("hidden") and cid not in chk_label:
+            chk_order.append(cid)
+            chk_label[cid] = c.get("label") or cid
+            chk_vals[cid] = []
     for s in scores:
         for chk in (s.get("content_checks") or []):
             cid = chk.get("id")
