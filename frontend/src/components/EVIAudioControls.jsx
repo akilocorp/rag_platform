@@ -426,6 +426,129 @@ const micLevel = (micFft) => {
 };
 
 /**
+ * Asks for the microphone on its own, before any connection is opened, so a
+ * participant without one is stopped with instructions instead of dropped into a
+ * call that cannot hear them. The stream is released at once: WebKit allows one
+ * live capture per device, and the SDK opens its own inside `connect()`.
+ */
+const checkMicrophone = async () => {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return { ok: false, kind: 'unsupported', name: 'NoMediaDevices', message: 'getUserMedia unavailable' };
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    return { ok: true };
+  } catch (e) {
+    const name = e?.name || 'Error';
+    const message = e?.message || '';
+    let kind = 'other';
+    if (name === 'NotFoundError' || name === 'OverconstrainedError' || /not found/i.test(message)) kind = 'no_device';
+    else if (name === 'NotReadableError' || name === 'AbortError') kind = 'busy';
+    else if (/current context/i.test(message)) kind = 'blocked_here';
+    else if (/dismissed/i.test(message)) kind = 'dismissed';
+    else if (name === 'NotAllowedError' || name === 'SecurityError') kind = 'denied';
+    return { ok: false, kind, name, message };
+  }
+};
+
+const MIC_HELP = {
+  dismissed: {
+    title: 'Please allow your microphone to start',
+    steps: [
+      'Press Try again below.',
+      'When your browser asks to use your microphone, click Allow.',
+    ],
+  },
+  denied: {
+    title: 'Your microphone is blocked',
+    steps: [
+      'Click the lock or microphone icon at the left of the address bar at the top of your browser.',
+      'Set Microphone to Allow.',
+      'Press Try again below. If it still does not work, reload the page.',
+    ],
+  },
+  blocked_here: {
+    title: "Your browser won't allow the microphone on this page",
+    steps: [
+      'Please open this survey in Google Chrome or Microsoft Edge on a computer.',
+      'If you are already using Chrome, click the lock icon in the address bar, set Microphone to Allow, and press Try again.',
+    ],
+  },
+  no_device: {
+    title: "We couldn't find a microphone",
+    steps: [
+      'Connect a headset or microphone, or use a device that has one.',
+      'Press Try again below.',
+    ],
+  },
+  busy: {
+    title: 'Your microphone is being used by another app',
+    steps: [
+      'Close other apps that might be using it (Zoom, Teams, another browser tab).',
+      'Press Try again below.',
+    ],
+  },
+  unsupported: {
+    title: "This browser can't use a microphone here",
+    steps: ['Please open this survey in Google Chrome or Microsoft Edge on a computer.'],
+  },
+  other: {
+    title: "We couldn't start your microphone",
+    steps: [
+      'Check that a microphone is connected and allowed for this site.',
+      'Press Try again below. If it still does not work, try Google Chrome.',
+    ],
+  },
+};
+
+const MicHelpPanel = ({ kind, onRetry, checking }) => {
+  const help = MIC_HELP[kind] || MIC_HELP.other;
+  return (
+    <div className="w-full max-w-md mx-auto rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-left" role="alert">
+      <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+        <FaMicrophoneSlash className="shrink-0" />
+        <span>{help.title}</span>
+      </div>
+      <ol className="mt-2 ml-5 list-decimal space-y-1 text-sm text-amber-900/90">
+        {help.steps.map((step) => <li key={step}>{step}</li>)}
+      </ol>
+      <p className="mt-2 text-xs text-amber-900/70">You need a working microphone to take part in the conversation.</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={checking}
+        className="mt-3 px-4 py-2 rounded-xl bg-[#1F1F1F] text-white text-sm hover:bg-[#1F1F1F]/85 disabled:opacity-50"
+      >
+        {checking ? 'Checking…' : 'Try again'}
+      </button>
+    </div>
+  );
+};
+
+// Shown in a live call when nothing has reached the microphone for a while after
+// the partner stopped talking. Silence is normal while someone thinks, so the
+// wording asks rather than accuses.
+const CantHearBanner = ({ reason, onUnmute }) => (
+  <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" aria-live="polite">
+    {reason === 'muted' ? (
+      <div className="flex items-center justify-between gap-3">
+        <span>You're muted, so your partner can't hear you.</span>
+        <button type="button" onClick={onUnmute} className="shrink-0 px-3 py-1 rounded-lg bg-[#1F1F1F] text-white text-xs">Unmute</button>
+      </div>
+    ) : (
+      <>
+        <div className="font-semibold">We can't hear you</div>
+        <div className="mt-1 text-amber-900/90">
+          If you're speaking, check that your microphone is switched on, not muted on your headset or computer,
+          and selected in your browser (click the microphone icon in the address bar).
+        </div>
+      </>
+    )}
+  </div>
+);
+
+/**
  * The research-mode call surface: as close to a phone call as a page gets.
  * One status line (dot + words), one mic level bar, Mute and End. No waveform,
  * no avatar, no transcript, no timer, no brand colour — a study compares
@@ -433,7 +556,7 @@ const micLevel = (micFft) => {
  */
 const PlainCallPanel = ({
   status, micFft, isPlayingAudio, isMuted, recording, partnerName,
-  onMute, onUnmute, onEndCall,
+  onMute, onUnmute, onEndCall, cantHear,
 }) => {
   const isConnecting = status === 'connecting';
   const speaking = !!isPlayingAudio;
@@ -452,6 +575,8 @@ const PlainCallPanel = ({
         />
         <span>{label}</span>
       </div>
+
+      {cantHear && <CantHearBanner reason={cantHear} onUnmute={onUnmute} />}
 
       <div className="w-full">
         <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
@@ -577,6 +702,43 @@ const InnerControls = ({
 
   const statusRef = useRef(null);
   statusRef.current = status?.value || null;
+
+  // Microphone check before a call opens (plain mode). `needsTap` asks for one more
+  // tap when the permission prompt took a while: Safari only plays the partner's
+  // audio when it starts from a fresh tap.
+  const [micCheck, setMicCheck] = useState({ checking: false, error: null, needsTap: false });
+  const micConfirmedRef = useRef(false);
+
+  // "We can't hear you": nothing above speaking level on the mic for a while after
+  // the partner stopped talking. Reset whenever the partner speaks.
+  const CANT_HEAR_AFTER_MS = 12000;
+  const HEARD_LEVEL = 0.08;
+  const [cantHear, setCantHear] = useState(null);
+  const cantHearRef = useRef(null);
+  const lastHeardRef = useRef(Date.now());
+  const isMutedRef = useRef(false);
+  isMutedRef.current = Boolean(isMuted);
+  useEffect(() => {
+    if (isPlayingAudio || status?.value !== 'connected') {
+      lastHeardRef.current = Date.now();
+      return;
+    }
+    if (!isMuted && micLevel(micFft) > HEARD_LEVEL) lastHeardRef.current = Date.now();
+  }, [micFft, isPlayingAudio, isMuted, status?.value]);
+  useEffect(() => {
+    if (!plain) return undefined;
+    const id = setInterval(() => {
+      const quietFor = Date.now() - lastHeardRef.current;
+      const next = statusRef.current === 'connected' && quietFor > CANT_HEAR_AFTER_MS
+        ? (isMutedRef.current ? 'muted' : 'silent')
+        : null;
+      if (next === cantHearRef.current) return;
+      log(next ? 'cant_hear_shown' : 'cant_hear_cleared', { reason: next || cantHearRef.current, quiet_ms: quietFor });
+      cantHearRef.current = next;
+      setCantHear(next);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [plain, log]);
   useEffect(() => {
     if (!status?.value) return;
     log('status', { value: status.value, reason: status.reason || null, ms_since_click: sinceClick() });
@@ -793,7 +955,27 @@ const InnerControls = ({
    * the socket even opens; a retry after a failed connect keeps the same clock.
    */
   const handlePlainConnect = async () => {
-    if (endedRef.current || openedRef.current) return;
+    if (endedRef.current || openedRef.current || micCheck.checking) return;
+
+    // No call without a working microphone: check it before anything else, and
+    // stop at instructions if it is blocked, dismissed or missing.
+    const t0 = Date.now();
+    setMicCheck({ checking: true, error: null, needsTap: false });
+    const res = await checkMicrophone();
+    const ms = Date.now() - t0;
+    if (!res.ok) {
+      log('mic_check_failed', { kind: res.kind, name: res.name, message: res.message, ms });
+      setMicCheck({ checking: false, error: res.kind, needsTap: false });
+      return;
+    }
+    log('mic_check_ok', { ms });
+    if (ms > 1500 && !micConfirmedRef.current) {
+      micConfirmedRef.current = true;
+      setMicCheck({ checking: false, error: null, needsTap: true });
+      return;
+    }
+    micConfirmedRef.current = true;
+    setMicCheck({ checking: false, error: null, needsTap: false });
     if (!startedAtRef.current) {
       startedAtRef.current = new Date();
       if (maxDurationMs) {
@@ -855,19 +1037,29 @@ const InnerControls = ({
         onMute={mute}
         onUnmute={unmute}
         onEndCall={handleFinish}
+        cantHear={cantHear}
       />
+    ) : micCheck.error ? (
+      <MicHelpPanel kind={micCheck.error} onRetry={handleConnect} checking={micCheck.checking} />
     ) : (
       <div className="flex flex-col items-center gap-2">
         <button
           type="button"
           onClick={handleConnect}
-          disabled={disabled}
+          disabled={disabled || micCheck.checking}
           title="Start conversation"
           className="w-16 h-16 rounded-full bg-[#1F1F1F] text-white hover:bg-[#1F1F1F]/85 flex items-center justify-center transition active:scale-95 disabled:opacity-50"
         >
           <FaMicrophone className="text-xl" />
         </button>
-        <span className="text-xs text-gray-600">Start conversation</span>
+        <span className="text-xs text-gray-600">
+          {micCheck.checking
+            ? 'Checking your microphone…'
+            : micCheck.needsTap ? 'Microphone ready. Tap again to start' : 'Start conversation'}
+        </span>
+        {!micCheck.checking && !micCheck.needsTap && (
+          <span className="text-[11px] text-gray-400">Your browser will ask to use your microphone. Please click Allow.</span>
+        )}
       </div>
     );
   }
