@@ -576,9 +576,6 @@ const InnerControls = ({
   const endedRef = useRef(false);
   const deadlineTimerRef = useRef(null);
   const chatGroupIdRef = useRef(null);
-  // Hume clears its message list on every disconnect, so a resumed call's turns
-  // count from zero again; this carries the earlier connections' count forward.
-  const turnBaseRef = useRef(0);
   // Set once the first connect succeeds. The clock starts at the click, but a
   // first attempt that fails has no recorder or call row yet to resume.
   const openedRef = useRef(false);
@@ -596,7 +593,11 @@ const InnerControls = ({
     micFft,
     isPlayingAudio,
   } = voice;
-  const seenTurnsRef = useRef(0);
+  // Turns already handed to onTurn, by message object, plus how many there were.
+  // Tracked by identity rather than by position: the SDK swaps an interim user
+  // transcript for its final version in place and trims history to 100 messages,
+  // so neither the index nor the length of the list identifies a new turn.
+  const seenTurnsRef = useRef({ messages: new WeakSet(), count: 0 });
   const [dismissed, setDismissed] = useState(false);
   // Embedded mode only: whether the compact panel has been swapped for the full-screen
   // overlay. Purely a view toggle — never touches the call connection.
@@ -720,10 +721,13 @@ const InnerControls = ({
     const turnMessages = messages.filter(
       m => m?.type === 'user_message' || m?.type === 'assistant_message'
     );
-    if (turnMessages.length <= seenTurnsRef.current) return;
+    const seen = seenTurnsRef.current;
 
-    for (let i = seenTurnsRef.current; i < turnMessages.length; i++) {
-      const m = turnMessages[i];
+    for (const m of turnMessages) {
+      // An interim transcript is Hume's guess at a sentence still being spoken;
+      // the final one replaces it. Recording the guess cuts the student off mid-thought.
+      if (seen.messages.has(m) || m.interim) continue;
+      seen.messages.add(m);
       const role = m.type === 'user_message' ? 'user' : 'assistant';
       const transcript = (m?.message?.content || '').trim();
       if (!transcript) continue;
@@ -744,12 +748,11 @@ const InnerControls = ({
         role,
         transcript,
         prosody,
-        turnIndex: turnBaseRef.current + i,
+        turnIndex: seen.count++,
         receivedAt: receivedAt.toISOString(),
         offsetMs: startedAt ? Math.max(0, receivedAt.getTime() - startedAt.getTime()) : null,
       });
     }
-    seenTurnsRef.current = turnMessages.length;
   }, [messages, onTurn, configId]);
 
   useEffect(() => {
@@ -785,7 +788,7 @@ const InnerControls = ({
 
     const startedAt = new Date();
     startedAtRef.current = startedAt;
-    seenTurnsRef.current = 0;
+    seenTurnsRef.current = { messages: new WeakSet(), count: 0 };
 
     setRecording(await recorder.start(await micTap.stream));
 
@@ -815,8 +818,9 @@ const InnerControls = ({
         deadlineTimerRef.current = setTimeout(() => finishRef.current(), maxDurationMs);
       }
     }
-    turnBaseRef.current += seenTurnsRef.current;
-    seenTurnsRef.current = 0;
+    // Hume clears its message list on every disconnect, so a resumed call starts
+    // a fresh list; the count carries on so turn numbers keep counting up.
+    seenTurnsRef.current = { messages: new WeakSet(), count: seenTurnsRef.current.count };
 
     const micTap = tapNextMicStream();
     try {
