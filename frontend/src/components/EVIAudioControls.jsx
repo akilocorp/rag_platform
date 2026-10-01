@@ -879,7 +879,12 @@ const InnerControls = ({
         auth: { type: 'accessToken', value: accessToken },
         hostname: humeHostname(),
         configId: humeConfigId,
-        sessionSettings: sessionId ? { customSessionId: sessionId } : undefined,
+        // A resume is tagged with its own time so the language-model bridge can
+        // hand the partner the conversation from before the pause — Hume sends
+        // only the resumed chat's messages.
+        sessionSettings: sessionId
+          ? { customSessionId: resuming ? `${sessionId}:r${Date.now()}` : sessionId }
+          : undefined,
         ...(resuming && chatGroupIdRef.current ? { resumedChatGroupId: chatGroupIdRef.current } : {}),
       });
     } catch (e) {

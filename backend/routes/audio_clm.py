@@ -47,12 +47,13 @@ not a flag on this route.
 """
 import base64
 import json
+import re
 import logging
 import os
 import time
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Iterator, List, Optional, Tuple
 
 from bson import ObjectId
@@ -130,27 +131,79 @@ def _decode_session_vars(raw: Optional[str]) -> Dict[str, str]:
 
 
 def _parse_session_id(raw: Optional[str]) -> Tuple[Dict[str, Optional[str]], Dict[str, str]]:
-    """`<config_id>:<chat_id>:<user_id>[:<b64 vars>]` — user_id may be 'anonymous'.
+    """`<config_id>:<chat_id>:<user_id>[:<b64 vars>][:r<epoch ms>]` — user_id may be 'anonymous'.
 
     The fourth segment is optional and carries whatever the launch URL passed
     (participant code, assigned topic, assigned stance). Older links with three
-    segments keep working and simply supply no variables.
+    segments keep working and simply supply no variables. A trailing `r<ms>`
+    segment marks a call resumed after a pause, at that client time — see
+    `_prior_turns`. It is recognised by shape, so it may follow either form.
     """
     if not raw:
-        return {"config_id": None, "chat_id": None, "user_id": None}, {}
+        return {"config_id": None, "chat_id": None, "user_id": None, "resumed_at_ms": None}, {}
     parts = raw.split(":")
+    resumed_at_ms = None
+    if len(parts) > 3 and _RESUME_SEGMENT.match(parts[-1]):
+        resumed_at_ms = int(parts.pop()[1:])
     ids = {
         "config_id": parts[0] if len(parts) > 0 else None,
         "chat_id": parts[1] if len(parts) > 1 else None,
         "user_id": parts[2] if len(parts) > 2 else None,
+        "resumed_at_ms": resumed_at_ms,
     }
     return ids, _decode_session_vars(parts[3] if len(parts) > 3 else None)
 
 
-def _split_history_and_input(messages: List[Dict[str, Any]]):
+# --- Resumed calls ----------------------------------------------------------
+# A paused call resumes as a new Hume chat in the same chat group, and Hume's
+# CLM requests carry only the new chat's messages. Left alone, the model meets
+# the student as a stranger halfway through their debate ("I don't have memory
+# of previous conversations"). Every turn the frontend saved before the resume
+# is in `audio_sessions`, so a resumed call gets them back as history.
+_RESUME_SEGMENT = re.compile(r"^r\d{12,14}$")
+RESUME_NOTE = (
+    "[the call was paused and has just resumed - welcome them back in a few words and "
+    "carry on from where the conversation left off; do not reintroduce yourself or restate your opening]\n"
+)
+
+
+def _prior_turns(chat_id: str, config_id: str, resumed_at_ms: int) -> List[Dict[str, str]]:
+    """Turns of this call saved before the resume, merged into alternating messages.
+
+    Compared on the client's own `received_at` clock, the same clock that stamped
+    the resume, so a skewed browser clock cannot misplace the boundary. Hume
+    speaks a reply as several assistant messages; consecutive turns from one
+    speaker are joined back into one.
+    """
+    cutoff = datetime.fromtimestamp(resumed_at_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") \
+        + f"{resumed_at_ms % 1000:03d}Z"
+    try:
+        rows = current_app.config['MONGO_DB']['audio_sessions'].find(
+            {"config_id": config_id, "session_id": chat_id, "received_at": {"$lt": cutoff}},
+            {"role": 1, "transcript": 1},
+        ).sort([("turn_index", 1), ("timestamp", 1)])
+        merged: List[Dict[str, str]] = []
+        for r in rows:
+            role = "assistant" if r.get("role") == "assistant" else "user"
+            text = (r.get("transcript") or "").strip()
+            if not text:
+                continue
+            if merged and merged[-1]["role"] == role:
+                merged[-1]["content"] += " " + text
+            else:
+                merged.append({"role": role, "content": text})
+        return merged
+    except Exception as e:  # noqa: BLE001
+        # Losing the earlier half is bad; failing the turn outright is worse.
+        logger.warning("CLM: could not load prior turns for resumed call %s: %s", chat_id, e)
+        return []
+
+
+def _split_history_and_input(messages: List[Dict[str, Any]], prior: Optional[List[Dict[str, str]]] = None):
     """Hume sends the full conversation; we want history + last user turn.
 
     We strip system messages (the runner builds its own from the bot config).
+    `prior` is the earlier half of a resumed call, placed ahead of Hume's messages.
     """
     cleaned = []
     for m in messages or []:
@@ -171,6 +224,19 @@ def _split_history_and_input(messages: List[Dict[str, Any]]):
         if not content.strip():
             continue
         cleaned.append({"role": role, "content": content.strip()})
+
+    if prior:
+        combined: List[Dict[str, str]] = []
+        for m in list(prior) + cleaned:
+            if combined and combined[-1]["role"] == m["role"]:
+                combined[-1] = {"role": m["role"], "content": combined[-1]["content"] + " " + m["content"]}
+            else:
+                combined.append(dict(m))
+        cleaned = combined
+        # The bot opens every call, so the earlier half starts on its turn. Keep
+        # that opener — it is the position being debated — behind a neutral marker.
+        if cleaned and cleaned[0]["role"] == "assistant":
+            cleaned.insert(0, {"role": "user", "content": "[call connected]"})
 
     # Anthropic rejects a history that opens on an assistant turn, and EVI's
     # configured greeting is exactly that — the bot speaks first, so Hume's very
@@ -336,7 +402,16 @@ def clm_chat_completions():
     if not config_doc.get("audio_enabled"):
         return jsonify({"error": "Audio is not enabled for this configuration"}), 403
 
-    history_messages, user_input = _split_history_and_input(messages)
+    resumed_at_ms = parsed.get("resumed_at_ms")
+    prior = (_prior_turns(parsed.get("chat_id") or "", config_id, resumed_at_ms)
+             if resumed_at_ms and parsed.get("chat_id") else [])
+    # Whether the bot has spoken yet since the resume. Read from Hume's raw
+    # messages: the cleanup below drops a leading assistant turn, which here is
+    # exactly the welcome-back line.
+    resumed_greeting = bool(resumed_at_ms) and not any(
+        m.get("role") == "assistant" and m.get("content") for m in messages
+    )
+    history_messages, user_input = _split_history_and_input(messages, prior)
     if not user_input:
         return jsonify({"error": "No user message in request"}), 400
 
@@ -346,6 +421,10 @@ def clm_chat_completions():
     started_at = _call_started_at(parsed.get("chat_id") or "")
     elapsed = (time.time() - started_at) if started_at is not None else None
     user_input = _clock_note(elapsed, _bot_turn_number(history_messages)) + user_input
+    if resumed_greeting:
+        user_input = RESUME_NOTE + user_input
+    if resumed_at_ms:
+        logger.info("CLM: resumed call %s — restored %d earlier messages", parsed.get("chat_id"), len(prior))
 
     model_name = (config_doc.get("model_name") or "").lower()
     chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
