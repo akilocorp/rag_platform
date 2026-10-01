@@ -52,6 +52,11 @@ audio_bp = Blueprint('audio_routes', __name__)
 
 AUDIO_SESSIONS_COLLECTION = "audio_sessions"
 AUDIO_CALLS_COLLECTION = "audio_calls"
+AUDIO_CALL_EVENTS_COLLECTION = "audio_call_events"
+
+# Diagnostics are best-effort and unauthenticated, so bound what one call can write.
+MAX_EVENTS_PER_SESSION = 400
+MAX_EVENT_DETAIL_BYTES = 4000
 
 # A 10-minute Opus call is a few MB; the ceiling is generous but finite so a bad
 # client cannot mint a presigned URL for an arbitrary upload.
@@ -84,6 +89,8 @@ def _calls_collection():
             db[AUDIO_CALLS_COLLECTION].create_index("config_id")
             # The export reads every turn for a config and groups them by call.
             db[AUDIO_SESSIONS_COLLECTION].create_index([("config_id", 1), ("session_id", 1)])
+            db[AUDIO_CALL_EVENTS_COLLECTION].create_index([("session_id", 1), ("seq", 1)])
+            db[AUDIO_CALL_EVENTS_COLLECTION].create_index("qualtrics_id")
             _INDEXES_ENSURED = True
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not ensure audio indexes: %s", e)
@@ -265,6 +272,63 @@ def upsert_audio_call():
     except Exception as e:
         logger.error("Failed to upsert audio call %s: %s", session_id, e, exc_info=True)
         return jsonify({"error": "Failed to save call metadata"}), 500
+
+
+@audio_bp.route('/audio/session/event', methods=['POST'])
+def record_call_event():
+    """Append one step of a call attempt to `audio_call_events`.
+
+    The browser logs each milestone — page opened, token fetched, Start clicked,
+    connected, Hume chat started, first messages — and every error or socket close
+    on the way. A call that never starts then reads back as a timeline ending at
+    the last step it reached. Written as its own collection rather than onto the
+    call row because most of these events happen before a call row exists.
+    """
+    body = request.get_json(silent=True, force=True) or {}
+    session_id = str(body.get('session_id') or '').strip()[:100]
+    config_id = str(body.get('config_id') or '').strip()
+    event = str(body.get('event') or '').strip()[:64]
+    if not session_id or not config_id or not event:
+        return jsonify({"error": "session_id, config_id and event are required"}), 400
+
+    _, error = _audio_config_or_error(config_id)
+    if error:
+        return error
+
+    _calls_collection()  # ensures the event indexes alongside the call ones
+    col = current_app.config["MONGO_DB"][AUDIO_CALL_EVENTS_COLLECTION]
+    detail = body.get('detail')
+    try:
+        if len(json.dumps(detail, default=str)) > MAX_EVENT_DETAIL_BYTES:
+            detail = {"truncated": json.dumps(detail, default=str)[:MAX_EVENT_DETAIL_BYTES]}
+    except (TypeError, ValueError):
+        detail = {"unserializable": str(detail)[:MAX_EVENT_DETAIL_BYTES]}
+
+    def _as_int(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        if col.count_documents({"session_id": session_id}, limit=MAX_EVENTS_PER_SESSION) >= MAX_EVENTS_PER_SESSION:
+            return jsonify({"ok": True, "dropped": True}), 200
+        col.insert_one({
+            "session_id": session_id,
+            "config_id": config_id,
+            "qualtrics_id": (str(body.get('qualtrics_id'))[:64] if body.get('qualtrics_id') else None),
+            "event": event,
+            "detail": detail,
+            "seq": _as_int(body.get('seq')),
+            "client_ts": str(body.get('client_ts') or '')[:40] or None,
+            "ms_since_page_load": _as_int(body.get('ms_since_page_load')),
+            "server_ts": time.time(),
+            "ip": request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip() or None,
+        })
+        return jsonify({"ok": True}), 201
+    except Exception as e:  # noqa: BLE001
+        logger.error("Failed to record call event %s for %s: %s", event, session_id, e)
+        return jsonify({"error": "Failed to record event"}), 500
 
 
 @audio_bp.route('/audio/session/recording/url', methods=['POST'])
