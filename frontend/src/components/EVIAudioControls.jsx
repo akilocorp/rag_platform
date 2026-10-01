@@ -48,6 +48,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceProvider, useVoice } from '@humeai/voice-react';
 import { FaExpand, FaMicrophone, FaMicrophoneSlash, FaPhoneSlash, FaSpinner, FaTimes } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import { useCallLog, describeError, environmentSnapshot } from '../utils/callLog';
 
 /**
  * EVIAudioControls — self-contained Hume EVI integration.
@@ -516,9 +517,19 @@ const InnerControls = ({
   accessToken, humeConfigId, sessionId,
   configId, callSessionId, variables,
   onTurn, onError, disabled, embedded,
-  variant, partnerName, onEnded, maxDurationMs,
+  variant, partnerName, onEnded, maxDurationMs, log,
 }) => {
   const plain = variant === 'plain';
+  // Call-attempt diagnostics (see utils/callLog). Click time anchors the "how long
+  // until…" numbers; the flags log each milestone once.
+  const clickAtRef = useRef(null);
+  const milestonesRef = useRef({});
+  const sinceClick = () => (clickAtRef.current ? Date.now() - clickAtRef.current : null);
+  const milestone = (name, detail) => {
+    if (milestonesRef.current[name]) return;
+    milestonesRef.current[name] = true;
+    log(name, { ms_since_click: sinceClick(), ...detail });
+  };
   // Plain (research) calls only. One call per page: it is over when the student
   // hangs up, the line drops, or `maxDurationMs` has passed since their first
   // click on Start — whichever comes first. The deadline is never shown.
@@ -564,17 +575,30 @@ const InnerControls = ({
     }
   }, [status]);
 
+  const statusRef = useRef(null);
+  statusRef.current = status?.value || null;
+  useEffect(() => {
+    if (!status?.value) return;
+    log('status', { value: status.value, reason: status.reason || null, ms_since_click: sinceClick() });
+  }, [status?.value, status?.reason]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Hume's own chat id arrives after the socket opens; file it against the call
   // so a record here can be matched to a record in Hume's dashboard.
   useEffect(() => {
     const humeChatId = chatMetadata?.chatId;
+    if (humeChatId) {
+      milestonesRef.current.hume_chat_started_seen = true;
+      log('hume_chat_started', {
+        chat_id: humeChatId, chat_group_id: chatMetadata?.chatGroupId || null, ms_since_click: sinceClick(),
+      });
+    }
     if (!humeChatId || !callSessionId || !configId) return;
     apiClient.post('/audio/session/call', {
       session_id: callSessionId,
       config_id: configId,
       hume_chat_id: humeChatId,
     }).catch((e) => console.warn('Failed to file Hume chat id', e));
-  }, [chatMetadata, callSessionId, configId]);
+  }, [chatMetadata, callSessionId, configId, log]);
 
   /**
    * Hang up: stop the recorder, upload what it captured, and close out the call
@@ -591,6 +615,7 @@ const InnerControls = ({
   };
 
   const handleClose = () => {
+    log('call_closed', { ms_since_click: sinceClick() });
     setDismissed(true);
     setRecording(false);
     safeDisconnect();
@@ -598,9 +623,10 @@ const InnerControls = ({
   };
 
   // Plain mode's end — hang-up, dropped line or deadline, whichever comes first.
-  const handleFinish = () => {
+  const handleFinish = (reason) => {
     if (endedRef.current) return;
     endedRef.current = true;
+    log('call_finished', { by: typeof reason === 'string' ? reason : 'participant', ms_since_click: sinceClick() });
     clearTimeout(deadlineTimerRef.current);
     setEnded(true);
     setDismissed(true);
@@ -618,7 +644,7 @@ const InnerControls = ({
   // fresh Start instead would open a second call over the first one's record.
   useEffect(() => {
     if (!plain || endedRef.current || !openedRef.current) return;
-    if (status?.value === 'disconnected' || status?.value === 'error') finishRef.current();
+    if (status?.value === 'disconnected' || status?.value === 'error') finishRef.current('line_dropped');
   }, [plain, status]);
 
   const finalizeCall = () => {
@@ -668,6 +694,7 @@ const InnerControls = ({
       const role = m.type === 'user_message' ? 'user' : 'assistant';
       const transcript = (m?.message?.content || '').trim();
       if (!transcript) continue;
+      milestone(role === 'user' ? 'first_participant_message' : 'first_ai_message');
       // The bridge speaks this line when the turn raised. The exception itself never
       // reaches the browser, so go and ask for it — otherwise the only evidence a
       // student's call is broken is a polite sentence that looks deliberate.
@@ -690,7 +717,7 @@ const InnerControls = ({
         offsetMs: startedAt ? Math.max(0, receivedAt.getTime() - startedAt.getTime()) : null,
       });
     }
-  }, [messages, onTurn, configId]);
+  }, [messages, onTurn, configId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (status?.value === 'error') {
@@ -705,8 +732,26 @@ const InnerControls = ({
    * the tab halfway through still leaves a record carrying the variables they
    * were assigned — a partial call is data, an orphaned set of turns is not.
    */
+  // Logged around every connect attempt. The watchdog catches the failure this
+  // log exists for: the socket opens but Hume never starts a chat.
+  const logConnectStart = (resuming) => {
+    clickAtRef.current = Date.now();
+    milestonesRef.current = {};
+    log('start_clicked', { resuming, relay: Boolean(humeHostname()) });
+  };
+  const logConnected = () => {
+    log('connected', { ms_since_click: sinceClick() });
+    const clickAt = clickAtRef.current;
+    setTimeout(() => {
+      if (clickAtRef.current === clickAt && !milestonesRef.current.hume_chat_started_seen) {
+        log('no_hume_chat_after_15s', { status: statusRef.current });
+      }
+    }, 15000);
+  };
+
   const handleConnect = async () => {
     if (plain) return handlePlainConnect();
+    logConnectStart(false);
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -718,16 +763,20 @@ const InnerControls = ({
     } catch (e) {
       micTap.release();
       console.error('EVI connect failed', e);
+      log('connect_failed', { ...describeError(e), ms_since_click: sinceClick() });
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
+    logConnected();
 
     const startedAt = new Date();
     startedAtRef.current = startedAt;
     seenTurnsRef.current = { messages: new WeakSet(), count: 0 };
 
-    setRecording(await recorder.start(await micTap.stream));
+    const recordingOk = await recorder.start(await micTap.stream);
+    setRecording(recordingOk);
+    log('recording', { ok: Boolean(recordingOk) });
 
     if (callSessionId && configId) {
       apiClient.post('/audio/session/call', {
@@ -748,11 +797,12 @@ const InnerControls = ({
     if (!startedAtRef.current) {
       startedAtRef.current = new Date();
       if (maxDurationMs) {
-        deadlineTimerRef.current = setTimeout(() => finishRef.current(), maxDurationMs);
+        deadlineTimerRef.current = setTimeout(() => finishRef.current('time_limit'), maxDurationMs);
       }
     }
     seenTurnsRef.current = { messages: new WeakSet(), count: 0 };
 
+    logConnectStart(false);
     const micTap = tapNextMicStream();
     try {
       await connect({
@@ -764,10 +814,12 @@ const InnerControls = ({
     } catch (e) {
       micTap.release();
       console.error('EVI connect failed', e);
+      log('connect_failed', { ...describeError(e), ms_since_click: sinceClick() });
       onError?.(e?.message || 'Failed to start voice session');
       return;
     }
     micTap.release();
+    logConnected();
     // The deadline can pass while the socket is still opening.
     if (endedRef.current) {
       safeDisconnect();
@@ -775,7 +827,9 @@ const InnerControls = ({
     }
 
     openedRef.current = true;
-    setRecording(await recorder.start(await micTap.stream));
+    const recordingOk = await recorder.start(await micTap.stream);
+    setRecording(recordingOk);
+    log('recording', { ok: Boolean(recordingOk) });
     if (callSessionId && configId) {
       apiClient.post('/audio/session/call', {
         session_id: callSessionId,
@@ -891,25 +945,49 @@ const EVIAudioControls = ({
   const [accessToken, setAccessToken] = useState(null);
   const [serverConfigId, setServerConfigId] = useState(null);
   const [tokenError, setTokenError] = useState(null);
+  const { log, beacon } = useCallLog({ configId, callSessionId, variables });
+
+  useEffect(() => {
+    environmentSnapshot().then((env) => log('page_opened', {
+      ...env, variant: variant || 'default', relay: Boolean(humeHostname()), bot_hume_config: Boolean(humeConfigId),
+    }));
+    // A participant who leaves mid-call: the beacon survives the page closing.
+    const onHide = () => { if (document.visibilityState === 'hidden') log('tab_hidden'); };
+    const onPageHide = () => beacon('page_closed');
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
     const fetchToken = async () => {
+      const t0 = Date.now();
       try {
         const res = await apiClient.get('/audio/hume/access_token');
         if (cancelled) return;
+        log('token_ok', { ms: Date.now() - t0, server_config: Boolean(res.data?.config_id) });
         setAccessToken(res.data?.access_token || null);
         setServerConfigId(res.data?.config_id || null);
       } catch (e) {
         if (cancelled) return;
+        log('token_failed', { ...describeError(e), error: e?.response?.data?.error || null, ms: Date.now() - t0 });
         setTokenError(e?.response?.data?.error || 'Voice unavailable');
       }
     };
     fetchToken();
     return () => { cancelled = true; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const effectiveConfigId = humeConfigId || serverConfigId;
+
+  // A token with no Hume config to use renders nothing at all — log it, or it is invisible.
+  useEffect(() => {
+    if (accessToken && !effectiveConfigId) log('no_hume_config');
+  }, [accessToken, effectiveConfigId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (tokenError) {
     return (
@@ -932,7 +1010,13 @@ const EVIAudioControls = ({
     <VoiceProvider
       onError={(err) => {
         console.error('EVI VoiceProvider error', err);
+        log('voice_error', describeError(err));
         onError?.(err?.message || err?.reason || 'Voice session error');
+      }}
+      onOpen={() => log('socket_open')}
+      onClose={(ev) => log('socket_closed', { code: ev?.code ?? null, reason: ev?.reason || null, was_clean: ev?.wasClean ?? null })}
+      onMessage={(m) => {
+        if (m?.type === 'error') log('hume_error', { code: m.code, slug: m.slug, message: m.message });
       }}
     >
       <InnerControls
@@ -950,6 +1034,7 @@ const EVIAudioControls = ({
         partnerName={partnerName}
         onEnded={onEnded}
         maxDurationMs={maxDurationMs}
+        log={log}
       />
     </VoiceProvider>
   );
