@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-10-02  @changed Loading never spins forever: a setup error or 20s without a first
+/* @language JSX  @updated 2026-10-02  @changed h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
+   Prior: Loading never spins forever: a setup error or 20s without a first
    phase shows a "couldn't connect" card with Try again. "Time ran out" sends students home (only the owner goes
    back to the lobby), and home buttons are hidden for logged-out players (often inside a Qualtrics iframe).
    Prior banner: @language JSX  @updated 2026-09-26  @changed Lobby: a started-but-unoccupied group reads "No one here right now"
@@ -304,7 +305,7 @@ const KioskGate = ({ onContinue }) => {
     return () => clearInterval(iv);
   }, []);
   return (
-    <div className="h-screen flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="h-[100dvh] flex flex-col items-center justify-center bg-white text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div className="max-w-md">
         {/* On the white screen the icon chip flips to the brand-peach tile + orange
             glyph used on the other light screens, and the body copy to muted grey. */}
@@ -371,7 +372,7 @@ const RoleCaseDocument = ({ role, text, onContinue, lex = LEXICON_FALLBACK }) =>
 // as the same kind of moment. `action` is omitted on the handoff screen, where the
 // room is waiting on other people rather than on this student.
 const NoticeScreen = ({ icon, eyebrow, title, body, action, onAction, footer }) => (
-  <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+  <div className="h-[100dvh] flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center animate-in fade-in duration-500" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
     <div className="max-w-md">
       <div className="mx-auto mb-6 w-14 h-14 rounded-2xl bg-[#F9D0C4]/40 flex items-center justify-center text-2xl text-[#FA6C43]">{icon}</div>
       {eyebrow && <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-3">{eyebrow}</p>}
@@ -422,7 +423,7 @@ const CandidateDeck = ({ role, credentials, onContinue, lex = LEXICON_FALLBACK }
   const active = selected != null ? credentials[selected] : null;
 
   return (
-    <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#1F1F1F]">
+    <div className="h-[100dvh] flex flex-col bg-[#F0F6FB] text-[#1F1F1F]">
       <div className="flex-1 overflow-y-auto px-6 py-10 scrollbar-thin flex flex-col items-center justify-center">
         <div className="max-w-4xl w-full text-center">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C2410C] mb-2">Your notes</p>
@@ -1703,7 +1704,7 @@ const ManagerExercisePage = () => {
   if (phase === 'loading') {
     if (!loadFailed) return <LoadingScreen message="Setting up your exercise…" />;
     return (
-      <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] p-6" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex items-center justify-center bg-[#F0F6FB] text-[#222] p-6" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div role="alert" className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
           <h1 className="text-xl font-extrabold mb-2">We couldn't connect to the exercise</h1>
           <p className="text-sm text-gray-500 mb-6">
@@ -1725,7 +1726,7 @@ const ManagerExercisePage = () => {
   // client happened to be on when the clock ran out.
   if (expired) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222] p-6 text-center" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="max-w-md animate-in fade-in zoom-in-95 duration-400">
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F9D0C4]/40">
             <FaRegClock className="text-3xl text-[#FA6C43]" />
@@ -1928,7 +1929,7 @@ const ManagerExercisePage = () => {
   if (phase === 'waiting') {
     const label = rooms.find((r) => r.room_id === roomId)?.label || 'Your group';
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="flex flex-col items-center gap-6 bg-white rounded-3xl shadow-md border border-gray-100 px-12 py-14 max-w-md w-full mx-4 animate-in fade-in zoom-in-95 duration-300">
           <div className="relative flex items-center justify-center w-20 h-20 rounded-3xl bg-[#F9D0C4]/40">
             <FaUsers className="text-4xl text-[#FA6C43]" />
@@ -1999,7 +2000,7 @@ const ManagerExercisePage = () => {
     // the rest of the room before the shared discussion opens.
     const everyoneReady = kioskTotal > 0 && kioskAcked >= kioskTotal;
     return (
-      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
           <div className="flex items-center gap-4 min-w-0">
             <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
@@ -2056,7 +2057,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'choose') {
     return (
-      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
           <div className="flex items-center gap-4 min-w-0">
             <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaUsers className="text-xl" /></div>
@@ -2105,7 +2106,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   if (phase === 'done') {
     return (
-      <div className="h-screen flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:px-12 xl:px-20 scrollbar-thin">
           <div className="max-w-2xl mx-auto py-10 space-y-6">
             <div className="rounded-3xl bg-white border border-gray-200 shadow-md p-10 text-center animate-in fade-in zoom-in-95 duration-400">
@@ -2479,7 +2480,7 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   const isDebrief = phase === 'debrief';
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="flex flex-col h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
         <div className="flex items-center gap-4 min-w-0">
           {/* Escape hatch back to the lobby, matching the one on the kiosk wait

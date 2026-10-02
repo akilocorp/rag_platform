@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-10-02  @changed Loading gets an error card + Try again (setup error or 15s connect timeout)
+/* @language JSX  @updated 2026-10-02  @changed h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
+   @changed Prior: Loading gets an error card + Try again (setup error or 15s connect timeout)
    instead of an endless spinner; Back / Leave queue go to the role-aware dashboardPath() and are hidden when logged out.
    @changed Prior: Dropped the unused useCallback import left over from the textarea auto-grow.
    @changed Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
@@ -225,7 +226,7 @@ const GroupChatPage = () => {
   if (phase === 'loading') {
     if (loadFailed) {
       return (
-        <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div className="h-[100dvh] flex items-center justify-center bg-[#F0F6FB] text-[#222] px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
           <div role="alert" className="w-full max-w-sm bg-white rounded-3xl shadow-md border border-gray-100 px-10 py-12 text-center">
             <h2 className="text-xl font-bold text-[#222] mb-2">We couldn't connect to this group chat</h2>
             <p className="text-gray-500 text-sm mb-6">
@@ -242,7 +243,7 @@ const GroupChatPage = () => {
       );
     }
     return (
-      <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222]">
+      <div className="h-[100dvh] flex items-center justify-center bg-[#F0F6FB] text-[#222]">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
       </div>
     );
@@ -250,7 +251,7 @@ const GroupChatPage = () => {
 
   if (phase === 'waiting') {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div className="h-[100dvh] flex flex-col items-center justify-center bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div className="flex flex-col items-center gap-6 bg-white rounded-3xl shadow-md border border-gray-100 px-12 py-14 max-w-sm w-full mx-4">
           {/* Pulsing icon */}
           <div className="relative flex items-center justify-center w-20 h-20 rounded-3xl bg-[#F9D0C4]/40">
@@ -294,7 +295,7 @@ const GroupChatPage = () => {
   const LobbyIcon = getBotAvatarIconComponent(config?.bot_avatar);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] font-sans text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
 
       {/* Mobile overlay backdrop */}
       {userInfo && isMobileSidebarOpen && (

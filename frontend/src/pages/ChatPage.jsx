@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-02
- * @changed   Qualtrics transcript waits for each AI reply to finish streaming (was posting only the first token); a bot that fails to load shows an error card instead of an empty chat.
+ * @changed   Loading / error screens: h-screen -> h-[100dvh], matching the main chat layout.
+ * @changed   Prior: Qualtrics transcript waits for each AI reply to finish streaming (was posting only the first token); a bot that fails to load shows an error card instead of an empty chat.
  * @changed   Prior: Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
  * @changed   Prior: Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
  *            picked in the bot form); bots without one still fall back to the server's HUME_CONFIG_ID.
@@ -1970,7 +1971,7 @@ const ChatPage = () => {
   // while config (and, for an existing chat, history) loads in the background;
   // the render is config-null-safe and messages stream in as they arrive, so
   // there's nothing to block on. Flows straight into the composer.
-  if (isInitializing) return <div className="h-screen bg-[#F8FAFC]" />;
+  if (isInitializing) return <div className="h-[100dvh] bg-[#F8FAFC]" />;
 
   // A turn that couldn't finish takes over the view. Ahead of every other gate
   // below: the half-written bubble it replaces is the thing we don't want seen.
@@ -1979,7 +1980,7 @@ const ChatPage = () => {
   // The bot itself couldn't be loaded (deleted, wrong link, server down). Say so instead of
   // rendering an empty chat that looks usable. No outbound links: this often runs in a Qualtrics iframe.
   if (error && !config) return (
-    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
+    <div className="h-[100dvh] flex items-center justify-center bg-[#F8FAFC] px-4">
       <div role="alert" className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center">
         <h2 className="text-xl font-bold text-[#222] mb-2">This chat couldn't be loaded</h2>
         <p className="text-sm text-gray-500 mb-6">
@@ -1998,7 +1999,7 @@ const ChatPage = () => {
 
   // A research space collects nothing, so there's no intake gate at all.
   if (!isAuthenticated && config?.is_public && !isResearchMode && !guestInfo) return (
-    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
+    <div className="h-[100dvh] flex items-center justify-center bg-[#F8FAFC] px-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <h2 className="text-xl font-bold text-[#222] mb-1">{config.bot_name || 'Chat'}</h2>
         <p className="text-sm text-gray-500 mb-6">Enter your info to get started.</p>
