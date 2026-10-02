@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-08
- * @changed   Accordion headers get a press-scale on click; accordion content fades/slides in on open
+ * @updated   2026-10-02
+ * @changed   Pins open from lg (1024px) instead of md: iPad portrait gets the slide-out drawer, not a 30% column.
+ * @changed   Prior: Accordion headers get a press-scale on click; accordion content fades/slides in on open
  *            instead of a flat opacity toggle.
  * Prior: Home logo now targets role-aware dashboardPath() so students aren't bounced back into chat.
  */
@@ -250,12 +251,12 @@ export const ChatSidebar = ({
     <>
     <aside
       className={`bg-white backdrop-blur-lg border-r border-gray-200 text-[#222] h-full fixed z-[50] transition-all duration-300 overflow-y-auto shadow-sm w-72 ${
-        isCollapsed ? 'md:w-20' : 'md:w-[30%]'
-      } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} left-0 top-0 pt-6 pr-2 pl-2`}
+        isCollapsed ? 'lg:w-20' : 'lg:w-[30%]'
+      } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} left-0 top-0 pt-6 pr-2 pl-2`}
     >
       {/* Mobile close button */}
       <button
-        className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors md:hidden"
+        className="absolute right-2 top-0 mt-4 p-2 rounded-full bg-[#F0F6FB] text-gray-500 hover:text-[#FA6C43] transition-colors lg:hidden"
         onClick={onClose}
       >
         <FiChevronLeft className="w-5 h-5" />
@@ -288,7 +289,7 @@ export const ChatSidebar = ({
           </Link>
           <button
             type="button"
-            className="p-3 rounded-full border border-gray-200 hover:bg-[#F9D0C4]/30 hover:border-[#FA6C43]/30 text-gray-700 hover:text-[#FA6C43] transition-all duration-150 hidden md:block shrink-0"
+            className="p-3 rounded-full border border-gray-200 hover:bg-[#F9D0C4]/30 hover:border-[#FA6C43]/30 text-gray-700 hover:text-[#FA6C43] transition-all duration-150 hidden lg:block shrink-0"
             onClick={onToggle}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >

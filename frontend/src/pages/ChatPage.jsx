@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-02
- * @changed   Pending-image remove button is always visible (and 24px) on touch screens.
+ * @changed   Sidebar offset / menu button / backdrop move md -> lg to match SideBar's new pin-open width.
+ * @changed   Prior: Pending-image remove button is always visible (and 24px) on touch screens.
  * @changed   Prior: Loading / error screens: h-screen -> h-[100dvh], matching the main chat layout.
  * @changed   Prior: Qualtrics transcript waits for each AI reply to finish streaming (was posting only the first token); a bot that fails to load shows an error card instead of an empty chat.
  * @changed   Prior: Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
@@ -2121,7 +2122,7 @@ const ChatPage = () => {
           <button
               type="button"
               aria-label="Close sidebar"
-              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              className="fixed inset-0 z-40 bg-black/40 lg:hidden"
               onClick={() => setIsMobileSidebarOpen(false)}
           />
       )}
@@ -2163,7 +2164,7 @@ const ChatPage = () => {
           />
       )}
 
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isResearchMode ? '' : isAuthenticated && !isSidebarCollapsed ? 'md:ml-[30%]' : 'md:ml-20'}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isResearchMode ? '' : isAuthenticated && !isSidebarCollapsed ? 'lg:ml-[30%]' : 'lg:ml-20'}`}>
         
         {!isResearchMode && (
         <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16">
@@ -2172,7 +2173,7 @@ const ChatPage = () => {
                   <button
                     type="button"
                     onClick={() => setIsMobileSidebarOpen(true)}
-                    className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors md:hidden"
+                    className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors lg:hidden"
                     aria-label="Open sidebar"
                   >
                     <FiMenu className="w-5 h-5" />

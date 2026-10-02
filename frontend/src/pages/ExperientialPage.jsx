@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-02
- * @changed   Back / New chat go to the role-aware dashboardPath() (was professor-only /config_list); no back button when logged out.
+ * @changed   Sidebar offset / menu button / backdrop move md -> lg to match SideBar's new pin-open width.
+ * @changed   Prior: Back / New chat go to the role-aware dashboardPath() (was professor-only /config_list); no back button when logged out.
  * @changed   Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
  * @changed   Prior: Composer swapped from ChatComposer to the unified PromptInput (components/ui/ai-chat-input) —
  *            same landing-page look now used everywhere; this page keeps attach/voice/model-picker off,
@@ -228,7 +229,7 @@ export default function ExperientialPage() {
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#F0F6FB] text-[#222]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isAuthenticated && isMobileSidebarOpen && (
-        <button type="button" aria-label="Close sidebar" className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+        <button type="button" aria-label="Close sidebar" className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
       )}
       {isAuthenticated && (
         <ChatSidebar
@@ -266,7 +267,7 @@ export default function ExperientialPage() {
           onDeleteSession={noop}
         />
       )}
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'md:ml-[30%]' : isAuthenticated ? 'md:ml-20' : ''}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${isAuthenticated && !isSidebarCollapsed ? 'lg:ml-[30%]' : isAuthenticated ? 'lg:ml-20' : ''}`}>
         {columnContent}
       </div>
     </div>
@@ -281,7 +282,7 @@ function ColumnShell({ title, subtitle, onBack, headerExtra, footer, children, s
       <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           {isAuthenticated && (
-            <button type="button" onClick={onOpenMobileSidebar} className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors md:hidden" aria-label="Open sidebar">
+            <button type="button" onClick={onOpenMobileSidebar} className="p-2 -ml-1 rounded-lg text-gray-500 hover:bg-[#F0F6FB] hover:text-[#FA6C43] transition-colors lg:hidden" aria-label="Open sidebar">
               <FiMenu />
             </button>
           )}

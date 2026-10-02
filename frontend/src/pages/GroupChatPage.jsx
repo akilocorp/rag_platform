@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-10-02  @changed Reply button is always visible on touch screens (it was hover-only).
+/* @language JSX  @updated 2026-10-02  @changed Sidebar offset + backdrop move md -> lg to match SideBar's new pin-open width.
+   @changed Prior: Reply button is always visible on touch screens (it was hover-only).
    @changed Prior: h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
    @changed Prior: Loading gets an error card + Try again (setup error or 15s connect timeout)
    instead of an endless spinner; Back / Leave queue go to the role-aware dashboardPath() and are hidden when logged out.
@@ -300,7 +301,7 @@ const GroupChatPage = () => {
 
       {/* Mobile overlay backdrop */}
       {userInfo && isMobileSidebarOpen && (
-        <button className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+        <button className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
@@ -338,7 +339,7 @@ const GroupChatPage = () => {
         />
       )}
 
-      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${userInfo ? (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-[30%]') : ''}`}>
+      <div className={`relative flex-1 flex flex-col w-full h-full transition-all duration-300 ${userInfo ? (isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-[30%]') : ''}`}>
         
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
