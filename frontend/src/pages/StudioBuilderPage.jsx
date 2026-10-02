@@ -1,6 +1,7 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-13
-// @changed   Added a "Present" button (orange, next to Responses) linking to the new
+// @updated   2026-10-02
+// @changed   Block delete button is always visible on touch screens (it was hover-only).
+// Prior: Added a "Present" button (orange, next to Responses) linking to the new
 //            /studio/:projectId/present route — the Mentimeter-style QR + live-results view.
 // Prior: Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
 //            instruments now registered (11 landing in overflow) the list ran off the bottom of the
@@ -285,7 +286,7 @@ const PlacedBlock = ({ block, allBlocks, onChange, onDelete, onRemoveInstrument,
           </div>
           <button
             onClick={onDelete}
-            className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90"
+            className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all active:scale-90"
             aria-label="Delete block"
           >
             <FaTrash size={13} />

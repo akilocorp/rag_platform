@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-10-02  @changed h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
+/* @language JSX  @updated 2026-10-02  @changed Reply button is always visible on touch screens (it was hover-only).
+   @changed Prior: h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
    @changed Prior: Loading gets an error card + Try again (setup error or 15s connect timeout)
    instead of an endless spinner; Back / Leave queue go to the role-aware dashboardPath() and are hidden when logged out.
    @changed Prior: Dropped the unused useCallback import left over from the textarea auto-grow.
@@ -404,7 +405,7 @@ const GroupChatPage = () => {
                   type="button"
                   onClick={() => setReplyingTo({ mid: msg.mid, sender: msg.sender, text: msg.text })}
                   title="Reply"
-                  className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#FA6C43] transition-opacity"
+                  className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100 hover:text-[#FA6C43] transition-opacity"
                 >
                   <FaReply className="text-xs" />
                 </button>

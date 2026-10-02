@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-10-02  @changed h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
+/* @language JSX  @updated 2026-10-02  @changed Reply button and the card's "Tap to read" label are always visible on touch screens.
+   Prior: h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
    Prior: Loading never spins forever: a setup error or 20s without a first
    phase shows a "couldn't connect" card with Try again. "Time ran out" sends students home (only the owner goes
    back to the lobby), and home buttons are hidden for logged-out players (often inside a Qualtrics iframe).
@@ -452,7 +453,7 @@ const CandidateDeck = ({ role, credentials, onContinue, lex = LEXICON_FALLBACK }
                   <div className="relative w-40 sm:w-44 h-56 sm:h-60 rounded-2xl bg-white border border-gray-200 shadow-lg flex flex-col items-center justify-between p-4 transition-all duration-300 ease-out group-hover:-translate-y-6 group-hover:shadow-2xl group-hover:border-[#FA6C43]/40">
                     <span className="self-start text-[11px] font-bold text-gray-300">{String(i + 1).padStart(2, '0')}</span>
                     <span className="text-lg leading-tight text-[#222]" style={{ fontFamily: "'Newsreader', serif", fontWeight: 600 }}>{c.name}</span>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#FA6C43] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#FA6C43] opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                       {seen.has(i) ? 'Read again' : 'Tap to read'}
                     </span>
                     {seen.has(i) && (
@@ -1636,7 +1637,7 @@ const ManagerExercisePage = () => {
             type="button"
             onClick={() => setReplyingTo({ mid: msg.mid, sender, text: msg.text })}
             title="Reply"
-            className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#FA6C43] transition-opacity"
+            className="self-center shrink-0 p-2 text-gray-400 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100 hover:text-[#FA6C43] transition-opacity"
           >
             <FaReply className="text-xs" />
           </button>

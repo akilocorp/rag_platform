@@ -1,6 +1,7 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   New file: Studio project list — bare list + "New Project," Phase 0 of the faculty
+// @updated   2026-10-02
+// @changed   Delete button is always visible on touch screens (it was hover-only).
+// Prior: New file: Studio project list — bare list + "New Project," Phase 0 of the faculty
 //            research-project builder. Modeled loosely on ConfigList.jsx's data-fetch and
 //            inline-delete-confirmation patterns, intentionally minimal (no categories/search/
 //            copy-paste — those can come later if the project count ever justifies them).
@@ -44,7 +45,7 @@ const StudioProjectCard = ({ project, onOpen, onDelete }) => {
         <button
           onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
           title="Delete"
-          className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+          className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
           aria-label="Delete project"
         >
           <FaTrash size={13} />

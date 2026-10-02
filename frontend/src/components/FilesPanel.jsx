@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Folder/file delete buttons are always visible on touch screens (they were hover-only).
+ */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -501,13 +506,13 @@ const FilesPanel = ({
                     <FolderBadge />
                     <span className="flex-1 truncate text-[13px] font-semibold">{folderLeaf(path)}</span>
                   </button>
-                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0" style={{ color: '#9CA3AF' }} />
+                  <FiChevronRight className="w-4 h-4 transition-opacity group-hover:opacity-0 [@media(hover:none)]:opacity-0" style={{ color: '#9CA3AF' }} />
                   {canUpload && (
                     <button
                       onClick={(e) => handleDeleteFolder(e, path)}
                       disabled={isRemoving}
                       title="Delete folder"
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
                     >
                       <FiTrash2 className="w-3.5 h-3.5" />
                     </button>
@@ -611,7 +616,7 @@ const FilesPanel = ({
                       onClick={(e) => handleDeleteFile(e, f)}
                       disabled={isRemoving}
                       title="Delete file"
-                      className="transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                      className="transition-opacity p-1.5 rounded-lg opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50"
                     >
                       <FiTrash2 className="w-3.5 h-3.5" />
                     </button>

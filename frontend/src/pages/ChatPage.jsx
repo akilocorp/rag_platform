@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-02
- * @changed   Loading / error screens: h-screen -> h-[100dvh], matching the main chat layout.
+ * @changed   Pending-image remove button is always visible (and 24px) on touch screens.
+ * @changed   Prior: Loading / error screens: h-screen -> h-[100dvh], matching the main chat layout.
  * @changed   Prior: Qualtrics transcript waits for each AI reply to finish streaming (was posting only the first token); a bot that fails to load shows an error card instead of an empty chat.
  * @changed   Prior: Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
  * @changed   Prior: Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
@@ -2412,7 +2413,7 @@ const ChatPage = () => {
                                         />
                                         <button
                                             onClick={() => setPendingImages((prev) => prev.filter((i) => i.id !== img.id))}
-                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 [@media(hover:none)]:w-6 [@media(hover:none)]:h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                                         >
                                             <FiX className="w-2.5 h-2.5" />
                                         </button>

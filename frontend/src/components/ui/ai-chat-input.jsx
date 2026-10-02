@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-02
-// @changed   Enter no longer sends while an IME (Chinese/Japanese) composition is in progress.
+// @changed   Attachment-chip remove button is always shown (24px) on touch screens, which never fire hover.
+// @changed   Prior: Enter no longer sends while an IME (Chinese/Japanese) composition is in progress.
 // @changed   Prior: Bigger composer controls: send/mic 32->36px, attach/equation/+ 28->32px, glyphs 16px,
 //            model/effort pills get more padding; text + action-row clearance right-12 -> right-14
 //            so copy never runs under the wider send button.
@@ -219,7 +220,9 @@ function AttachmentThumb({ attachment, index, onRemove, onOpen, registerRef }) {
           onClick={(e) => { e.stopPropagation(); onRemove(attachment.id); }}
           className={cn(
             'm-1 flex size-4 items-center justify-center rounded-full bg-white/90 text-[#1F1F1F]/70 shadow-sm transition-all duration-200 ease-[cubic-bezier(0.175,0.885,0.32,1.275)] hover:bg-white hover:text-[#1F1F1F] hover:scale-110',
-            isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-50 pointer-events-none'
+            isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-50 pointer-events-none',
+            // touch screens never fire hover, so the remove button is always shown (and bigger) there
+            '[@media(hover:none)]:opacity-100 [@media(hover:none)]:scale-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:size-6'
           )}
           aria-label={`Remove ${attachment.name}`}
         >
