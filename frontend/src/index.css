@@ -1,7 +1,8 @@
 /*
  * @language  CSS
- * @updated   2026-08-19
- * @changed   Add .guide-widget slot styles for live, playable widget demos on the Widgets guide page.
+ * @updated   2026-10-02
+ * @changed   html: text-size-adjust 100% so iOS doesn't inflate text in landscape.
+ * @changed   Prior: Add .guide-widget slot styles for live, playable widget demos on the Widgets guide page.
  */
 @tailwind base;
 @tailwind components;
@@ -455,6 +456,12 @@
   .login-button {
     @apply w-full flex items-center justify-center px-4 py-3 text-base font-medium text-center text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200;
   }
+}
+
+/* stop iOS/Android auto-enlarging text (e.g. on rotate to landscape) */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 #root {
