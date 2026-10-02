@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-02
-// @changed   Delete Space hidden from collaborators (the backend refuses them anyway).
+// @changed   Unsaved-changes guard (confirm on in-app exits + beforeunload); knowledge-base box accepts dropped files and stray drops no longer open the file; failed saves scroll to the error.
+// @changed   Prior: Delete Space hidden from collaborators (the backend refuses them anyway).
 // @changed   Prior: Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
 //            `hume_voice` and the server re-versions the bot's Hume config (or creates one). If Hume
 //            could not apply it, the page stays open with the server's warning instead of returning
@@ -49,7 +50,7 @@
 //            Prior: Added Claude Opus 5 to the model picker.
 //            Prior: "Counted as one item" merges group into Strengths / Concerns sections (section header
 //            carries the category, per-row field tag dropped).
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import HumeVoicePicker from '../components/HumeVoicePicker';
@@ -96,6 +97,16 @@ const EditConfigPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [errors, setErrors] = useState({});
+  const formErrorRef = useRef(null);
+  const [kbDragOver, setKbDragOver] = useState(false);
+  // Unsaved-changes tracking. The baseline is snapshotted on the professor's first
+  // interaction (capture phase, so `config` is still the pre-edit value) rather than at
+  // load, because several effects keep normalising `config` after the first render and
+  // would otherwise mark an untouched form dirty.
+  const baselineRef = useRef(null);
+  const configJson = useMemo(() => JSON.stringify(config), [config]);
+  const isDirty = newFiles.length > 0 || (baselineRef.current !== null && baselineRef.current !== configJson);
+  const markBaseline = () => { if (baselineRef.current === null) baselineRef.current = configJson; };
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
@@ -496,6 +507,8 @@ const EditConfigPage = () => {
   // waiting on this request.
   const startTestRun = async () => {
     if (!config.config_id) return;
+    // The run uses the saved config and opens a new page, so unsaved edits would be both ignored and lost.
+    if (isDirty && !window.confirm('The test run uses your last saved version, and opening it discards unsaved changes. Continue?')) return;
     setTestBusy(true);
     setTestErr('');
     try {
@@ -759,7 +772,51 @@ const EditConfigPage = () => {
   };
   // ---------------------------------------------------------------------------
 
+  // Browser-level guard for reloads / tab close while edits are unsaved.
+  useEffect(() => {
+    if (!isDirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [isDirty]);
+
+  // A file dropped anywhere outside the knowledge-base box must not make the browser
+  // open it — that navigates away and silently discards every unsaved edit.
+  useEffect(() => {
+    const swallow = (e) => e.preventDefault();
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, []);
+
+  // In-app exits (Back, Cancel, Results, Edit boxes…) confirm before discarding edits.
+  const leave = (path) => {
+    if (isDirty && !window.confirm('You have unsaved changes. Leave without saving?')) return;
+    navigate(path);
+  };
+
+  // After a failed save, bring the first error into view — the form is long and Save sits
+  // at the bottom while the banner renders at the top.
+  useEffect(() => {
+    if (Object.keys(errors).length === 0) return;
+    const target = errors.form ? formErrorRef.current : document.querySelector('form .border-red-500');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [errors]);
+
   // --- File Handlers ---
+  // Knowledge-base drop zone: same extensions the file picker accepts.
+  const KB_EXTENSIONS = ['.txt', '.pdf', '.md', '.docx', '.pptx'];
+  const handleKbDrop = (e) => {
+    e.preventDefault();
+    setKbDragOver(false);
+    const files = Array.from(e.dataTransfer?.files || [])
+      .filter((f) => KB_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)));
+    if (files.length) setNewFiles((prev) => [...prev, ...files]);
+  };
+
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
     setNewFiles(prev => [...prev, ...files]);
@@ -917,6 +974,8 @@ const EditConfigPage = () => {
 
       const res = await apiClient.put(`/config/${config.config_id}`, formData);
       if (res.data?.warning) {
+        // Saved, with a caveat — the current state is the new baseline.
+        baselineRef.current = configJson;
         setErrors({ form: res.data.warning });
         return;
       }
@@ -1004,7 +1063,7 @@ const EditConfigPage = () => {
         <div className="flex items-center justify-between mb-4">
           <button
             type="button"
-            onClick={() => navigate('/config_list')}
+            onClick={() => leave('/config_list')}
             className="inline-flex items-center gap-2 rounded-lg -ml-2 px-2 py-1 text-sm font-semibold text-gray-500 hover:text-[#C2410C] transition-colors"
           >
             <FaArrowLeft className="text-xs" /> Back to my AIs
@@ -1020,13 +1079,13 @@ const EditConfigPage = () => {
 
         <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 p-8 sm:p-10">
           {errors.form && (
-            <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-sm flex items-start space-x-3">
+            <div ref={formErrorRef} role="alert" className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-sm flex items-start space-x-3">
               <FaInfoCircle className="text-red-500 mt-0.5 flex-shrink-0 text-lg" />
               <span className="text-red-700 font-medium">{errors.form}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} onChangeCapture={markBaseline} onClickCapture={markBaseline} className="space-y-8">
             
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div>
@@ -1210,7 +1269,7 @@ const EditConfigPage = () => {
                     own, hence the warning: this form's Save Changes does not carry it. */}
                 <button
                   type="button"
-                  onClick={() => navigate(`/video-boxes/${config.config_id}`)}
+                  onClick={() => leave(`/video-boxes/${config.config_id}`)}
                   className="mt-4 w-full text-left bg-white border border-gray-200 hover:border-[#FA6C43] rounded-2xl p-4 flex items-center justify-between gap-4 transition-all group"
                 >
                   <span className="min-w-0">
@@ -1408,7 +1467,7 @@ const EditConfigPage = () => {
                               <button
                                 key={r.room_id}
                                 type="button"
-                                onClick={() => navigate(`/manager-exercise/${config.config_id}/run/${r.room_id}`)}
+                                onClick={() => leave(`/manager-exercise/${config.config_id}/run/${r.room_id}`)}
                                 className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
                               >
                                 <span className="text-[11px] font-semibold text-gray-700 truncate">
@@ -1435,14 +1494,14 @@ const EditConfigPage = () => {
                       <div className="mt-4 flex items-center justify-center gap-4">
                         <button
                           type="button"
-                          onClick={() => navigate(`/manager-exercise/${config.config_id}/dashboard`)}
+                          onClick={() => leave(`/manager-exercise/${config.config_id}/dashboard`)}
                           className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
                         >
                           Open dashboard →
                         </button>
                         <button
                           type="button"
-                          onClick={() => navigate(`/manager-exercise/${config.config_id}/results`)}
+                          onClick={() => leave(`/manager-exercise/${config.config_id}/results`)}
                           className="text-[11px] font-bold text-gray-500 hover:text-[#FA6C43] transition-colors"
                         >
                           View class results →
@@ -2323,7 +2382,12 @@ const EditConfigPage = () => {
                 </div>
               )}
 
-              <label className="mt-6 flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#FA6C43]/50 bg-gray-50">
+              <label
+                onDragOver={(e) => { e.preventDefault(); setKbDragOver(true); }}
+                onDragLeave={() => setKbDragOver(false)}
+                onDrop={handleKbDrop}
+                className={`mt-6 flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed rounded-xl cursor-pointer hover:border-[#FA6C43]/50 transition-colors ${kbDragOver ? 'border-[#FA6C43] bg-[#FFF5F2]' : 'border-gray-300 bg-gray-50'}`}
+              >
                 <span className="text-sm font-medium text-gray-600">Drag & drop files or click to browse</span>
                 <input type="file" multiple onChange={handleFileChange} className="hidden" accept=".txt,.pdf,.md,.docx,.pptx" />
               </label>
@@ -2338,10 +2402,10 @@ const EditConfigPage = () => {
                 </button>
               )}
               <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-end">
-                <button type="button" onClick={() => navigate(resultsLink.path)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
+                <button type="button" onClick={() => leave(resultsLink.path)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
                   <FaListAlt className="text-sm text-gray-500" /><span>{resultsLink.label}</span>
                 </button>
-                <button type="button" onClick={() => navigate('/config_list')} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
+                <button type="button" onClick={() => leave('/config_list')} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold border-2 border-gray-200 bg-white">Cancel</button>
                 <button type="submit" disabled={isLoading || isDeleting} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-white bg-[#FA6C43]">
                   {isLoading ? 'Saving...' : 'Save Changes'}
                 </button>

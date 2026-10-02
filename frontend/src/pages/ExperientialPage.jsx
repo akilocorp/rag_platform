@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-21
- * @changed   PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
+ * @updated   2026-10-02
+ * @changed   Back / New chat go to the role-aware dashboardPath() (was professor-only /config_list); no back button when logged out.
+ * @changed   Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
  * @changed   Prior: Composer swapped from ChatComposer to the unified PromptInput (components/ui/ai-chat-input) —
  *            same landing-page look now used everywhere; this page keeps attach/voice/model-picker off,
  *            same as its old ChatComposer usage.
@@ -15,6 +16,7 @@ import {
 } from 'react-icons/fi';
 import apiClient from '../api/apiClient';
 import { renderMarkdown } from '../utils/markdown';
+import { dashboardPath } from '../utils/auth';
 import { getExperientialConfig } from '../configs/experiential';
 import { validateExperientialConfig } from '../configs/experiential/schema';
 import { enforceChartAccuracy } from '../configs/experiential/chartGuard';
@@ -119,6 +121,9 @@ export default function ExperientialPage() {
 
   // ── Chat-page parity: same sidebar (auth only) wrapping the lab column ──
   const isAuthenticated = !!getToken();
+  // Role-aware way home: /config_list is professor-only, so it bounced students into their
+  // personal chat and logged-out players to /login. Logged out → no back button at all.
+  const goHome = isAuthenticated ? () => navigate(dashboardPath()) : undefined;
   const [userInfo, setUserInfo] = useState(null);
   const [accessibleConfigs, setAccessibleConfigs] = useState([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -179,22 +184,22 @@ export default function ExperientialPage() {
     );
   } else if (configId && dbLab.loading) {
     columnContent = (
-      <ColumnShell title="Experiential Lab" onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title="Experiential Lab" onBack={goHome} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6"><p className="text-gray-500">Loading lab…</p></Card>
       </ColumnShell>
     );
   } else if (!config) {
     columnContent = (
-      <ColumnShell title="Experiential Lab" onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title="Experiential Lab" onBack={goHome} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6">
           <p className="text-gray-700">{configId ? (dbLab.error || 'This lab is not available.') : <>No experiential template found for id <code className="px-1 bg-gray-100 rounded">{templateId}</code>.</>}</p>
-          <button onClick={() => navigate('/config_list')} className="mt-4 text-[#FA6C43] font-semibold">← Back to dashboard</button>
+          {goHome && <button onClick={goHome} className="mt-4 text-[#FA6C43] font-semibold">← Back to dashboard</button>}
         </Card>
       </ColumnShell>
     );
   } else if (!validation.ok) {
     columnContent = (
-      <ColumnShell title={config?.meta?.title || 'Experiential Lab'} onBack={() => navigate('/config_list')} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
+      <ColumnShell title={config?.meta?.title || 'Experiential Lab'} onBack={goHome} isAuthenticated={isAuthenticated} onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}>
         <Card className="p-6 border-red-200">
           <h2 className="text-lg font-bold text-red-700 mb-2">This simulation config is invalid</h2>
           <ul className="list-disc pl-5 text-sm text-red-600 space-y-1">
@@ -212,7 +217,7 @@ export default function ExperientialPage() {
         configId={configId}
         templateId={templateId}
         onReset={() => setRunKey((k) => k + 1)}
-        onBack={() => navigate('/config_list')}
+        onBack={goHome}
         isAuthenticated={isAuthenticated}
         onSessionSaved={loadSessions}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
@@ -239,7 +244,7 @@ export default function ExperientialPage() {
           isMobileOpen={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
           onToggle={() => setIsSidebarCollapsed((v) => !v)}
-          onNewChat={() => navigate('/config_list')}
+          onNewChat={() => navigate(dashboardPath())}
           onNavigateWithAutoSave={(cb) => cb()}
           activeTab={sidebarTab}
           onSetTab={setSidebarTab}

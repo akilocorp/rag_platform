@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-02
-// @changed   Report a Bug restyled as a secondary button so New Assistant is the only primary action.
+// @changed   Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
+// @changed   Prior: Report a Bug restyled as a secondary button so New Assistant is the only primary action.
 // @changed   Prior: Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
 //            created) in an alert before the new card appears.
 // @changed   Prior: Quieter motion: no card fly-in, chip pop-in, button press-shrink or sidebar hover shadow; dialogs fade instead of zooming; view toggle glides 150ms ease-out instead of a spring.
@@ -653,6 +654,9 @@ const ConfigListPage = () => {
 
   // State to manage modal visibilities
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  // Bumped after a wizard publish so the create dialog remounts empty next time. A cancelled
+  // draft keeps its key, so closing the dialog by accident doesn't throw work away.
+  const [configModalKey, setConfigModalKey] = useState(0);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 
   // Copy/paste state. `hoveredRef` is a ref, not state, because the Ctrl+C
@@ -1195,9 +1199,11 @@ const ConfigListPage = () => {
 
       {/* Mount Modals */}
       <ConfigModal
+        key={configModalKey}
         isOpen={isConfigModalOpen}
         onClose={() => setIsConfigModalOpen(false)}
         onCreated={handleTemplateCreated}
+        onPublished={() => setConfigModalKey((k) => k + 1)}
       />
 
       <ReportBugModal

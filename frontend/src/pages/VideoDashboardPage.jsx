@@ -1,7 +1,8 @@
 /*
  * @language JavaScript (React / JSX)
  * @updated 2026-10-02
- * @changed   Page title shows the assignment's bot name instead of the generic heading.
+ * @changed   AI analysis polling stops on 404 / repeated errors and says the run was interrupted, instead of spinning forever.
+ * @changed   Prior: Page title shows the assignment's bot name instead of the generic heading.
  * @changed Prior: Scoring boxes and content checks show even with no submissions (the dashboard endpoint now
  *          seeds them from the rubric), with a one-line note that averages fill in as students submit.
  * @changed Prior: Opens on the newest AI grading analysis when one exists (was always Delivery View, one extra
@@ -275,12 +276,16 @@ export default function VideoDashboardPage() {
     });
   }, [loadDash, refreshAnalyses, loadAnalysis]);
 
-  // Poll running job
+  // Poll running job. Jobs live in server memory, so a backend restart turns the status
+  // call into a permanent 404 — stop on 404 or after ~30s of consecutive failures
+  // instead of spinning on "Running…" forever.
   useEffect(() => {
     if (!jobId) return;
+    let failures = 0;
     const iv = setInterval(() => {
       apiClient.get(`/video/config/${configId}/ai-analyze/${jobId}`)
         .then((res) => {
+          failures = 0;
           const { status, progress, result, error } = res.data;
           setJobProgress(progress || '');
           if (status === 'done') {
@@ -304,7 +309,15 @@ export default function VideoDashboardPage() {
             setJobError(error || 'Analysis failed.');
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          failures += 1;
+          if (e?.response?.status === 404 || failures >= 15) {
+            clearInterval(iv);
+            setJobId(null);
+            setJobProgress('');
+            setJobError('The analysis was interrupted before it finished. Please run it again.');
+          }
+        });
     }, 2000);
     return () => clearInterval(iv);
   }, [jobId, configId, loadAnalysis, refreshAnalyses]);

@@ -1,4 +1,5 @@
-/* @language JSX  @updated 2026-09-27  @changed Tally bars no longer re-animate their width on every 15s poll. Prior: Back buttons go to /config_list instead of history -1, which went nowhere when the page was opened in a new tab or from a link. Prior: Instructor Preview runs (`is_preview`) render with an "instructor
+/* @language JSX  @updated 2026-10-02  @changed A failed poll after results have loaded shows "Reconnecting…" in the header
+   instead of replacing the page with an error. Prior: Tally bars no longer re-animate their width on every 15s poll. Prior: Back buttons go to /config_list instead of history -1, which went nowhere when the page was opened in a new tab or from a link. Prior: Instructor Preview runs (`is_preview`) render with an "instructor
    preview" caption and are held out of the class summary and live poll like the AI test row; instructor rows in a
    mixed group get an "instructor" tag. Prior: The professor's last TEST run renders as one more team
    at the bottom of "Group by group", pilled "AI test" instead of "Group N". Rows flagged `is_test` are
@@ -22,7 +23,7 @@
    exercise — every group's answer, every student's own private pick and which case file they held,
    plus class-wide percentages. It exists because the `investigation` template deliberately never
    tells a room whether it was right; this is where that conversation happens instead. */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaCheck, FaTimes, FaChartBar, FaSpinner, FaRedo, FaComments } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
@@ -180,13 +181,20 @@ export default function ManagerExerciseResultsPage() {
   const [groupLoading, setGroupLoading] = useState(false);
   const [groupError, setGroupError] = useState('');
 
+  // A failed poll only becomes the full-page error before anything has loaded. Once
+  // results are on screen, a network blip keeps them up and shows "Reconnecting…".
+  const hasDataRef = useRef(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const load = useCallback(async () => {
     try {
       const res = await apiClient.get(`/manager-exercise/${configId}/results`);
+      hasDataRef.current = true;
       setData(res.data);
+      setReconnecting(false);
       return res.data;
     } catch (e) {
-      setError(e?.response?.data?.error || 'Could not load these results.');
+      if (hasDataRef.current) setReconnecting(true);
+      else setError(e?.response?.data?.error || 'Could not load these results.');
       return null;
     }
   }, [configId]);
@@ -292,7 +300,9 @@ export default function ManagerExerciseResultsPage() {
           <div className="p-2 rounded-lg bg-gray-100 text-[#1F1F1F]"><FaChartBar className="text-lg" /></div>
           <div className="min-w-0">
             <h1 className="font-semibold text-base truncate">{data.bot_name || 'Manager Exercise'}</h1>
-            <p className="text-[11px] font-semibold text-gray-400">Class results</p>
+            <p className="text-[11px] font-semibold text-gray-400">
+              Class results{reconnecting && <span role="status" className="ml-2 text-amber-600">· Reconnecting…</span>}
+            </p>
           </div>
         </div>
         <UserInfo />

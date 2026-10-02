@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-02
- * @changed   Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
+ * @changed   Qualtrics transcript waits for each AI reply to finish streaming (was posting only the first token); a bot that fails to load shows an error card instead of an empty chat.
+ * @changed   Prior: Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
  * @changed   Prior: Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
  *            picked in the bot form); bots without one still fall back to the server's HUME_CONFIG_ID.
  * @changed   Prior: Composer is the unified PromptInput (always expanded); dropped the dead showOptions/optionsRef
@@ -1520,7 +1521,9 @@ const ChatPage = () => {
     setMessages(prev => [
         ...prev,
         { sender: 'user', text: textInput, attachedFiles, attachedImages: snapshotImages },
-        { sender: 'ai', text: '', isTyping: true }
+        // `streaming` stays true until the NDJSON stream closes cleanly — the Qualtrics sync
+        // waits on it, since `isTyping` flips false on the very first token.
+        { sender: 'ai', text: '', isTyping: true, streaming: true }
     ]);
 
     // Clear chips from the input box now that they've been pinned to the prompt
@@ -1747,6 +1750,18 @@ const ChatPage = () => {
             }
       }
 
+      // Stream closed: release the reply to the Qualtrics sync. A failed turn keeps
+      // `streaming` so its partial text is never posted (it was never persisted either).
+      if (!turnFailed) {
+        setMessages(prev => {
+          const lastIdx = prev.length - 1;
+          if (lastIdx < 0 || prev[lastIdx].sender !== 'ai') return prev;
+          const next = [...prev];
+          next[lastIdx] = { ...next[lastIdx], streaming: false };
+          return next;
+        });
+      }
+
       // Final avatar task
       if (avatarSession && currentSentence.trim().length > 0) {
         apiClient.post('/heygen/task', {
@@ -1924,8 +1939,9 @@ const ChatPage = () => {
     unsent.forEach((msg, i) => {
       const absoluteIndex = qualtricsSentCountRef.current + i;
 
-      // Skip streaming AI placeholders (empty text, isTyping) — wait for the final update
-      if (msg.sender === 'ai' && (!msg.text || msg.isTyping)) return;
+      // Skip AI replies until their stream has finished — posting on the first token sent
+      // Qualtrics only the opening words of every reply.
+      if (msg.sender === 'ai' && (!msg.text || msg.isTyping || msg.streaming)) return;
 
       window.parent.postMessage({
         type: "CHAT_MESSAGE",
@@ -1959,6 +1975,26 @@ const ChatPage = () => {
   // A turn that couldn't finish takes over the view. Ahead of every other gate
   // below: the half-written bubble it replaces is the thing we don't want seen.
   if (streamInterrupted) return <StreamInterruptedPage />;
+
+  // The bot itself couldn't be loaded (deleted, wrong link, server down). Say so instead of
+  // rendering an empty chat that looks usable. No outbound links: this often runs in a Qualtrics iframe.
+  if (error && !config) return (
+    <div className="h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
+      <div role="alert" className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center">
+        <h2 className="text-xl font-bold text-[#222] mb-2">This chat couldn't be loaded</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          The link may be wrong, or the assistant may have been removed. Try again, and if it still
+          doesn't load, let your instructor know.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="w-full bg-[#FA6C43] hover:bg-[#e85a30] text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
 
   // A research space collects nothing, so there's no intake gate at all.
   if (!isAuthenticated && config?.is_public && !isResearchMode && !guestInfo) return (

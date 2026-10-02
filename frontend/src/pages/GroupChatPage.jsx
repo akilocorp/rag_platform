@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-27  @changed Dropped the unused useCallback import left over from the textarea auto-grow.
+/* @language JSX  @updated 2026-10-02  @changed Loading gets an error card + Try again (setup error or 15s connect timeout)
+   instead of an endless spinner; Back / Leave queue go to the role-aware dashboardPath() and are hidden when logged out.
+   @changed Prior: Dropped the unused useCallback import left over from the textarea auto-grow.
    @changed Prior: PromptInput now gets alwaysExpanded — the composer no longer collapses to a 48px pill.
    @changed Prior: Composer swapped from a plain textarea to the unified PromptInput (components/ui/ai-chat-input) — same landing-page look now used everywhere; the reply-preview chip moved onto PromptInput's quoteReply prop.
    @changed Prior: WhatsApp-style quote-reply: hover reply affordance, a composer chip, a quote block above each bubble, and click-to-scroll to the parent — so a message shows who it's answering in a 3+ person thread. */
@@ -8,6 +10,7 @@ import { FaSpinner, FaUsers, FaArrowLeft, FaReply } from 'react-icons/fa';
 import { RiUser3Line } from 'react-icons/ri';
 import axios from 'axios';
 import { renderMarkdown } from '../utils/markdown';
+import { dashboardPath, isLoggedIn } from '../utils/auth';
 import { getBotAvatarIconComponent } from '../components/AvatarSelector';
 import { io } from 'socket.io-client';
 import ChatSidebar from '../components/SideBar.jsx';
@@ -42,6 +45,9 @@ const GroupChatPage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [phase, setPhase] = useState('loading'); // 'loading' | 'waiting' | 'chat'
+  // Set when setup throws or the socket hasn't queued/matched us within 15s; the
+  // spinner then becomes an error card with a retry.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [queuePosition, setQueuePosition] = useState(null);
   const [roomId, setRoomId] = useState(null);
   const [userInfo, setUserInfo] = useState(null);
@@ -151,6 +157,7 @@ const GroupChatPage = () => {
 
       } catch (e) {
         console.error("Failed to load group space", e);
+        if (isMounted) setLoadFailed(true);
       }
     };
     
@@ -163,6 +170,14 @@ const GroupChatPage = () => {
   }, [configId]);
   // Keep phaseRef in sync so socket closures always see the current phase
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  // Connect timeout: still 'loading' after 15s means the socket never connected (or the
+  // server never answered join_queue) — stop the bare spinner and say so.
+  useEffect(() => {
+    if (phase !== 'loading') return undefined;
+    const t = setTimeout(() => setLoadFailed(true), 15000);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   // Auto-scroll
   useEffect(() => {
@@ -177,7 +192,8 @@ const GroupChatPage = () => {
       socketRef.current.emit('leave_queue', { uid: userIdRef.current });
       socketRef.current.disconnect();
     }
-    navigate('/config_list');
+    // Role-aware home: /config_list is professor-only and bounced students into their personal chat.
+    navigate(dashboardPath());
   };
 
   const handleSend = (text) => {
@@ -207,6 +223,24 @@ const GroupChatPage = () => {
   };
 
   if (phase === 'loading') {
+    if (loadFailed) {
+      return (
+        <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          <div role="alert" className="w-full max-w-sm bg-white rounded-3xl shadow-md border border-gray-100 px-10 py-12 text-center">
+            <h2 className="text-xl font-bold text-[#222] mb-2">We couldn't connect to this group chat</h2>
+            <p className="text-gray-500 text-sm mb-6">
+              Check your internet connection and try again. If it keeps happening, let your instructor know.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222]">
         <FaSpinner className="animate-spin text-4xl text-[#FA6C43]" />
@@ -242,13 +276,16 @@ const GroupChatPage = () => {
 
           <FaSpinner className="animate-spin text-2xl text-[#FA6C43] opacity-60" />
 
-          <button
-            onClick={handleCancelQueue}
-            className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
-          >
-            <FaArrowLeft className="text-xs" />
-            Leave queue
-          </button>
+          {/* Logged-out players (often in a Qualtrics iframe) have no dashboard to go back to. */}
+          {isLoggedIn() && (
+            <button
+              onClick={handleCancelQueue}
+              className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-[#FA6C43] transition-colors"
+            >
+              <FaArrowLeft className="text-xs" />
+              Leave queue
+            </button>
+          )}
         </div>
       </div>
     );
@@ -276,7 +313,7 @@ const GroupChatPage = () => {
           isMobileOpen={isMobileSidebarOpen}
           onClose={() => setIsMobileSidebarOpen(false)}
           onToggle={() => setIsSidebarCollapsed(v => !v)}
-          onNewChat={() => { navigate('/config_list'); setIsMobileSidebarOpen(false); }}
+          onNewChat={() => { navigate(dashboardPath()); setIsMobileSidebarOpen(false); }}
           onNavigateWithAutoSave={(cb) => cb()}
           isPublic={false}
           activeTab="chats"
@@ -304,9 +341,11 @@ const GroupChatPage = () => {
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white/95 backdrop-blur z-10 h-16 shadow-sm">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/config_list')} className="text-gray-400 hover:text-gray-700 p-2 bg-gray-50 rounded-lg">
-              <FaArrowLeft />
-            </button>
+            {isLoggedIn() && (
+              <button onClick={() => navigate(dashboardPath())} aria-label="Back to dashboard" className="text-gray-400 hover:text-gray-700 p-2 bg-gray-50 rounded-lg">
+                <FaArrowLeft />
+              </button>
+            )}
             <div className="p-2 rounded-lg bg-gray-100" style={{ color: '#1F1F1F' }}>
               {LobbyIcon ? <LobbyIcon className="text-xl" /> : <FaUsers className="text-xl" />}
             </div>

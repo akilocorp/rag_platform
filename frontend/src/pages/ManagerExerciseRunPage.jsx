@@ -1,4 +1,4 @@
-/* @language JSX  @updated 2026-08-31  @changed The phase strip follows the run's template: an investigation has no reveal and no debrief, so it shows five steps instead of seven. Prior: Shows the facilitator's current step during the debrief. Prior: New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
+/* @language JSX  @updated 2026-10-02  @changed A failed poll after the run has loaded shows "Reconnecting…" in the header instead of replacing the page with an error. Prior: The phase strip follows the run's template: an investigation has no reveal and no debrief, so it shows five steps instead of seven. Prior: Shows the facilitator's current step during the debrief. Prior: New page: the professor's view of a manager-exercise test run — the whole room's transcript, polled while it plays, with the phase it is in, who sat in which seat, the private round-0 spread and the hire. */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaFlask, FaSpinner, FaCheckCircle } from 'react-icons/fa';
@@ -49,13 +49,20 @@ export default function ManagerExerciseRunPage() {
   // transcripts get closed.
   const stickRef = useRef(true);
 
+  // A failed poll only becomes the full-page error before anything has loaded. Once the
+  // transcript is on screen, a network blip keeps it up and shows "Reconnecting…".
+  const hasDataRef = useRef(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const load = useCallback(async () => {
     try {
       const res = await apiClient.get(`/manager-exercise/run/${roomId}`);
+      hasDataRef.current = true;
       setRun(res.data);
+      setReconnecting(false);
       return res.data;
     } catch (e) {
-      setError(e?.response?.data?.error || 'Could not load this run.');
+      if (hasDataRef.current) setReconnecting(true);
+      else setError(e?.response?.data?.error || 'Could not load this run.');
       return null;
     }
   }, [roomId]);
@@ -121,7 +128,9 @@ export default function ManagerExerciseRunPage() {
           <div className="p-2 rounded-lg bg-[#F9D0C4]/40 text-[#FA6C43]"><FaFlask /></div>
           <div className="min-w-0">
             <h1 className="font-semibold text-base truncate">Test run</h1>
-            <p className="text-[11px] text-gray-400 truncate">Simulated students · not a real class</p>
+            <p className="text-[11px] text-gray-400 truncate">
+              Simulated students · not a real class{reconnecting && <span role="status" className="ml-2 font-semibold text-amber-600">· Reconnecting…</span>}
+            </p>
           </div>
         </div>
         <UserInfo />

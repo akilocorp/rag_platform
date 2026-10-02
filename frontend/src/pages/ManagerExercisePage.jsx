@@ -1,4 +1,7 @@
-/* @language JSX  @updated 2026-09-26  @changed Lobby: a started-but-unoccupied group reads "No one here right now"
+/* @language JSX  @updated 2026-10-02  @changed Loading never spins forever: a setup error or 20s without a first
+   phase shows a "couldn't connect" card with Try again. "Time ran out" sends students home (only the owner goes
+   back to the lobby), and home buttons are hidden for logged-out players (often inside a Qualtrics iframe).
+   Prior banner: @language JSX  @updated 2026-09-26  @changed Lobby: a started-but-unoccupied group reads "No one here right now"
    instead of "Empty — be the first", and a refused join re-fetches the room list so a stale card corrects itself.
    Prior: Exits: "Back to lobby" on the timeout screen now clears `expired`
    (it was a no-op), the Post Outcome header gets a Leave (confirm + quit_exercise → home), and the
@@ -90,7 +93,7 @@ import { renderMarkdown } from '../utils/markdown';
 import { io } from 'socket.io-client';
 import UserInfo from '../components/UserInfo';
 import LoadingScreen from '../components/LoadingScreen';
-import { dashboardPath } from '../utils/auth';
+import { dashboardPath, isLoggedIn } from '../utils/auth';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
@@ -519,6 +522,9 @@ const ManagerExercisePage = () => {
   // ---- lifecycle / identity ----
   const [config, setConfig] = useState(null);
   const [phase, setPhase] = useState('loading'); // loading|lobby|waiting|solo|discuss|choose|kiosk|debrief|done
+  // Set when setup throws or the socket never delivers a first phase — the loading screen
+  // then becomes an error card with a retry instead of spinning indefinitely.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [roomId, setRoomId] = useState(null);
 
   // ---- breakout lobby ----
@@ -1195,6 +1201,7 @@ const ManagerExercisePage = () => {
         });
       } catch (e) {
         console.error('Failed to load manager exercise', e);
+        if (isMounted) setLoadFailed(true);
       }
     };
     init();
@@ -1247,6 +1254,22 @@ const ManagerExercisePage = () => {
   // Leave the current breakout room and return to the lobby. Clears `expired` too:
   // the timeout view is checked before every phase, so leaving it set kept the
   // student pinned on "Time ran out" no matter how often they pressed Back.
+  // Still on the loading screen after 20s (socket never connected / never sent a phase):
+  // show the error card rather than spinning forever.
+  useEffect(() => {
+    if (phase !== 'loading') return undefined;
+    const t = setTimeout(() => setLoadFailed(true), 20000);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  // "Time ran out": the owner goes back to the breakout lobby they manage; a student was
+  // never in a lobby (they join the pool), so they go home — or, logged out, stay put.
+  const leaveExpired = () => {
+    if (config?.owned) { leaveBreakout(); return; }
+    socketRef.current?.emit('leave_breakout_room', { uid: userIdRef.current });
+    navigate(dashboardPath());
+  };
+
   const leaveBreakout = () => {
     socketRef.current?.emit('leave_breakout_room', { uid: userIdRef.current });
     setExpired(false);
@@ -1677,7 +1700,25 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   // Phase: loading
   // -------------------------------------------------------------------------
-  if (phase === 'loading') return <LoadingScreen message="Setting up your exercise…" />;
+  if (phase === 'loading') {
+    if (!loadFailed) return <LoadingScreen message="Setting up your exercise…" />;
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F0F6FB] text-[#222] p-6" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div role="alert" className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <h1 className="text-xl font-extrabold mb-2">We couldn't connect to the exercise</h1>
+          <p className="text-sm text-gray-500 mb-6">
+            Check your internet connection and try again. If it keeps happening, let your instructor know.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full rounded-xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold py-3 transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Checked before every other phase: an expired room must never fall through to
   // the kiosk, the reveal or the Post Outcome Discussion, whichever screen its
@@ -1695,12 +1736,14 @@ const ManagerExercisePage = () => {
             how it would have turned out — that only opens for a group that commits to a decision.
           </p>
           <p className="text-sm text-gray-400 mb-8">Your instructor can see where your group got to.</p>
-          <button
-            onClick={leaveBreakout}
-            className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
-          >
-            <FaArrowLeft className="text-xs" /> Back to lobby
-          </button>
+          {(config?.owned || isLoggedIn()) && (
+            <button
+              onClick={leaveExpired}
+              className="inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-8 py-3.5 shadow-sm transition-all active:scale-95"
+            >
+              <FaArrowLeft className="text-xs" /> {config?.owned ? 'Back to lobby' : homeLabel()}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1725,7 +1768,9 @@ const ManagerExercisePage = () => {
              emptiest group as a latecomer. So this deliberately does NOT emit
              `leave_investigation_pool`, and `pool` is deliberately absent from the
              back-nav guard's phase list: leaving here costs nothing, and telling a
-             student otherwise would strand them on a screen they cannot escape. */
+             student otherwise would strand them on a screen they cannot escape.
+             Logged out (Qualtrics / public link) there is no home to go to, so no footer. */
+          isLoggedIn() && (
           <div className="mt-8 pt-6 border-t border-gray-200">
             <button
               onClick={() => navigate(dashboardPath())}
@@ -1738,6 +1783,7 @@ const ManagerExercisePage = () => {
               straight into your group.
             </p>
           </div>
+          )
         }
       />
     );
@@ -2096,7 +2142,7 @@ const ManagerExercisePage = () => {
                 </button>
               )}
               {/* ...but the finished screen still needs a way out: home, not the lobby. */}
-              {flow.prof_paired && (
+              {flow.prof_paired && isLoggedIn() && (
                 <button
                   onClick={() => navigate(dashboardPath())}
                   className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-[#FA6C43] hover:bg-[#E55B34] text-white font-bold px-6 py-3 shadow-sm transition-all active:scale-95"

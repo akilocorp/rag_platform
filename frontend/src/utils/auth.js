@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript
+ * @updated   2026-10-02
+ * @changed   dashboardPath() returns '/' when logged out instead of defaulting to the professor dashboard.
+ */
 // Auth helpers: where a logged-in user should land, and "remember me" handling.
 
 export function isLoggedIn() {
@@ -5,7 +10,11 @@ export function isLoggedIn() {
 }
 
 // Main landing page for a logged-in user, by role. This is where login lands people.
+// Logged out there is no dashboard, so return the public home page — the old 'professor'
+// default sent anonymous students (Qualtrics, public links) to /config_list → /login.
+// Pages that can run logged out should hide their "back home" control instead (isLoggedIn()).
 export function dashboardPath() {
+  if (!isLoggedIn()) return '/';
   const role = localStorage.getItem('userRole') || 'professor';
   return role === 'student' ? '/student-dashboard' : '/config_list';
 }

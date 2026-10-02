@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-30
-// @changed   The Overall Score banner is now a choice: "Average of all boxes" or "Prompt grade". Choosing
+// @updated   2026-10-02
+// @changed   A failed rubric load shows an error + Retry instead of an empty editor whose Save would overwrite the real rubric.
+// @changed   Prior: The Overall Score banner is now a choice: "Average of all boxes" or "Prompt grade". Choosing
 //            Prompt reveals the grading prompt (feedback_prompt_template) to edit in place. Both save with
 //            the boxes (PUT scoring-spec) and drive every overall shown for this assignment.
 // @changed   Prior: Hide/Show per box: a hidden box collapses to a single grey row and drops out of
@@ -126,6 +127,10 @@ export default function VideoBoxesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Set when the initial fetch fails. Kept apart from `error` (save failures) because a failed
+  // load must never fall through to the editor: its empty lists, saved, would wipe the real rubric.
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [savedAt, setSavedAt] = useState(null);
   const [dirty, setDirty] = useState(false);
   // Index of the card currently open for editing, or null. One at a time: several
@@ -138,6 +143,8 @@ export default function VideoBoxesPage() {
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    setLoadError(null);
     apiClient.get(`/video/config/${configId}/scoring-spec`)
       .then((res) => {
         if (!alive) return;
@@ -148,10 +155,10 @@ export default function VideoBoxesPage() {
         setOverallMode(spec.overall_mode === 'prompt' ? 'prompt' : 'average');
         setGradingPrompt(spec.feedback_prompt_template || '');
       })
-      .catch((e) => alive && setError(e?.response?.data?.error || 'Could not load this rubric.'))
+      .catch((e) => alive && setLoadError(e?.response?.data?.error || 'Could not load this rubric.'))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [configId]);
+  }, [configId, reloadKey]);
 
   // Browser-level guard only. An in-app router prompt would need a blocker hook the
   // rest of this app does not use, and losing a rubric edit to a stray back button is
@@ -236,6 +243,32 @@ export default function VideoBoxesPage() {
         <p className="text-sm text-gray-500 flex items-center gap-2">
           <FaSpinner className="animate-spin text-[#FA6C43]" /> Loading the rubric…
         </p>
+      </div>
+    );
+  }
+
+  // Load failed: error + Retry only. No editor, so there is nothing to save over the real rubric.
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-[#F0F6FB] flex items-center justify-center px-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <div role="alert" className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <h2 className="text-xl font-extrabold text-[#222] mb-2">Couldn't load the scoring boxes</h2>
+          <p className="text-sm text-gray-500 mb-6">{loadError} Your saved rubric hasn't been changed.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate('/config_list')}
+              className="flex-1 py-3 rounded-xl font-bold border-2 border-gray-200 bg-white text-gray-700"
+            >
+              Back to your classes
+            </button>
+            <button
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="flex-1 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-02
-// @changed   Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
+// @changed   New onPublished callback after a successful publish, so the list can reset the wizard.
+// @changed   Prior: Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
 // @changed   Prior: Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
 //            goes up as `hume_voice` and the server creates the bot's own Hume config with it.
 //            `hume_config_id` is no longer part of the form — only the server sets it. A voice that
@@ -170,7 +171,7 @@ const FileUpload = ({ onFileChange, initialFiles }) => {
   );
 };
 
-const ConfigModal = ({ isOpen, onClose, onCreated }) => {
+const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
   // Which tab the dialog is on. Templates lead because picking a working class is a
   // decision a professor can make; "which of six Space types?" — the wizard's first
   // question — is the one they are least equipped to answer cold.
@@ -870,7 +871,10 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
       // finished a setup task and the list is where the next one starts. It also
       // matches what Save Changes on the edit page now does.
       navigate('/config_list');
-      
+
+      // Tell the list a publish happened so it can remount this dialog fresh — otherwise
+      // the next "New Assistant" reopened on this bot's final step, one click from a duplicate.
+      if (onPublished) onPublished(newConfigId);
       if (onClose) onClose();
 
     } catch (error) {
