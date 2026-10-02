@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Expand button exposes aria-expanded so screen readers hear the pill's open state.
+ */
 import React, { useState } from 'react';
 import {
   FiSearch,
@@ -66,6 +71,7 @@ const ToolStatusPill = ({ toolCall }) => {
         type="button"
         onClick={() => isDone && setExpanded((v) => !v)}
         disabled={!isDone}
+        aria-expanded={isDone ? expanded : undefined}
         className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-left ${
           isDone ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'
         }`}

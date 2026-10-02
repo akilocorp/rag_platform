@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-03
- * @changed   New file: guide shell — sidebar, mobile jump menu, search, prev/next, print.
+ * @updated   2026-10-02
+ * @changed   Wordmark links to '/' instead of the old /home splash.
+ * @changed   Prior: New file: guide shell — sidebar, mobile jump menu, search, prev/next, print.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -183,7 +184,7 @@ export default function GuideLayout({ currentId, children }) {
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB]">
       <header className="no-print border-b border-gray-200/70 bg-[#F0F6FB]/95 backdrop-blur sticky top-0 z-40">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-4 flex items-center gap-4 flex-wrap">
-          <Link to="/home" className="flex items-center gap-3 hover:opacity-90 transition-opacity shrink-0">
+          <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity shrink-0">
             <img src={logo} alt="Actr Lab" className="h-9 w-auto object-contain" />
           </Link>
           <span className="hidden sm:block text-sm font-bold text-gray-700 border-l border-gray-300 pl-4">User guide</span>

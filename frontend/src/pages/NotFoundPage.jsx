@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Home links go to '/' instead of the old /home splash.
+ */
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -26,7 +31,7 @@ const NotFoundPage = () => {
     >
       {/* Wordmark — top-left */}
       <Link
-        to="/home"
+        to="/"
         className="absolute z-20"
         style={{ top: '32px', left: '36px' }}
       >
@@ -113,7 +118,7 @@ const NotFoundPage = () => {
 
         <button
           type="button"
-          onClick={() => navigate('/home')}
+          onClick={() => navigate('/')}
           className="transition-all active:scale-95 hover:brightness-95"
           style={{
             backgroundColor: '#FDE3D8',

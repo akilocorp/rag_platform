@@ -1,8 +1,14 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Private-space screen: role-aware copy and Back goes to dashboardPath() instead of always /student-dashboard.
+ */
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { FaLock } from 'react-icons/fa';
 import LoadingScreen from './LoadingScreen';
+import { dashboardPath } from '../utils/auth';
 
 const PublicChatRoute = ({ children }) => {
   const { configId } = useParams();
@@ -70,7 +76,9 @@ const PublicChatRoute = ({ children }) => {
 
   // Signed in, but this space isn't ours and we're not in its class. Say so —
   // don't dump the user on /login, which reads as being logged out.
+  // Copy and the way back depend on role: a professor here has no "professor" to ask.
   if (canAccess === 'denied') {
+    const isStudent = localStorage.getItem('userRole') === 'student';
     return (
       <div
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
@@ -82,11 +90,12 @@ const PublicChatRoute = ({ children }) => {
           </div>
           <h2 className="text-xl font-extrabold text-[#222] mb-2">This space is private</h2>
           <p className="text-sm text-gray-500 mb-6">
-            You're still signed in, but this assistant isn't shared with you. Ask your
-            professor for the class link, or check that you're on the right account.
+            {isStudent
+              ? "You're still signed in, but this assistant isn't shared with you. Ask your professor for the class link, or check that you're on the right account."
+              : "You're still signed in, but this assistant belongs to another account. Ask its owner to add you as a collaborator, or check that you're on the right account."}
           </p>
           <Link
-            to="/student-dashboard"
+            to={dashboardPath()}
             className="block w-full py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-colors"
           >
             Back to my dashboard

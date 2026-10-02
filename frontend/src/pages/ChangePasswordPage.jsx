@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-03
-// @changed   New page: replaces an admin-issued one-time password (forced, no way past it) and doubles
+// @updated   2026-10-02
+// @changed   Show-password toggle gets an aria-label.
+// @changed   Prior: New page: replaces an admin-issued one-time password (forced, no way past it) and doubles
 //            as the ordinary change-password screen for everyone else.
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -103,6 +104,7 @@ const ChangePasswordPage = () => {
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
           className="absolute right-0 top-0 bottom-0 w-[3.75rem] flex items-center justify-center text-gray-400 hover:text-gray-600 shrink-0"
         >
           {showPassword ? <FaEyeSlash size={20} /> : <FaEye size={20} />}

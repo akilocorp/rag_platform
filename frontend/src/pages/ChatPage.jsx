@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-28
- * @changed   Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
+ * @updated   2026-10-02
+ * @changed   Guest-form marketing opt-in defaults to unchecked (consent must be opt-in).
+ * @changed   Prior: Voice calls connect with the bot's own Hume config (`hume_config_id`, set when a voice is
  *            picked in the bot form); bots without one still fall back to the server's HUME_CONFIG_ID.
  * @changed   Prior: Composer is the unified PromptInput (always expanded); dropped the dead showOptions/optionsRef
  *            "Live Drills" menu state, which nothing had rendered since before the swap.
@@ -1007,7 +1008,7 @@ const ChatPage = () => {
   const [guestInfo, setGuestInfo] = useState(() => {
     try { return JSON.parse(localStorage.getItem('guestInfo') || 'null') || null; } catch { return null; }
   });
-  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: true });
+  const [guestForm, setGuestForm] = useState({ name: '', email: '', marketingOptIn: false });
   const [guestFormError, setGuestFormError] = useState('');
 
   const submitGuestForm = () => {
@@ -1995,7 +1996,7 @@ const ChatPage = () => {
               onChange={e => setGuestForm(p => ({ ...p, marketingOptIn: e.target.checked }))}
               className="mt-0.5 accent-[#FA6C43]"
             />
-            <span className="text-sm text-gray-600">I'd like to receive updates and research-related communications. <span className="text-gray-400">(Uncheck to opt out)</span></span>
+            <span className="text-sm text-gray-600">I'd like to receive updates and research-related communications.</span>
           </label>
           {guestFormError && <p className="text-xs text-red-500">{guestFormError}</p>}
           <button

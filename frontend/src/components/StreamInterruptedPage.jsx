@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-18
- * @changed   New — full-page notice shown when a chat turn can't finish. Mirrors NotFoundPage's layout so a
+ * @updated   2026-10-02
+ * @changed   Wordmark links to '/' instead of the old /home splash.
+ * @changed   Prior: New — full-page notice shown when a chat turn can't finish. Mirrors NotFoundPage's layout so a
  *            broken stream lands somewhere that looks deliberate instead of leaving a half-written bubble.
  */
 import React from 'react';
@@ -37,7 +38,7 @@ const StreamInterruptedPage = () => (
       fontFamily: FONT_BODY,
     }}
   >
-    <Link to="/home" className="absolute z-20" style={{ top: '32px', left: '36px' }}>
+    <Link to="/" className="absolute z-20" style={{ top: '32px', left: '36px' }}>
       <span
         style={{
           fontFamily: FONT_DISPLAY,

@@ -1,8 +1,14 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Invalid-code card gets a way back (dashboard or home page).
+ */
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { FaSpinner, FaFilm } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { studentPathFor } from '../utils/botTypes';
+import { dashboardPath } from '../utils/auth';
 
 export default function JoinPage() {
   const { classCode } = useParams();
@@ -73,7 +79,14 @@ export default function JoinPage() {
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
       <FaFilm className="text-4xl text-gray-300 mx-auto mb-4" />
       <h2 className="text-xl font-bold text-[#222] mb-2">Invalid Class Code</h2>
-      <p className="text-sm text-gray-500">{error}</p>
+      <p className="text-sm text-gray-500 mb-6">{error}</p>
+      {/* A wrong code is a dead end otherwise — give logged-in users their dashboard, everyone else the home page. */}
+      <Link
+        to={isLoggedIn ? dashboardPath() : '/'}
+        className="inline-block px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-colors"
+      >
+        {isLoggedIn ? 'Back to my dashboard' : 'Go to home page'}
+      </Link>
     </div>
   );
 

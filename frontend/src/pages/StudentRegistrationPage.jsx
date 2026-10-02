@@ -1,3 +1,8 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-02
+ * @changed   Show-password toggle gets an aria-label.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../api/apiClient';
@@ -169,7 +174,8 @@ const StudentRegistrationPage = () => {
                     <input id="password" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password"
                       className="w-full pl-4 pr-12 py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                       placeholder="Create a strong password" />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-colors">
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-colors">
                       {showPassword ? <FaEyeSlash style={{ width: '16px', height: '16px' }} /> : <FaEye style={{ width: '16px', height: '16px' }} />}
                     </button>
                   </div>

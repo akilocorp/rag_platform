@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-12
-// @changed   Added a "Plan my course" link to the public syllabus advisor.
+// @updated   2026-10-02
+// @changed   Logo -> '/', Home -> '/v2' (the real landing page) instead of the old /home splash.
+// @changed   Prior: Added a "Plan my course" link to the public syllabus advisor.
 //            Prior: added a Guide link so the /userguide site is reachable before anyone signs in.
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -17,7 +18,7 @@ const Navbar = () => {
 
   return (
     <nav className="w-full flex justify-between items-center px-6 lg:px-8 py-6 max-w-[1440px] mx-auto z-10">
-      <Link to="/home" className="flex items-center hover:opacity-90 transition-opacity cursor-pointer">
+      <Link to="/" className="flex items-center hover:opacity-90 transition-opacity cursor-pointer">
         <img 
           src={logo} 
           alt="Actr Logo" 
@@ -27,9 +28,9 @@ const Navbar = () => {
       
       <div className="bg-white px-4 lg:px-6 py-2 rounded-2xl shadow-sm flex items-center space-x-4 lg:space-x-8">
         <Link 
-          to="/home" 
+          to="/v2" 
           className={`text-sm lg:text-base transition-colors hidden sm:block ${
-            isActive('/home') 
+            isActive('/v2') 
               ? 'text-[#FA6C43] font-bold hover:text-[#FA6C43]' 
               : 'text-gray-700 font-medium hover:text-[#F8CABA]'
           }`}

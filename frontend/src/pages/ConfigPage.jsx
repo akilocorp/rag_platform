@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-28
-// @changed   Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
+// @updated   2026-10-02
+// @changed   Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
+// @changed   Prior: Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
 //            goes up as `hume_voice` and the server creates the bot's own Hume config with it.
 //            `hume_config_id` is no longer part of the form — only the server sets it. A voice that
 //            failed to apply on Hume is reported in an alert; the bot itself is saved either way.
@@ -788,14 +789,14 @@ const ConfigModal = ({ isOpen, onClose, onCreated }) => {
     setErrors({});
     
     if (config.bot_type === 'avatar' && !config.heygen_avatar_id) {
-      setErrors({ form: 'Please select a video avatar on step 5.' });
+      setErrors({ form: 'Please choose a video avatar under “How it appears”.' });
       setIsLoading(false);
       return;
     }
 
     if (config.bot_type === 'audio_call') {
       if (!(config.model_name || '').toLowerCase().startsWith('claude')) {
-        setErrors({ form: 'Audio Call mode requires a Claude model. Pick one on step 2.' });
+        setErrors({ form: 'Audio Call needs a Claude model. Switch to Advanced and choose one under “Pick the Base AI Model”.' });
         setIsLoading(false);
         return;
       }

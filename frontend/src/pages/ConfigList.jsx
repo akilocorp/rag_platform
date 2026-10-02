@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-28
-// @changed   Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
+// @updated   2026-10-02
+// @changed   Report a Bug restyled as a secondary button so New Assistant is the only primary action.
+// @changed   Prior: Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
 //            created) in an alert before the new card appears.
 // @changed   Prior: Quieter motion: no card fly-in, chip pop-in, button press-shrink or sidebar hover shadow; dialogs fade instead of zooming; view toggle glides 150ms ease-out instead of a spring.
 // @changed   Prior: Fewer clicks: a labelled Results button on every card whose main button doesn't already open
@@ -991,10 +992,10 @@ const ConfigListPage = () => {
             <span className="font-bold text-[14px]">Studio</span>
           </button>
 
-          {/* Report Bug Button added to Navbar */}
+          {/* Report a Bug — secondary styling so it doesn't compete with New Assistant, the page's one primary action. */}
           <button
             onClick={() => setIsBugModalOpen(true)}
-            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
+            className="hidden sm:flex items-center justify-center px-5 py-2.5 bg-white border border-gray-200 hover:border-[#FA6C43] text-gray-700 hover:text-[#FA6C43] rounded-xl transition-all duration-200 shadow-sm"
           >
             <FaBug className="mr-2 text-sm" />
             <span className="font-bold text-[14px]">Report a Bug</span>

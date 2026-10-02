@@ -1,4 +1,6 @@
-/* @language JSX  @updated 2026-09-27  @changed Room monitor retitled "Groups — live" with copy that describes it as
+/* @language JSX  @updated 2026-10-02  @changed Room cards show plain phase names ("Group discussion", "Reading")
+   instead of internal state ids like "kiosk" or "solo".
+   Prior banner: @language JSX  @updated 2026-09-27  @changed Room monitor retitled "Groups — live" with copy that describes it as
    the live view of the paired groups; the old "students pick their own group" text contradicted the Pair panel.
    Prior banner: @language JSX  @updated 2026-09-11  @changed Both templates pair now, so the pairing panel is no
    longer investigation-only and the room monitor sits under it rather than instead of it.
@@ -23,6 +25,18 @@ import {
 import apiClient from '../api/apiClient';
 import axios from 'axios';
 import UserInfo from '../components/UserInfo';
+
+// Professor-facing names for exercise_state.py's phase ids; an unknown id falls back to "In progress".
+const PHASE_LABEL = {
+  waiting: 'Waiting',
+  reading: 'Reading',
+  solo: 'Private pick',
+  choose: 'Choosing',
+  discuss: 'Group discussion',
+  kiosk: 'Outcome reveal',
+  debrief: 'Debrief',
+  done: 'Finished',
+};
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
 
@@ -194,7 +208,7 @@ const RoomMonitor = ({ configId }) => {
                 <span className={`text-[10px] font-bold uppercase tracking-wider ${
                   r.phase === 'done' ? 'text-emerald-600' : r.started ? 'text-[#C2410C]' : 'text-gray-400'
                 }`}>
-                  {r.phase === 'done' ? 'Finished' : r.started ? r.phase : 'Waiting'}
+                  {r.phase === 'done' ? 'Finished' : r.started ? (PHASE_LABEL[r.phase] || 'In progress') : 'Waiting'}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1">{r.occupants} / {r.capacity} students</p>

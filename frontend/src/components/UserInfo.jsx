@@ -1,8 +1,9 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-03
-// @changed   Account dropdown gets a User guide entry; username darkened to gray-600 now that this
-//            menu also renders on the light student dashboard.
-import React, { useState, useEffect } from 'react';
+// @updated   2026-10-02
+// @changed   Menu trigger is a real <button> (aria-haspopup/expanded); Escape and outside clicks
+//            close the menu; loading spinner uses the brand orange.
+// @changed   Prior: Account dropdown gets a User guide entry; username darkened to gray-600.
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../api/apiClient';
 import { clearRememberMe } from '../utils/auth';
 import { FaUser, FaChevronDown, FaSignOutAlt, FaShieldAlt, FaKey, FaBook } from 'react-icons/fa';
@@ -12,7 +13,21 @@ const UserInfo = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  const menuRef = useRef(null);
   const navigate = useNavigate();
+
+  // While the menu is open, Escape or a click anywhere outside it closes the menu.
+  useEffect(() => {
+    if (!showDropdown) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setShowDropdown(false); };
+    const onDown = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowDropdown(false); };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [showDropdown]);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -44,7 +59,7 @@ const UserInfo = () => {
   if (loading) {
     return (
       <div className="flex items-center">
-        <div className="animate-spin h-4 w-4 border-2 border-indigo-500 border-t-transparent"></div>
+        <div className="animate-spin h-4 w-4 rounded-full border-2 border-[#FA6C43] border-t-transparent"></div>
       </div>
     );
   }
@@ -54,18 +69,24 @@ const UserInfo = () => {
   }
 
   return (
-    <div className="relative">
-      <div className="flex items-center text-sm text-gray-600 cursor-pointer" onClick={(e) => {
-        e.stopPropagation();
-        setShowDropdown(!showDropdown);
-      }}>
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={showDropdown}
+        className="flex items-center text-sm text-gray-600 cursor-pointer bg-transparent border-0 p-0"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDropdown(!showDropdown);
+        }}
+      >
         <FaUser className="mr-2 text-[#FA6C43]" />
         <span>{userInfo.username}</span>
         <FaChevronDown className="ml-2 text-gray-400" />
-      </div>
+      </button>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+        <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
           {userInfo.role === 'admin' && (
             <button
               onClick={(e) => {

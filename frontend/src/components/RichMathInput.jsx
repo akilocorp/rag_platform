@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-20
- * @changed   Placeholder overlay position/size retuned (left-1/top-2/text-base -> left-4/top-3.5/text-sm) to
+ * @updated   2026-10-02
+ * @changed   Enter no longer sends while an IME (Chinese/Japanese) composition is in progress.
+ * @changed   Prior: Placeholder overlay position/size retuned (left-1/top-2/text-base -> left-4/top-3.5/text-sm) to
  *            match PromptInput's padding scale now that PromptInput (components/ui/ai-chat-input.jsx) is the
  *            sole consumer — ChatComposer, which this was originally tuned for, is retired.
  * @changed   Prior: Empty field self-deletes on Backspace/Delete; Right-arrow/Enter step the caret forward out of a field.
@@ -267,7 +268,9 @@ const RichMathInput = forwardRef(function RichMathInput(
   // Enter (no Shift) sends; Shift+Enter is a newline. Keydown inside a MathQuill
   // field never reaches here — portalled fields aren't React descendants of this
   // div, and the field's own handler stops Enter — so equations edit freely.
+  // Enter while an IME is composing (Chinese/Japanese) confirms the candidate, never sends.
   const handleKeyDown = useCallback((e) => {
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onSend?.();

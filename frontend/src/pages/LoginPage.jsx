@@ -1,7 +1,8 @@
 /**
  * @language JavaScript (React JSX)
- * @updated 2026-09-26
- * @changed Empty-login error names the real field (email or username); spinner no longer shows an I-beam cursor.
+ * @updated 2026-10-02
+ * @changed   Password managers work again (no readonly trick, current-password); 'Email or username' label; remember-me off by default.
+ * @changed Prior: Empty-login error names the real field (email or username); spinner no longer shows an I-beam cursor.
  */
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
@@ -46,8 +47,8 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMeState] = useState(true);
-  const [allowInput, setAllowInput] = useState(false); // Prevent autofill: readonly until first focus
+  // Off by default: classes log in from shared lab machines.
+  const [rememberMe, setRememberMeState] = useState(false);
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const navigate = useNavigate();
@@ -149,23 +150,21 @@ const LoginPage = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="username" className="block text-[13px] font-semibold text-gray-700 mb-1.5">
-                ITSC Email/Username
+                Email or username
               </label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onFocus={() => setAllowInput(true)}
-                readOnly={!allowInput}
-                autoComplete="off"
+                autoComplete="username"
                 className={`w-full px-4 py-3 bg-white border ${
                   errors.username ? 'border-red-500' : 'border-gray-200'
                 } rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all`}
-                placeholder="account@ust.hk"
+                placeholder="you@university.edu"
               />
               {errors.username && <p className="mt-1 text-xs text-red-500">{errors.username}</p>}
             </div>
@@ -182,9 +181,7 @@ const LoginPage = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => setAllowInput(true)}
-                  readOnly={!allowInput}
-                  autoComplete="new-password"
+                  autoComplete="current-password"
                   className="w-full pl-4 pr-12 py-3 bg-white rounded-xl text-sm border-0 focus:outline-none focus:ring-0"
                   placeholder="•••••••••••••••••"
                 />

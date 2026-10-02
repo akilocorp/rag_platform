@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-28
-// @changed   Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
+// @updated   2026-10-02
+// @changed   Delete Space hidden from collaborators (the backend refuses them anyway).
+// @changed   Prior: Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
 //            `hume_voice` and the server re-versions the bot's Hume config (or creates one). If Hume
 //            could not apply it, the page stays open with the server's warning instead of returning
 //            to the list — everything else was saved, and saving again retries the voice.
@@ -2330,9 +2331,12 @@ const EditConfigPage = () => {
 
             {/* Action Buttons */}
             <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-4 pt-8 border-t border-gray-100">
-              <button type="button" onClick={handleDelete} disabled={isDeleting || isLoading} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200">
-                {isDeleting ? 'Deleting...' : 'Delete Space'}
-              </button>
+              {/* Only the owner can delete (the backend refuses collaborators); an empty span keeps Cancel/Save right-aligned. */}
+              {isCollaborator ? <span /> : (
+                <button type="button" onClick={handleDelete} disabled={isDeleting || isLoading} className="w-full sm:w-auto py-3.5 px-6 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200">
+                  {isDeleting ? 'Deleting...' : 'Delete Space'}
+                </button>
+              )}
               <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-end">
                 <button type="button" onClick={() => navigate(resultsLink.path)} className="w-full sm:w-auto py-3.5 px-5 rounded-xl font-bold border-2 border-gray-200 bg-white flex items-center gap-2">
                   <FaListAlt className="text-sm text-gray-500" /><span>{resultsLink.label}</span>

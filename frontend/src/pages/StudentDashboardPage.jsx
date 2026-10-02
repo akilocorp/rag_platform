@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-08-10
-// @changed   Every class type, not just video: cards carry the type label, what the class is
+// @updated   2026-10-02
+// @changed   Upload-lock line reads 'Uploads open <date>' — the lock closes uploads, it doesn't gate results.
+// @changed   Prior: Every class type, not just video: cards carry the type label, what the class is
 //            for, and one "Enter class" button that routes by bot_type.
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -13,9 +14,10 @@ import { botTypeInfo, studentPathFor } from '../utils/botTypes';
 const C = v => v == null ? '#9ca3af' : v >= 80 ? '#22c55e' : v >= 65 ? '#3b82f6' : v >= 50 ? '#f59e0b' : '#ef4444';
 const fmt = v => v != null ? (v / 10).toFixed(1) : null;
 const isLocked = ts => ts && Date.now() / 1000 < ts;
+// Upload-lock line: the lock closes uploads until the timestamp (video_routes.py), so say that.
 const lockMsg = ts => {
   const d = new Date(ts * 1000);
-  return `Results available ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  return `Uploads open ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 };
 
 const when = (epoch) => {

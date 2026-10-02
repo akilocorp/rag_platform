@@ -1,7 +1,8 @@
 /*
  * @language JavaScript (React / JSX)
- * @updated 2026-09-30
- * @changed Scoring boxes and content checks show even with no submissions (the dashboard endpoint now
+ * @updated 2026-10-02
+ * @changed   Page title shows the assignment's bot name instead of the generic heading.
+ * @changed Prior: Scoring boxes and content checks show even with no submissions (the dashboard endpoint now
  *          seeds them from the rubric), with a one-line note that averages fill in as students submit.
  * @changed Prior: Opens on the newest AI grading analysis when one exists (was always Delivery View, one extra
  *          click every visit). Prior: Student-table dimension headers show the full name (truncated with a hover title) instead of
@@ -357,7 +358,7 @@ export default function VideoDashboardPage() {
         <Link to="/config_list" className="text-sm text-gray-500 hover:text-[#FA6C43] flex items-center gap-2 mb-4"><FaArrowLeft /> Back to configs</Link>
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-extrabold text-[#222] mb-1">Video Analysis Dashboard</h1>
+            <h1 className="text-2xl font-extrabold text-[#222] mb-1">{botName || 'Video Analysis Dashboard'}</h1>
             <p className="text-sm text-gray-500">{dash?.total_submissions || 0} submission{dash?.total_submissions === 1 ? '' : 's'}</p>
           </div>
           <button

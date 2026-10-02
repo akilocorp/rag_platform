@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-27
-// @changed   Bigger composer controls: send/mic 32->36px, attach/equation/+ 28->32px, glyphs 16px,
+// @updated   2026-10-02
+// @changed   Enter no longer sends while an IME (Chinese/Japanese) composition is in progress.
+// @changed   Prior: Bigger composer controls: send/mic 32->36px, attach/equation/+ 28->32px, glyphs 16px,
 //            model/effort pills get more padding; text + action-row clearance right-12 -> right-14
 //            so copy never runs under the wider send button.
 // @changed   Prior: New alwaysExpanded prop — real chat surfaces (1:1 chat, group chat, Experiential) pass it
@@ -1086,6 +1087,8 @@ export const PromptInput = React.forwardRef(
                 onScroll={updateFades}
                 onPaste={onPaste}
                 onKeyDown={(e) => {
+                  // Enter mid-IME-composition (Chinese/Japanese) confirms the candidate, it must not send.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSubmit();
