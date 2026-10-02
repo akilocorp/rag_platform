@@ -302,6 +302,18 @@ def clm_last_error(config_id):
     return jsonify(_LAST_FAILURES.get(config_id) or {"error": None})
 
 
+_MOCK_REPLY = ("That's a fair point, but I'd push back a little - the evidence on that "
+               "is more mixed than people think. What makes you so sure?").split(" ")
+
+
+def _mock_voice_response() -> Iterator[str]:
+    """Stand-in for `stream_voice_response` on load-test configs: real pacing, no model call."""
+    time.sleep(1.0)
+    for i, word in enumerate(_MOCK_REPLY):
+        yield word if i == 0 else " " + word
+        time.sleep(0.04)
+
+
 @audio_clm_bp.route('/audio/clm/chat/completions', methods=['POST', 'OPTIONS'])
 def clm_chat_completions():
     if request.method == 'OPTIONS':
@@ -323,7 +335,7 @@ def clm_chat_completions():
             {
                 "model_name": 1, "temperature": 1, "prompt_template": 1,
                 "is_public": 1, "user_id": 1, "audio_enabled": 1,
-                "bot_name": 1, "instructions": 1,
+                "bot_name": 1, "instructions": 1, "load_test_mock": 1,
             },
         )
     except Exception as e:
@@ -367,13 +379,20 @@ def clm_chat_completions():
         finish = "stop"
         diagnostics = None
 
+        # Load testing: a config flagged `load_test_mock` in the database gets a
+        # canned reply paced like a real one (about 1s to the first token, then a
+        # streamed sentence), so a load test exercises everything on this path
+        # except the paid model call. Only a config document carries the flag,
+        # and no UI sets it.
+        reply = (_mock_voice_response() if config_doc.get("load_test_mock")
+                 else stream_voice_response(
+                     config=config_doc,
+                     user_input=user_input,
+                     history_messages=history_messages,
+                     variables=session_vars,
+                 ))
         try:
-            for text in stream_voice_response(
-                config=config_doc,
-                user_input=user_input,
-                history_messages=history_messages,
-                variables=session_vars,
-            ):
+            for text in reply:
                 if first_token_at is None:
                     first_token_at = time.monotonic()
                 spoke_anything = True
