@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-04
-// @changed   Phones: dialog padding trimmed, short tab labels ('Template' / 'From scratch'), no 550px min-height, 90dvh cap.
+// @changed   Wizard edges unified: tabs, progress bar, content and footer buttons share one left/right edge (each had its own).
+// @changed   Prior: Phones: dialog padding trimmed, short tab labels ('Template' / 'From scratch'), no 550px min-height, 90dvh cap.
 // @changed   Prior: Phones: the Simple/Advanced switch gets its own line above Cancel/Next (it was drawn on top of them).
 // @changed   Prior: New onPublished callback after a successful publish, so the list can reset the wizard.
 // @changed   Prior: Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
@@ -976,10 +977,12 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
           <FaTimes className="text-xl" />
         </button>
 
-        <div className="p-5 sm:p-10 flex-1 flex flex-col pt-14 sm:pt-16 min-h-0 min-w-0">
+        <div className="p-5 sm:p-10 flex-1 flex flex-col pt-16 sm:pt-16 min-h-0 min-w-0">
           {/* Template vs scratch. One dialog, two ways in — the tab bar replaces what
               was briefly a second modal stacked in front of this one. */}
-          <div className="flex p-1 bg-gray-100 rounded-xl mb-6 mr-10 flex-shrink-0">
+          {/* Tabs, progress bar, step content and footer buttons all sit on the same mx-2 edges
+              (the content needs px-2 for focus rings). pt-16 above clears the close button. */}
+          <div className="flex p-1 bg-gray-100 rounded-xl mb-6 mx-2 flex-shrink-0">
             {[
               { key: 'template', label: 'Start from a template', short: 'Template' },
               { key: 'scratch', label: 'Build from scratch', short: 'From scratch' },
@@ -1003,7 +1006,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
               so its progress bar has 4 segments instead of 5. A segment lights up
               when its step number is <= current step. */}
           {mode === 'scratch' && (
-          <div className="flex justify-between space-x-2 mb-6 pl-4 pr-14 flex-shrink-0">
+          <div className="flex justify-between space-x-2 mb-6 mx-2 flex-shrink-0">
             {stepsFor(config.bot_type).map(i => (
               <div key={i} className={`h-2 flex-1 rounded-full transition-colors duration-300 ${i <= step ? 'bg-[#FA6C43]' : 'bg-gray-200'}`} />
             ))}
@@ -1999,7 +2002,7 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
           </div>
 
           {mode === 'scratch' && (
-          <div className="relative flex flex-wrap justify-between items-center gap-y-3 mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
+          <div className="relative flex flex-wrap justify-between items-center gap-y-3 mt-8 pt-4 px-2 border-t border-gray-100 flex-shrink-0">
             {/* Faculty Simple/Advanced switch. From sm up it's a click-through overlay centred
                 between Back/Next; on phones there's no room between them, so it takes its own
                 full-width line above the buttons instead of drawing on top of them. */}
