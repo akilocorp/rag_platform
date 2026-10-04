@@ -1,56 +1,58 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-10-02
- * @changed   Home links go to '/' instead of the old /home splash.
+ * @updated   2026-10-04
+ * @changed   Rework for phones + hierarchy: transparent illustration (no white box), real wordmark,
+ *            "Page not found" copy, solid primary CTA (dashboard when signed in) + Go back, decorative
+ *            icons only from lg and static (no drift loop / press-shrink, per the quiet-motion rule).
+ * @changed   Prior: Home links go to '/' instead of the old /home splash.
  */
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { isLoggedIn, dashboardPath } from '../utils/auth';
 
 const FONT_DISPLAY = "'Wix Madefor Display', system-ui, sans-serif";
 const FONT_BODY = "'Wix Madefor Text', system-ui, sans-serif";
 
+// Decorative brand icons. Only rendered from lg, where the margins are wide enough that they
+// frame the message instead of landing on it (on a phone they covered the copy and the button).
 const FLOATING_ICONS = [
-  { src: '/illustrations/icon-calculator.png', top: '14%',  left: '14%',  size: 116, rotate: -18 },
-  { src: '/illustrations/icon-laptop.png',     top: '12%',  right: '12%', size: 132, rotate: 16 },
-  { src: '/illustrations/icon-pencil.png',     top: '46%',  right: '10%', size: 108, rotate: 22 },
-  { src: '/illustrations/icon-glasses.png',    bottom: '14%', right: '16%', size: 130, rotate: -14 },
-  { src: '/illustrations/icon-hashtag.png',    bottom: '18%', left: '12%',  size: 112, rotate: 12 },
+  { src: '/illustrations/icon-calculator.png', top: '16%',    left: '7%',   size: 104, rotate: -18 },
+  { src: '/illustrations/icon-laptop.png',     top: '14%',    right: '7%',  size: 120, rotate: 16 },
+  { src: '/illustrations/icon-pencil.png',     top: '46%',    right: '5%',  size: 96,  rotate: 22 },
+  { src: '/illustrations/icon-glasses.png',    bottom: '12%', right: '10%', size: 116, rotate: -14 },
+  { src: '/illustrations/icon-hashtag.png',    bottom: '16%', left: '8%',   size: 100, rotate: 12 },
 ];
 
 const NotFoundPage = () => {
   const navigate = useNavigate();
+  const loggedIn = isLoggedIn();
+
+  // Go back only when there's an in-app page to return to; a direct hit on a dead link
+  // has no history, so fall back to the same place as the primary button.
+  const goBack = () => {
+    if (window.history.state && window.history.state.idx > 0) navigate(-1);
+    else navigate(loggedIn ? dashboardPath() : '/');
+  };
 
   return (
     <div
-      className="relative min-h-screen w-full overflow-hidden"
+      className="relative min-h-[100dvh] w-full overflow-hidden flex flex-col"
       style={{
-        background:
-          'linear-gradient(180deg, #FFFFFF 0%, #F1F6FB 70%, #E8F0F8 100%)',
+        background: 'linear-gradient(180deg, #FFFFFF 0%, #F1F6FB 70%, #E8F0F8 100%)',
         fontFamily: FONT_BODY,
       }}
     >
-      {/* Wordmark — top-left */}
-      <Link
-        to="/"
-        className="absolute z-20"
-        style={{ top: '32px', left: '36px' }}
-      >
-        <span
-          style={{
-            fontFamily: FONT_DISPLAY,
-            fontWeight: 800,
-            fontSize: '1.35rem',
-            color: '#1F1F1F',
-            letterSpacing: '-0.02em',
-          }}
-        >
-          actrLabs
-        </span>
-      </Link>
+      <header className="relative z-20 px-6 lg:px-12 pt-6">
+        <Link to="/" className="inline-flex items-center transition-opacity hover:opacity-80">
+          <img
+            src="/actrlabs-wordmark.png"
+            alt="ACTRLabs: Redefining Learning"
+            className="h-8 w-auto select-none"
+            draggable={false}
+          />
+        </Link>
+      </header>
 
-      {/* Floating brand icons. Pointer-events-none so clicks pass through
-          to the centerpiece + button. Each icon has a slight rotation +
-          gentle drift loop. */}
       {FLOATING_ICONS.map((icon, i) => (
         <img
           key={i}
@@ -58,7 +60,7 @@ const NotFoundPage = () => {
           alt=""
           aria-hidden
           draggable={false}
-          className="absolute pointer-events-none select-none not-found-float"
+          className="hidden lg:block absolute pointer-events-none select-none"
           style={{
             top: icon.top,
             left: icon.left,
@@ -67,87 +69,57 @@ const NotFoundPage = () => {
             width: `${icon.size}px`,
             height: 'auto',
             transform: `rotate(${icon.rotate}deg)`,
-            animationDelay: `${i * 0.6}s`,
           }}
         />
       ))}
 
-      {/* Centerpiece — question-mark man, headline, subhead, CTA */}
-      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-6 text-center">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-16 text-center">
         <img
-          src="/email-forgot.jpg"
+          src="/email-forgot.png"
           alt=""
           aria-hidden
           draggable={false}
-          className="select-none"
-          style={{
-            width: '220px',
-            height: 'auto',
-            maxWidth: '60vw',
-            marginBottom: '28px',
-            filter: 'drop-shadow(0 8px 24px rgba(31,31,31,0.08))',
-          }}
+          className="w-40 sm:w-48 h-auto select-none mb-6"
         />
 
-        <h1
-          style={{
-            fontFamily: FONT_DISPLAY,
-            fontWeight: 800,
-            fontSize: 'clamp(2rem, 4.5vw, 3rem)',
-            letterSpacing: '-0.02em',
-            color: '#1F1F1F',
-            lineHeight: 1.05,
-            marginBottom: '12px',
-          }}
+        <p
+          className="text-xs font-bold uppercase tracking-[0.18em] text-[#FA6C43] mb-3"
+          style={{ fontFamily: FONT_BODY }}
         >
-          Error 404
+          404
+        </p>
+
+        <h1
+          className="text-3xl sm:text-4xl lg:text-5xl mb-3"
+          style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', color: '#1F1F1F', lineHeight: 1.1 }}
+        >
+          Page not found
         </h1>
 
         <p
-          style={{
-            fontFamily: FONT_BODY,
-            fontSize: '1.05rem',
-            color: 'rgba(31,31,31,0.55)',
-            maxWidth: '480px',
-            lineHeight: 1.5,
-            marginBottom: '32px',
-          }}
+          className="text-[15px] lg:text-base max-w-sm mb-8"
+          style={{ fontFamily: FONT_BODY, fontWeight: 500, color: '#1F1F1F', lineHeight: 1.55, textWrap: 'balance' }}
         >
-          Oops. I couldn&rsquo;t find what you were looking for&hellip;
+          The link may be broken, or the page may have moved.
         </p>
 
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="transition-all active:scale-95 hover:brightness-95"
-          style={{
-            backgroundColor: '#FDE3D8',
-            color: '#1F1F1F',
-            fontFamily: FONT_BODY,
-            fontWeight: 600,
-            fontSize: '1rem',
-            padding: '12px 32px',
-            borderRadius: '10px',
-            border: '1px solid rgba(250,108,67,0.18)',
-            boxShadow: '0 8px 24px rgba(250,108,67,0.18)',
-          }}
-        >
-          Back Home
-        </button>
+        {/* Primary action first on phones (stacked, full width); side by side from sm. */}
+        <div className="w-full max-w-xs sm:max-w-none sm:w-auto flex flex-col sm:flex-row-reverse items-stretch sm:items-center gap-3">
+          <Link
+            to={loggedIn ? dashboardPath() : '/'}
+            className="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-transparent text-[15px] font-semibold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-colors"
+          >
+            {loggedIn ? 'Back to dashboard' : 'Go to homepage'}
+          </Link>
+          <button
+            type="button"
+            onClick={goBack}
+            className="inline-flex items-center justify-center px-6 py-3 rounded-xl text-[15px] font-semibold text-[#1F1F1F] bg-white border border-gray-200 hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-colors"
+          >
+            Go back
+          </button>
+        </div>
       </main>
-
-      <style>{`
-        @keyframes notFoundFloat {
-          0%, 100% { translate: 0 0; }
-          50%      { translate: 0 -10px; }
-        }
-        .not-found-float {
-          animation: notFoundFloat 6s ease-in-out infinite;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .not-found-float { animation: none; }
-        }
-      `}</style>
     </div>
   );
 };
