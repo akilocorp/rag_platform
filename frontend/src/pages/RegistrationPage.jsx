@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-14
-// @changed   Handles `?invite=<token>` from a collaborator invitation email: resolves the token to
+// @updated   2026-10-04
+// @changed   Hero only flex-grows from lg and the stacked layout top-aligns: on iPad portrait the form sat ~300px down.
+// Prior: Handles `?invite=<token>` from a collaborator invitation email: resolves the token to
 //            name what they were invited to, pins the email field to the invited address (the grant
 //            is bound to it server-side), and points them at sign-in if that address already has an
 //            account. An unknown or expired token degrades to an ordinary registration form.
@@ -181,7 +182,7 @@ const RegistrationPage = () => {
       
       <Navbar/>
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center max-w-[1440px] mx-auto w-full px-6 lg:px-8 gap-12 lg:gap-32 z-10 pt-6 pb-16 lg:pb-20">
+      <div className="flex-1 flex flex-col lg:flex-row items-center justify-start lg:justify-center max-w-[1440px] mx-auto w-full px-6 lg:px-8 gap-12 lg:gap-32 z-10 pt-8 lg:pt-6 pb-16 lg:pb-20">
         
         {/* Left Form Card (Order 2 on mobile, Order 1 on desktop) */}
         <div className="order-2 lg:order-1 w-full max-w-[420px] bg-white rounded-[2rem] shadow-sm p-8 lg:p-10 flex flex-col z-20 transition-all duration-300">
@@ -425,7 +426,7 @@ const RegistrationPage = () => {
         </div>
 
         {/* Right Hero Section (Order 1 on mobile, Order 2 on desktop) */}
-        <div className="order-1 lg:order-2 flex-1 relative w-full lg:h-[500px] flex flex-col items-center lg:items-start text-center lg:text-left">
+        <div className="order-1 lg:order-2 lg:flex-1 relative w-full lg:h-[500px] flex flex-col items-center lg:items-start text-center lg:text-left">
           
           {/* Slider Container */}
           <div className="relative w-full h-[140px] sm:h-[160px] lg:h-[250px] mt-4 lg:mt-10 lg:pl-8">

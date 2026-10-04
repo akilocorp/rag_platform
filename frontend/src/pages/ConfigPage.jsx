@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   New onPublished callback after a successful publish, so the list can reset the wizard.
+// @updated   2026-10-04
+// @changed   Phones: the Simple/Advanced switch gets its own line above Cancel/Next (it was drawn on top of them).
+// @changed   Prior: New onPublished callback after a successful publish, so the list can reset the wizard.
 // @changed   Prior: Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
 // @changed   Prior: Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
 //            goes up as `hume_voice` and the server creates the bot's own Hume config with it.
@@ -1995,17 +1996,17 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
           </div>
 
           {mode === 'scratch' && (
-          <div className="relative flex justify-between items-center mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
-            {/* Faculty Simple/Advanced switch, centered at the modal's bottom
-                edge. Overlay is click-through so it never blocks the Back/Next
-                buttons sitting at the row's edges. */}
-            <div className="absolute inset-0 flex items-center justify-center pt-4 pointer-events-none">
+          <div className="relative flex flex-wrap justify-between items-center gap-y-3 mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
+            {/* Faculty Simple/Advanced switch. From sm up it's a click-through overlay centred
+                between Back/Next; on phones there's no room between them, so it takes its own
+                full-width line above the buttons instead of drawing on top of them. */}
+            <div className="w-full order-first flex justify-center sm:order-none sm:w-auto sm:absolute sm:inset-0 sm:items-center sm:pt-4 sm:pointer-events-none">
               <div className="pointer-events-auto">
                 <ConfigModeToggle variant="compact" />
               </div>
             </div>
-            <button onClick={handleBack} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all">{step === 1 ? 'Cancel' : 'Back'}</button>
-            <button onClick={handleNext} disabled={isLoading} className="px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm min-w-[120px] flex justify-center">
+            <button onClick={handleBack} disabled={isLoading} className="px-5 sm:px-8 py-3 rounded-xl font-bold text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all">{step === 1 ? 'Cancel' : 'Back'}</button>
+            <button onClick={handleNext} disabled={isLoading} className="px-5 sm:px-8 py-3 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] transition-all shadow-sm min-w-[120px] flex justify-center">
               {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : (step === stepsFor(config.bot_type).at(-1) ? 'Publish' : 'Next')}
             </button>
           </div>

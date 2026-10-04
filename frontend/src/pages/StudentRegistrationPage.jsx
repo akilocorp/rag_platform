@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-10-02
- * @changed   Show-password toggle gets an aria-label.
+ * @updated   2026-10-04
+ * @changed   Hero headline no longer clipped (min-height per breakpoint, 28px/4xl/5xl); duplicate logo hidden and layout top-aligned when stacked; hero lines up with the form card.
+ * @changed   Prior: Show-password toggle gets an aria-label.
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
@@ -95,7 +96,7 @@ const StudentRegistrationPage = () => {
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB] text-gray-900 relative overflow-x-hidden flex flex-col">
       <Navbar />
-      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center max-w-[1440px] mx-auto w-full px-6 lg:px-8 gap-12 lg:gap-32 z-10 pt-6 pb-16 lg:pb-20">
+      <div className="flex-1 flex flex-col lg:flex-row items-center justify-start lg:justify-center max-w-[1440px] mx-auto w-full px-6 lg:px-8 gap-12 lg:gap-32 z-10 pt-8 lg:pt-6 pb-16 lg:pb-20">
 
         {/* Left Form Card */}
         <div className="order-2 lg:order-1 w-full max-w-[420px] bg-white rounded-[2rem] shadow-sm p-8 lg:p-10 flex flex-col z-20">
@@ -219,13 +220,15 @@ const StudentRegistrationPage = () => {
         </div>
 
         {/* Right Hero Panel */}
-        <div className="order-1 lg:order-2 w-full max-w-lg flex flex-col items-start">
-          <img src={logo} alt="actrLabs Logo" className="h-10 lg:h-12 w-auto object-contain mb-8 lg:mb-10" />
-          <div className="h-[100px] overflow-hidden">
+        <div className="order-1 lg:order-2 w-full max-w-[420px] lg:max-w-lg flex flex-col items-start">
+          {/* navbar already shows the logo when stacked */}
+          <img src={logo} alt="actrLabs Logo" className="hidden lg:block h-12 w-auto object-contain mb-10" />
+          {/* min-height sized to the tallest slide, so the headline is never clipped and the form doesn't jump between slides */}
+          <div className="relative w-full min-h-[110px] sm:min-h-[128px] lg:min-h-[150px]">
             {slides.map((slide, index) => (
               <div key={index} className={`transition-all duration-700 ${index === currentSlide ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 absolute'}`}>
                 {index === currentSlide && (
-                  <h2 className="text-4xl sm:text-5xl font-medium tracking-tight leading-[1.2] text-[#222]">
+                  <h2 className="text-[28px] sm:text-4xl lg:text-5xl font-medium tracking-tight leading-[1.2] text-[#222]">
                     {slide.line1}<br />{slide.line2}<br />
                     <span className="text-gray-400">{slide.prefix}</span>
                     <span className="text-[#FA6C43]">{slide.highlight}</span>

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-04
-// @changed   Phones: toolbar wraps with one-line button labels; cards drop the icon tile and titles wrap to 2 lines (were cut to a few letters).
+// @changed   Below lg: categories become a chip row and the header stays stacked; phones put New Assistant first, full width; 'Plan from syllabus' reads 'Syllabus' on phones; Private/Shared capped on iPad; card footers wrap with a one-line open button.
+// @changed   Prior: Phones: toolbar wraps with one-line button labels; cards drop the icon tile and titles wrap to 2 lines (were cut to a few letters).
 // @changed   Prior: Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
 // @changed   Prior: Report a Bug restyled as a secondary button so New Assistant is the only primary action.
 // @changed   Prior: Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
@@ -595,7 +596,7 @@ const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDel
             </button>
           </div>
         ) : (
-          <div className={`flex items-center gap-3 ${isList ? '' : 'justify-between'}`}>
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-3 ${isList ? '' : 'justify-between'}`}>
             {isList && (
               <div className="flex items-center gap-1.5 mr-1">
                 {actionButtons}
@@ -623,7 +624,7 @@ const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDel
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(config); }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors"
+              className="ml-auto whitespace-nowrap flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-[#FA6C43] hover:text-white hover:border-[#FA6C43] transition-colors"
             >
               <FaExternalLinkAlt className="text-[10px]" />
               {primaryActionLabel(config.bot_type)}
@@ -1017,10 +1018,10 @@ const ConfigListPage = () => {
 
           {/* ── Sidebar ─────────────────────────────────── */}
           <aside className="w-full lg:w-60 flex-shrink-0 lg:sticky lg:top-6 lg:self-start rounded-2xl p-2 -m-2">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3 px-1">Categories</p>
+            <p className="hidden lg:block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3 px-1">Categories</p>
 
             {/* Private / Shared toggle */}
-            <div className="flex p-1 bg-white border border-gray-200 rounded-xl mb-5 shadow-sm">
+            <div className="flex p-1 bg-white border border-gray-200 rounded-xl mb-3 lg:mb-5 shadow-sm max-lg:max-w-xs">
               {['private', 'shared'].map((v) => (
                 <button
                   key={v}
@@ -1034,16 +1035,17 @@ const ConfigListPage = () => {
               ))}
             </div>
 
-            {/* Category list */}
-            <nav className="space-y-1">
+            {/* Category list — a vertical list from lg; below that a single sideways-scrolling
+                chip row, so the filters don't push the page heading ~300px down on phones. */}
+            <nav className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 lg:block lg:space-y-1 lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat.key}
                   onClick={() => setCategory(cat.key)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors ${
+                  className={`shrink-0 whitespace-nowrap gap-3 lg:w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors ${
                     category === cat.key
                       ? 'bg-white text-[#FA6C43] font-bold shadow-sm border border-[#FA6C43]/20'
-                      : 'text-gray-500 hover:bg-white/60 hover:text-gray-700 font-medium'
+                      : 'text-gray-500 hover:bg-white/60 hover:text-gray-700 font-medium max-lg:bg-white max-lg:border max-lg:border-gray-200'
                   }`}
                 >
                   <span>{cat.label}</span>
@@ -1058,7 +1060,7 @@ const ConfigListPage = () => {
           {/* ── Content ─────────────────────────────────── */}
           <main className="flex-1 min-w-0">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-8">
               <div className="min-w-0">
                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#222]">AI Assistants</h1>
                 <p className="text-gray-500 text-sm mt-1.5 font-medium max-w-xl">
@@ -1066,7 +1068,7 @@ const ConfigListPage = () => {
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 sm:flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-3 lg:flex-shrink-0">
                 {/* View toggle — Apple-style: a single pill slides between
                     the two segments instead of each toggling its own bg. */}
                 <div className="relative flex p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
@@ -1113,11 +1115,12 @@ const ConfigListPage = () => {
                   title="Upload your syllabus and see which classes ACTR fits"
                 >
                   <FaListAlt className="mr-2 text-sm" />
-                  <span className="font-bold text-[14px]">Plan from syllabus</span>
+                  <span className="font-bold text-[14px] sm:hidden">Syllabus</span>
+                  <span className="font-bold text-[14px] hidden sm:inline">Plan from syllabus</span>
                 </button>
 
                 <button
-                  className="flex items-center justify-center whitespace-nowrap px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
+                  className="max-sm:order-first max-sm:w-full flex items-center justify-center whitespace-nowrap px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
                   onClick={handleCreateNew}
                 >
                   <FaPlus className="mr-2 text-sm" />
