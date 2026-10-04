@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-15
- * @changed   Added a "Back to dashboard" link in the header so the page isn't a dead end.
+ * @updated   2026-10-04
+ * @changed   Phones: card p-4 and drop zone px-4 py-10, so the file-type line isn't squeezed onto 3 lines.
+ * @changed   Prior: Added a "Back to dashboard" link in the header so the page isn't a dead end.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -186,7 +187,7 @@ function UploadCard({
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-8">
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-8">
       {error && (
         <div className="mb-6 flex items-start gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
           <FiAlertCircle className="mt-0.5 shrink-0" />
@@ -200,7 +201,7 @@ function UploadCard({
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
             onClick={onPick}
-            className="border-2 border-dashed border-slate-300 rounded-xl p-14 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition"
+            className="border-2 border-dashed border-slate-300 rounded-xl px-4 py-10 sm:p-14 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition"
           >
             <FiUploadCloud className="w-10 h-10 mx-auto text-slate-400" />
             <p className="mt-4 font-medium text-slate-800">Drop your syllabus here</p>

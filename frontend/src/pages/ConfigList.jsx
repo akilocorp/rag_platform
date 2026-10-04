@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-04
-// @changed   Below lg: categories become a chip row and the header stays stacked; phones put New Assistant first, full width; 'Plan from syllabus' reads 'Syllabus' on phones; Private/Shared capped on iPad; card footers wrap with a one-line open button.
+// @changed   Grid view goes 2-up from lg (was xl); phones move the card's icon actions to their own row under the chips.
+// @changed   Prior: Below lg: categories become a chip row and the header stays stacked; phones put New Assistant first, full width; 'Plan from syllabus' reads 'Syllabus' on phones; Private/Shared capped on iPad; card footers wrap with a one-line open button.
 // @changed   Prior: Phones: toolbar wraps with one-line button labels; cards drop the icon tile and titles wrap to 2 lines (were cut to a few letters).
 // @changed   Prior: Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
 // @changed   Prior: Report a Bug restyled as a secondary button so New Assistant is the only primary action.
@@ -554,7 +555,7 @@ const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDel
               </span>
             )}
             {!isList && (
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="max-sm:hidden flex items-center gap-1.5 flex-shrink-0">
                 {actionButtons}
               </div>
             )}
@@ -572,6 +573,14 @@ const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDel
               </span>
             )}
           </div>
+
+          {/* Phones: the icon actions get their own row under the chips (bigger targets),
+              so they stop squeezing the title down to a few letters. */}
+          {!isList && (
+            <div className="sm:hidden mt-3 -ml-2 flex items-center gap-1 [&>button]:p-2.5">
+              {actionButtons}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1175,7 +1184,7 @@ const ConfigListPage = () => {
                 {sections.map((section) => (
                   <section key={section.key}>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">{section.label}</p>
-                    <div className={view === 'grid' ? 'grid grid-cols-1 xl:grid-cols-2 gap-5' : 'flex flex-col gap-4'}>
+                    <div className={view === 'grid' ? 'grid grid-cols-1 lg:grid-cols-2 gap-5' : 'flex flex-col gap-4'}>
                       {section.items.map((config) => (
                         <ConfigItem
                           key={config._id || config.config_id}

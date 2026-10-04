@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-08-03
- * @changed   New file: the /userguide route — track landing, page render, in-guide 404.
+ * @updated   2026-10-04
+ * @changed   Track cards: p-4 and no arrow on phones, so the blurb gets the width.
+ * @changed   Prior: New file: the /userguide route — track landing, page render, in-guide 404.
  */
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -37,7 +38,7 @@ function Landing() {
             <Link
               key={track.id}
               to={`/userguide/${first.id}`}
-              className="group flex items-start gap-4 border border-gray-200 rounded-2xl p-5 hover:border-[#FA6C43] hover:bg-orange-50/40 transition-colors"
+              className="group flex items-start gap-4 border border-gray-200 rounded-2xl p-4 sm:p-5 hover:border-[#FA6C43] hover:bg-orange-50/40 transition-colors"
             >
               <span className="shrink-0 w-11 h-11 rounded-xl bg-[#FA6C43]/10 flex items-center justify-center">
                 <Icon className="text-[#FA6C43] text-lg" />
@@ -51,7 +52,7 @@ function Landing() {
                   {track.pages.length} pages · starts with “{first.title}”
                 </span>
               </span>
-              <FaArrowRight className="text-gray-300 group-hover:text-[#FA6C43] mt-4 shrink-0 transition-colors" />
+              <FaArrowRight className="hidden sm:block text-gray-300 group-hover:text-[#FA6C43] mt-4 shrink-0 transition-colors" />
             </Link>
           );
         })}

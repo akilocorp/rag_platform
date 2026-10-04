@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-10-02
- * @changed   Wordmark links to '/' instead of the old /home splash.
+ * @updated   2026-10-04
+ * @changed   Article column capped at 600px and centred (lines were ~100 characters on iPad/desktop); card padding p-5 on phones.
+ * @changed   Prior: Wordmark links to '/' instead of the old /home splash.
  * @changed   Prior: New file: guide shell — sidebar, mobile jump menu, search, prev/next, print.
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -203,9 +204,11 @@ export default function GuideLayout({ currentId, children }) {
 
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-8 lg:py-12 flex gap-10">
         <Sidebar currentId={currentId} />
-        <main className="flex-1 min-w-0">
+        {/* 600px column (520px of text inside the card) keeps prose at ~70 characters per line while
+            code blocks, screenshots and tables share the same right edge; centred in the space beside the sidebar */}
+        <main className="flex-1 min-w-0 max-w-[600px] mx-auto">
           <MobileJump currentId={currentId} />
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-10">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-10">
             {children}
           </div>
           <PrevNext currentId={currentId} />

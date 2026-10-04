@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-04
-// @changed   Phones: the Simple/Advanced switch gets its own line above Cancel/Next (it was drawn on top of them).
+// @changed   Phones: dialog padding trimmed, short tab labels ('Template' / 'From scratch'), no 550px min-height, 90dvh cap.
+// @changed   Prior: Phones: the Simple/Advanced switch gets its own line above Cancel/Next (it was drawn on top of them).
 // @changed   Prior: New onPublished callback after a successful publish, so the list can reset the wizard.
 // @changed   Prior: Publish errors name the field ('How it appears', 'Pick the Base AI Model') instead of step numbers.
 // @changed   Prior: Audio Call: a voice picker (HumeVoicePicker) in the "How it appears" section. The pick
@@ -970,18 +971,18 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
 
   return (
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col relative min-h-[550px] max-h-[90vh]">
+      <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col relative sm:min-h-[550px] max-h-[90dvh]">
         <button onClick={onClose} className="absolute top-5 right-5 p-2.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all z-10">
           <FaTimes className="text-xl" />
         </button>
 
-        <div className="p-8 sm:p-10 flex-1 flex flex-col pt-16 min-h-0 min-w-0">
+        <div className="p-5 sm:p-10 flex-1 flex flex-col pt-14 sm:pt-16 min-h-0 min-w-0">
           {/* Template vs scratch. One dialog, two ways in — the tab bar replaces what
               was briefly a second modal stacked in front of this one. */}
           <div className="flex p-1 bg-gray-100 rounded-xl mb-6 mr-10 flex-shrink-0">
             {[
-              { key: 'template', label: 'Start from a template' },
-              { key: 'scratch', label: 'Build from scratch' },
+              { key: 'template', label: 'Start from a template', short: 'Template' },
+              { key: 'scratch', label: 'Build from scratch', short: 'From scratch' },
             ].map(t => (
               <button
                 key={t.key}
@@ -991,7 +992,9 @@ const ConfigModal = ({ isOpen, onClose, onCreated, onPublished }) => {
                   mode === t.key ? 'bg-white text-[#FA6C43] shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                {t.label}
+                {/* short label on phones so the two tabs read evenly on one line */}
+                <span className="sm:hidden">{t.short}</span>
+                <span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
           </div>

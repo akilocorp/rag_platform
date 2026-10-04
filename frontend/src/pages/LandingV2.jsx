@@ -1,6 +1,8 @@
 // @language JavaScript (React)
-// @updated 2026-09-20
-// @changed FEATURES researcher panel: swapped the peach background + illustrated QualtricsMockup
+// @updated 2026-10-04
+// @changed Phones: nav links stay on one line (Guide hidden below sm); heading steps 4xl/5xl/7xl and
+//          question 20px so it sits below its answer words; unselected answers /30 -> /45 contrast.
+// Prior: FEATURES researcher panel: swapped the peach background + illustrated QualtricsMockup
 //          for a light-blue tint (matches TRACK_ACCENT.researcher) and a real <video> player, same
 //          convention as the educator panel's video (drop a file at the placeholder path, no code
 //          changes). QualtricsMockup/QualtricsRow removed as dead code now that nothing renders them.
@@ -825,7 +827,7 @@ const LandingV2 = () => {
           gesture. That's the exact "looks like it could be a scam" gap
           the brand-visibility ask was about; the fix is just not hiding it. */}
       <nav
-        className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between gap-3 px-6 lg:px-12 py-3"
+        className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between gap-3 px-4 sm:px-6 lg:px-12 py-3"
         style={{
           '--nav-fg': '#1F1F1F',
           '--nav-fg-soft': '#1F1F1F',
@@ -844,21 +846,21 @@ const LandingV2 = () => {
         <div className="flex items-center gap-3">
           <Link
             to="/userguide"
-            className="text-sm font-semibold transition-opacity hover:opacity-80"
+            className="hidden sm:inline whitespace-nowrap text-sm font-semibold transition-opacity hover:opacity-80"
             style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
           >
             Guide
           </Link>
           <Link
             to="/login"
-            className="text-sm font-semibold transition-opacity hover:opacity-80"
+            className="whitespace-nowrap text-sm font-semibold transition-opacity hover:opacity-80"
             style={{ color: 'var(--nav-fg-soft)', fontFamily: FONT_BODY }}
           >
             Sign in
           </Link>
           <Link
             to="/register"
-            className="px-4 py-2 text-sm font-semibold transition-all hover:scale-105"
+            className="whitespace-nowrap px-4 py-2 text-sm font-semibold transition-all hover:scale-105"
             style={{
               backgroundColor: '#FA6C43',
               color: '#FFFFFF',
@@ -1043,7 +1045,7 @@ const LandingV2 = () => {
       >
         <div
           ref={philosophyTextRef}
-          className="max-w-4xl text-2xl lg:text-4xl leading-[1.45] space-y-10"
+          className="max-w-4xl text-xl sm:text-2xl lg:text-4xl leading-[1.45] space-y-10"
           style={{
             fontFamily: FONT_DISPLAY,
             fontWeight: 700,
@@ -1156,7 +1158,7 @@ const LandingV2 = () => {
       <section className="relative px-3 lg:px-6 py-20 lg:py-28 text-center" style={{ backgroundColor: '#FAFAF7' }}>
         <div className="max-w-4xl mx-auto">
           <h2
-            className="text-2xl lg:text-4xl tracking-tight mb-10"
+            className="text-xl sm:text-2xl lg:text-4xl tracking-tight mb-10"
             style={{ color: '#1F1F1F', fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em' }}
           >
             Are you faculty, or a researcher?
@@ -1175,7 +1177,7 @@ const LandingV2 = () => {
               type="button"
               onClick={() => setAudienceTrack('educator')}
               className={`tracking-tight transition-colors duration-200 hover:text-[#FA6C43] ${
-                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]/30'
+                audienceTrack === 'educator' ? 'text-[#FA6C43]' : 'text-[#1F1F1F]/45'
               }`}
               style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
             >
@@ -1191,7 +1193,7 @@ const LandingV2 = () => {
               type="button"
               onClick={() => setAudienceTrack('researcher')}
               className={`tracking-tight transition-colors duration-200 hover:text-[#0EA5E9] ${
-                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]/30'
+                audienceTrack === 'researcher' ? 'text-[#0EA5E9]' : 'text-[#1F1F1F]/45'
               }`}
               style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, letterSpacing: '-0.02em', fontSize: 'clamp(1.5rem, 6.5vw, 6rem)' }}
             >
@@ -1485,7 +1487,7 @@ const LandingV2 = () => {
         <ContainerScroll
           titleComponent={
             <h2
-              className="text-5xl lg:text-7xl tracking-tight text-center mb-24"
+              className="text-4xl sm:text-5xl lg:text-7xl tracking-tight text-center mb-24"
               style={{
                 color: '#1F1F1F',
                 fontFamily: FONT_DISPLAY,
@@ -1544,7 +1546,7 @@ const LandingV2 = () => {
         </div>
 
         <h2
-          className="text-5xl lg:text-7xl tracking-tight text-center mb-4"
+          className="text-4xl sm:text-5xl lg:text-7xl tracking-tight text-center mb-4"
           style={{
             color: '#1F1F1F',
             fontFamily: FONT_DISPLAY,

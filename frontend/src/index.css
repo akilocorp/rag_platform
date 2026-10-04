@@ -1,7 +1,8 @@
 /*
  * @language  CSS
  * @updated   2026-10-04
- * @changed   #root gets min-width: 0 so long lines can't widen the app past the phone screen.
+ * @changed   .guide-md body text 0.95rem -> 1rem; line length is set by the GuideLayout column; table headers and inline code wrap on phones.
+ * @changed   Prior: #root gets min-width: 0 so long lines can't widen the app past the phone screen.
  * @changed   Prior: html: text-size-adjust 100% so iOS doesn't inflate text in landscape.
  * @changed   Prior: Add .guide-widget slot styles for live, playable widget demos on the Widgets guide page.
  */
@@ -819,7 +820,7 @@ a:focus-visible {
    --------------------------------------------------------------------------- */
 .guide-md {
   color: #374151;
-  font-size: 0.95rem;
+  font-size: 1rem;
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
@@ -913,6 +914,8 @@ a:focus-visible {
   vertical-align: top;
 }
 .guide-md th { font-weight: 700; color: #374151; white-space: nowrap; }
+/* phones: table headers and inline code may wrap, or one long one pushes the whole page sideways */
+@media (max-width: 639px) { .guide-md th, .guide-md :not(pre) > code { white-space: normal; } }
 
 /* `> ` callouts — used for warnings and gotchas throughout the guide. */
 .guide-md blockquote {

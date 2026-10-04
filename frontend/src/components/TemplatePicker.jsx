@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-28
- * @changed   Creating from a published template shows the server's `warning` (an Audio Call copy whose Hume
+ * @updated   2026-10-04
+ * @changed   Card descriptions are 13px on phones (12px gray was hard to read).
+ * @changed   Prior: Creating from a published template shows the server's `warning` (an Audio Call copy whose Hume
  *            voice config could not be created) in an alert.
  * @changed   Prior: Quieter motion: cards no longer lift or shrink (border colour carries hover); sub-views fade instead of sliding.
  * @changed   Prior: New file: the "Start from a template" tab inside the create dialog. Replaces
@@ -96,7 +97,7 @@ export default function TemplatePicker({ onCreated, onBuildFromScratch }) {
           <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{info.label}</span>
         </div>
         <h4 className="text-[15px] font-bold text-[#222] mb-1">{card.title}</h4>
-        <p className="text-xs text-gray-500 font-medium leading-relaxed flex-1">
+        <p className="text-[13px] sm:text-xs text-gray-500 font-medium leading-relaxed flex-1">
           {card.description || 'No description provided.'}
         </p>
         <div className="flex items-center gap-3 mt-3 text-[11px] font-semibold text-gray-400">
