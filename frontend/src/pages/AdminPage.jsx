@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-09-22
-// @changed   A "Manager exercise — load" panel reads /admin/loadtest-runs: percentiles per cohort
+// @updated   2026-10-04
+// @changed   Users list: below md, email and status fold under the username (four fixed columns left the name ~0px on a phone); add-tier row wraps on phones.
+// @changed   Prior: A "Manager exercise — load" panel reads /admin/loadtest-runs: percentiles per cohort
 //            size from the last recorded sweep. Read-only; the sweep is a compose service started
 //            by hand, so no button here can fire load at a server that may be mid-class.
 //            Prior: Create-an-account now takes the person's school and school ID; the list shows both
@@ -169,6 +170,26 @@ const LoadTestPanel = () => {
 
 // Seconds to one decimal, or an em dash when a stage never reported.
 const fmtS = (v) => (typeof v === 'number' ? `${v.toFixed(1)}s` : '—');
+
+// Account-state pill for a user row (temp password / verified / unverified). Rendered in its own
+// column from md, and under the username on phones where that column is folded away.
+const statusPill = (user) => (
+  <>
+    {/* Still on the password we handed them — worth calling out
+        separately from unverified, since they can't use the app yet. */}
+    {user.must_change_password ? (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+        <FaKey className="text-[9px]" /> Temp password
+      </span>
+    ) : user.is_verified ? (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+        <FaCheckCircle className="text-[10px]" /> Verified
+      </span>
+    ) : (
+      <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Unverified</span>
+    )}
+  </>
+);
 
 const AdminPage = () => {
   const navigate = useNavigate();
@@ -449,10 +470,10 @@ const AdminPage = () => {
 
             <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
               {/* Table header */}
-              <div className="grid grid-cols-[1fr_160px_100px_110px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <div className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_160px_100px_110px] gap-3 md:gap-4 px-4 md:px-6 py-3 border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
                 <span>User</span>
-                <span>Email</span>
-                <span>Status</span>
+                <span className="hidden md:block">Email</span>
+                <span className="hidden md:block">Status</span>
                 <span>Role</span>
               </div>
 
@@ -460,7 +481,7 @@ const AdminPage = () => {
                 <div className="px-6 py-12 text-center text-gray-400 text-sm">No users match your search.</div>
               ) : (
                 filtered.map(user => (
-                  <div key={user.id} className="grid grid-cols-[1fr_160px_100px_110px] gap-4 px-6 py-4 border-b border-gray-50 last:border-b-0 items-center hover:bg-gray-50/50 transition-colors">
+                  <div key={user.id} className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_160px_100px_110px] gap-3 md:gap-4 px-4 md:px-6 py-4 border-b border-gray-50 last:border-b-0 items-center hover:bg-gray-50/50 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[#222] truncate">{user.username}</p>
                       {/* Falls back to the raw id when there's no affiliation to show —
@@ -472,25 +493,14 @@ const AdminPage = () => {
                       ) : (
                         <p className="text-xs text-gray-400 truncate">{user.id}</p>
                       )}
+                      {/* phones: email + status fold in under the name */}
+                      <p className="md:hidden text-xs text-gray-600 truncate mt-0.5">{user.email}</p>
+                      <div className="md:hidden mt-1.5">{statusPill(user)}</div>
                     </div>
 
-                    <p className="text-sm text-gray-600 truncate">{user.email}</p>
+                    <p className="hidden md:block text-sm text-gray-600 truncate">{user.email}</p>
 
-                    <div>
-                      {/* Still on the password we handed them — worth calling out
-                          separately from unverified, since they can't use the app yet. */}
-                      {user.must_change_password ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
-                          <FaKey className="text-[9px]" /> Temp password
-                        </span>
-                      ) : user.is_verified ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                          <FaCheckCircle className="text-[10px]" /> Verified
-                        </span>
-                      ) : (
-                        <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Unverified</span>
-                      )}
-                    </div>
+                    <div className="hidden md:block">{statusPill(user)}</div>
 
                     <div className="relative">
                       {saving[user.id] ? (
@@ -577,20 +587,20 @@ const AdminPage = () => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="text"
                     placeholder="Tier name (e.g. Small)"
                     value={newTier.name}
                     onChange={e => setNewTier(t => ({ ...t, name: e.target.value }))}
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                    className="basis-full sm:basis-0 flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
                   />
                   <input
                     type="number" min="1"
                     placeholder="msg / student"
                     value={newTier.messages_per_student}
                     onChange={e => setNewTier(t => ({ ...t, messages_per_student: e.target.value }))}
-                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
+                    className="flex-1 sm:flex-none sm:w-32 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FA6C43]"
                   />
                   <button
                     onClick={addTier}

@@ -1,7 +1,8 @@
 /**
  * @language  JavaScript (React / JSX)
- * @updated   2026-09-27
- * @changed   Quieter motion: score bars no longer animate their width; no hover shadow or press-shrink.
+ * @updated   2026-10-04
+ * @changed   Phones: comparison stacks and its score columns narrow; the sessions table folds Date/Title away below md (date moves under the name); Export CSV is icon-only so the title fits.
+ * @changed   Prior: Quieter motion: score bars no longer animate their width; no hover shadow or press-shrink.
  * @changed   Prior: Opens on Sessions when the class has no saved analysis yet (it used to drop the professor
  *            into the New Analysis form); Analytics then shows a one-line empty state with a
  *            "Run analysis" button instead of auto-opening the form.
@@ -293,7 +294,7 @@ const CompareView = ({ data1, data2, meta1, meta2 }) => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {[{ data: data1, meta: meta1, accent: '[#FA6C43]', accentBg: '[#FA6C43]/10', label: 'Analysis A' },
           { data: data2, meta: meta2, accent: 'blue-500',  accentBg: 'blue-50',       label: 'Analysis B' }]
           .map(({ data, meta, accent, accentBg, label }, i) => {
@@ -329,7 +330,7 @@ const CompareView = ({ data1, data2, meta1, meta2 }) => {
 
       <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm font-bold text-[#222]">Student Scores</div>
-        <div className="grid grid-cols-[1fr_72px_72px_56px] gap-3 px-6 py-2 border-b border-gray-100 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+        <div className="grid grid-cols-[1fr_48px_48px_40px] sm:grid-cols-[1fr_72px_72px_56px] gap-3 px-4 sm:px-6 py-2 border-b border-gray-100 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
           <span>Student</span>
           <span className="text-center text-[#FA6C43]">A</span>
           <span className="text-center text-blue-500">B</span>
@@ -341,7 +342,7 @@ const CompareView = ({ data1, data2, meta1, meta2 }) => {
           const sc1 = s1?.score ?? null; const sc2 = s2?.score ?? null;
           const diff = sc1 != null && sc2 != null ? sc2 - sc1 : null;
           return (
-            <div key={sid} className="grid grid-cols-[1fr_72px_72px_56px] gap-3 px-6 py-3 border-b border-gray-50 last:border-0 items-center">
+            <div key={sid} className="grid grid-cols-[1fr_48px_48px_40px] sm:grid-cols-[1fr_72px_72px_56px] gap-3 px-4 sm:px-6 py-3 border-b border-gray-50 last:border-0 items-center">
               <span className="text-sm font-semibold text-[#222] truncate">{name}</span>
               <span className="flex justify-center">{sc1 != null ? <ScoreBadge score={sc1} /> : <span className="text-gray-300 text-sm">—</span>}</span>
               <span className="flex justify-center">{sc2 != null ? <ScoreBadge score={sc2} /> : <span className="text-gray-300 text-sm">—</span>}</span>
@@ -681,22 +682,25 @@ const SessionsTab = ({ sessions }) => {
 
   return (
     <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
-      <div className="grid grid-cols-[1fr_180px_70px_1fr_40px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-        <span>Student</span><span>Date</span><span>Msgs</span><span>Title</span><span />
+      {/* Below md the Date and Title columns fold away (the date moves under the name), so five
+          fixed columns don't squeeze the student name to nothing on a phone. */}
+      <div className="grid grid-cols-[1fr_48px_32px] md:grid-cols-[1fr_180px_70px_1fr_40px] gap-3 md:gap-4 px-4 md:px-6 py-3 border-b border-gray-100 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+        <span>Student</span><span className="hidden md:block">Date</span><span>Msgs</span><span className="hidden md:block">Title</span><span />
       </div>
       {labeled.map(s => (
         <div key={s.session_id} className="border-b border-gray-50 last:border-b-0">
           <button
-            className="w-full grid grid-cols-[1fr_180px_70px_1fr_40px] gap-4 px-6 py-4 text-left hover:bg-gray-50 transition-colors items-center"
+            className="w-full grid grid-cols-[1fr_48px_32px] md:grid-cols-[1fr_180px_70px_1fr_40px] gap-3 md:gap-4 px-4 md:px-6 py-4 text-left hover:bg-gray-50 transition-colors items-center"
             onClick={() => setExpandedId(expandedId === s.session_id ? null : s.session_id)}
           >
             <span className="flex flex-col min-w-0">
               <span className="text-sm font-semibold text-[#222] truncate">{s.displayName}</span>
               {s.displayEmail && <span className="text-xs text-gray-400 truncate">{s.displayEmail}</span>}
+              <span className="md:hidden text-xs text-gray-500 mt-0.5">{formatDate(s.timestamp)}</span>
             </span>
-            <span className="text-sm text-gray-500">{formatDate(s.timestamp)}</span>
+            <span className="hidden md:block text-sm text-gray-500">{formatDate(s.timestamp)}</span>
             <span className="text-sm text-gray-500">{s.message_count}</span>
-            <span className="text-sm text-gray-400 truncate">{s.title || '—'}</span>
+            <span className="hidden md:block text-sm text-gray-400 truncate">{s.title || '—'}</span>
             <span className="text-gray-400 flex justify-end">
               {expandedId === s.session_id ? <FaChevronUp className="text-xs" /> : <FaChevronDown className="text-xs" />}
             </span>
@@ -797,7 +801,7 @@ const ResponsesPage = () => {
     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} className="min-h-screen bg-[#F0F6FB]">
 
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 lg:px-10 py-4 flex items-center gap-4">
+      <div className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-10 py-4 flex items-center gap-3 sm:gap-4">
         <button onClick={() => navigate('/config_list')} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
           <FaArrowLeft />
         </button>
@@ -812,10 +816,13 @@ const ResponsesPage = () => {
         <button
           onClick={handleExportCsv}
           disabled={csvLoading || loading || sessions.length === 0}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] text-gray-600 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label="Export CSV"
+          title="Export CSV"
+          className="shrink-0 flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-bold bg-white border border-gray-200 hover:border-[#FA6C43] hover:text-[#FA6C43] text-gray-600 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {csvLoading ? <FaSpinner className="animate-spin text-sm" /> : <FaDownload className="text-sm" />}
-          {csvLoading ? csvProgress : 'Export CSV'}
+          {/* icon-only on phones so the class name isn't truncated to a few letters */}
+          <span className={csvLoading ? '' : 'hidden sm:inline'}>{csvLoading ? csvProgress : 'Export CSV'}</span>
         </button>
       </div>
 

@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Unsaved-changes guard (confirm on in-app exits + beforeunload); knowledge-base box accepts dropped files and stray drops no longer open the file; failed saves scroll to the error.
+// @updated   2026-10-04
+// @changed   Phones: usage, matchmaking, group-bot, and template grids stack to one column; avatars 3-up; candidate table scrolls sideways.
+// @changed   Prior: Unsaved-changes guard (confirm on in-app exits + beforeunload); knowledge-base box accepts dropped files and stray drops no longer open the file; failed saves scroll to the error.
 // @changed   Prior: Delete Space hidden from collaborators (the backend refuses them anyway).
 // @changed   Prior: Audio Call bots get the voice picker (HumeVoicePicker). A changed voice is sent as JSON
 //            `hume_voice` and the server re-versions the bot's Hume config (or creates one). If Hume
@@ -1015,7 +1016,7 @@ const EditConfigPage = () => {
   const _computedPool = _selectedTier && config.student_count
     ? _selectedTier.messages_per_student * Number(config.student_count) : null;
   const classUsageFields = config.class_code ? (
-    <div className="grid grid-cols-2 gap-4 mt-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
       <div>
         <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Usage tier</label>
         <select
@@ -1120,7 +1121,7 @@ const EditConfigPage = () => {
                 {config.bot_type === 'avatar' ? (
                     <>
                       <label className="block text-[13px] font-semibold text-gray-700 mb-2">Video Avatar</label>
-                      <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-40 overflow-y-auto custom-scrollbar">
                         {isFetchingAvatars ? (
                            <p className="text-sm text-gray-400">Loading avatars...</p>
                         ) : (
@@ -1305,7 +1306,7 @@ const EditConfigPage = () => {
             ) : config.bot_type === 'group_chat' ? (
               <div className="border-t border-gray-100 pt-8 mt-8 space-y-6">
                 <h3 className="text-[13px] font-bold text-gray-800 uppercase flex items-center"><FaUsers className="mr-2 text-[#FA6C43]"/> Matchmaking Rules</h3>
-                <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 bg-gray-50 p-4 sm:p-6 rounded-2xl border border-gray-100">
                   <div>
                     <label className="flex justify-between text-xs font-semibold text-gray-700 mb-2"><span>Target Size</span><span className="text-[#FA6C43] font-bold">{Number(config.group_size) === 1 ? 'Solo (1 user + AIs)' : config.group_size}</span></label>
                     <input type="range" name="group_size" min="1" max="10" value={config.group_size} onChange={handleChange} className="w-full h-2 bg-gray-200 rounded-lg appearance-none accent-[#FA6C43]" />
@@ -1326,7 +1327,7 @@ const EditConfigPage = () => {
                         {config.bots.length > 1 && (
                             <button type="button" onClick={() => removeBot(index)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 bg-gray-50 hover:bg-red-50 p-1.5 rounded-lg"><FaTrash/></button>
                         )}
-                        <div className="grid grid-cols-2 gap-4 mb-4 pr-8">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 pr-8">
                             <div>
                                 <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">Agent Name</label>
                                 <input type="text" value={bot.name} onChange={(e) => handleBotChange(index, 'name', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#FA6C43]" />
@@ -1988,8 +1989,8 @@ const EditConfigPage = () => {
                           </div>
                         )}
 
-                        <div className="rounded-2xl border border-gray-200 overflow-hidden">
-                          <table className="w-full text-sm">
+                        <div className="rounded-2xl border border-gray-200 overflow-x-auto">
+                          <table className="w-full min-w-[420px] text-sm">
                             <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
                               <tr>
                                 <th className="text-left font-bold px-4 py-2.5">Candidate</th>
@@ -2140,7 +2141,7 @@ const EditConfigPage = () => {
                       {showTemplates ? '▾' : '▸'} Apply a simulation template
                     </button>
                     {showTemplates && (
-                      <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                         {SIMULATION_TEMPLATES.map(t => (
                           <button
                             key={t.id}
