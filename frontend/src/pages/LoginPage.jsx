@@ -1,7 +1,8 @@
 /**
  * @language JavaScript (React JSX)
  * @updated 2026-10-04
- * @changed   Hero only flex-grows from lg and the stacked layout top-aligns: on iPad portrait the form sat ~300px down.
+ * @changed   Remember-me / Forgot row wraps cleanly; cookie note is one paragraph; gray-400 -> gray-500 for contrast.
+ * @changed Prior: Hero only flex-grows from lg and the stacked layout top-aligns: on iPad portrait the form sat ~300px down.
  * @changed Prior: Password managers work again (no readonly trick, current-password); 'Email or username' label; remember-me off by default.
  * @changed Prior: Empty-login error names the real field (email or username); spinner no longer shows an I-beam cursor.
  */
@@ -202,7 +203,7 @@ const LoginPage = () => {
               {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
             </div>
 
-            <div className="pt-1 flex items-center justify-between">
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <label className="flex items-center gap-2 text-[13px] text-[#222] font-semibold cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -212,7 +213,7 @@ const LoginPage = () => {
                 />
                 Keep me logged in for 30 days
               </label>
-              <Link to="/forgot-password" className="text-[13px] text-gray-400 hover:text-blue-600 font-medium transition-colors">
+              <Link to="/forgot-password" className="whitespace-nowrap text-[13px] text-gray-500 hover:text-blue-600 font-medium transition-colors">
                 Forgot Password?
               </Link>
             </div>
@@ -241,9 +242,9 @@ const LoginPage = () => {
             </Link>
           </div>
 
-          <div className="mt-10 text-center text-[11px] text-gray-400 leading-relaxed">
-            <p>Our website uses cookies to distinguish you from other</p>
-            <p>users of our website.</p>
+          <div className="mt-10 text-center text-[11px] text-gray-500 leading-relaxed">
+            {/* one paragraph, so it wraps to the card instead of at a hard-coded line break */}
+            <p>Our website uses cookies to distinguish you from other users of our website.</p>
             <p className="mt-2">
               Our <Link to="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
             </p>

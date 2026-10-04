@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
 // @updated   2026-10-04
-// @changed   Class names wrap to 2 lines instead of truncating hard beside the class-code chip.
+// @changed   Enter class is right-aligned and content-width from sm (six full-width orange bars on iPad); help icon gets a 34px target; meta text gray-500.
+// @changed   Prior: Class names wrap to 2 lines instead of truncating hard beside the class-code chip.
 // @changed   Prior: Upload-lock line reads 'Uploads open <date>' — the lock closes uploads, it doesn't gate results.
 // @changed   Prior: Every class type, not just video: cards carry the type label, what the class is
 //            for, and one "Enter class" button that routes by bot_type.
@@ -146,7 +147,7 @@ export default function StudentDashboardPage() {
                       to={`/userguide/${type.guideAnchor}`}
                       title={`How ${type.label} works`}
                       aria-label={`How ${type.label} works`}
-                      className="text-gray-300 hover:text-[#FA6C43] transition-colors"
+                      className="p-2 -m-2 text-gray-400 hover:text-[#FA6C43] transition-colors"
                     >
                       <FaRegQuestionCircle className="text-lg" />
                     </Link>
@@ -154,7 +155,7 @@ export default function StudentDashboardPage() {
                 </div>
 
                 <p className="text-sm text-gray-500 mb-1">{type.blurb}</p>
-                {line && <p className="text-xs text-gray-400 mb-3">{line}</p>}
+                {line && <p className="text-xs text-gray-500 mb-3">{line}</p>}
 
                 {isVideo && a.best_score != null && (
                   <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-4 mt-3">
@@ -164,7 +165,7 @@ export default function StudentDashboardPage() {
 
                 <button
                   onClick={() => navigate(studentPathFor(a.bot_type, a.config_id))}
-                  className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm transition-colors"
+                  className="mt-2 w-full sm:w-auto sm:px-6 sm:ml-auto flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-white bg-[#FA6C43] hover:bg-[#E55B34] text-sm transition-colors"
                 >
                   Enter class <FaArrowRight className="text-xs" />
                 </button>

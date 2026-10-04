@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Show-password toggle gets an aria-label.
+// @updated   2026-10-04
+// @changed   Confirm placeholder shortened to 'Repeat new password' (was clipped on phones).
+// @changed   Prior: Show-password toggle gets an aria-label.
 // @changed   Prior: New page: replaces an admin-issued one-time password (forced, no way past it) and doubles
 //            as the ordinary change-password screen for everyone else.
 import React, { useEffect, useState } from 'react';
@@ -177,7 +178,7 @@ const ChangePasswordPage = () => {
 
             {passwordField(
               'confirmPassword', 'Confirm new password', confirmPassword, setConfirmPassword,
-              errors.confirmPassword, 'Re-enter your new password',
+              errors.confirmPassword, 'Repeat new password',
             )}
 
             <button
