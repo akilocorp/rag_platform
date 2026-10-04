@@ -1,7 +1,8 @@
 /*
  * @language  CSS
- * @updated   2026-10-02
- * @changed   html: text-size-adjust 100% so iOS doesn't inflate text in landscape.
+ * @updated   2026-10-04
+ * @changed   #root gets min-width: 0 so long lines can't widen the app past the phone screen.
+ * @changed   Prior: html: text-size-adjust 100% so iOS doesn't inflate text in landscape.
  * @changed   Prior: Add .guide-widget slot styles for live, playable widget demos on the Widgets guide page.
  */
 @tailwind base;
@@ -464,11 +465,14 @@ html {
   text-size-adjust: 100%;
 }
 
+/* min-width: 0 — #root is a flex child of body, so without it it grows to the page's longest
+   unbreakable line and the whole app ends up wider than a phone screen (reads as zoomed in). */
 #root {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 100vh;
+  min-width: 0;
 }
 
 a {

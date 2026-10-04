@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Menu trigger is a real <button> (aria-haspopup/expanded); Escape and outside clicks
+// @updated   2026-10-04
+// @changed   Username stays on one line (ellipsis past 10rem) instead of wrapping on phones.
+// @changed   Prior: Menu trigger is a real <button> (aria-haspopup/expanded); Escape and outside clicks
 //            close the menu; loading spinner uses the brand orange.
 // @changed   Prior: Account dropdown gets a User guide entry; username darkened to gray-600.
 import React, { useState, useEffect, useRef } from 'react';
@@ -81,7 +82,7 @@ const UserInfo = () => {
         }}
       >
         <FaUser className="mr-2 text-[#FA6C43]" />
-        <span>{userInfo.username}</span>
+        <span className="whitespace-nowrap truncate max-w-[10rem]">{userInfo.username}</span>
         <FaChevronDown className="ml-2 text-gray-400" />
       </button>
 

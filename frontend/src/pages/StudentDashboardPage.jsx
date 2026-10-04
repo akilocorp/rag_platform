@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Upload-lock line reads 'Uploads open <date>' — the lock closes uploads, it doesn't gate results.
+// @updated   2026-10-04
+// @changed   Class names wrap to 2 lines instead of truncating hard beside the class-code chip.
+// @changed   Prior: Upload-lock line reads 'Uploads open <date>' — the lock closes uploads, it doesn't gate results.
 // @changed   Prior: Every class type, not just video: cards carry the type label, what the class is
 //            for, and one "Enter class" button that routes by bot_type.
 import React, { useEffect, useState } from 'react';
@@ -122,9 +123,9 @@ export default function StudentDashboardPage() {
               <div key={a.class_code} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h2 className="text-base font-bold text-[#222] truncate">{a.bot_name}</h2>
-                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#FFF5F2] text-[#FA6C43] border border-[#FA6C43]/20 shrink-0">
+                    <div className="flex items-start gap-2 mb-1">
+                      <h2 className="text-base font-bold text-[#222] break-words line-clamp-2">{a.bot_name}</h2>
+                      <span className="mt-0.5 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#FFF5F2] text-[#FA6C43] border border-[#FA6C43]/20 shrink-0">
                         {a.class_code}
                       </span>
                     </div>

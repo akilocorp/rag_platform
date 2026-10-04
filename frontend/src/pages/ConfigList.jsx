@@ -1,6 +1,7 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
+// @updated   2026-10-04
+// @changed   Phones: toolbar wraps with one-line button labels; cards drop the icon tile and titles wrap to 2 lines (were cut to a few letters).
+// @changed   Prior: Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
 // @changed   Prior: Report a Bug restyled as a secondary button so New Assistant is the only primary action.
 // @changed   Prior: Paste shows the server's `warning` (an Audio Call copy whose Hume voice config could not be
 //            created) in an alert before the new card appears.
@@ -532,13 +533,14 @@ const ConfigItem = ({ config, view, onOpen, onSelect, onResponses, onEdit, onDel
     >
       {/* Top: icon + title + actions */}
       <div className={isList ? 'flex items-center gap-4 flex-1 min-w-0' : 'flex items-start gap-4'}>
-        <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-[#1F1F1F]">
+        {/* hidden on phones so the title gets the width */}
+        <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gray-100 hidden sm:flex items-center justify-center text-[#1F1F1F]">
           {ListIcon ? <ListIcon className="text-xl" /> : <FaRobot className="text-xl" />}
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2">
-            <h3 className="text-[15px] font-bold text-[#222] truncate flex-1">{config.bot_name}</h3>
+            <h3 className="text-[15px] font-bold text-[#222] truncate flex-1 max-sm:whitespace-normal max-sm:break-words max-sm:line-clamp-2">{config.bot_name}</h3>
             {/* Says whose it is at a glance. Without this a shared assistant is
                 indistinguishable from your own, and the first surprise is the
                 missing Delete button. */}
@@ -1064,7 +1066,7 @@ const ConfigListPage = () => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-3 sm:flex-shrink-0">
                 {/* View toggle — Apple-style: a single pill slides between
                     the two segments instead of each toggling its own bg. */}
                 <div className="relative flex p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
@@ -1095,7 +1097,7 @@ const ConfigListPage = () => {
 
                 {/* Keyboard-free way in to the same flow as Ctrl+V. */}
                 <button
-                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
+                  className="flex items-center justify-center whitespace-nowrap px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
                   onClick={handleMenuPaste}
                   title="Paste a copied assistant (Ctrl+V)"
                 >
@@ -1106,7 +1108,7 @@ const ConfigListPage = () => {
                 {/* For the professor staring at a blank list: start from the syllabus
                     they already have rather than from a decision they can't yet make. */}
                 <button
-                  className="flex items-center justify-center px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
+                  className="flex items-center justify-center whitespace-nowrap px-4 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:border-[#FA6C43]/40 hover:text-[#FA6C43] transition-all duration-200 shadow-sm"
                   onClick={() => navigate('/course-plan')}
                   title="Upload your syllabus and see which classes ACTR fits"
                 >
@@ -1115,7 +1117,7 @@ const ConfigListPage = () => {
                 </button>
 
                 <button
-                  className="flex items-center justify-center px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
+                  className="flex items-center justify-center whitespace-nowrap px-5 py-2.5 bg-[#FA6C43] hover:bg-[#E55B34] text-white rounded-xl transition-all duration-200 shadow-sm"
                   onClick={handleCreateNew}
                 >
                   <FaPlus className="mr-2 text-sm" />
