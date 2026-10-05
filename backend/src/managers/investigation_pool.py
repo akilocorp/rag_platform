@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   Group size is now the professor's own two numbers instead of a hardcoded 3/4:
+# @updated   2026-10-05
+# @changed   New `members_of(config_id, room_id)`: a reset group's seated uids in seating order, so
+#            `reset_breakout_room` can restart the same group from reading instead of emptying it.
+#            Prior: Group size is now the professor's own two numbers instead of a hardcoded 3/4:
 #            `partition_sizes`/`pair`/`join` all take `normal_size` + `max_size` (see
 #            `manager_exercise.investigation_group_size` / `_max` in config_routes.py). Below
 #            `normal_size` total, pairing does nothing at all — no group smaller than `normal_size`
@@ -166,6 +168,18 @@ def leave(config_id: str, uid: str):
     p = _pool(config_id)
     with _lock:
         p.joined.pop(uid, None)
+
+
+def members_of(config_id: str, room_id: str) -> List[str]:
+    """The uids pairing seated in `room_id`, in seating order ([] if it isn't a paired group).
+
+    A reset restarts a group with exactly these people rather than emptying it:
+    their `room_for_uid` mapping survives the reset, so an emptied room would only
+    pull them back into a fresh, unstarted room on their next reconnect.
+    """
+    p = _pool(config_id)
+    with _lock:
+        return list(p.groups.get(room_id, []))
 
 
 def room_for_uid(config_id: str, uid: str) -> Optional[str]:

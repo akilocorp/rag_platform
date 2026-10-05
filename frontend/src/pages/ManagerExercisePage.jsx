@@ -1,4 +1,11 @@
-/* @language JSX  @updated 2026-10-02  @changed Reply button and the card's "Tap to read" label are always visible on touch screens.
+/* @language JSX  @updated 2026-10-05  @changed Students never see the "Start with N people" screen: a reset now
+   rejoins the pairing pool (landing them in their restarted group) instead of opening the self-service lobby,
+   a student-side `waiting` phase renders the "waiting for your instructor" notice instead, and `match_found`
+   no longer throws on the undefined `isInvestigation` (it now keys on `usePool`, which is what it meant).
+   Prior: A Prolific ID in the URL (`?PROLIFIC_PID=` or `?pid=`, piped in by
+   the Qualtrics iframe) now becomes the student's identity AND their chat username, ahead of JWT / responseId /
+   random id, so a tester shows up as their Prolific ID in the room and on the results page.
+   Prior: Reply button and the card's "Tap to read" label are always visible on touch screens.
    Prior: h-screen (100vh) -> h-[100dvh] on every full-height screen, so the phone keyboard shrinks the layout instead of hiding the composer.
    Prior: Loading never spins forever: a setup error or 20s without a first
    phase shows a "couldn't connect" card with Try again. "Time ran out" sends students home (only the owner goes
@@ -98,6 +105,14 @@ import LoadingScreen from '../components/LoadingScreen';
 import { dashboardPath, isLoggedIn } from '../utils/auth';
 
 const getToken = () => localStorage.getItem('jwtToken') || localStorage.getItem('access_token');
+
+// The tester's Prolific ID from the page URL (`?PROLIFIC_PID=` as Prolific sends it, or a short
+// `?pid=`), or null. Accepts only a plain id so a blank or unpiped Qualtrics field falls through.
+const readProlificId = () => {
+  const q = new URLSearchParams(window.location.search);
+  const raw = (q.get('PROLIFIC_PID') || q.get('prolific_pid') || q.get('pid') || '').trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(raw) ? raw : null;
+};
 
 // Where "back" goes reads differently by role: a student's home is their class list,
 // a professor's is their assistant list. Paired with dashboardPath() for the route.
@@ -870,6 +885,15 @@ const ManagerExercisePage = () => {
   // Also derives the DISPLAY NAME, which is what the server stores as the message
   // sender and what ACTR uses to address people, so it has to be resolved up front.
   const resolveUid = async () => {
+    // A Prolific ID passed in the iframe URL wins over everything: it is the name the
+    // researcher matches the room back to their Prolific export with. An unresolved Qualtrics
+    // pipe ("${e://...}") or anything that isn't a plain id is ignored rather than displayed.
+    const pid = readProlificId();
+    if (pid) {
+      displayNameRef.current = pid;
+      localStorage.setItem('group_chat_uid', `P_${pid}`);
+      return `P_${pid}`;
+    }
     const token = getToken();
     if (token) {
       try {
@@ -1088,6 +1112,16 @@ const ManagerExercisePage = () => {
             roomIdRef.current = null;
             setRoster([]);
             setMessages([]);
+            // A student goes back through the pool, which returns them to their own
+            // group — restarted server-side before this event was sent. Only the
+            // owner's preview has a lobby to return to.
+            if (usePool) {
+              setPhase('loading');
+              socket.emit('join_investigation_pool', {
+                config_id: configId, uid: userIdRef.current, display_name: displayNameRef.current,
+              });
+              return;
+            }
             setPhase('lobby');
             setRoomError('This group was reset by your instructor.');
             socket.emit('list_breakout_rooms', { config_id: configId, uid: userIdRef.current });
@@ -1105,7 +1139,7 @@ const ManagerExercisePage = () => {
           setRoomId(data.room_id);
           roomIdRef.current = data.room_id;
           enterRoom(data.room_id);
-          if (!isInvestigation && (phaseRef.current === 'loading' || phaseRef.current === 'lobby')) {
+          if (!usePool && (phaseRef.current === 'loading' || phaseRef.current === 'lobby')) {
             setPhase('waiting');
           }
         });
@@ -1755,7 +1789,9 @@ const ManagerExercisePage = () => {
   // -------------------------------------------------------------------------
   // Phase: pool (professor-paired templates — joined, not yet placed in a room)
   // -------------------------------------------------------------------------
-  if (phase === 'pool') {
+  // A student caught in an unstarted room (`waiting`) gets this same notice: only the
+  // owner's preview may start a room by hand, so the "Start with N" screen is theirs alone.
+  if (phase === 'pool' || (phase === 'waiting' && config && !config.owned)) {
     return (
       <NoticeScreen
         icon={<RiUser3Line />}

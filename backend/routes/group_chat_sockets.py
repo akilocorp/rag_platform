@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-27
-# @changed   Group capacity for professor-paired templates follows the pairing max (`_room_capacity`),
+# @updated   2026-10-05
+# @changed   Resetting a professor-paired group restarts it with the same students from the top
+#            (reading window, or round 0 for hiring) instead of leaving an empty, unstarted room —
+#            which their surviving pool mapping pulled them back into on the "Start with N" screen.
+#            `room_reset` is now emitted after the rebuild, so a client that rejoins finds the new room.
+#            Prior: Group capacity for professor-paired templates follows the pairing max (`_room_capacity`),
 #            so the dashboard reads "/4" beside a paired group of four and a 4th Preview join is allowed.
 #            Prior: Dashboard occupancy no longer drains to 0/3 mid-exercise: `get_history` re-seats a
 #            reconnecting student (`_reseat_in_breakout`) and records its socket as current, and a stale
@@ -1066,10 +1070,16 @@ def register_socket_events(socketio, app):
             return
 
         room_id = _room_id_for(config_id, index)
+        me_config = _manager_exercise_config(config_doc)
+        flow = exercise_templates.flow(me_config.get("template"))
 
-        # Bounce anyone still sitting in the room back to the lobby before the wipe,
-        # so a reset mid-session doesn't leave a client staring at deleted state.
-        socketio.emit('room_reset', {'room_id': room_id}, room=room_id)
+        # A professor-paired group is restarted, not emptied: capture who is seated
+        # (and what they're called) before the wipe so the same people can be re-seated.
+        reseat = []
+        if flow.get("prof_paired"):
+            old_state = ex_state.get_exercise(room_id)
+            reseat = [(uid, old_state.display_name(uid) if old_state else uid)
+                      for uid in investigation_pool.members_of(config_id, room_id)]
 
         _room_members.pop(room_id, None)          # live socket occupancy
         ex_state.remove_exercise(room_id)          # in-memory phase machine
@@ -1088,7 +1098,23 @@ def register_socket_events(socketio, app):
         except Exception as e:  # noqa: BLE001 — leave the in-memory reset in place regardless
             logger.error(f"reset_breakout_room: failed to clear persistence for {room_id}: {e}")
 
-        _broadcast_lobby(config_id, _manager_exercise_config(config_doc))
+        # Restart the paired group from the top, exactly as pairing would have started
+        # it: fresh session, same seating order (so each keeps their case file), then the
+        # room-wide reading window — or round 0 for templates that pace their own reading.
+        if reseat:
+            state = _bootstrap_exercise(room_id, config_doc, create_session=True)
+            for uid, name in reseat:
+                state.note_participant(uid, name)
+            if flow.get("reading_window"):
+                state.begin_reading()
+            else:
+                state.begin_solo()
+
+        # Told only now, after the rebuild, so a client that reacts by rejoining lands
+        # in the restarted room rather than racing the wipe into a stale one.
+        socketio.emit('room_reset', {'room_id': room_id}, room=room_id)
+
+        _broadcast_lobby(config_id, me_config)
         emit('breakout_reset', {'room_id': room_id, 'index': index}, to=request.sid)
         logger.info(f"♻️ {identity} reset breakout {room_id}")
 
