@@ -1,6 +1,15 @@
 # @language  Python
-# @updated   2026-09-13
-# @changed   live-summary gained cross-filter query params (filter_block_id/filter_value) — filters
+# @updated   2026-10-06
+# @changed   Security/reliability pass on the public surface. Rate limits key on ProxyFix's
+#            remote_addr (never the spoofable X-Forwarded-For), are atomic fixed-window counters,
+#            and split into a per-respondent cooldown + generous per-IP ceiling so a classroom on one
+#            NAT isn't throttled; the cooldown is charged only after validation. Submissions are
+#            size-capped and every answer is coerced to its block's shape (_coerce_answer) before
+#            storage. The public view no longer ships answer keys/rubrics; the CSV export is
+#            formula-injection safe with a Unicode-safe filename; deleting a project deletes its
+#            responses; non-object JSON bodies get 400 instead of 500; failed AI grades are cached
+#            as "grading failed" and retried at most hourly instead of re-billed on every view.
+# Prior: live-summary gained cross-filter query params (filter_block_id/filter_value) — filters
 #            the raw response list before handing it to build_live_summary, so every aggregation
 #            function stays unchanged. Powers the Present view's click-a-bar-to-filter-everything-else.
 # Prior: Added GET /studio/projects/<id>/live-summary — the data source for the new Present
@@ -65,8 +74,11 @@ import hashlib
 import io
 import json
 import logging
+import math
+import re
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -92,22 +104,39 @@ studio_bp = Blueprint('studio_routes', __name__)
 
 FACULTY_ROLES = ("professor", "admin")
 
-# One public submission per (project, IP) per this many seconds — a cheap,
-# dependency-free guard against trivial spam/double-submit on the one fully
-# anonymous write endpoint this blueprint has. See _rate_limit_ok.
+# Public-endpoint rate limits — fixed-window counters, see _bump_counter.
+#  - Per respondent: one submission per cooldown, against double-submits.
+#    Keyed on the runner's localStorage respondent_id, NOT the IP, because a
+#    whole classroom usually shares one campus NAT address — per-IP keying let
+#    exactly one student submit every 30s during an in-class Present session.
+#  - Per (project, IP): a generous volume ceiling. This is the real abuse
+#    backstop, since respondent_id is client-chosen.
+#  - Live AI calls additionally have a per-project daily ceiling that ignores
+#    IP entirely, so spend is hard-capped even against many addresses.
 STUDIO_RESPONSE_COOLDOWN_SECONDS = 30
+SUBMITS_PER_IP_PER_HOUR = 200
+AI_CALLS_PER_IP_PER_HOUR = 300
+AI_CALLS_PER_PROJECT_PER_DAY = 3000
 _rate_limit_index_ensured = False
 
-# A separate, more generous counting limiter for the /ai-instrument endpoint
-# (Tier-3 live AI calls): up to this many calls per (project, IP) per window.
-# This one spends real Claude API money on anonymous traffic and a
-# respondent may legitimately trigger several different live AI instruments
-# in one session, so it can't reuse the submit endpoint's simpler
-# insert-once cooldown (that one only ever needs to allow a single call).
-# See _ai_instrument_rate_limit_ok.
-AI_INSTRUMENT_MAX_CALLS = 10
-AI_INSTRUMENT_WINDOW_SECONDS = 600
-_ai_instrument_rate_limit_index_ensured = False
+# Public submission limits — the one anonymous write surface. A full,
+# legitimate submission (incl. a long voice transcript) is a few tens of KB.
+MAX_SUBMISSION_BYTES = 256 * 1024
+MAX_TEXT_ANSWER_CHARS = 10000
+MAX_STR_FIELD_CHARS = 4000
+MAX_RESPONDENT_ID_LEN = 128
+MAX_EVENTS_PER_ANSWER = 20
+MAX_VOICE_TURNS = 200
+
+# Instrument config keys that are answer keys or grading material. The runner
+# never reads them, so they're stripped from the public project view —
+# otherwise a respondent (or a panel bot) could read the attention check's
+# expected option straight out of the network tab.
+PUBLIC_HIDDEN_INSTRUMENT_KEYS = {"expected_option", "rubric", "compare_to_block_id"}
+
+# A failed AI grade is cached (shown to the professor as "grading failed") and
+# retried at most this often, rather than re-billed on every results view.
+METRIC_RETRY_SECONDS = 3600
 
 
 def _is_faculty(user_id):
@@ -264,6 +293,236 @@ def _sanitize_embedded_data(embedded_data_in):
     return out
 
 
+def _json_object_body():
+    """The request's JSON body as a dict; {} when there is none; None when it
+    is valid JSON but not an object (caller returns 400). An array or bare
+    string body used to slip past `get_json(...) or {}` and 500 on `.get`."""
+    body = request.get_json(silent=True)
+    if body is None:
+        return {}
+    return body if isinstance(body, dict) else None
+
+
+def _is_num(v):
+    """A real, finite number — not a bool (an int subclass), not NaN/inf
+    (Python's JSON parser accepts those, and one NaN poisons every average)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _coerce_scale_point(v, top):
+    """An integer point on a 1..top scale, else None."""
+    if _is_num(v) and v == int(v) and 1 <= v <= top:
+        return int(v)
+    return None
+
+
+def _coerce_voice_turns(value):
+    """A voice transcript: the fields EVIAudioControls' onTurn emits, typed and
+    capped. prosody stays a flat {emotion: score} map — what the vocal-emotion
+    and sentiment-drift instruments read."""
+    if not isinstance(value, list):
+        return None
+    turns = []
+    for t in value[:MAX_VOICE_TURNS]:
+        if not isinstance(t, dict):
+            continue
+        turn = {
+            "role": t["role"][:20] if isinstance(t.get("role"), str) else "",
+            "transcript": t["transcript"][:MAX_STR_FIELD_CHARS] if isinstance(t.get("transcript"), str) else "",
+        }
+        if isinstance(t.get("prosody"), dict):
+            turn["prosody"] = {
+                str(k)[:40]: v for k, v in list(t["prosody"].items())[:64] if _is_num(v)
+            }
+        for k in ("turnIndex", "offsetMs"):
+            if _is_num(t.get(k)):
+                turn[k] = t[k]
+        if isinstance(t.get("receivedAt"), str):
+            turn["receivedAt"] = t["receivedAt"][:40]
+        turns.append(turn)
+    return turns or None
+
+
+def _coerce_answer(block, value):
+    """Server-side shape check for one submitted answer against the block it
+    answers. Returns the cleaned value, or None to store it as unanswered.
+
+    Coerces rather than rejects: a real respondent's submission is never
+    thrown away because one value is off (e.g. an option the professor renamed
+    mid-collection). But nothing that couldn't have come from this block's own
+    UI is stored, so every downstream reader — live summary, instrument
+    metrics, CSV — can trust the shapes it gets.
+    """
+    if value is None:
+        return None
+    btype = block.get("type")
+    cfg = block.get("config") or {}
+
+    if btype == "yes_no":
+        return value if value in ("Yes", "No") else None
+    if btype == "single_choice":
+        return value if isinstance(value, str) and value in (cfg.get("options") or []) else None
+    if btype == "rating_scale":
+        return _coerce_scale_point(value, int(cfg.get("scale_max") or 5))
+    if btype == "semantic_differential":
+        return _coerce_scale_point(value, int(cfg.get("points") or 7))
+    if btype in ("short_text", "long_text"):
+        return value[:MAX_TEXT_ANSWER_CHARS] if isinstance(value, str) else None
+
+    if btype == "forced_rank":
+        # A complete ordering of exactly this block's options.
+        options = cfg.get("options") or []
+        if (isinstance(value, list) and len(value) == len(options)
+                and all(isinstance(o, str) for o in value) and sorted(value) == sorted(options)):
+            return value
+        return None
+
+    if btype == "constant_sum":
+        # Allocations to known options, non-negative. The total isn't enforced
+        # here: the runner doesn't enforce it either, and rejecting would lose
+        # an otherwise-real response.
+        if not isinstance(value, dict):
+            return None
+        options = set(cfg.get("options") or [])
+        out = {k: v for k, v in value.items() if k in options and _is_num(v) and v >= 0}
+        return out or None
+
+    if btype == "card_sort":
+        # item -> category; closed sorts must use a listed category, open
+        # sorts take free text (capped).
+        if not isinstance(value, dict):
+            return None
+        items = set(cfg.get("items") or [])
+        categories = cfg.get("categories") or []
+        out = {}
+        for item, cat in value.items():
+            if item not in items or not isinstance(cat, str) or not cat.strip():
+                continue
+            if categories and cat not in categories:
+                continue
+            out[item] = cat[:200]
+        return out or None
+
+    if btype == "maxdiff":
+        # Rounds of {options shown, most, least}, each drawn from this block's
+        # options, most != least, at most num_rounds of them.
+        if not isinstance(value, list):
+            return None
+        options = set(cfg.get("options") or [])
+        rounds = []
+        for r in value[:50]:
+            if not isinstance(r, dict):
+                continue
+            shown = r.get("options")
+            if not isinstance(shown, list) or not shown or not all(isinstance(o, str) and o in options for o in shown):
+                continue
+            most, least = r.get("most"), r.get("least")
+            if not isinstance(most, str) or not isinstance(least, str):
+                continue
+            if most not in shown or least not in shown or most == least:
+                continue
+            rounds.append({"options": shown, "most": most, "least": least})
+        return rounds[:int(cfg.get("num_rounds") or 10)] or None
+
+    if btype == "voice_conversation":
+        return _coerce_voice_turns(value)
+
+    return None  # rich_text / unknown types capture no answer
+
+
+def _coerce_events(events):
+    """Timing events as {type, at} with a finite numeric `at`, capped in count."""
+    if not isinstance(events, list):
+        return None
+    out = [
+        {"type": e["type"][:20], "at": e["at"]}
+        for e in events[:MAX_EVENTS_PER_ANSWER]
+        if isinstance(e, dict) and isinstance(e.get("type"), str) and _is_num(e.get("at"))
+    ]
+    return out or None
+
+
+_DROP = object()
+
+
+def _coerce_scalar(v):
+    """A storable scalar (capped string, finite number, bool, None), else _DROP."""
+    if v is None or isinstance(v, bool) or _is_num(v):
+        return v
+    if isinstance(v, str):
+        return v[:MAX_STR_FIELD_CHARS]
+    return _DROP
+
+
+def _coerce_instrument_values(values, block):
+    """Respondent-side instrument values, keyed only by instruments actually
+    attached to this block. Each is a scalar (Confidence Slider's number) or
+    a flat object of scalars (Devil's Advocate's {initial_stance, rebuttal,
+    post_confidence}) — nothing deeper, strings capped."""
+    if not isinstance(values, dict):
+        return None
+    attached = {i.get("type") for i in (block.get("instruments") or [])}
+    out = {}
+    for inst_type, v in values.items():
+        if inst_type not in attached:
+            continue
+        if isinstance(v, dict):
+            flat = {}
+            for k, fv in list(v.items())[:10]:
+                cv = _coerce_scalar(fv)
+                if cv is not _DROP:
+                    flat[str(k)[:40]] = cv
+            out[inst_type] = flat
+        else:
+            cv = _coerce_scalar(v)
+            if cv is not _DROP:
+                out[inst_type] = cv
+    return out or None
+
+
+def _is_answered(value):
+    """Whether a (coerced) value counts as answering a required block. 0 and
+    False are answers; blank text and empty lists/objects are not."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(v):
+    """One CSV cell, safe to open in Excel/Sheets. Lists/dicts are written as
+    JSON (not Python reprs), and text a spreadsheet would evaluate as a formula
+    gets a leading ' — respondents control most of these cells, so
+    `=HYPERLINK(...)` would otherwise run on the professor's machine. Real
+    numbers are left numeric."""
+    if v is None:
+        return ""
+    if isinstance(v, bool) or _is_num(v):
+        return v
+    if isinstance(v, (list, dict)):
+        v = json.dumps(v, ensure_ascii=False, default=str)
+    text = str(v)
+    return "'" + text if text.startswith(_CSV_FORMULA_PREFIXES) else text
+
+
+def _csv_content_disposition(title):
+    """attachment header that survives any project title: an ASCII-only
+    `filename` fallback plus an RFC 5987 `filename*` carrying the real
+    (possibly Chinese, possibly quoted) title."""
+    base = (title or "project").replace(" ", "_")[:80]
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("_") or "project"
+    return (
+        f'attachment; filename="{ascii_name}_responses.csv"; '
+        f"filename*=UTF-8''{quote(base + '_responses.csv')}"
+    )
+
+
 def _serialize(doc):
     """Mongo doc -> JSON-safe dict (ObjectId -> str)."""
     doc = dict(doc)
@@ -319,19 +578,26 @@ def _augment_responses_with_metrics(project, responses, db=None):
     `_sibling_*` config keys rather than widening compute()'s signature.
     """
     block_by_id = _block_by_id(project)
+    now = datetime.now(timezone.utc)
     for r in responses:
         newly_computed = False
-        answers_by_block = {a.get('block_id'): a for a in r.get('answers', [])}
-        for a in r.get('answers', []):
+        # Non-dict entries can only be legacy/hand-edited data; skip rather
+        # than 500 the professor's results page over one bad row.
+        answers = [a for a in (r.get('answers') or []) if isinstance(a, dict)]
+        answers_by_block = {a.get('block_id'): a for a in answers}
+        for a in answers:
             blk = block_by_id.get(a.get('block_id'))
             if not blk or not blk.get('instruments'):
                 continue
             existing = a.get('metrics') or {}
             metrics = dict(existing)
+            failed_at = dict(a.get('metrics_failed_at') or {})
             for inst in blk['instruments']:
                 inst_type = inst['type']
-                if existing.get(inst_type):
-                    continue  # cached — reuse, don't re-bill
+                cached = existing.get(inst_type)
+                if cached and not (isinstance(cached, dict) and cached.get('error')
+                                   and _metric_retry_due(failed_at.get(inst_type), now)):
+                    continue  # cached (a real result, or a recent failure) — reuse, don't re-bill
                 inst_config = inst.get('config') or {}
                 if inst_type == 'cross_answer_inconsistency':
                     sibling_id = inst_config.get('compare_to_block_id')
@@ -346,8 +612,16 @@ def _augment_responses_with_metrics(project, responses, db=None):
                 if m:
                     metrics[inst_type] = m
                     newly_computed = True
+                    if m.get('error'):
+                        failed_at[inst_type] = now
+                    else:
+                        failed_at.pop(inst_type, None)
             if metrics:
                 a['metrics'] = metrics
+            if failed_at:
+                a['metrics_failed_at'] = failed_at
+            else:
+                a.pop('metrics_failed_at', None)
         if newly_computed and db is not None and r.get('_id'):
             try:
                 rid = r['_id'] if isinstance(r['_id'], ObjectId) else ObjectId(r['_id'])
@@ -357,9 +631,20 @@ def _augment_responses_with_metrics(project, responses, db=None):
     return responses
 
 
+def _metric_retry_due(failed_at, now):
+    """Whether a cached failed metric is old enough to retry. Mongo hands
+    datetimes back naive (UTC), so normalize before comparing."""
+    if not isinstance(failed_at, datetime):
+        return True
+    if failed_at.tzinfo is None:
+        failed_at = failed_at.replace(tzinfo=timezone.utc)
+    return (now - failed_at).total_seconds() >= METRIC_RETRY_SECONDS
+
+
 def _public_project_view(doc):
     """Strip owner-only fields (user_id, status, timestamps) before handing a
-    project to an anonymous respondent. Each attached instrument is enriched
+    project to an anonymous respondent, plus every instrument config key in
+    PUBLIC_HIDDEN_INSTRUMENT_KEYS (answer keys, rubrics). Each attached instrument is enriched
     with `needs_events` so the runner knows whether to record a block's
     shown/submit timestamps — an anonymous respondent has no access to the
     faculty-scoped instrument-specs endpoint, so this has to ride along here.
@@ -370,7 +655,14 @@ def _public_project_view(doc):
         for blk in page.get("blocks", []):
             blk = dict(blk)
             blk["instruments"] = [
-                {**inst, "needs_events": instrument_needs_events(inst["type"])}
+                {
+                    **inst,
+                    "config": {
+                        k: v for k, v in (inst.get("config") or {}).items()
+                        if k not in PUBLIC_HIDDEN_INSTRUMENT_KEYS
+                    },
+                    "needs_events": instrument_needs_events(inst["type"]),
+                }
                 for inst in blk.get("instruments", [])
             ]
             blocks.append(blk)
@@ -385,36 +677,69 @@ def _public_project_view(doc):
 
 
 def _client_ip():
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
+    """The caller's address as ProxyFix (app.py) resolved it from the trusted
+    proxy hop. Never read X-Forwarded-For directly: nginx appends to whatever
+    the client sent, so its FIRST entry is attacker-chosen — trusting it let
+    one script mint a fresh rate-limit bucket per request."""
     return request.remote_addr or 'unknown'
 
 
 def _rate_limit_collection(db):
     global _rate_limit_index_ensured
-    col = db['studio_response_rate_limits']
+    col = db['studio_rate_limits']
     if not _rate_limit_index_ensured:
-        col.create_index('created_at', expireAfterSeconds=STUDIO_RESPONSE_COOLDOWN_SECONDS)
+        col.create_index('expires_at', expireAfterSeconds=0)
         _rate_limit_index_ensured = True
     return col
 
 
-def _rate_limit_ok(db, project_id):
-    """True if this (project, caller IP) may submit right now.
+def _bump_counter(db, scope, ident, window_seconds, limit):
+    """Count one hit for (scope, ident) in the current fixed window; True while
+    the count is still within `limit`.
 
-    The record is a short-lived, TTL-expired doc keyed on a hash of the IP —
-    it is an abuse guard, not an identity signal, and is kept entirely
-    separate from the response document itself so it never adds persistent
-    PII to research response data.
+    One atomic upsert-$inc, so a concurrent burst can't all read "under the
+    limit" before any of them writes (the old count-then-insert could). The
+    identity is hashed — an abuse guard, never stored as PII, and kept apart
+    from response documents. The window number is part of the key, so a doc
+    that has expired but not yet been reaped (Mongo's TTL monitor sweeps about
+    once a minute) can never block the next window.
     """
     col = _rate_limit_collection(db)
-    key = hashlib.sha256(f"{project_id}:{_client_ip()}".encode()).hexdigest()
-    try:
-        col.insert_one({"_id": key, "created_at": datetime.now(timezone.utc)})
-        return True
-    except DuplicateKeyError:
+    now = datetime.now(timezone.utc)
+    window = int(now.timestamp() // window_seconds)
+    key = hashlib.sha256(f"{scope}:{ident}:{window_seconds}:{window}".encode()).hexdigest()
+    expires_at = datetime.fromtimestamp((window + 1) * window_seconds, timezone.utc)
+    for _ in range(2):
+        try:
+            doc = col.find_one_and_update(
+                {"_id": key},
+                {"$inc": {"n": 1}, "$setOnInsert": {"expires_at": expires_at}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            return doc["n"] <= limit
+        except DuplicateKeyError:
+            continue  # two first hits raced on the upsert; the retry $incs the winner's doc
+    return False
+
+
+def _submission_allowed(db, project_id, respondent_id, client_supplied_id):
+    """Per-respondent cooldown (only when the runner sent its stable id — a
+    server-minted anon id is fresh every time) plus the per-IP ceiling."""
+    if client_supplied_id and not _bump_counter(
+        db, "submit-respondent", f"{project_id}:{respondent_id}",
+        STUDIO_RESPONSE_COOLDOWN_SECONDS, 1,
+    ):
         return False
+    return _bump_counter(db, "submit-ip", f"{project_id}:{_client_ip()}", 3600, SUBMITS_PER_IP_PER_HOUR)
+
+
+def _ai_call_allowed(db, project_id):
+    """Per-(project, IP) hourly ceiling, then the per-project daily spend cap."""
+    return (
+        _bump_counter(db, "ai-ip", f"{project_id}:{_client_ip()}", 3600, AI_CALLS_PER_IP_PER_HOUR)
+        and _bump_counter(db, "ai-project", project_id, 86400, AI_CALLS_PER_PROJECT_PER_DAY)
+    )
 
 
 def _assign_condition(db, project_oid, conditions):
@@ -435,34 +760,6 @@ def _assign_condition(db, project_oid, conditions):
     )
     cursor = (result or {}).get("condition_cursor", 1) - 1
     return conditions[cursor % len(conditions)]
-
-
-def _ai_instrument_rate_limit_collection(db):
-    global _ai_instrument_rate_limit_index_ensured
-    col = db['studio_ai_instrument_calls']
-    if not _ai_instrument_rate_limit_index_ensured:
-        col.create_index('created_at', expireAfterSeconds=AI_INSTRUMENT_WINDOW_SECONDS)
-        _ai_instrument_rate_limit_index_ensured = True
-    return col
-
-
-def _ai_instrument_rate_limit_ok(db, project_id):
-    """True if this (project, caller IP) may make another live AI-instrument
-    call right now — up to AI_INSTRUMENT_MAX_CALLS within AI_INSTRUMENT_WINDOW_SECONDS.
-
-    A counting limiter (insert-then-count), not the submit endpoint's
-    simpler insert-once cooldown: this endpoint needs to allow a handful of
-    calls per session, not just one. Same TTL-expiry mechanism as
-    _rate_limit_collection, separate collection so the two windows don't
-    interfere with each other.
-    """
-    col = _ai_instrument_rate_limit_collection(db)
-    key = hashlib.sha256(f"{project_id}:{_client_ip()}".encode()).hexdigest()
-    count = col.count_documents({"key": key})
-    if count >= AI_INSTRUMENT_MAX_CALLS:
-        return False
-    col.insert_one({"key": key, "created_at": datetime.now(timezone.utc)})
-    return True
 
 
 @studio_bp.route('/studio/block-specs', methods=['GET'])
@@ -490,7 +787,9 @@ def create_project():
     if not _is_faculty(user_id):
         return jsonify({"message": "Only faculty accounts can create Studio projects"}), 403
 
-    body = request.get_json(silent=True) or {}
+    body = _json_object_body()
+    if body is None:
+        return jsonify({"message": "Request body must be a JSON object"}), 400
     title = (body.get('title') or '').strip() or "Untitled Project"
     now = datetime.now(timezone.utc)
 
@@ -545,7 +844,9 @@ def save_project(project_id):
         payload, status = error
         return jsonify(payload), status
 
-    body = request.get_json(silent=True) or {}
+    body = _json_object_body()
+    if body is None:
+        return jsonify({"message": "Request body must be a JSON object"}), 400
     updates = {"updated_at": datetime.now(timezone.utc)}
 
     if 'title' in body:
@@ -579,7 +880,10 @@ def delete_project(project_id):
 
     db = current_app.config['MONGO_DB']
     db['studio_projects'].delete_one({"_id": doc["_id"]})
-    return jsonify({"deleted": True}), 200
+    # Responses go with their project: once it's gone nothing can reach them,
+    # and they can carry respondent PII (embedded_data from URL params).
+    removed = db['studio_responses'].delete_many({"project_id": str(doc["_id"])})
+    return jsonify({"deleted": True, "responses_deleted": removed.deleted_count}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -610,53 +914,59 @@ def submit_response(project_id):
     if not project:
         return jsonify({"message": "Project not found"}), 404
 
-    if not _rate_limit_ok(db, project_id):
-        return jsonify({"message": "Please wait before submitting again."}), 429
-
-    body = request.get_json(silent=True) or {}
+    if (request.content_length or 0) > MAX_SUBMISSION_BYTES:
+        return jsonify({"message": "Submission is too large"}), 413
+    body = _json_object_body()
+    if body is None:
+        return jsonify({"message": "Request body must be a JSON object"}), 400
     answers_in = body.get('answers')
     if not isinstance(answers_in, list):
         return jsonify({"message": "answers must be a list"}), 400
 
+    # Only answers to blocks that exist in this project, first one per block,
+    # each coerced to its block's shape — see _coerce_answer.
+    block_by_id = _block_by_id(project)
+    answers_out = []
     answers_by_id = {}
-    events_by_id = {}
-    instrument_values_by_id = {}
     for a in answers_in:
-        if not isinstance(a, dict) or not a.get('block_id'):
+        if not isinstance(a, dict):
             continue
-        bid = str(a['block_id'])
-        answers_by_id[bid] = a.get('value')
-        if isinstance(a.get('events'), list):
-            # Trust the shape (list of {type, at, ...}), not the timestamps — a
-            # forged latency doesn't grant access to anything, it just pollutes
-            # that respondent's own data, so there's nothing to gate here.
-            events_by_id[bid] = a['events']
-        if isinstance(a.get('instrument_values'), dict):
-            # e.g. {"confidence_slider": 75} — a secondary value alongside the
-            # block's own answer. Same trust posture as events: not gated,
-            # only ever pollutes the submitter's own data if forged.
-            instrument_values_by_id[bid] = a['instrument_values']
+        bid = str(a.get('block_id') or '')
+        blk = block_by_id.get(bid)
+        if not blk or bid in answers_by_id:
+            continue
+        value = _coerce_answer(blk, a.get('value'))
+        answers_by_id[bid] = value
+        entry = {"block_id": bid, "value": value}
+        events = _coerce_events(a.get('events'))
+        if events:
+            entry["events"] = events
+        instrument_values = _coerce_instrument_values(a.get('instrument_values'), blk)
+        if instrument_values:
+            entry["instrument_values"] = instrument_values
+        answers_out.append(entry)
 
     missing = [
         blk['id'] for blk in _answerable_blocks(project)
         if blk.get('config', {}).get('required')
-        and not str(answers_by_id.get(blk['id']) or '').strip()
+        and not _is_answered(answers_by_id.get(blk['id']))
     ]
     if missing:
         return jsonify({"message": "Missing required answers", "block_ids": missing}), 400
 
-    respondent_id = str(body.get('respondent_id') or '').strip() or f"anon_{uuid.uuid4().hex}"
-    now = datetime.now(timezone.utc)
-    all_block_ids = set(answers_by_id) | set(instrument_values_by_id)
-    answers_out = []
-    for bid in all_block_ids:
-        entry = {"block_id": bid, "value": answers_by_id.get(bid)}
-        if bid in events_by_id:
-            entry["events"] = events_by_id[bid]
-        if bid in instrument_values_by_id:
-            entry["instrument_values"] = instrument_values_by_id[bid]
-        answers_out.append(entry)
+    raw_respondent_id = body.get('respondent_id')
+    client_supplied_id = isinstance(raw_respondent_id, str) and bool(raw_respondent_id.strip())
+    respondent_id = (
+        raw_respondent_id.strip()[:MAX_RESPONDENT_ID_LEN] if client_supplied_id
+        else f"anon_{uuid.uuid4().hex}"
+    )
 
+    # Charged only now, after validation — a respondent who gets a 400 for a
+    # missing answer can fix it and resubmit straight away.
+    if not _submission_allowed(db, project_id, respondent_id, client_supplied_id):
+        return jsonify({"message": "Please wait before submitting again."}), 429
+
+    now = datetime.now(timezone.utc)
     response_doc = {
         "project_id": project_id,
         "respondent_id": respondent_id,
@@ -684,9 +994,9 @@ def ai_instrument_call(project_id):
     to a block the respondent is currently answering.
 
     This is the one endpoint in Studio that spends real API money on
-    anonymous, unauthenticated traffic — see AI_INSTRUMENT_MAX_CALLS and
-    _ai_instrument_rate_limit_ok for the dedicated counting limiter that
-    exists specifically because of that.
+    anonymous, unauthenticated traffic — see _ai_call_allowed for the
+    per-IP and per-project ceilings that exist specifically because of that.
+    Input length is capped in src/studio/live_ai.py.
     """
     db = current_app.config['MONGO_DB']
     try:
@@ -697,10 +1007,9 @@ def ai_instrument_call(project_id):
     if not project:
         return jsonify({"message": "Project not found"}), 404
 
-    if not _ai_instrument_rate_limit_ok(db, project_id):
-        return jsonify({"message": "Please slow down and try again in a few minutes."}), 429
-
-    body = request.get_json(silent=True) or {}
+    body = _json_object_body()
+    if body is None:
+        return jsonify({"message": "Request body must be a JSON object"}), 400
     instrument_type = str(body.get('instrument_type') or '')
     block_id = str(body.get('block_id') or '')
 
@@ -709,6 +1018,10 @@ def ai_instrument_call(project_id):
         return jsonify({"message": "Unknown block"}), 400
     if not any(i.get('type') == instrument_type for i in (block.get('instruments') or [])):
         return jsonify({"message": "Instrument is not attached to this block"}), 400
+
+    # Charged after the cheap checks, so a malformed call can't burn a slot.
+    if not _ai_call_allowed(db, project_id):
+        return jsonify({"message": "Please slow down and try again in a few minutes."}), 429
 
     result = call_live_ai_instrument(instrument_type, block, body.get('input'))
     if result is None:
@@ -809,14 +1122,18 @@ def export_responses_csv(project_id):
     metric_columns = []
     seen_metric_keys = set()
     for r in responses:
-        for a in r.get('answers', []):
-            for inst_type, metrics in (a.get('metrics') or {}).items():
+        for a in r.get('answers') or []:
+            if not isinstance(a, dict) or not isinstance(a.get('metrics'), dict):
+                continue
+            for inst_type, metrics in a['metrics'].items():
+                if not isinstance(metrics, dict):
+                    continue
                 for mk in metrics:
-                    key = (a['block_id'], inst_type, mk)
+                    key = (a.get('block_id'), inst_type, mk)
                     if key in seen_metric_keys:
                         continue
                     seen_metric_keys.add(key)
-                    question = question_by_block.get(a['block_id'], a['block_id'])
+                    question = question_by_block.get(a.get('block_id'), a.get('block_id'))
                     metric_columns.append((key, f"{question} — {inst_type}:{mk}"))
 
     # Embedded-data keys, same "discover from actual data" approach as metric
@@ -834,16 +1151,18 @@ def export_responses_csv(project_id):
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(
+    # Every header and cell goes through _csv_cell: headers include
+    # respondent-supplied embedded_data keys, cells include free-text answers.
+    writer.writerow([_csv_cell(h) for h in (
         ["respondent_id", "submitted_at"]
         + (["condition"] if has_condition else [])
         + [label for _, label in columns]
         + [label for _, label in metric_columns]
         + [f"embedded:{k}" for k in embedded_keys]
-    )
+    )])
 
     for r in responses:
-        answers_by_id = {a.get('block_id'): a for a in r.get('answers', [])}
+        answers_by_id = {a.get('block_id'): a for a in (r.get('answers') or []) if isinstance(a, dict)}
         row = [r.get('respondent_id', ''), r.get('submitted_at', '')]
         if has_condition:
             row.append(r.get('condition', ''))
@@ -852,11 +1171,10 @@ def export_responses_csv(project_id):
             a = answers_by_id.get(bid) or {}
             row.append((a.get('metrics') or {}).get(inst_type, {}).get(mk, ''))
         row += [(r.get('embedded_data') or {}).get(k, '') for k in embedded_keys]
-        writer.writerow(row)
+        writer.writerow([_csv_cell(c) for c in row])
 
-    filename = f"{(doc.get('title') or 'project').replace(' ', '_')}_responses.csv"
     return Response(
         output.getvalue(),
         mimetype='text/csv',
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _csv_content_disposition(doc.get('title'))},
     )

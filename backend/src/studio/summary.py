@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-13
-# @changed   `_tally` and the rating/semantic-differential histogram now carry a `value` alongside
+# @updated   2026-10-06
+# @changed   Hardened against malformed stored answers: every aggregation type-checks inner values
+#            (finite numbers only, string options only, dict events only), and build_live_summary
+#            isolates each block, so one bad response can't 500 the Present view's poll.
+# Prior: `_tally` and the rating/semantic-differential histogram now carry a `value` alongside
 #            `label` (identical for tallies, an int for histograms) — the Present view's
 #            click-to-filter needs the exact, correctly-typed value to send back to
 #            routes/studio_routes.py's new filter_block_id/filter_value query params, which filter
@@ -20,8 +23,12 @@
 #            routes/studio_routes.py's _augment_responses_with_metrics, which exists for a very
 #            different access pattern (occasional results-page opens, not a 2-3s poll loop).
 """Aggregation for GET /studio/projects/<id>/live-summary — the Present view's data source."""
+import logging
+import math
 import re
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 # rich_text has no answer; voice_conversation has no non-AI aggregate worth
 # showing live (a transcript array isn't a "quick glance" stat) and is
@@ -38,6 +45,13 @@ _STOPWORDS = {
     "if", "no", "yes", "me", "us", "them", "its", "im", "dont", "its",
 }
 _WORD_RE = re.compile(r"[a-zA-Z']{2,}")
+
+
+def _is_num(v):
+    """A real, finite number — excludes bools (an int subclass) and NaN/inf,
+    which Python's JSON parser accepts but which would poison an average and
+    then make jsonify emit invalid JSON for the whole summary."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def _pct(count, total):
@@ -73,17 +87,18 @@ def _instrument_aggregates(block, answers):
             (a.get("instrument_values") or {}).get("confidence_slider")
             for a in answers
         ]
-        vals = [v for v in vals if isinstance(v, (int, float))]
+        vals = [v for v in vals if _is_num(v)]
         if vals:
             out["confidence_slider"] = {"avg": round(sum(vals) / len(vals), 1), "n": len(vals)}
 
     if "reaction_timer" in inst_types:
         latencies = []
         for a in answers:
-            events = a.get("events") or []
+            events = a.get("events")
+            events = [e for e in events if isinstance(e, dict)] if isinstance(events, list) else []
             shown = next((e.get("at") for e in events if e.get("type") == "shown"), None)
             submit = next((e.get("at") for e in events if e.get("type") == "submit"), None)
-            if isinstance(shown, (int, float)) and isinstance(submit, (int, float)):
+            if _is_num(shown) and _is_num(submit):
                 latencies.append(submit - shown)
         if latencies:
             out["reaction_timer"] = {"avg_ms": round(sum(latencies) / len(latencies)), "n": len(latencies)}
@@ -116,7 +131,7 @@ def _summarize_block(block, answers):
     if btype in ("rating_scale", "semantic_differential"):
         top = config.get("scale_max") if btype == "rating_scale" else config.get("points", 7)
         top = int(top or (5 if btype == "rating_scale" else 7))
-        nums = [v for v in values if isinstance(v, (int, float))]
+        nums = [v for v in values if _is_num(v)]
         histogram = Counter(int(v) for v in nums if 1 <= v <= top)
         data = [
             {"label": str(n), "value": n, "count": histogram.get(n, 0), "pct": _pct(histogram.get(n, 0), len(nums))}
@@ -138,7 +153,7 @@ def _summarize_block(block, answers):
                 continue
             n += 1
             for idx, opt in enumerate(v):
-                if opt in rank_sums:
+                if isinstance(opt, str) and opt in rank_sums:
                     rank_sums[opt] += idx + 1
                     rank_counts[opt] += 1
         data = sorted(
@@ -161,7 +176,7 @@ def _summarize_block(block, answers):
             n += 1
             for o in options:
                 amt = v.get(o)
-                if isinstance(amt, (int, float)):
+                if _is_num(amt):
                     sums[o] += amt
                     counts[o] += 1
         raw = [
@@ -173,6 +188,9 @@ def _summarize_block(block, answers):
         return {**base, "chart": "stacked_bar", "n": n, "data": data}
 
     if btype == "maxdiff":
+        # Only the block's own options are counted — a round naming anything
+        # else can't have come from this block's config.
+        valid = set(config.get("options") or [])
         scores = {}
         shown = {}
         n = 0
@@ -183,13 +201,16 @@ def _summarize_block(block, answers):
             for round_result in v:
                 if not isinstance(round_result, dict):
                     continue
-                for opt in round_result.get("options") or []:
+                round_opts = round_result.get("options")
+                for opt in round_opts if isinstance(round_opts, list) else []:
+                    if not isinstance(opt, str) or opt not in valid:
+                        continue
                     shown[opt] = shown.get(opt, 0) + 1
                     scores.setdefault(opt, 0)
                 most, least = round_result.get("most"), round_result.get("least")
-                if most in scores:
+                if isinstance(most, str) and most in scores:
                     scores[most] += 1
-                if least in scores:
+                if isinstance(least, str) and least in scores:
                     scores[least] -= 1
         data = sorted(
             ({"label": o, "score": scores[o], "shown": shown.get(o, 0)} for o in scores),
@@ -204,7 +225,7 @@ def _summarize_block(block, answers):
             cats = Counter()
             n_item = 0
             for v in values:
-                if isinstance(v, dict) and v.get(item):
+                if isinstance(v, dict) and isinstance(v.get(item), str) and v.get(item):
                     cats[v[item]] += 1
                     n_item += 1
             top_cat, top_count = (cats.most_common(1) or [(None, 0)])[0]
@@ -237,7 +258,9 @@ def build_live_summary(project, responses):
         submitted = r.get("submitted_at")
         if submitted and (last_submitted_at is None or submitted > last_submitted_at):
             last_submitted_at = submitted
-        for a in r.get("answers", []):
+        for a in r.get("answers") or []:
+            if not isinstance(a, dict):
+                continue
             bid = a.get("block_id")
             if bid:
                 answers_by_block.setdefault(bid, []).append(a)
@@ -247,7 +270,14 @@ def build_live_summary(project, responses):
         for blk in page.get("blocks", []):
             if blk["type"] in EXCLUDED_BLOCK_TYPES:
                 continue
-            summarized = _summarize_block(blk, answers_by_block.get(blk["id"], []))
+            # Per-block isolation: a stored answer this module didn't anticipate
+            # drops that one chart (logged) instead of failing every poll of
+            # the projector view until someone edits Mongo by hand.
+            try:
+                summarized = _summarize_block(blk, answers_by_block.get(blk["id"], []))
+            except Exception:
+                logger.warning("live-summary: skipped block %s", blk.get("id"), exc_info=True)
+                continue
             if summarized:
                 blocks_out.append(summarized)
 
