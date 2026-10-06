@@ -1,3 +1,12 @@
+/**
+ * @language  JavaScript (React / JSX)
+ * @updated   2026-10-06
+ * @changed   Waiting screen shows the video's live place in the processing queue ("#4 in line, about
+ *            8 min") from `video_queue_position` pushes and the status poll; the 10-minute "taking too long,
+ *            upload again" timer is gone (re-uploads only lengthened the line), replaced by a note that the
+ *            video is saved and the page can be closed; a 409 `already_queued` upload resumes watching the
+ *            student's video that is already in line instead of erroring.
+ */
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
@@ -86,6 +95,8 @@ export default function VideoUploadPage() {
   const [phase, setPhase] = useState('form'); // form | uploading | processing | done | error
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState('');
+  // Place in the processing queue while waiting ({position, ahead, eta_sec}); null once running.
+  const [queue, setQueue] = useState(null);
   const [error, setError] = useState('');
   const [history, setHistory] = useState(null); // null=not loaded
   const [limitReached, setLimitReached] = useState(false);
@@ -181,23 +192,24 @@ export default function VideoUploadPage() {
     const socket = io('/', { path: '/socket.io' });
     socketRef.current = socket;
     socket.on('connect', () => socket.emit('subscribe_video', { submission_id: subId }));
-    socket.on('video_job_progress', (d) => { if (d.submission_id === subId) setStage(d.stage); });
+    socket.on('video_queue_position', (d) => { if (d.submission_id === subId) setQueue(d); });
+    // The first progress stage means a worker has picked the video up: it's out of the line.
+    socket.on('video_job_progress', (d) => { if (d.submission_id === subId) { setQueue(null); setStage(d.stage); } });
     socket.on('video_job_done', (d) => { if (d.submission_id === subId) finish(subId, d.status, d.error); });
 
-    pollRef.current = setInterval(async () => {
+    // Polling fallback: also the source of the place in line when a socket push is missed,
+    // and the poll is what puts a video lost to a server restart back in the queue.
+    // No give-up timer — a long line is not a failure, and "upload again" only made it longer.
+    const poll = async () => {
       try {
         const res = await apiClient.get(`/video/submissions/${subId}/status`);
         if (res.data.status === 'scored') finish(subId, 'done');
         else if (res.data.status === 'failed') finish(subId, 'failed', res.data.error);
+        else setQueue(res.data.queue?.state === 'waiting' ? res.data.queue : null);
       } catch (_) { /* ignore */ }
-    }, 5000);
-
-    // After 10 minutes still processing → show an error so the student isn't stuck forever
-    setTimeout(() => {
-      if (pollRef.current) {
-        finish(subId, 'failed', 'Processing is taking too long. Please try uploading again or contact support.');
-      }
-    }, 10 * 60 * 1000);
+    };
+    poll();
+    pollRef.current = setInterval(poll, 5000);
   };
 
   const handleUpload = async () => {
@@ -251,6 +263,12 @@ export default function VideoUploadPage() {
       // the file never landed; if it did land, the pipeline starts (happy-path recovery).
       if (createdSubmissionId && !uploadConfirmed) {
         apiClient.post(`/video/submissions/${createdSubmissionId}/uploaded`, {}).catch(() => {});
+      }
+      // Their previous video is still in line: watch that one instead of starting another.
+      if (e.response?.status === 409 && e.response?.data?.already_queued) {
+        setPhase('processing');
+        watchProcessing(e.response.data.submission_id);
+        return;
       }
       if (e.response?.status === 409 && e.response?.data?.limit_reached) {
         setLimitReached(true);
@@ -311,10 +329,34 @@ export default function VideoUploadPage() {
                 </span>
               </div>
 
-              <h2 className="text-lg font-bold text-[#222]">Analyzing your pitch…</h2>
-              <p className="text-sm font-semibold text-[#FA6C43] mt-1">{STAGE_LABEL[stage] || 'Working on it…'}</p>
-              <p className="text-xs text-gray-400 mt-1">
-                This usually takes 2–4 minutes{elapsed ? ` · ${fmtElapsed(elapsed)} elapsed` : ''}. You can switch tabs — we’ll keep working.
+              {queue ? (
+                /* Waiting for a free slot: the place in line, updated live as videos ahead finish. */
+                <>
+                  <h2 className="text-lg font-bold text-[#222]">You're in line</h2>
+                  <p className="text-4xl font-extrabold text-[#FA6C43] mt-2">#{queue.position}</p>
+                  <p className="text-sm font-semibold text-gray-600 mt-1">
+                    {queue.ahead === 0
+                      ? "You're next"
+                      : `${queue.ahead} video${queue.ahead === 1 ? '' : 's'} ahead of you`}
+                    {queue.eta_sec ? ` · about ${Math.max(1, Math.round(queue.eta_sec / 60))} min` : ''}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold text-[#222]">Analyzing your pitch…</h2>
+                  <p className="text-sm font-semibold text-[#FA6C43] mt-1">{STAGE_LABEL[stage] || 'Working on it…'}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    This usually takes 2–4 minutes{elapsed ? ` · ${fmtElapsed(elapsed)} elapsed` : ''}.
+                  </p>
+                </>
+              )}
+              {/* Closing the page loses nothing: the video is stored and keeps its place. Logged-in
+                  students find the result in their attempts here; anonymous ones are emailed a link. */}
+              <p className="text-xs text-gray-500 mt-3 bg-[#F0F6FB] rounded-xl px-3 py-2">
+                Your video is saved — please don't upload it again.{' '}
+                {loggedIn
+                  ? 'You can close this page; your result will appear under your attempts when you come back.'
+                  : `You can close this page; we'll email your results to ${email}.`}
               </p>
 
               {/* Indeterminate progress shimmer */}

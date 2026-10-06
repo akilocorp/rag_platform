@@ -1,6 +1,10 @@
 # @language  Python
-# @updated   2026-09-30
-# @changed   Overall scores follow the config's `overall_mode` (scoring-boxes page): "average" of all
+# @updated   2026-10-06
+# @changed   The status poll returns the video's place in the processing queue (`queue`), and puts a video
+#            lost from the queue by a restart back in line instead of auto-failing it after 8 minutes. A new
+#            upload is refused with 409 `already_queued` while the same student's previous video is still
+#            waiting or processing, so re-uploading can no longer lengthen the line.
+#            Prior: Overall scores follow the config's `overall_mode` (scoring-boxes page): "average" of all
 #            criteria or the "prompt" grade (llm_overall), via src/video/overall.overall_for — in the attempt
 #            list, results (new `overall` / `overall_mode` fields), dashboard table, CSV and class average.
 #            PUT scoring-spec also saves `overall_mode` and `feedback_prompt_template`. The dashboard lists
@@ -56,7 +60,7 @@ from src.utils.s3_client import (
     get_s3_client,
     get_bucket,
 )
-from src.video.pipeline import dispatch_pipeline
+from src.video.pipeline import dispatch_pipeline, queue_status
 from src.video.rubrics import registry
 from src.video.overall import OVERALL_MODES, overall_for, overall_mode_of
 from src.video.scoring import score_submission
@@ -321,6 +325,20 @@ def create_submission():
 
     db = current_app.config['MONGO_DB']
 
+    # One video in line per student: a re-upload while the last one is still waiting
+    # only lengthens the queue for everyone. Checked against the live queue, not just
+    # the stored status, so a record stranded by a restart never blocks a new upload.
+    for prior in db['video_submissions'].find({
+        "config_id": config_id, "submitter_email": email,
+        "upload_status": "uploaded", "status": {"$in": ["pending", "processing", "collected"]},
+    }, {"_id": 1}):
+        if queue_status(str(prior["_id"])):
+            return jsonify({
+                "error": "Your previous video is still in line to be analyzed.",
+                "already_queued": True,
+                "submission_id": str(prior["_id"]),
+            }), 409
+
     existing_count = db['video_submissions'].count_documents({
         "config_id": config_id,
         "submitter_email": email,
@@ -428,24 +446,34 @@ def submission_status(sub_id):
     if not sub:
         return jsonify({"error": "Submission not found"}), 404
 
-    # Auto-fail stale processing submissions (lost pipeline worker)
-    if sub.get("status") == "processing":
-        updated_at = sub.get("updated_at") or 0
-        if time.time() - updated_at > 480:
-            db['video_submissions'].update_one(
-                {"_id": sub["_id"]},
-                {"$set": {"status": "failed", "error": "Processing timed out. Please try uploading again.", "updated_at": time.time()}}
-            )
-            current_app.logger.warning("[PIPELINE] auto-failed stale submission %s (stuck >15 min)", sub_id)
-            return jsonify({"submission_id": sub_id, "status": "failed",
-                            "upload_status": sub.get("upload_status"),
-                            "error": "Processing timed out. Please try uploading again."})
+    queue = queue_status(sub_id)
+
+    # An uploaded video that is unfinished but in nobody's queue was lost to a backend
+    # restart (the queue lives in memory). Put it back in line rather than failing it:
+    # the file is safely in storage, so the student never has to upload again. Done on
+    # the poll, not at boot, so the deploy's preflight container can't pick it up too.
+    # Bounded to a day so an ancient stranded record isn't resurrected by a stray poll.
+    if (queue is None and sub.get("upload_status") == "uploaded"
+            and sub.get("status") in ("pending", "processing", "collected")
+            and time.time() - (sub.get("created_at") or 0) < 24 * 3600):
+        now = time.time()
+        db['video_submissions'].update_one({"_id": sub["_id"]},
+                                           {"$set": {"status": "pending", "updated_at": now}})
+        job_id = db['video_jobs'].insert_one({
+            "submission_id": sub_id, "config_id": sub.get("config_id"), "status": "pending",
+            "error": None, "created_at": now, "updated_at": now, "requeued": True,
+        }).inserted_id
+        dispatch_pipeline(current_app._get_current_object(), sub_id, str(job_id))
+        current_app.logger.warning("[PIPELINE] re-queued orphaned submission %s", sub_id)
+        queue = queue_status(sub_id)
+        sub["status"] = "pending"
 
     return jsonify({
         "submission_id": sub_id,
         "status": sub.get("status"),
         "upload_status": sub.get("upload_status"),
         "error": sub.get("error"),
+        "queue": queue,
     })
 
 

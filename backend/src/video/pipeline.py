@@ -1,3 +1,9 @@
+# @language  Python
+# @updated   2026-10-06
+# @changed   Videos now wait in a first-come-first-served queue with no time limit, worked by
+#            VIDEO_MAX_CONCURRENT worker threads, instead of each thread racing a 10-minute semaphore
+#            ("Video worker pool busy"). Every waiting student is pushed their live place in line
+#            (`video_queue_position`) whenever the line moves; `queue_status()` serves the same to the poll.
 """Video processing pipeline (background worker).
 
 Dispatch mirrors user_files._run_async_pdf_ingest: a daemon thread that runs
@@ -17,6 +23,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta
 
 from bson import ObjectId
@@ -40,23 +47,121 @@ def _dbg(submission_id, msg):
 
 
 TMP_DIR = "uploads/video_tmp"
-# Cap simultaneous heavy jobs so uploads can't exhaust the threading-mode server.
-_MAX_CONCURRENT = int(os.getenv("VIDEO_MAX_CONCURRENT", "2"))
-_semaphore = threading.Semaphore(_MAX_CONCURRENT)
+# How many videos are processed at once. Each one runs an ffmpeg transcode on this
+# server and then waits on the external analyze API, so this is the knob that trades
+# server load against how fast a class's queue clears.
+_MAX_CONCURRENT = max(1, int(os.getenv("VIDEO_MAX_CONCURRENT", "2")))
 RESULT_TOKEN_TTL_DAYS = 30
 # Bound the ffmpeg subprocesses — a slow/hung encode must never block the worker
 # forever. Transcode timeout is non-fatal (caller falls back to the original).
 _TRANSCODE_TIMEOUT = int(os.getenv("VIDEO_TRANSCODE_TIMEOUT", "240"))
 
 
+# ---------------------------------------------------------------------------
+# Job queue
+# ---------------------------------------------------------------------------
+# A whole class uploads within minutes, so videos wait their turn here in upload
+# order. Nothing in the line times out: the old per-thread semaphore failed any
+# video that waited 10 minutes, and students who re-uploaded only joined the back
+# of the same line. In-process memory, like the rest of this module — a restart
+# empties it, and `video_routes.submission_status` puts a lost video back in line
+# the next time its page polls (deliberately not at boot: the deploy's preflight
+# container boots this same code against the same database).
+_DEFAULT_JOB_SECONDS = 120.0
+_q_cond = threading.Condition()
+_waiting = deque()                      # (app, submission_id, job_id), oldest first
+_running = {}                           # submission_id -> start time
+_recent_durations = deque(maxlen=10)    # seconds per finished job, for the ETA
+_workers_started = False
+
+
 def dispatch_pipeline(app, submission_id: str, job_id: str):
-    """Start the worker thread. Returns immediately."""
+    """Put a submission at the back of the line. Returns immediately.
+
+    Idempotent per submission: one already waiting or running is left where it is,
+    so a duplicate dispatch can't process (and bill) the same video twice.
+    """
     _dbg(submission_id, f"dispatch_pipeline called | job_id={job_id}")
-    threading.Thread(
-        target=_run_video_pipeline,
-        kwargs={"app": app, "submission_id": submission_id, "job_id": job_id},
-        daemon=True,
-    ).start()
+    global _workers_started
+    with _q_cond:
+        if submission_id in _running or any(w[1] == submission_id for w in _waiting):
+            return
+        _waiting.append((app, submission_id, job_id))
+        if not _workers_started:
+            for i in range(_MAX_CONCURRENT):
+                threading.Thread(target=_worker_loop, daemon=True, name=f"video-worker-{i}").start()
+            _workers_started = True
+        _q_cond.notify()
+    _broadcast_positions(app)
+
+
+def _worker_loop():
+    """One of the VIDEO_MAX_CONCURRENT workers: take the oldest waiting video, run it, repeat."""
+    while True:
+        with _q_cond:
+            while not _waiting:
+                _q_cond.wait()
+            app, submission_id, job_id = _waiting.popleft()
+            _running[submission_id] = time.time()
+        # Everyone behind just moved up one.
+        _broadcast_positions(app)
+        try:
+            _run_video_pipeline(app, submission_id, job_id)
+        except Exception:  # noqa: BLE001 — a crashed job must never take its worker down
+            logger.exception("[PIPELINE] worker crashed on sub=%s", submission_id)
+        finally:
+            with _q_cond:
+                started = _running.pop(submission_id, None)
+                if started:
+                    _recent_durations.append(time.time() - started)
+
+
+def _avg_job_seconds():
+    """Mean duration of recent jobs (caller holds the lock); a sane default before any finish."""
+    return (sum(_recent_durations) / len(_recent_durations)) if _recent_durations else _DEFAULT_JOB_SECONDS
+
+
+def _position_payload(index):
+    """Place-in-line payload for the waiting video at 0-based `index` (caller holds the lock).
+
+    The ETA assumes every slot is busy and turns over once per average job: a video
+    starts after ceil(position / slots) rounds and then takes one more job's time.
+    """
+    avg = _avg_job_seconds()
+    position = index + 1
+    rounds = (position + _MAX_CONCURRENT - 1) // _MAX_CONCURRENT
+    return {
+        "state": "waiting",
+        "position": position,
+        "ahead": index,
+        "eta_sec": int(rounds * avg + avg),
+    }
+
+
+def queue_status(submission_id: str):
+    """Where a submission is in this process's queue: waiting (with its place), running, or None."""
+    with _q_cond:
+        if submission_id in _running:
+            return {"state": "running"}
+        for i, w in enumerate(_waiting):
+            if w[1] == submission_id:
+                return _position_payload(i)
+    return None
+
+
+def _broadcast_positions(app):
+    """Push every waiting video its current place in line, to that submission's room."""
+    with _q_cond:
+        updates = [(w[1], _position_payload(i)) for i, w in enumerate(_waiting)]
+    sio = app.extensions.get("socketio") if app else None
+    if not sio:
+        return
+    for submission_id, payload in updates:
+        try:
+            sio.emit("video_queue_position", {"submission_id": submission_id, **payload},
+                     room=f"video:{submission_id}")
+        except Exception:  # noqa: BLE001 — a missed update is corrected by the next one or the poll
+            logger.warning("[PIPELINE] queue position emit failed for %s", submission_id)
 
 
 def _emit(sio, submission, event, payload):
@@ -132,15 +237,10 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
         _email = sub.get("submitter_email") or ""
         tag = f"sub={submission_id} | {_name} <{_email}>"
 
-        _dbg(submission_id, f"acquiring semaphore (max_concurrent={_MAX_CONCURRENT})… | {_name} <{_email}>")
-        acquired = _semaphore.acquire(timeout=600)
-        _dbg(submission_id, f"semaphore acquired={acquired}")
+        _dbg(submission_id, f"worker slot taken (max_concurrent={_MAX_CONCURRENT}) | {_name} <{_email}>")
         tmp_video = None
         tmp_processed = None
         try:
-            if not acquired:
-                raise RuntimeError("Video worker pool busy — timed out waiting for a slot")
-
             logger.info("[PIPELINE] START | %s | status=processing", tag)
             subs.update_one({"_id": sub["_id"]}, {"$set": {"status": "processing", "updated_at": time.time()}})
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "processing", "updated_at": time.time()}})
@@ -235,8 +335,6 @@ def _run_video_pipeline(app, submission_id: str, job_id: str):
             jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "failed", "error": str(e), "updated_at": time.time()}})
             _emit(sio, sub, "video_job_done", {"status": "failed", "error": str(e), "job_id": job_id})
         finally:
-            if acquired:
-                _semaphore.release()
             _safe_unlink(tmp_video)
             _safe_unlink(tmp_processed)
 
