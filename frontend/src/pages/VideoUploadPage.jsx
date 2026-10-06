@@ -1,7 +1,10 @@
 /**
  * @language  JavaScript (React / JSX)
  * @updated   2026-10-06
- * @changed   Waiting screen shows the video's live place in the processing queue ("#4 in line, about
+ * @changed   Staff (the professor or a collaborator, `config.owned`) can type any name/email while logged in
+ *            and see that their upload goes to the front of the processing queue — for filing a team's live
+ *            pitch under that team.
+ *            Prior: Waiting screen shows the video's live place in the processing queue ("#4 in line, about
  *            8 min") from `video_queue_position` pushes and the status poll; the 10-minute "taking too long,
  *            upload again" timer is gone (re-uploads only lengthened the line), replaced by a note that the
  *            video is saved and the page can be closed; a 409 `already_queued` upload resumes watching the
@@ -100,6 +103,8 @@ export default function VideoUploadPage() {
   const [error, setError] = useState('');
   const [history, setHistory] = useState(null); // null=not loaded
   const [limitReached, setLimitReached] = useState(false);
+  // The professor or a collaborator on this assignment (the config API's can-edit flag).
+  const isStaff = loggedIn && !!config?.owned;
   const [dragging, setDragging] = useState(false);
 
   // Waiting-screen state: rotating tip, elapsed timer, browser-notification opt-in.
@@ -397,20 +402,30 @@ export default function VideoUploadPage() {
       )}
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">{error}</div>}
 
+      {/* Staff uploading on the class's behalf: their video jumps the queue (server-side,
+          from the same can-edit check behind `config.owned`) and is filed under whatever
+          name/email they enter, so each team's pitch stays a separate row. */}
+      {isStaff && (
+        <div className="mb-4 p-3 bg-[#FFF4EF] border border-[#F9D0C4] text-[#C2410C] rounded-xl text-sm">
+          <span className="font-bold">Priority upload.</span> You're staff on this assignment, so this video
+          goes to the front of the line. Enter the team's name (e.g. "Team 3") and a separate email for each team.
+        </div>
+      )}
+
       <div className="space-y-4">
         <div>
           <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Your Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} disabled={loggedIn}
+          <input value={name} onChange={(e) => setName(e.target.value)} disabled={loggedIn && !isStaff}
             className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] disabled:bg-gray-50 disabled:text-gray-500"
             placeholder="Jane Doe" />
         </div>
         <div>
           <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loggedIn}
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loggedIn && !isStaff}
             onBlur={(e) => !loggedIn && fetchHistory(e.target.value)}
             className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#FA6C43] disabled:bg-gray-50 disabled:text-gray-500"
             placeholder="jane@university.edu" />
-          {loggedIn && <p className="text-xs text-gray-400 mt-1">Using your account details.</p>}
+          {loggedIn && !isStaff && <p className="text-xs text-gray-400 mt-1">Using your account details.</p>}
         </div>
         <div>
           <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Your Video</label>

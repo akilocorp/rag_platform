@@ -1,6 +1,9 @@
 # @language  Python
 # @updated   2026-10-06
-# @changed   The status poll returns the video's place in the processing queue (`queue`), and puts a video
+# @changed   Staff uploads (caller can edit the config: professor or collaborator) are flagged `priority`
+#            and jump the processing queue, keep the name/email they type (so a TA logged in as themself can
+#            file each team's pitch under that team), and skip the one-video-in-line-per-student guard.
+#            Prior: The status poll returns the video's place in the processing queue (`queue`), and puts a video
 #            lost from the queue by a restart back in line instead of auto-failing it after 8 minutes. A new
 #            upload is refused with 409 `already_queued` while the same student's previous video is still
 #            waiting or processing, so re-uploading can no longer lengthen the line.
@@ -315,8 +318,11 @@ def create_submission():
         return jsonify({"error": f"Video uploads are closed until {until_str}."}), 403
 
     user_id = _resolve_user_id()
-    # Logged-in: trust the account email over a typed one.
-    if user_id:
+    # The professor or a collaborator uploading for the class (e.g. a team's live pitch):
+    # their video jumps the queue, and they may file it under whatever name/email they type.
+    is_staff = bool(user_id) and can_edit(config, user_id)
+    # Logged-in student: trust the account email over a typed one.
+    if user_id and not (is_staff and email):
         acct_email = _user_email(user_id)
         if acct_email:
             email = acct_email.lower()
@@ -328,10 +334,11 @@ def create_submission():
     # One video in line per student: a re-upload while the last one is still waiting
     # only lengthens the queue for everyone. Checked against the live queue, not just
     # the stored status, so a record stranded by a restart never blocks a new upload.
-    for prior in db['video_submissions'].find({
+    # Staff are exempt — they upload several teams' pitches back to back.
+    for prior in ([] if is_staff else db['video_submissions'].find({
         "config_id": config_id, "submitter_email": email,
         "upload_status": "uploaded", "status": {"$in": ["pending", "processing", "collected"]},
-    }, {"_id": 1}):
+    }, {"_id": 1})):
         if queue_status(str(prior["_id"])):
             return jsonify({
                 "error": "Your previous video is still in line to be analyzed.",
@@ -360,6 +367,7 @@ def create_submission():
         "submitter_name": name,
         "submitter_email": email,
         "is_anonymous": user_id is None,
+        "priority": is_staff,
         "storage_key": None,
         "filename": filename,
         "content_type": content_type,
@@ -431,7 +439,8 @@ def confirm_upload(sub_id):
         "updated_at": now,
     }).inserted_id
 
-    dispatch_pipeline(current_app._get_current_object(), sub_id, str(job_id))
+    dispatch_pipeline(current_app._get_current_object(), sub_id, str(job_id),
+                      priority=bool(sub.get("priority")))
     return jsonify({"job_id": str(job_id), "status": "processing"}), 202
 
 
@@ -463,7 +472,8 @@ def submission_status(sub_id):
             "submission_id": sub_id, "config_id": sub.get("config_id"), "status": "pending",
             "error": None, "created_at": now, "updated_at": now, "requeued": True,
         }).inserted_id
-        dispatch_pipeline(current_app._get_current_object(), sub_id, str(job_id))
+        dispatch_pipeline(current_app._get_current_object(), sub_id, str(job_id),
+                          priority=bool(sub.get("priority")))
         current_app.logger.warning("[PIPELINE] re-queued orphaned submission %s", sub_id)
         queue = queue_status(sub_id)
         sub["status"] = "pending"

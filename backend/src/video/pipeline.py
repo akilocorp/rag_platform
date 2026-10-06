@@ -1,6 +1,8 @@
 # @language  Python
 # @updated   2026-10-06
-# @changed   Videos now wait in a first-come-first-served queue with no time limit, worked by
+# @changed   Priority lane: `dispatch_pipeline(..., priority=True)` (uploads by the professor or a
+#            collaborator) goes ahead of every student video, first-come among priority uploads.
+#            Prior: Videos now wait in a first-come-first-served queue with no time limit, worked by
 #            VIDEO_MAX_CONCURRENT worker threads, instead of each thread racing a 10-minute semaphore
 #            ("Video worker pool busy"). Every waiting student is pushed their live place in line
 #            (`video_queue_position`) whenever the line moves; `queue_status()` serves the same to the poll.
@@ -69,24 +71,35 @@ _TRANSCODE_TIMEOUT = int(os.getenv("VIDEO_TRANSCODE_TIMEOUT", "240"))
 # container boots this same code against the same database).
 _DEFAULT_JOB_SECONDS = 120.0
 _q_cond = threading.Condition()
-_waiting = deque()                      # (app, submission_id, job_id), oldest first
+_waiting = deque()                      # (app, submission_id, job_id, priority), priority first, then oldest
 _running = {}                           # submission_id -> start time
 _recent_durations = deque(maxlen=10)    # seconds per finished job, for the ETA
 _workers_started = False
 
 
-def dispatch_pipeline(app, submission_id: str, job_id: str):
-    """Put a submission at the back of the line. Returns immediately.
+def dispatch_pipeline(app, submission_id: str, job_id: str, priority: bool = False):
+    """Put a submission in line. Returns immediately.
+
+    Students join the back. A `priority` video (uploaded by the professor or a
+    collaborator — e.g. the group pitch the class is waiting to see scored) goes
+    ahead of every student video but behind earlier priority ones, so two staff
+    uploads still keep their order. Videos already running are never interrupted.
 
     Idempotent per submission: one already waiting or running is left where it is,
     so a duplicate dispatch can't process (and bill) the same video twice.
     """
-    _dbg(submission_id, f"dispatch_pipeline called | job_id={job_id}")
+    _dbg(submission_id, f"dispatch_pipeline called | job_id={job_id} | priority={priority}")
     global _workers_started
     with _q_cond:
         if submission_id in _running or any(w[1] == submission_id for w in _waiting):
             return
-        _waiting.append((app, submission_id, job_id))
+        item = (app, submission_id, job_id, bool(priority))
+        if priority:
+            # Index of the first student video: the new one slots in just before it.
+            at = next((i for i, w in enumerate(_waiting) if not w[3]), len(_waiting))
+            _waiting.insert(at, item)
+        else:
+            _waiting.append(item)
         if not _workers_started:
             for i in range(_MAX_CONCURRENT):
                 threading.Thread(target=_worker_loop, daemon=True, name=f"video-worker-{i}").start()
@@ -101,7 +114,7 @@ def _worker_loop():
         with _q_cond:
             while not _waiting:
                 _q_cond.wait()
-            app, submission_id, job_id = _waiting.popleft()
+            app, submission_id, job_id, _priority = _waiting.popleft()
             _running[submission_id] = time.time()
         # Everyone behind just moved up one.
         _broadcast_positions(app)
