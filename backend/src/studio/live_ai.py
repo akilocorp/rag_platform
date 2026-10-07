@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-10-06
-# @changed   Respondent input is capped (LIVE_INPUT_MAX_CHARS) and fenced via wrap_untrusted, replies
+# @updated   2026-10-07
+# @changed   Added has_live_ai_input so the route can reject an empty call before it spends a
+#            rate-limit slot.
+# Prior: Respondent input is capped (LIVE_INPUT_MAX_CHARS) and fenced via wrap_untrusted, replies
 #            parse through the shared fence-tolerant parse_json_reply, and a non-dict payload is
 #            treated as empty instead of raising a 500.
 # Prior: New file: dispatcher for Tier-3 live, mid-session AI calls (Comprehension-Paraphrase
@@ -61,6 +63,24 @@ def _followup_probe(block, payload):
     )
     reply = call_claude(system, f"Question: {question}\n\nAnswer:\n{wrap_untrusted(answer, LIVE_INPUT_MAX_CHARS)}")
     return parse_json_reply(reply, {"followup_question"})
+
+
+# The payload field each instrument needs; an empty one means no Claude call.
+_INPUT_FIELDS = {
+    "comprehension_paraphrase_check": "paraphrase",
+    "ai_devils_advocate": "stance",
+    "adaptive_followup_probe": "answer",
+}
+
+
+def has_live_ai_input(instrument_type, payload):
+    """Whether this call carries the text its instrument needs. Checked by the
+    route BEFORE the rate limiter, so an empty or malformed request is a 400
+    that costs the respondent nothing."""
+    field = _INPUT_FIELDS.get(instrument_type)
+    if not field or not isinstance(payload, dict):
+        return False
+    return bool(str(payload.get(field) or '').strip())
 
 
 _HANDLERS = {

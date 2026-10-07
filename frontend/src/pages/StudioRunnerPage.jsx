@@ -1,6 +1,9 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   Micro-animation pass: block cards now stagger-fade in on load (animate-chip-in +
+// @updated   2026-10-07
+// @changed   Required check now uses isAnswered, matching the server: an empty list/object, or an
+//            object whose entries are all blank (a card sort reset to "Choose…", a cleared constant
+//            sum), is unanswered — previously the client let it through and the server bounced it.
+// Prior: Micro-animation pass: block cards now stagger-fade in on load (animate-chip-in +
 //            per-index delay) and pick up a soft orange border once answered; Submit gets a hover
 //            shadow; the "Thanks for your response" screen fades its lines in instead of popping in
 //            all at once.
@@ -53,6 +56,19 @@ import { getInstrumentRespondExtra } from '../studio/instruments/registry';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const RESPONDENT_KEY = 'studio_respondent_id';
+
+// Whether a value answers a required block — mirrors the server's _is_answered
+// (studio_routes.py), and additionally treats an object whose entries are all
+// blank as empty, since JSON drops `undefined` entries before the server sees them.
+const isAnswered = (val) => {
+  if (val === undefined || val === null) return false;
+  if (typeof val === 'string') return val.trim() !== '';
+  if (Array.isArray(val)) return val.length > 0;
+  if (typeof val === 'object') {
+    return Object.values(val).some((v) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === ''));
+  }
+  return true;
+};
 
 const blockNeedsEvents = (block) => (block.instruments || []).some((i) => i.needs_events);
 
@@ -210,8 +226,7 @@ const StudioRunnerPage = () => {
     const nextErrors = {};
     blocks.forEach((blk) => {
       if (!blk.config?.required) return;
-      const val = answers[blk.id];
-      if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
+      if (!isAnswered(answers[blk.id])) {
         nextErrors[blk.id] = 'This question is required.';
       }
     });

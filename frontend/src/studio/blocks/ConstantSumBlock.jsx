@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   New file: the Constant Sum block. Respond mode shows a running total against the
+// @updated   2026-10-07
+// @changed   Allocations can't go negative (min=0 + clamp on input) — the server drops negative
+//            allocations, so accepting them here silently lost the respondent's entry.
+// Prior: New file: the Constant Sum block. Respond mode shows a running total against the
 //            target and colors it red/green — feedback only, doesn't block Submit (see backend
 //            src/studio/blocks/constant_sum.py for why: no page-level mechanism today for a block
 //            to fail validation beyond the generic "required" check).
@@ -36,8 +38,9 @@ const ConstantSumBlock = ({ config, mode = 'edit', onChange, value, onAnswer, er
               <span className="flex-1 text-sm" style={{ fontFamily: FONT_BODY, color: '#1F1F1F' }}>{opt}</span>
               <input
                 type="number"
+                min={0}
                 value={allocations[opt] ?? ''}
-                onChange={(e) => onAnswer({ ...allocations, [opt]: e.target.value === '' ? undefined : Number(e.target.value) })}
+                onChange={(e) => onAnswer({ ...allocations, [opt]: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })}
                 className="w-20 px-2 py-1 rounded-md border text-sm text-right"
                 style={{ borderColor: 'rgba(31,31,31,0.15)', fontFamily: FONT_BODY, color: '#1F1F1F' }}
               />

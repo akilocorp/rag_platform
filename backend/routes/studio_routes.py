@@ -1,6 +1,13 @@
 # @language  Python
-# @updated   2026-10-06
-# @changed   Security/reliability pass on the public surface. Rate limits key on ProxyFix's
+# @updated   2026-10-07
+# @changed   Second-pass regression fixes: an answer that no longer fits the block's current config
+#            (professor edited a live form) is kept as `value_raw` and still counts as answered, so a
+#            respondent can't get stuck on "required"; body cap 2 MB / text 50k (long voice transcripts
+#            carry ~2 KB of prosody per turn); per-IP ceilings raised to 1000/h as a stopgap until the
+#            proxy hop count is confirmed; plain numbers stay unescaped in the CSV; the IP ceiling is
+#            checked before the respondent cooldown; empty live-AI calls don't spend a slot; the
+#            live-summary filter and CSV metric cells skip malformed legacy rows.
+# Prior: Security/reliability pass on the public surface. Rate limits key on ProxyFix's
 #            remote_addr (never the spoofable X-Forwarded-For), are atomic fixed-window counters,
 #            and split into a per-respondent cooldown + generous per-IP ceiling so a classroom on one
 #            NAT isn't throttled; the cooldown is charged only after validation. Submissions are
@@ -88,7 +95,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from models.user import User
-from src.studio.live_ai import call_live_ai_instrument
+from src.studio.live_ai import call_live_ai_instrument, has_live_ai_input
 from src.studio.summary import build_live_summary
 from src.studio.registry import (
     compute_instrument_metric,
@@ -110,19 +117,24 @@ FACULTY_ROLES = ("professor", "admin")
 #    whole classroom usually shares one campus NAT address — per-IP keying let
 #    exactly one student submit every 30s during an in-class Present session.
 #  - Per (project, IP): a generous volume ceiling. This is the real abuse
-#    backstop, since respondent_id is client-chosen.
+#    backstop, since respondent_id is client-chosen. Deliberately high: if a
+#    proxy in front of nginx isn't counted in app.py's ProxyFix(x_for=...),
+#    every respondent resolves to that proxy's address and this becomes a
+#    per-project total — it must still never stop a large lecture.
 #  - Live AI calls additionally have a per-project daily ceiling that ignores
 #    IP entirely, so spend is hard-capped even against many addresses.
 STUDIO_RESPONSE_COOLDOWN_SECONDS = 30
-SUBMITS_PER_IP_PER_HOUR = 200
-AI_CALLS_PER_IP_PER_HOUR = 300
+SUBMITS_PER_IP_PER_HOUR = 1000
+AI_CALLS_PER_IP_PER_HOUR = 1000
 AI_CALLS_PER_PROJECT_PER_DAY = 3000
 _rate_limit_index_ensured = False
 
-# Public submission limits — the one anonymous write surface. A full,
-# legitimate submission (incl. a long voice transcript) is a few tens of KB.
-MAX_SUBMISSION_BYTES = 256 * 1024
-MAX_TEXT_ANSWER_CHARS = 10000
+# Public submission limits — the one anonymous write surface. Sized for the
+# heaviest real case: a voice transcript carries Hume's full prosody map
+# (~2 KB) on every turn, so a long conversation alone runs to hundreds of KB.
+MAX_SUBMISSION_BYTES = 2 * 1024 * 1024
+MAX_TEXT_ANSWER_CHARS = 50000
+MAX_RAW_VALUE_CHARS = 2000
 MAX_STR_FIELD_CHARS = 4000
 MAX_RESPONDENT_ID_LEN = 128
 MAX_EVENTS_PER_ANSWER = 20
@@ -492,6 +504,21 @@ def _is_answered(value):
     return True
 
 
+def _raw_value_record(value):
+    """A sent value that _coerce_answer couldn't fit to the block, kept as a
+    capped JSON string. This happens legitimately when a professor edits a live
+    form (renames an option, lowers a scale) while a respondent has the old
+    version open; storing it means nothing they answered is lost, and as a
+    string it can't break any reader that expects the block's real shape."""
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return None
+    return text[:MAX_RAW_VALUE_CHARS]
+
+
+_PLAIN_NUMBER_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)$")
+
 _CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -508,7 +535,20 @@ def _csv_cell(v):
     if isinstance(v, (list, dict)):
         v = json.dumps(v, ensure_ascii=False, default=str)
     text = str(v)
-    return "'" + text if text.startswith(_CSV_FORMULA_PREFIXES) else text
+    # A plain signed number ("-3", "+852") is data a spreadsheet would read as
+    # that number, not a formula — escaping it would break numeric analysis.
+    if text.startswith(_CSV_FORMULA_PREFIXES) and not _PLAIN_NUMBER_RE.match(text):
+        return "'" + text
+    return text
+
+
+def _csv_answer_value(answer):
+    """An answer's export value: the coerced value, else the value_raw it was
+    kept as (didn't fit an edited block) — so the professor still sees what
+    the respondent actually sent."""
+    if answer.get('value') is not None:
+        return answer['value']
+    return answer.get('value_raw', '')
 
 
 def _csv_content_disposition(title):
@@ -724,14 +764,15 @@ def _bump_counter(db, scope, ident, window_seconds, limit):
 
 
 def _submission_allowed(db, project_id, respondent_id, client_supplied_id):
-    """Per-respondent cooldown (only when the runner sent its stable id — a
-    server-minted anon id is fresh every time) plus the per-IP ceiling."""
-    if client_supplied_id and not _bump_counter(
+    """Per-IP ceiling, then the per-respondent cooldown (only when the runner
+    sent its stable id — a server-minted anon id is fresh every time). IP goes
+    first so a refusal there can't also burn the respondent's cooldown."""
+    if not _bump_counter(db, "submit-ip", f"{project_id}:{_client_ip()}", 3600, SUBMITS_PER_IP_PER_HOUR):
+        return False
+    return not client_supplied_id or _bump_counter(
         db, "submit-respondent", f"{project_id}:{respondent_id}",
         STUDIO_RESPONSE_COOLDOWN_SECONDS, 1,
-    ):
-        return False
-    return _bump_counter(db, "submit-ip", f"{project_id}:{_client_ip()}", 3600, SUBMITS_PER_IP_PER_HOUR)
+    )
 
 
 def _ai_call_allowed(db, project_id):
@@ -935,9 +976,16 @@ def submit_response(project_id):
         blk = block_by_id.get(bid)
         if not blk or bid in answers_by_id:
             continue
-        value = _coerce_answer(blk, a.get('value'))
-        answers_by_id[bid] = value
+        sent = a.get('value')
+        value = _coerce_answer(blk, sent)
         entry = {"block_id": bid, "value": value}
+        if value is None and _is_answered(sent):
+            # Sent, but doesn't fit the block's CURRENT config — kept, and the
+            # block counts as answered (see _raw_value_record).
+            raw = _raw_value_record(sent)
+            if raw:
+                entry["value_raw"] = raw
+        answers_by_id[bid] = value if value is not None else entry.get("value_raw")
         events = _coerce_events(a.get('events'))
         if events:
             entry["events"] = events
@@ -1019,6 +1067,9 @@ def ai_instrument_call(project_id):
     if not any(i.get('type') == instrument_type for i in (block.get('instruments') or [])):
         return jsonify({"message": "Instrument is not attached to this block"}), 400
 
+    if not has_live_ai_input(instrument_type, body.get('input')):
+        return jsonify({"message": "Nothing to send yet."}), 400
+
     # Charged after the cheap checks, so a malformed call can't burn a slot.
     if not _ai_call_allowed(db, project_id):
         return jsonify({"message": "Please slow down and try again in a few minutes."}), 429
@@ -1085,8 +1136,9 @@ def live_summary(project_id):
         responses = [
             r for r in responses
             if any(
-                a.get('block_id') == filter_block_id and a.get('value') == filter_value
-                for a in r.get('answers', [])
+                isinstance(a, dict)
+                and a.get('block_id') == filter_block_id and a.get('value') == filter_value
+                for a in (r.get('answers') or [])
             )
         ]
 
@@ -1166,10 +1218,11 @@ def export_responses_csv(project_id):
         row = [r.get('respondent_id', ''), r.get('submitted_at', '')]
         if has_condition:
             row.append(r.get('condition', ''))
-        row += [(answers_by_id.get(bid) or {}).get('value', '') for bid, _ in columns]
+        row += [_csv_answer_value(answers_by_id.get(bid) or {}) for bid, _ in columns]
         for (bid, inst_type, mk), _label in metric_columns:
             a = answers_by_id.get(bid) or {}
-            row.append((a.get('metrics') or {}).get(inst_type, {}).get(mk, ''))
+            inst_metrics = (a.get('metrics') or {}).get(inst_type) if isinstance(a.get('metrics'), dict) else None
+            row.append(inst_metrics.get(mk, '') if isinstance(inst_metrics, dict) else '')
         row += [(r.get('embedded_data') or {}).get(k, '') for k in embedded_keys]
         writer.writerow([_csv_cell(c) for c in row])
 
