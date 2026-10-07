@@ -1,6 +1,8 @@
 // @language  JavaScript (React / JSX)
-// @updated   2026-10-04
-// @changed   Grid view goes 2-up from lg (was xl); phones move the card's icon actions to their own row under the chips.
+// @updated   2026-10-07
+// @changed   Added an Audio-based category: Audio Call bots (bot_type 'audio_call') are carved out of
+//            Text-based, where they were wrongly listed, into their own sidebar filter and section.
+// @changed   Prior: Grid view goes 2-up from lg (was xl); phones move the card's icon actions to their own row under the chips.
 // @changed   Prior: Below lg: categories become a chip row and the header stays stacked; phones put New Assistant first, full width; 'Plan from syllabus' reads 'Syllabus' on phones; Private/Shared capped on iPad; card footers wrap with a one-line open button.
 // @changed   Prior: Phones: toolbar wraps with one-line button labels; cards drop the icon tile and titles wrap to 2 lines (were cut to a few letters).
 // @changed   Prior: Create wizard remounts fresh after a publish (was reopening on the last bot's final step); cancelled drafts are kept.
@@ -657,7 +659,7 @@ const ConfigListPage = () => {
   // through their Shared classes was dropped back on Private after every single edit.
   // Wrapped in try/catch because localStorage throws outright in some privacy modes.
   const [visibility, setVisibility] = useState(() => readStored(VISIBILITY_KEY, ['private', 'shared'], 'private'));
-  const [category, setCategory] = useState(() => readStored(CATEGORY_KEY, ['all', 'text', 'lab', 'exercise', 'video'], 'all'));
+  const [category, setCategory] = useState(() => readStored(CATEGORY_KEY, ['all', 'text', 'audio', 'lab', 'exercise', 'video'], 'all'));
   const [view, setView] = useState(() => readStored(VIEW_KEY, ['grid', 'list'], 'grid'));
 
   useEffect(() => { writeStored(VISIBILITY_KEY, visibility); }, [visibility]);
@@ -935,16 +937,18 @@ const ConfigListPage = () => {
     [configs, visibility],
   );
 
-  // Each assistant lands in exactly one category. Labs (experiential) and Exercises
-  // (manager_exercise) are carved OUT of Text-based, which is otherwise every non-video
-  // conversational bot (plain 1:1 + group-chat Drop-In Spaces).
+  // Each assistant lands in exactly one category. Audio Call bots (audio_call), Labs
+  // (experiential) and Exercises (manager_exercise) are carved OUT of Text-based, which is
+  // otherwise every non-video conversational bot (plain 1:1 + group-chat Drop-In Spaces).
   const isVideo = (c) => c.bot_type === 'video_analysis';
+  const isAudio = (c) => c.bot_type === 'audio_call';
   const isLab = (c) => c.bot_type === 'experiential';
   const isExercise = (c) => c.bot_type === 'manager_exercise';
-  const isText = (c) => !isVideo(c) && !isLab(c) && !isExercise(c);
+  const isText = (c) => !isVideo(c) && !isAudio(c) && !isLab(c) && !isExercise(c);
   const counts = {
     all: byVisibility.length,
     text: byVisibility.filter(isText).length,
+    audio: byVisibility.filter(isAudio).length,
     lab: byVisibility.filter(isLab).length,
     exercise: byVisibility.filter(isExercise).length,
     video: byVisibility.filter(isVideo).length,
@@ -952,6 +956,7 @@ const ConfigListPage = () => {
 
   const visible = useMemo(() => byVisibility.filter(c => {
     if (category === 'text') return isText(c);
+    if (category === 'audio') return isAudio(c);
     if (category === 'lab') return isLab(c);
     if (category === 'exercise') return isExercise(c);
     if (category === 'video') return isVideo(c);
@@ -960,6 +965,7 @@ const ConfigListPage = () => {
 
   const sections = [
     { key: 'text', label: 'Text-based', items: visible.filter(isText) },
+    { key: 'audio', label: 'Audio-based', items: visible.filter(isAudio) },
     { key: 'lab', label: 'Labs', items: visible.filter(isLab) },
     { key: 'exercise', label: 'Exercises', items: visible.filter(isExercise) },
     { key: 'video', label: 'Video-based', items: visible.filter(isVideo) },
@@ -968,6 +974,7 @@ const ConfigListPage = () => {
   const CATEGORIES = [
     { key: 'all', label: 'All Assistants' },
     { key: 'text', label: 'Text-based' },
+    { key: 'audio', label: 'Audio-based' },
     { key: 'lab', label: 'Labs' },
     { key: 'exercise', label: 'Exercises' },
     { key: 'video', label: 'Video-based' },
