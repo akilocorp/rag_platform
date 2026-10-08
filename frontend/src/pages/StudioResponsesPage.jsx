@@ -1,6 +1,8 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   Micro-animation pass: table rows stagger-fade in on load (animate-chip-in + per-index
+// @updated   2026-10-08
+// @changed   Column headers use the block's variable name when set, else its question as plain text
+//            (questions can now carry bold / links / piped-answer tokens) — same rule as the CSV.
+// Prior: Micro-animation pass: table rows stagger-fade in on load (animate-chip-in + per-index
 //            delay, capped at 12 rows worth of stagger so a huge response list doesn't feel slow to
 //            finish appearing) with a soft hover tint; header buttons and back arrow pick up
 //            active:scale press feedback; empty/loaded states fade in instead of popping.
@@ -20,6 +22,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FaArrowLeft, FaSpinner, FaDownload } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
+import { plainText } from '../studio/richTextFormat';
+
+// A block's column header — its variable name, else its question with the
+// rich-text markup stripped. Matches export_responses_csv in studio_routes.py.
+const columnLabel = (b) => b.config?.variable_name || plainText(b.config?.question) || b.id;
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
@@ -109,7 +116,7 @@ const StudioResponsesPage = () => {
   }
 
   const columns = answerableBlocks(project);
-  const questionByBlock = Object.fromEntries(columns.map((b) => [b.id, b.config?.question || b.id]));
+  const questionByBlock = Object.fromEntries(columns.map((b) => [b.id, columnLabel(b)]));
   const metricColumns = discoverMetricColumns(responses, questionByBlock);
   const embeddedKeys = discoverEmbeddedDataKeys(responses);
   const hasCondition = responses.some((r) => r.condition);
@@ -157,7 +164,7 @@ const StudioResponsesPage = () => {
                   {hasCondition && <th className="px-4 py-3 font-semibold whitespace-nowrap">Condition</th>}
                   {columns.map((blk) => (
                     <th key={blk.id} className="px-4 py-3 font-semibold min-w-[160px]">
-                      {blk.config?.question || blk.id}
+                      {columnLabel(blk)}
                     </th>
                   ))}
                   {metricColumns.map((mc) => (

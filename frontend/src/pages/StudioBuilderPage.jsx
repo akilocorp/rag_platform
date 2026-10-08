@@ -1,6 +1,13 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-10-02
-// @changed   Block delete button is always visible on touch screens (it was hover-only).
+// @updated   2026-10-08
+// @changed   Workflow pass. The left rail now shows categories (Content, Scales, Choice, Open text,
+//            Ranking & trade-offs, AI — and grouped instruments) that open a flyout of their items
+//            with one-line descriptions, replacing "first 6 + overflow". Clicking or adding a block
+//            selects it and opens a right-hand settings panel (studio/BlockInspector.jsx) holding
+//            every setting; the canvas is now a numbered, read-only preview of what respondents see
+//            (piped answers shown as placeholders), with duplicate/delete per block and chips for
+//            required / display logic. Escape or a click on empty canvas closes the panel.
+// Prior: Block delete button is always visible on touch screens (it was hover-only).
 // Prior: Added a "Present" button (orange, next to Responses) linking to the new
 //            /studio/:projectId/present route — the Mentimeter-style QR + live-results view.
 // Prior: Fixed an overflow bug: the ribbon's "…" popover had no max-height, so with 17
@@ -68,15 +75,21 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   FaArrowLeft, FaFont, FaDotCircle, FaToggleOn, FaParagraph, FaStar, FaAlignLeft, FaStopwatch,
   FaSlidersH, FaHourglassHalf, FaRandom, FaShieldAlt, FaMicrophone, FaLock,
-  FaClipboardCheck, FaTachometerAlt, FaFilter, FaEllipsisH,
+  FaClipboardCheck, FaTachometerAlt, FaFilter,
   FaBalanceScale, FaListOl, FaCoins, FaExchangeAlt, FaThLarge, FaUsers, FaTimes,
   FaSmile, FaChartLine, FaCommentDots,
   FaGraduationCap, FaNotEqual, FaQuestionCircle, FaComments, FaSearchPlus, FaQrcode,
-  FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar,
+  FaTrash, FaGripVertical, FaSpinner, FaSquare, FaLink, FaCheck, FaChartBar, FaRegCopy, FaCodeBranch,
 } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { getBlockComponent } from '../studio/blocks/registry';
-import { getInstrumentBadge, getInstrumentConfigEditor } from '../studio/instruments/registry';
+import { getInstrumentBadge } from '../studio/instruments/registry';
+import BlockInspector from '../studio/BlockInspector';
+import {
+  BLOCK_CATEGORIES, INSTRUMENT_CATEGORIES, BLOCK_DESCRIPTIONS, groupSpecs,
+} from '../studio/categories';
+import { resolvePipes } from '../studio/richTextFormat';
+import { LOGIC_OPS } from '../studio/blockRules';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const AUTOSAVE_DELAY_MS = 900;
@@ -98,11 +111,6 @@ const RIBBON_ICONS = {
 };
 const iconFor = (key) => RIBBON_ICONS[key] || FaSquare;
 
-// How many items show directly in the rail before the rest collapse into the
-// "…" overflow popover — keeps the rail from growing past the viewport as
-// more instruments/blocks get added.
-const RIBBON_VISIBLE_COUNT = 6;
-
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 // "single_choice" -> "Single Choice" — used both in the ribbon's compatibility
@@ -110,79 +118,39 @@ const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).
 // (a list of block `type` strings) reads as English in both places.
 const formatBlockType = (type) => type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-// A block or instrument type's icon in the ribbon. `dragSource`/`dragPayload`
-// distinguish which kind is being dragged in handleDragEnd. Blocks are also
-// clickable (appends to the end); instruments are drag-only (see file header).
-// Icon-only by default (Photoshop toolbar style); the label is an absolutely-
-// positioned flyout that fades/slides in from the icon on hover so the rail
-// stays narrow while docked to the left edge.
-// `spec.is_ai` items (studio-wide AI badge) render a small lock chip and are
-// not draggable — this is a visual-only paywall stub, there's no billing
-// behind it yet, so `onLockedClick` just opens an upgrade nudge instead of
-// letting the item onto the canvas.
-const RibbonItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
-  const locked = !!spec.is_ai;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `ribbon-${dragSource}-${spec.type}`,
-    data: { source: dragSource, ...dragPayload },
-    disabled: locked,
-  });
-  const Icon = iconFor(spec.icon);
+// One category in the left rail. Icon-only (Photoshop toolbar style) with a
+// hover label; clicking opens that category's flyout of blocks/instruments.
+// Not draggable itself — the items inside the flyout are.
+const RailCategoryButton = ({ category, active, onClick }) => {
+  const Icon = category.icon;
   return (
     <button
-      ref={setNodeRef}
-      {...(locked ? {} : listeners)}
-      {...(locked ? {} : attributes)}
       type="button"
-      onClick={locked ? onLockedClick : onClick}
-      style={{
-        transform: transform ? CSS.Translate.toString(transform) : undefined,
-        opacity: isDragging ? 0.4 : 1,
-        fontFamily: FONT_BODY,
-      }}
-      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-all text-white ${
-        locked ? 'opacity-70 cursor-pointer active:scale-95' : 'hover:bg-white/15 cursor-grab active:cursor-grabbing active:scale-95'
+      onClick={onClick}
+      aria-expanded={active}
+      aria-label={category.label}
+      className={`group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors text-white ${
+        active ? 'bg-white/25' : 'hover:bg-white/15'
       }`}
-      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : (onClick ? `Add ${spec.label} (drag to position, or click to append)` : `Drag onto a block to attach: ${spec.label}`)}
     >
       <Icon className="text-lg" />
-      {locked && (
+      {!active && (
         <span
-          className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full shadow"
-          style={{ backgroundColor: '#1F1F1F' }}
+          className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+          style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
         >
-          <FaLock size={7} className="text-white" />
+          {category.label}
         </span>
       )}
-      <span
-        className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 flex flex-col gap-0.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
-        style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF' }}
-      >
-        <span className="flex items-center gap-1.5">
-          {spec.label}
-          {locked && (
-            <span
-              className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
-              style={{ backgroundColor: '#FA6C43', color: '#FFFFFF' }}
-            >
-              AI
-            </span>
-          )}
-        </span>
-        {spec.applies_to && (
-          <span className="text-[10px] font-normal" style={{ color: 'rgba(255,255,255,0.55)' }}>
-            {spec.applies_to.map(formatBlockType).join(', ')} only
-          </span>
-        )}
-      </span>
     </button>
   );
 };
 
-// A row inside the "…" overflow popover — same drag/click/lock behavior as
-// RibbonItem, but the label renders inline (it's an open menu, not a hover
-// flyout) since there's no narrow-rail constraint inside the popover.
-const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick }) => {
+// A row inside a category flyout — drag it onto the canvas (or a block, for
+// instruments), or click to append a block. `spec.is_ai` items render a lock
+// and aren't draggable: a visual-only paywall stub with no billing behind it
+// yet, so `onLockedClick` just opens an upgrade nudge.
+const RibbonMenuItem = ({ spec, description, dragSource, dragPayload, onClick, onLockedClick }) => {
   const locked = !!spec.is_ai;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `ribbon-${dragSource}-${spec.type}`,
@@ -202,14 +170,17 @@ const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick 
         opacity: isDragging ? 0.4 : 1,
         fontFamily: FONT_BODY,
       }}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-all text-[#1F1F1F] ${
-        locked ? 'opacity-60 cursor-pointer active:scale-[0.97]' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing active:scale-[0.97]'
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-left transition-colors text-[#1F1F1F] ${
+        locked ? 'opacity-60 cursor-pointer' : 'hover:bg-[#F0F6FB] cursor-grab active:cursor-grabbing'
       }`}
-      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : undefined}
+      title={locked ? `${spec.label} is an AI feature — upgrade to unlock` : (onClick ? 'Click to add, or drag onto the canvas' : 'Drag onto a block to attach')}
     >
       <Icon className="text-base shrink-0" style={{ color: '#FA6C43' }} />
-      <span className="flex-1 flex flex-col leading-tight">
+      <span className="flex-1 flex flex-col leading-tight gap-0.5">
         {spec.label}
+        {description && (
+          <span className="text-[11px] font-normal" style={{ color: 'rgba(31,31,31,0.5)' }}>{description}</span>
+        )}
         {spec.applies_to && (
           <span className="text-[10px] font-normal" style={{ color: 'rgba(31,31,31,0.45)' }}>
             {spec.applies_to.map(formatBlockType).join(', ')} only
@@ -221,91 +192,149 @@ const RibbonMenuItem = ({ spec, dragSource, dragPayload, onClick, onLockedClick 
   );
 };
 
-// A block already placed on the canvas — draggable (reorder), deletable, and
-// hands its own config editing off to the component registered for its type.
-// Also a valid drop target for instrument ribbon items (dnd-kit's useSortable
-// registers a droppable under the hood, so it accepts any active draggable in
-// the same DndContext, not just other sortables).
-const PlacedBlock = ({ block, allBlocks, onChange, onDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
-  // Sibling blocks only — excludes self before it ever reaches an
-  // instrument's ConfigEditor, so e.g. Piped Text's "pull from…" picker
-  // can't offer a block as its own source.
-  const siblingBlocks = allBlocks.filter((b) => b.id !== block.id);
+// "Shown if Q2 is “Yes”" — the canvas chip for a block with display logic.
+const logicSummary = (logic, numbering) => {
+  const op = LOGIC_OPS.find((o) => o.op === logic.op);
+  const source = numbering[logic.source_block_id] || 'a removed question';
+  return `Shown if ${source} ${op?.label || ''}${op?.needsValue ? ` “${logic.value || '…'}”` : ''}`;
+};
+
+// A block already placed on the canvas — a read-only preview of exactly what
+// respondents will see (the block's own respond mode, with pointer events
+// off), plus a header strip with its number, chips, and duplicate/delete.
+// Clicking anywhere on it selects it, which opens the settings panel.
+// Draggable by its grip (reorder) and a valid drop target for instrument
+// rail items (useSortable registers a droppable under the hood).
+const PlacedBlock = ({
+  block, label, typeLabel, numbering, selected, onSelect, onDelete, onDuplicate, onRemoveInstrument,
+}) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Component = getBlockComponent(block.type);
+  const cfg = block.config || {};
+
+  // A block that becomes selected — most often one just added to the end of
+  // a long form — is scrolled into view so its card and its settings panel
+  // are on screen together. `nearest` makes this a no-op for a click.
+  const nodeRef = useRef(null);
+  const setRefs = (node) => { setNodeRef(node); nodeRef.current = node; };
+  useEffect(() => {
+    if (selected) nodeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
+  // Piped answers can't resolve while building — show which question each
+  // one will pull from instead of the raw {{answer:…}} token.
+  const pipeLabel = (id) => `[${numbering[id] || '?'} answer]`;
+  const previewConfig = {
+    ...cfg,
+    ...(cfg.question !== undefined ? { question: resolvePipes(cfg.question, pipeLabel) } : {}),
+    ...(cfg.content !== undefined ? { content: resolvePipes(cfg.content, pipeLabel) } : {}),
+  };
 
   const style = {
     transform: transform ? CSS.Transform.toString(transform) : undefined,
     transition,
     opacity: isDragging ? 0.5 : 1,
+    borderColor: selected ? '#FA6C43' : undefined,
+    boxShadow: selected ? '0 0 0 3px rgba(250,108,67,0.15)' : undefined,
   };
 
+  const chip = (text, key, tone = 'muted') => (
+    <span
+      key={key}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
+      style={tone === 'orange'
+        ? { backgroundColor: '#FFF1EA', color: '#FA6C43' }
+        : { backgroundColor: 'rgba(31,31,31,0.05)', color: 'rgba(31,31,31,0.55)' }}
+    >
+      {text}
+    </span>
+  );
+
   return (
-    // Entrance animation lives on this outer wrapper, not the dnd-kit-controlled
-    // div below — that one's `transform` is continuously overwritten during
-    // drag/reorder, and a CSS animation with fill-mode:both on the same
-    // property would fight it once the entrance animation completes.
-    <div className="animate-chip-in">
-      <div ref={setNodeRef} style={style} className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm">
-        <div className="flex items-start">
+    <div
+      ref={setRefs}
+      style={style}
+      onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onSelect(); }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`${label} ${typeLabel} — open settings`}
+      className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm cursor-pointer transition-colors hover:border-gray-300 outline-none focus-visible:border-[#FA6C43]"
+    >
+      <div className="flex items-center gap-2 pl-1 pr-2 pt-1.5">
+        <button
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className="p-2 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
+          aria-label="Drag to reorder"
+        >
+          <FaGripVertical size={12} />
+        </button>
+        <span className="text-[11px] font-bold" style={{ color: '#FA6C43', fontFamily: FONT_BODY }}>{label}</span>
+        <span className="text-[11px] font-medium truncate" style={{ color: 'rgba(31,31,31,0.45)', fontFamily: FONT_BODY }}>{typeLabel}</span>
+        <span className="flex items-center gap-1 min-w-0 overflow-hidden" style={{ fontFamily: FONT_BODY }}>
+          {cfg.required && chip('Required', 'req', 'orange')}
+          {cfg.display_logic && chip(<><FaCodeBranch size={8} />{logicSummary(cfg.display_logic, numbering)}</>, 'logic')}
+        </span>
+        <span className="ml-auto flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
           <button
-            {...attributes}
-            {...listeners}
-            className="p-3 pt-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none"
-            aria-label="Drag to reorder"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+            className="p-2 text-gray-300 hover:text-gray-600 transition-colors"
+            aria-label="Duplicate block"
+            title="Duplicate"
           >
-            <FaGripVertical />
+            <FaRegCopy size={12} />
           </button>
-          <div className="flex-1 min-w-0">
-            {Component ? (
-              <Component config={block.config} onChange={onChange} blockId={block.id} />
-            ) : (
-              <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
-            )}
-            {block.instruments?.length > 0 && (
-              <div className="flex flex-col gap-1.5 px-4 pb-3 -mt-1">
-                {block.instruments.map((inst) => {
-                  const Badge = getInstrumentBadge(inst.type);
-                  const ConfigEditor = getInstrumentConfigEditor(inst.type);
-                  return (
-                    <div key={inst.id} className="flex flex-wrap items-center gap-2 animate-chip-in">
-                      {Badge && <Badge onRemove={() => onRemoveInstrument(inst.type)} />}
-                      {ConfigEditor && (
-                        <ConfigEditor
-                          config={inst.config}
-                          blockConfig={block.config}
-                          allBlocks={siblingBlocks}
-                          onChange={(cfg) => onInstrumentConfigChange(inst.type, cfg)}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
           <button
-            onClick={onDelete}
-            className="p-3 pt-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all active:scale-90"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="p-2 text-gray-300 hover:text-red-500 transition-colors"
             aria-label="Delete block"
+            title="Delete"
           >
-            <FaTrash size={13} />
+            <FaTrash size={11} />
           </button>
-        </div>
+        </span>
       </div>
+
+      {/* Keyed on the config so blocks that compute state once per mount
+          (MaxDiff's rounds) re-render the preview after every edit. */}
+      <div className="pointer-events-none select-none -mt-1" aria-hidden="true">
+        {Component ? (
+          <Component key={JSON.stringify(previewConfig)} config={previewConfig} mode="respond" blockId={`preview-${block.id}`} onAnswer={() => {}} preview />
+        ) : (
+          <div className="p-4 text-sm text-red-500">Unknown block type: {block.type}</div>
+        )}
+      </div>
+
+      {block.instruments?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 -mt-1" onClick={(e) => e.stopPropagation()}>
+          {block.instruments.map((inst) => {
+            const Badge = getInstrumentBadge(inst.type);
+            return Badge ? <Badge key={inst.id} onRemove={() => onRemoveInstrument(inst.type)} /> : null;
+          })}
+        </div>
+      )}
     </div>
   );
 };
 
-// The canvas is a droppable zone (for new blocks dragged from the ribbon)
-// wrapping a sortable list (for reordering blocks already placed).
-const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onInstrumentConfigChange }) => {
+// The canvas is a droppable zone (for new blocks dragged from the rail)
+// wrapping a sortable list (for reordering blocks already placed). A click on
+// the empty background clears the selection, closing the settings panel.
+const Canvas = ({
+  blocks, numbering, specByType, selectedId, onSelect, onDeselect, onBlockDelete, onBlockDuplicate, onRemoveInstrument,
+}) => {
   const { setNodeRef, isOver } = useDroppable({ id: 'canvas-dropzone' });
 
   return (
     <div
       ref={setNodeRef}
-      className="flex-1 overflow-y-auto px-6 lg:px-10 py-10"
+      onClick={(e) => { if (e.target === e.currentTarget || e.target.dataset.canvasBg) onDeselect(); }}
+      className="flex-1 min-w-0 overflow-y-auto pl-24 pr-6 lg:pr-10 py-10"
       style={{
         backgroundImage: 'radial-gradient(rgba(31,31,31,0.12) 1px, transparent 1px)',
         backgroundSize: '20px 20px',
@@ -313,21 +342,18 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
         transition: 'background-color 150ms ease',
       }}
     >
-      <div className="max-w-2xl mx-auto flex flex-col gap-4 pb-40">
+      <div data-canvas-bg="1" className="max-w-2xl mx-auto flex flex-col gap-4 pb-40">
         {blocks.length === 0 ? (
           <div
-            className={`rounded-2xl border-2 border-dashed flex items-center justify-center py-20 text-sm text-center px-6 transition-all duration-200 ${
-              isOver ? 'scale-[1.02]' : ''
-            }`}
+            className="rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-1 py-20 text-sm text-center px-6 transition-colors duration-150"
             style={{
               borderColor: isOver ? '#FA6C43' : 'rgba(31,31,31,0.15)',
-              color: isOver ? '#FA6C43' : 'rgba(31,31,31,0.35)',
+              color: isOver ? '#FA6C43' : 'rgba(31,31,31,0.4)',
               fontFamily: FONT_BODY,
             }}
           >
-            <span className={isOver ? '' : 'animate-pulse'}>
-              Drag a block from the ribbon below to get started
-            </span>
+            <span className="font-semibold">Add your first block</span>
+            <span className="text-xs">Pick a category on the left, then click a block or drag it here.</span>
           </div>
         ) : (
           <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
@@ -335,11 +361,14 @@ const Canvas = ({ blocks, onBlockChange, onBlockDelete, onRemoveInstrument, onIn
               <PlacedBlock
                 key={block.id}
                 block={block}
-                allBlocks={blocks}
-                onChange={(cfg) => onBlockChange(block.id, cfg)}
+                label={numbering[block.id] || 'Text'}
+                typeLabel={specByType[block.type]?.label || formatBlockType(block.type)}
+                numbering={numbering}
+                selected={block.id === selectedId}
+                onSelect={() => onSelect(block.id)}
                 onDelete={() => onBlockDelete(block.id)}
+                onDuplicate={() => onBlockDuplicate(block.id)}
                 onRemoveInstrument={(instType) => onRemoveInstrument(block.id, instType)}
-                onInstrumentConfigChange={(instType, cfg) => onInstrumentConfigChange(block.id, instType, cfg)}
               />
             ))}
           </SortableContext>
@@ -357,7 +386,9 @@ const StudioBuilderPage = () => {
   const [instrumentSpecs, setInstrumentSpecs] = useState([]);
   const [ribbonTab, setRibbonTab] = useState('blocks'); // 'blocks' | 'instruments'
   const [upgradeSpec, setUpgradeSpec] = useState(null); // spec of the is_ai item that was clicked while locked
-  const [overflowOpen, setOverflowOpen] = useState(false); // ribbon's "…" popover
+  const [openCategory, setOpenCategory] = useState(null); // key of the rail category whose flyout is open
+  const [selectedBlockId, setSelectedBlockId] = useState(null); // block whose settings panel is open
+  const railRef = useRef(null);
   const [dropError, setDropError] = useState(null); // toast text for a rejected instrument drop
   const dropErrorTimeoutRef = useRef(null);
   const [conditionsOpen, setConditionsOpen] = useState(false); // header's Conditions popover
@@ -472,11 +503,35 @@ const StudioBuilderPage = () => {
     });
   }, []);
 
+  // Adding a block selects it, so its settings panel opens straight away.
   const appendBlock = useCallback((spec) => {
+    const id = newId('blk');
     updatePageBlocks((blks) => [
       ...blks,
-      { id: newId('blk'), type: spec.type, config: { ...spec.default_config }, instruments: [] },
+      { id, type: spec.type, config: structuredClone(spec.default_config || {}), instruments: [] },
     ]);
+    setSelectedBlockId(id);
+  }, [updatePageBlocks]);
+
+  // Inserts a copy right below the original and selects it. Ids are fresh,
+  // and the variable name is cleared — export names must stay unique.
+  const duplicateBlock = useCallback((blockId) => {
+    const copyId = newId('blk');
+    updatePageBlocks((blks) => {
+      const idx = blks.findIndex((b) => b.id === blockId);
+      if (idx === -1) return blks;
+      const src = blks[idx];
+      const config = structuredClone(src.config || {});
+      if (config.variable_name) config.variable_name = '';
+      const copy = {
+        ...src,
+        id: copyId,
+        config,
+        instruments: (src.instruments || []).map((i) => ({ ...i, id: newId('inst'), config: structuredClone(i.config || {}) })),
+      };
+      return [...blks.slice(0, idx + 1), copy, ...blks.slice(idx + 1)];
+    });
+    setSelectedBlockId(copyId);
   }, [updatePageBlocks]);
 
   const handleBlockChange = (blockId, newConfig) => {
@@ -485,7 +540,44 @@ const StudioBuilderPage = () => {
 
   const handleBlockDelete = (blockId) => {
     updatePageBlocks((blks) => blks.filter((b) => b.id !== blockId));
+    setSelectedBlockId((cur) => (cur === blockId ? null : cur));
   };
+
+  // "Q1", "Q2", … over answerable blocks only (Instructions aren't questions).
+  // Shared by the canvas labels and every picker in the settings panel.
+  const numbering = useMemo(() => {
+    const out = {};
+    let n = 0;
+    blocks.forEach((b) => { if ('required' in (b.config || {})) { n += 1; out[b.id] = `Q${n}`; } });
+    return out;
+  }, [blocks]);
+
+  const specByType = useMemo(() => Object.fromEntries(blockSpecs.map((sp) => [sp.type, sp])), [blockSpecs]);
+  const railGroups = useMemo(() => (
+    ribbonTab === 'blocks'
+      ? groupSpecs(blockSpecs, BLOCK_CATEGORIES)
+      : groupSpecs(instrumentSpecs, INSTRUMENT_CATEGORIES)
+  ), [ribbonTab, blockSpecs, instrumentSpecs]);
+  const selectedBlock = blocks.find((b) => b.id === selectedBlockId) || null;
+
+  // A click anywhere outside the rail closes its flyout. Escape closes the
+  // flyout first, then the settings panel.
+  useEffect(() => {
+    if (!openCategory) return undefined;
+    const onDown = (e) => { if (railRef.current && !railRef.current.contains(e.target)) setOpenCategory(null); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [openCategory]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (openCategory) setOpenCategory(null);
+      else setSelectedBlockId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [openCategory]);
 
   // Checked *before* calling updatePageBlocks (rather than filtered out
   // inside its map, as before) specifically so an incompatible drop can
@@ -524,7 +616,7 @@ const StudioBuilderPage = () => {
   };
 
   const handleDragEnd = ({ active, over }) => {
-    setOverflowOpen(false); // any drag from the "…" popover should close it, success or not
+    setOpenCategory(null); // any drag out of a rail flyout closes it, success or not
     if (!over) return;
 
     if (active.data.current?.source === 'ribbon-block') {
@@ -581,7 +673,7 @@ const StudioBuilderPage = () => {
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="min-h-screen flex flex-col" style={{ fontFamily: FONT_BODY }}>
+      <div className="h-screen flex flex-col" style={{ fontFamily: FONT_BODY }}>
         <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 z-10">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -700,20 +792,46 @@ const StudioBuilderPage = () => {
           </div>
         </div>
 
-        <Canvas
-          blocks={blocks}
-          onBlockChange={handleBlockChange}
-          onBlockDelete={handleBlockDelete}
-          onRemoveInstrument={handleRemoveInstrument}
-          onInstrumentConfigChange={handleInstrumentConfigChange}
-        />
+        <div className="flex-1 flex min-h-0">
+          <Canvas
+            blocks={blocks}
+            numbering={numbering}
+            specByType={specByType}
+            selectedId={selectedBlockId}
+            onSelect={setSelectedBlockId}
+            onDeselect={() => setSelectedBlockId(null)}
+            onBlockDelete={handleBlockDelete}
+            onBlockDuplicate={duplicateBlock}
+            onRemoveInstrument={handleRemoveInstrument}
+          />
+
+          {selectedBlock && (
+            <BlockInspector
+              key={selectedBlock.id}
+              block={selectedBlock}
+              blocks={blocks}
+              numbering={numbering}
+              spec={specByType[selectedBlock.type]}
+              instrumentSpecs={instrumentSpecs}
+              iconFor={iconFor}
+              onChange={(cfg) => handleBlockChange(selectedBlock.id, cfg)}
+              onClose={() => setSelectedBlockId(null)}
+              onDelete={() => handleBlockDelete(selectedBlock.id)}
+              onDuplicate={() => duplicateBlock(selectedBlock.id)}
+              onAttachInstrument={(spec) => attachInstrument(spec, selectedBlock.id)}
+              onRemoveInstrument={(type) => handleRemoveInstrument(selectedBlock.id, type)}
+              onInstrumentConfigChange={(type, cfg) => handleInstrumentConfigChange(selectedBlock.id, type, cfg)}
+              onLockedInstrument={setUpgradeSpec}
+            />
+          )}
+        </div>
 
         {/* Left-side vertical ribbon — brand orange, white icons. Blocks | Instruments tabs. */}
-        <div className="fixed left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2">
+        <div ref={railRef} className="fixed left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-0.5 p-0.5 rounded-2xl" style={{ backgroundColor: 'rgba(31,31,31,0.08)' }}>
             <button
               type="button"
-              onClick={() => { setRibbonTab('blocks'); setOverflowOpen(false); }}
+              onClick={() => { setRibbonTab('blocks'); setOpenCategory(null); }}
               className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
               style={
                 ribbonTab === 'blocks'
@@ -723,7 +841,7 @@ const StudioBuilderPage = () => {
             >
               <FaThLarge className="text-base" />
               <span
-                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
                 style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
               >
                 Blocks
@@ -731,7 +849,7 @@ const StudioBuilderPage = () => {
             </button>
             <button
               type="button"
-              onClick={() => { setRibbonTab('instruments'); setOverflowOpen(false); }}
+              onClick={() => { setRibbonTab('instruments'); setOpenCategory(null); }}
               className="group relative flex items-center justify-center w-11 h-11 rounded-xl transition-colors"
               style={
                 ribbonTab === 'instruments'
@@ -741,69 +859,55 @@ const StudioBuilderPage = () => {
             >
               <FaSlidersH className="text-base" />
               <span
-                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 -translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
+                className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
                 style={{ backgroundColor: '#1F1F1F', color: '#FFFFFF', fontFamily: FONT_BODY }}
               >
                 Instruments
               </span>
             </button>
           </div>
+          {/* One icon per category; its flyout lists that category's items.
+              No overflow scrolling in the flyout on purpose — dnd-kit drags the
+              item element itself, and a scroll container would clip it. */}
           <div className="relative flex flex-col items-center gap-1 px-2 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#FA6C43' }}>
-            {(() => {
-              const activeSpecs = ribbonTab === 'blocks' ? blockSpecs : instrumentSpecs;
-              const visible = activeSpecs.slice(0, RIBBON_VISIBLE_COUNT);
-              const overflow = activeSpecs.slice(RIBBON_VISIBLE_COUNT);
-              const dragSource = ribbonTab === 'blocks' ? 'ribbon-block' : 'ribbon-instrument';
-              const payloadFor = (spec) => (
-                ribbonTab === 'blocks' ? { blockType: spec.type } : { instrumentType: spec.type }
-              );
-              const onClickFor = (spec) => (
-                ribbonTab === 'blocks' ? () => { appendBlock(spec); setOverflowOpen(false); } : undefined
-              );
+            {railGroups.map((group) => (
+              <RailCategoryButton
+                key={group.key}
+                category={group}
+                active={openCategory === group.key}
+                onClick={() => setOpenCategory((cur) => (cur === group.key ? null : group.key))}
+              />
+            ))}
 
+            {(() => {
+              const group = railGroups.find((g) => g.key === openCategory);
+              if (!group) return null;
+              const isBlocks = ribbonTab === 'blocks';
               return (
-                <>
-                  {visible.map((spec) => (
-                    <RibbonItem
+                <div
+                  className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-64 rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-in fade-in duration-150"
+                  style={{ fontFamily: FONT_BODY }}
+                >
+                  <p className="px-3 pt-1.5 pb-1 text-[11px] font-bold uppercase tracking-wider" style={{ color: 'rgba(31,31,31,0.4)' }}>
+                    {group.label}
+                  </p>
+                  {group.specs.map((spec) => (
+                    <RibbonMenuItem
                       key={spec.type}
                       spec={spec}
-                      dragSource={dragSource}
-                      dragPayload={payloadFor(spec)}
-                      onClick={onClickFor(spec)}
-                      onLockedClick={() => setUpgradeSpec(spec)}
+                      description={isBlocks ? BLOCK_DESCRIPTIONS[spec.type] : undefined}
+                      dragSource={isBlocks ? 'ribbon-block' : 'ribbon-instrument'}
+                      dragPayload={isBlocks ? { blockType: spec.type } : { instrumentType: spec.type }}
+                      onClick={isBlocks ? () => { appendBlock(spec); setOpenCategory(null); } : undefined}
+                      onLockedClick={() => { setUpgradeSpec(spec); setOpenCategory(null); }}
                     />
                   ))}
-
-                  {overflow.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setOverflowOpen((open) => !open)}
-                      className="flex items-center justify-center w-11 h-11 rounded-xl hover:bg-white/15 transition-colors text-white"
-                      title="More tools"
-                      aria-expanded={overflowOpen}
-                    >
-                      <FaEllipsisH className="text-lg" />
-                    </button>
+                  {!isBlocks && (
+                    <p className="px-3 pt-1 pb-1.5 text-[11px] leading-snug" style={{ color: 'rgba(31,31,31,0.45)' }}>
+                      Drag onto a block, or attach from a block&rsquo;s Instruments tab.
+                    </p>
                   )}
-
-                  {overflowOpen && overflow.length > 0 && (
-                    <div
-                      className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-52 max-h-[min(70vh,26rem)] overflow-y-auto rounded-2xl shadow-xl bg-white border border-gray-100 p-1.5 animate-chip-in"
-                      style={{ fontFamily: FONT_BODY }}
-                    >
-                      {overflow.map((spec) => (
-                        <RibbonMenuItem
-                          key={spec.type}
-                          spec={spec}
-                          dragSource={dragSource}
-                          dragPayload={payloadFor(spec)}
-                          onClick={onClickFor(spec)}
-                          onLockedClick={() => { setUpgradeSpec(spec); setOverflowOpen(false); }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
+                </div>
               );
             })()}
           </div>

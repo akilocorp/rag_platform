@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-10-06
-# @changed   Hardened against malformed stored answers: every aggregation type-checks inner values
+# @updated   2026-10-08
+# @changed   Question labels go through block_settings.plain_text (questions can now carry bold /
+#            links / piped-answer tokens); single_choice with "Other, please specify" tallies every
+#            "Other: …" answer into one "Other" bar.
+# Prior: Hardened against malformed stored answers: every aggregation type-checks inner values
 #            (finite numbers only, string options only, dict events only), and build_live_summary
 #            isolates each block, so one bad response can't 500 the Present view's poll.
 # Prior: `_tally` and the rating/semantic-differential histogram now carry a `value` alongside
@@ -27,6 +30,8 @@ import logging
 import math
 import re
 from collections import Counter
+
+from src.studio.block_settings import OTHER_OPTION, OTHER_PREFIX, plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +114,7 @@ def _instrument_aggregates(block, answers):
 def _summarize_block(block, answers):
     btype = block["type"]
     config = block.get("config") or {}
-    question = config.get("question") or config.get("content") or block["id"]
+    question = plain_text(config.get("question") or config.get("content")) or block["id"]
     values = [a.get("value") for a in answers if a.get("value") is not None]
     base = {
         "block_id": block["id"],
@@ -124,7 +129,12 @@ def _summarize_block(block, answers):
         return {**base, "chart": "bar", "n": total, "data": data}
 
     if btype == "single_choice":
-        options = config.get("options") or []
+        options = list(config.get("options") or [])
+        if config.get("allow_other"):
+            # Free-text "Other" answers would each be their own category —
+            # collapsed into one bar; the CSV keeps what each person typed.
+            options.append(OTHER_OPTION)
+            values = [OTHER_OPTION if isinstance(v, str) and v.startswith(OTHER_PREFIX) else v for v in values]
         data, total = _tally(values, options)
         return {**base, "chart": "bar", "n": total, "data": data}
 

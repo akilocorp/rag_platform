@@ -1,6 +1,12 @@
 # @language  Python
-# @updated   2026-10-07
-# @changed   Second-pass regression fixes: an answer that no longer fits the block's current config
+# @updated   2026-10-08
+# @changed   Block settings from the builder's new settings panel: saves run block_settings'
+#            link_display_logic (logic may only point at an earlier block; variable names unique);
+#            submit skips the required check for blocks display logic hid, and drops their answers;
+#            single_choice accepts "Other: …" when allow_other is on; text answers honour max_chars;
+#            the CSV uses variable names as headers, strips rich-text markup from question labels,
+#            and adds `_r` (reverse-scored) and `_code` (numeric code) columns where asked for.
+# Prior: Second-pass regression fixes: an answer that no longer fits the block's current config
 #            (professor edited a live form) is kept as `value_raw` and still counts as answered, so a
 #            respondent can't get stuck on "required"; body cap 2 MB / text 50k (long voice transcripts
 #            carry ~2 KB of prosody per turn); per-IP ceilings raised to 1000/h as a stopgap until the
@@ -95,6 +101,13 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from models.user import User
+from src.studio.block_settings import (
+    OTHER_OPTION,
+    OTHER_PREFIX,
+    link_display_logic,
+    plain_text,
+    visible_block_ids,
+)
 from src.studio.live_ai import call_live_ai_instrument, has_live_ai_input
 from src.studio.summary import build_live_summary
 from src.studio.registry import (
@@ -256,6 +269,7 @@ def _sanitize_pages(pages_in):
                     blk.get("instruments"), blk["type"], page_idx, block_idx
                 ),
             })
+        link_display_logic(blocks_out)
 
         pages_out.append({
             "id": str(page.get("id") or uuid.uuid4().hex),
@@ -373,13 +387,26 @@ def _coerce_answer(block, value):
     if btype == "yes_no":
         return value if value in ("Yes", "No") else None
     if btype == "single_choice":
-        return value if isinstance(value, str) and value in (cfg.get("options") or []) else None
+        if not isinstance(value, str):
+            return None
+        if value in (cfg.get("options") or []):
+            return value
+        # "Other, please specify" — kept only when the block offers it, and
+        # only with actual text after the prefix.
+        if cfg.get("allow_other") and value.startswith(OTHER_PREFIX) and value[len(OTHER_PREFIX):].strip():
+            return value[:MAX_STR_FIELD_CHARS]
+        return None
     if btype == "rating_scale":
         return _coerce_scale_point(value, int(cfg.get("scale_max") or 5))
     if btype == "semantic_differential":
         return _coerce_scale_point(value, int(cfg.get("points") or 7))
     if btype in ("short_text", "long_text"):
-        return value[:MAX_TEXT_ANSWER_CHARS] if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        # min_chars / input_format are runner-side checks only: failing a real
+        # response over them would lose it, but a max is a hard storage cap.
+        limit = int(cfg.get("max_chars") or 0) or MAX_TEXT_ANSWER_CHARS
+        return value[:min(limit, MAX_TEXT_ANSWER_CHARS)]
 
     if btype == "forced_rank":
         # A complete ordering of exactly this block's options.
@@ -549,6 +576,32 @@ def _csv_answer_value(answer):
     if answer.get('value') is not None:
         return answer['value']
     return answer.get('value_raw', '')
+
+
+def _reverse_scorer(block):
+    """value -> (top + 1 - value) for a reverse-scored 1..top scale; blank for
+    anything that isn't a point on the block's current scale."""
+    cfg = block.get('config') or {}
+    top = int(cfg.get('scale_max') or 5) if block.get('type') == 'rating_scale' else int(cfg.get('points') or 7)
+    return lambda v: (top + 1 - v) if _coerce_scale_point(v, top) is not None else ''
+
+
+def _option_coder(block):
+    """value -> numeric code for a single_choice / yes_no answer: options are
+    1..n in list order (an "Other: …" answer is n+1); Yes/No are 1/0 — the
+    usual dummy coding, so the column can go straight into a regression."""
+    if block.get('type') == 'yes_no':
+        return lambda v: {"Yes": 1, "No": 0}.get(v, '')
+    options = (block.get('config') or {}).get('options') or []
+    codes = {opt: i + 1 for i, opt in enumerate(options)}
+
+    def code(v):
+        if v in codes:
+            return codes[v]
+        if isinstance(v, str) and v.startswith(OTHER_PREFIX):
+            return len(options) + 1
+        return ''
+    return code
 
 
 def _csv_content_disposition(title):
@@ -994,9 +1047,16 @@ def submit_response(project_id):
             entry["instrument_values"] = instrument_values
         answers_out.append(entry)
 
+    # Display logic: a block the respondent was never shown can't be missing,
+    # and an answer to it (a stale client, or a hand-built request) is dropped
+    # so the data never claims someone answered a question they didn't see.
+    visible = visible_block_ids(_iter_blocks(project), answers_by_id)
+    answers_out = [a for a in answers_out if a["block_id"] in visible]
+
     missing = [
         blk['id'] for blk in _answerable_blocks(project)
         if blk.get('config', {}).get('required')
+        and blk['id'] in visible
         and not _is_answered(answers_by_id.get(blk['id']))
     ]
     if missing:
@@ -1137,12 +1197,20 @@ def live_summary(project_id):
             r for r in responses
             if any(
                 isinstance(a, dict)
-                and a.get('block_id') == filter_block_id and a.get('value') == filter_value
+                and a.get('block_id') == filter_block_id and _matches_filter(a.get('value'), filter_value)
                 for a in (r.get('answers') or [])
             )
         ]
 
     return jsonify(build_live_summary(doc, responses)), 200
+
+
+def _matches_filter(value, filter_value):
+    """A Present-view bar click matches its answers — including the collapsed
+    "Other" bar, which stands for every "Other: …" answer (see summary.py)."""
+    if value == filter_value:
+        return True
+    return filter_value == OTHER_OPTION and isinstance(value, str) and value.startswith(OTHER_PREFIX)
 
 
 @studio_bp.route('/studio/projects/<project_id>/responses.csv', methods=['GET'])
@@ -1155,13 +1223,27 @@ def export_responses_csv(project_id):
         return jsonify(payload), status
 
     db = current_app.config['MONGO_DB']
-    # (block_id, column header). Two blocks with identical question text
-    # produce duplicate headers — acceptable; column order still
-    # disambiguates them.
+    # (block_id, column header). The professor's variable name if they set
+    # one (unique per project — see link_display_logic), else the question as
+    # plain text. Two blocks with identical question text produce duplicate
+    # headers — acceptable; column order still disambiguates them.
+    answerable = _answerable_blocks(doc)
     columns = [
-        (blk['id'], blk.get('config', {}).get('question') or blk['id'])
-        for blk in _answerable_blocks(doc)
+        (blk['id'], blk.get('config', {}).get('variable_name')
+         or plain_text(blk.get('config', {}).get('question')) or blk['id'])
+        for blk in answerable
     ]
+    # Derived columns, each written right after its source question's column:
+    # `_r` = reverse-scored scale value, `_code` = 1-based option code.
+    derived_by_block = {}
+    for (bid, label), blk in zip(columns, answerable):
+        cfg = blk.get('config') or {}
+        derived = []
+        if cfg.get('reverse_scored'):
+            derived.append((f"{label}_r", _reverse_scorer(blk)))
+        if cfg.get('export_codes'):
+            derived.append((f"{label}_code", _option_coder(blk)))
+        derived_by_block[bid] = derived
 
     responses = list(db['studio_responses'].find({"project_id": project_id}).sort("submitted_at", 1))
     _augment_responses_with_metrics(doc, responses, db=db)
@@ -1208,7 +1290,7 @@ def export_responses_csv(project_id):
     writer.writerow([_csv_cell(h) for h in (
         ["respondent_id", "submitted_at"]
         + (["condition"] if has_condition else [])
-        + [label for _, label in columns]
+        + [h for bid, label in columns for h in [label] + [d for d, _ in derived_by_block[bid]]]
         + [label for _, label in metric_columns]
         + [f"embedded:{k}" for k in embedded_keys]
     )])
@@ -1218,7 +1300,10 @@ def export_responses_csv(project_id):
         row = [r.get('respondent_id', ''), r.get('submitted_at', '')]
         if has_condition:
             row.append(r.get('condition', ''))
-        row += [_csv_answer_value(answers_by_id.get(bid) or {}) for bid, _ in columns]
+        for bid, _ in columns:
+            answer = answers_by_id.get(bid) or {}
+            row.append(_csv_answer_value(answer))
+            row += [fn(answer.get('value')) for _, fn in derived_by_block[bid]]
         for (bid, inst_type, mk), _label in metric_columns:
             a = answers_by_id.get(bid) or {}
             inst_metrics = (a.get('metrics') or {}).get(inst_type) if isinstance(a.get('metrics'), dict) else None

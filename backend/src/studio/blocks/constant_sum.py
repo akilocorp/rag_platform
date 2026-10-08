@@ -1,6 +1,9 @@
 # @language  Python
-# @updated   2026-09-08
-# @changed   New file: the Constant Sum block — Qualtrics' Constant Sum, respondent allocates a
+# @updated   2026-10-08
+# @changed   Added `enforce_total`: when on, the runner blocks Submit until the allocation hits
+#            `total` exactly (the per-block validation the note below said didn't exist yet). Still
+#            client-side only, by design — the server keeps whatever a respondent sends.
+# Prior: New file: the Constant Sum block — Qualtrics' Constant Sum, respondent allocates a
 #            fixed budget (`total`) across every option. Note: the sum-equals-total constraint is
 #            enforced client-side only (live running-total feedback in the block itself) — there's
 #            no page-level mechanism today for a block to fail Submit beyond the generic "required"
@@ -21,6 +24,7 @@ DEFAULT_TOTAL = 100
         "question": "Untitled question",
         "options": list(_DEFAULT_OPTIONS),
         "total": DEFAULT_TOTAL,
+        "enforce_total": False,
         "required": False,
     },
 )
@@ -38,5 +42,8 @@ def validate(config):
         "question": str(config.get("question") or "Untitled question"),
         "options": cleaned or list(_DEFAULT_OPTIONS),
         "total": total,
+        # Checked by the runner only — see _coerce_answer in studio_routes.py
+        # for why the server never rejects an off-total allocation.
+        "enforce_total": bool(config.get("enforce_total", False)),
         "required": bool(config.get("required", False)),
     }

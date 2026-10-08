@@ -1,6 +1,7 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   New file: the Cross-Answer Inconsistency instrument. Badge + a ConfigEditor reusing
+// @updated   2026-10-08
+// @changed   Block picker shows each question as plain text (questions can now carry rich-text markup).
+// Prior: New file: the Cross-Answer Inconsistency instrument. Badge + a ConfigEditor reusing
 //            the `allBlocks` prop Piped Text introduced — picks which sibling block's answer to
 //            compare against. No RespondExtra: computed owner-side at results-view time (see
 //            backend src/studio/instruments/cross_answer_inconsistency.py for how the sibling
@@ -8,6 +9,7 @@
 import React from 'react';
 import { FaNotEqual, FaTimes } from 'react-icons/fa';
 import { registerInstrument } from './registryStore';
+import { plainText } from '../richTextFormat';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
@@ -38,7 +40,7 @@ const ConfigEditor = ({ config, allBlocks, onChange }) => (
   >
     <option value="" disabled>Compare against…</option>
     {(allBlocks || []).map((b) => (
-      <option key={b.id} value={b.id}>{b.config?.question || b.type}</option>
+      <option key={b.id} value={b.id}>{plainText(b.config?.question) || b.type}</option>
     ))}
   </select>
 );

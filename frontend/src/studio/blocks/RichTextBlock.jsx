@@ -1,39 +1,22 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-07
-// @changed   New file: the Instructions block — config shape matches backend
+// @updated   2026-10-08
+// @changed   Content renders as rich text (bold, italic, links, bullet lists, piped answers) via the
+//            shared RichText renderer. Edit mode is gone: the content is written in the builder's
+//            settings panel, with a formatting toolbar.
+// Prior: New file: the Instructions block — config shape matches backend
 //            src/studio/blocks/rich_text.py exactly (just `content`, no `required` — it
 //            captures no response, which is how the backend knows to skip it as "answerable").
 import React from 'react';
 import { registerBlock } from './registryStore';
+import { FONT_BODY } from './blockParts';
+import { RichText } from '../richText';
 
-const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
-
-const RichTextBlock = ({ config, mode = 'edit', onChange }) => {
-  const { content = '' } = config || {};
-
-  if (mode === 'respond') {
-    return (
-      <div className="p-4">
-        <p
-          className="text-sm whitespace-pre-wrap"
-          style={{ fontFamily: FONT_BODY, color: '#1F1F1F' }}
-        >
-          {content}
-        </p>
-      </div>
-    );
-  }
+const RichTextBlock = ({ config, mode = 'edit' }) => {
+  if (mode !== 'respond') return null;
 
   return (
-    <div className="p-4">
-      <textarea
-        rows={3}
-        value={content}
-        onChange={(e) => onChange({ ...config, content: e.target.value })}
-        placeholder="Instructions or context shown to respondents (no response captured)"
-        className="w-full px-3 py-2 rounded-lg border text-sm resize-y"
-        style={{ borderColor: 'rgba(31,31,31,0.15)', fontFamily: FONT_BODY, color: '#1F1F1F' }}
-      />
+    <div className="p-4 text-sm leading-relaxed" style={{ fontFamily: FONT_BODY, color: '#1F1F1F' }}>
+      <RichText text={config?.content} />
     </div>
   );
 };

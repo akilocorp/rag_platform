@@ -1,6 +1,8 @@
 # @language  Python
-# @updated   2026-09-07
-# @changed   Phase 2: extended with the instrument registry API (get_instrument_specs,
+# @updated   2026-10-08
+# @changed   validate_block_config now layers the shared block settings (help text, variable name,
+#            display logic, ...) from src/studio/block_settings.py over each block's own validator.
+# Prior: Phase 2: extended with the instrument registry API (get_instrument_specs,
 #            validate_instrument_config, compute_instrument_metric) rather than creating a second
 #            top-level registry file — this module is "the Studio registry," not specifically
 #            "the block registry," so instruments belong here alongside blocks.
@@ -19,6 +21,7 @@ from src.studio.blocks import base as block_base
 from src.studio import blocks  # noqa: F401  side-effect: discovers all blocks
 from src.studio.instruments import base as instrument_base
 from src.studio import instruments  # noqa: F401  side-effect: discovers all instruments
+from src.studio.block_settings import apply_common_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +34,12 @@ def get_block_specs() -> List[Dict[str, Any]]:
 
 
 def validate_block_config(block_type: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Coerce/validate a block's config. Raises KeyError if block_type is unknown."""
+    """Coerce/validate a block's config — its own validator, then the settings
+    every block shares on top. Raises KeyError if block_type is unknown."""
     if block_type not in block_base.BLOCKS:
         raise KeyError(f"Unknown block type: {block_type}")
-    return block_base.BLOCKS[block_type]["validate"](config or {})
+    raw = config or {}
+    return apply_common_settings(block_type, raw, block_base.BLOCKS[block_type]["validate"](raw))
 
 
 # --- Instruments --------------------------------------------------------------

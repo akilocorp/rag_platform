@@ -1,6 +1,12 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-10-07
-// @changed   Required check now uses isAnswered, matching the server: an empty list/object, or an
+// @updated   2026-10-08
+// @changed   Honours the builder's new block settings: display logic hides/shows blocks live as
+//            answers change (a hidden block is never required, never gated, never submitted);
+//            `{{answer:…}}` tokens in a question pipe in that block's answer; answers are checked
+//            against each block's own rules (character limits, number/email format, "Other" text,
+//            constant-sum totals); and "Request a response" blocks left blank get one soft
+//            "submit anyway?" prompt. isAnswered moved to studio/blockRules.js, shared with the builder.
+// Prior: Required check now uses isAnswered, matching the server: an empty list/object, or an
 //            object whose entries are all blank (a card sort reset to "Choose…", a cleared constant
 //            sum), is unanswered — previously the client let it through and the server bounced it.
 // Prior: Micro-animation pass: block cards now stagger-fade in on load (animate-chip-in +
@@ -53,22 +59,13 @@ import { FaSpinner, FaCheckCircle } from 'react-icons/fa';
 import apiClient from '../api/apiClient';
 import { getBlockComponent } from '../studio/blocks/registry';
 import { getInstrumentRespondExtra } from '../studio/instruments/registry';
+import {
+  isAnswered, visibleBlockIds, answerProblem, formatAnswerForPipe,
+} from '../studio/blockRules';
+import { resolvePipes } from '../studio/richTextFormat';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const RESPONDENT_KEY = 'studio_respondent_id';
-
-// Whether a value answers a required block — mirrors the server's _is_answered
-// (studio_routes.py), and additionally treats an object whose entries are all
-// blank as empty, since JSON drops `undefined` entries before the server sees them.
-const isAnswered = (val) => {
-  if (val === undefined || val === null) return false;
-  if (typeof val === 'string') return val.trim() !== '';
-  if (Array.isArray(val)) return val.length > 0;
-  if (typeof val === 'object') {
-    return Object.values(val).some((v) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === ''));
-  }
-  return true;
-};
 
 const blockNeedsEvents = (block) => (block.instruments || []).some((i) => i.needs_events);
 
@@ -115,6 +112,13 @@ const applyBehaviorInstruments = (block, respondentId, answers) => {
   let config = block.config;
   const instruments = block.instruments || [];
 
+  // Inline piped text: each {{answer:<id>}} becomes that block's current
+  // answer (a dash until it's answered). Done first, so the instruments
+  // below see the question as the respondent will read it.
+  const pipe = (id) => formatAnswerForPipe(answers[id]);
+  if (typeof config?.question === 'string') config = { ...config, question: resolvePipes(config.question, pipe) };
+  if (typeof config?.content === 'string') config = { ...config, content: resolvePipes(config.content, pipe) };
+
   const subset = instruments.find((i) => i.type === 'subset_randomizer');
   if (subset && Array.isArray(config?.options)) {
     const count = Math.min(subset.config?.count ?? 2, config.options.length);
@@ -156,6 +160,9 @@ const StudioRunnerPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  // "Request a response" blocks the respondent left blank on their last
+  // Submit. Non-null = the soft prompt is showing; a second Submit goes through.
+  const [nudgedIds, setNudgedIds] = useState(null);
   const [now, setNow] = useState(() => performance.now());
   // Lazy initializer — getRespondentId() runs once, not on every render.
   const [respondentId] = useState(getRespondentId);
@@ -176,21 +183,28 @@ const StudioRunnerPage = () => {
   const blocks = useMemo(() => project?.pages?.[0]?.blocks || [], [project]);
   const shownAtRef = useRef({});
 
-  // "Shown" is stamped once, the first time each event-needing block is seen
-  // — currently that's page load, since every block on the page renders at
-  // once. Skips blocks already stamped so a re-render never resets the clock.
+  // Display logic, re-evaluated on every answer change. A block whose
+  // condition flips back off disappears again, and so does its answer from
+  // the submission (see handleSubmit) — mirrors the server's visible_block_ids.
+  const visibleIds = useMemo(() => visibleBlockIds(blocks, answers), [blocks, answers]);
+  const visibleBlocks = useMemo(() => blocks.filter((b) => visibleIds.has(b.id)), [blocks, visibleIds]);
+
+  // "Shown" is stamped once, the first time each event-needing block becomes
+  // visible — page load for most, or the moment display logic reveals it.
+  // Skips blocks already stamped so a re-render never resets the clock.
   useEffect(() => {
     const shownAt = performance.now();
-    blocks.forEach((blk) => {
+    visibleBlocks.forEach((blk) => {
       if (blockNeedsEvents(blk) && !(blk.id in shownAtRef.current)) {
         shownAtRef.current[blk.id] = shownAt;
       }
     });
-  }, [blocks]);
+  }, [visibleBlocks]);
 
   const setAnswer = (blockId, value) => {
     setAnswers((prev) => ({ ...prev, [blockId]: value }));
     setErrors((prev) => (prev[blockId] ? { ...prev, [blockId]: undefined } : prev));
+    setNudgedIds((prev) => (prev && prev.includes(blockId) ? prev.filter((id) => id !== blockId) : prev));
   };
 
   const setInstrumentValue = (blockId, instrumentType, value) => {
@@ -204,10 +218,10 @@ const StudioRunnerPage = () => {
   // elapsed since it was shown. Only ticks (200ms) while a gate is actually
   // active on this project — zero polling cost for the common case of none.
   const gateInstruments = useMemo(() => (
-    blocks.flatMap((blk) => (blk.instruments || [])
+    visibleBlocks.flatMap((blk) => (blk.instruments || [])
       .filter((i) => i.type === 'read_time_gate')
       .map((i) => ({ blockId: blk.id, seconds: i.config?.seconds ?? 5 })))
-  ), [blocks]);
+  ), [visibleBlocks]);
 
   useEffect(() => {
     if (gateInstruments.length === 0) return;
@@ -222,23 +236,43 @@ const StudioRunnerPage = () => {
   }, 0);
   const gateActive = gateRemainingMs > 0;
 
+  // Checks run in order of severity: hard errors (required, the block's own
+  // answer rules) stop the submit outright; only once those are clear does
+  // the soft "request a response" prompt get a turn, and only once — the
+  // second Submit while it's showing goes through.
   const handleSubmit = async () => {
     const nextErrors = {};
-    blocks.forEach((blk) => {
-      if (!blk.config?.required) return;
-      if (!isAnswered(answers[blk.id])) {
+    visibleBlocks.forEach((blk) => {
+      const value = answers[blk.id];
+      if (blk.config?.required && !isAnswered(value)) {
         nextErrors[blk.id] = 'This question is required.';
+        return;
       }
+      const problem = answerProblem(blk, value);
+      if (problem) nextErrors[blk.id] = problem;
     });
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      setNudgedIds(null);
       return;
+    }
+
+    if (nudgedIds === null) {
+      const skipped = visibleBlocks
+        .filter((blk) => blk.config?.request_response && !isAnswered(answers[blk.id]))
+        .map((blk) => blk.id);
+      if (skipped.length > 0) {
+        setNudgedIds(skipped);
+        return;
+      }
     }
 
     setSubmitting(true);
     setSubmitError('');
     const submitAt = performance.now();
-    const blockIds = new Set([...Object.keys(answers), ...Object.keys(instrumentValues)]);
+    const blockIds = new Set(
+      [...Object.keys(answers), ...Object.keys(instrumentValues)].filter((id) => visibleIds.has(id)),
+    );
     try {
       await apiClient.post(`/studio/public/projects/${projectId}/responses`, {
         respondent_id: respondentId,
@@ -313,19 +347,19 @@ const StudioRunnerPage = () => {
         </div>
 
         <div className="flex flex-col gap-4">
-          {blocks.map((block, idx) => {
+          {visibleBlocks.map((block, idx) => {
             const Component = getBlockComponent(block.type);
             if (!Component) return null;
 
             const effectiveConfig = applyBehaviorInstruments(block, respondentId, answers);
-            const isAnswered = answers[block.id] !== undefined && answers[block.id] !== null
-              && !(typeof answers[block.id] === 'string' && !answers[block.id].trim());
+            const answered = isAnswered(answers[block.id]);
+            const nudged = nudgedIds?.includes(block.id);
 
             return (
               <div
                 key={block.id}
                 className={`bg-white rounded-2xl border shadow-sm animate-chip-in transition-colors duration-300 ${
-                  isAnswered ? 'border-[#FA6C43]/25' : 'border-gray-200'
+                  nudged ? 'border-[#E0A100]/50' : answered ? 'border-[#FA6C43]/25' : 'border-gray-200'
                 }`}
                 style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}
               >
@@ -352,10 +386,22 @@ const StudioRunnerPage = () => {
                     />
                   );
                 })}
+                {nudged && (
+                  <p className="px-4 pb-3 -mt-1 text-xs" style={{ color: '#8A5A00' }}>
+                    You haven&rsquo;t answered this one. Answering helps the research, but it&rsquo;s up to you.
+                  </p>
+                )}
               </div>
             );
           })}
         </div>
+
+        {nudgedIds?.length > 0 && (
+          <p className="text-sm mt-4 px-4 py-3 rounded-xl" style={{ backgroundColor: '#FFF6E5', color: '#8A5A00' }}>
+            {nudgedIds.length === 1 ? 'One question is' : `${nudgedIds.length} questions are`} still unanswered.
+            Answer {nudgedIds.length === 1 ? 'it' : 'them'} above, or submit anyway.
+          </p>
+        )}
 
         {submitError && (
           <p className="text-sm mt-4" style={{ color: '#E5484D' }}>{submitError}</p>
@@ -371,7 +417,7 @@ const StudioRunnerPage = () => {
             ? <FaSpinner className="animate-spin inline" />
             : gateActive
               ? `Please wait ${Math.ceil(gateRemainingMs / 1000)}s…`
-              : 'Submit'}
+              : nudgedIds?.length > 0 ? 'Submit anyway' : 'Submit'}
         </button>
       </div>
     </div>

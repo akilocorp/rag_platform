@@ -1,6 +1,7 @@
 // @language JavaScript (React / JSX)
-// @updated   2026-09-08
-// @changed   New file: the Piped Text instrument. Badge + a ConfigEditor that picks which sibling
+// @updated   2026-10-08
+// @changed   Block picker shows each question as plain text (questions can now carry rich-text markup).
+// Prior: New file: the Piped Text instrument. Badge + a ConfigEditor that picks which sibling
 //            block to pull an answer from — the first instrument ConfigEditor to use the new
 //            `allBlocks` prop (StudioBuilderPage's PlacedBlock now passes every other placed block,
 //            self already excluded). The actual text-splicing happens in StudioRunnerPage's
@@ -8,6 +9,7 @@
 import React from 'react';
 import { FaLink, FaTimes } from 'react-icons/fa';
 import { registerInstrument } from './registryStore';
+import { plainText } from '../richTextFormat';
 
 const FONT_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 
@@ -38,7 +40,7 @@ const ConfigEditor = ({ config, allBlocks, onChange }) => (
   >
     <option value="" disabled>Pull answer from…</option>
     {(allBlocks || []).map((b) => (
-      <option key={b.id} value={b.id}>{b.config?.question || b.type}</option>
+      <option key={b.id} value={b.id}>{plainText(b.config?.question) || b.type}</option>
     ))}
   </select>
 );
